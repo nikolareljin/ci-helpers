@@ -1,0 +1,14 @@
+# Editor/OS
+.DS_Store
+*.swp
+*.swo
+
+# Node/python caches if any examples get added
+node_modules/
+__pycache__/
+
+# Temp
+.env
+*.tmp
+*.log
+

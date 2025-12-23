@@ -1,0 +1,80 @@
+name: Auto tag on main (conventional commits)
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine next version
+        id: bump
+        run: |
+          set -euo pipefail
+          current_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [[ -z "$current_tag" ]]; then
+            current_version=$(cat VERSION 2>/dev/null || echo "0.1.0")
+          else
+            # Support old tags prefixed with 'v' while moving forward without it
+            current_version=${current_tag#v}
+          fi
+          echo "Current: $current_version"
+          IFS='.' read -r major minor patch <<< "$current_version"
+          commits_range="${current_tag}..HEAD"
+          if [[ -z "$current_tag" ]]; then commits_range="HEAD"; fi
+          commits=$(git log --pretty='%s%n%b' $commits_range)
+          bump="none"
+          if echo "$commits" | grep -Eqi 'BREAKING CHANGE|!:'; then bump="major"; fi
+          if [[ "$bump" == "none" ]] && echo "$commits" | grep -Eiq '^feat\(|^feat:'; then bump="minor"; fi
+          if [[ "$bump" == "none" ]] && echo "$commits" | grep -Eiq '^fix\(|^fix:'; then bump="patch"; fi
+          case "$bump" in
+            major) major=$((major+1)); minor=0; patch=0;;
+            minor) minor=$((minor+1)); patch=0;;
+            patch) patch=$((patch+1));;
+            none) echo "No conventional commits found; skipping bump."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0;;
+          esac
+          next_version="${major}.${minor}.${patch}"
+          echo "Next: $next_version (bump=$bump)"
+          echo "next=$next_version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Update VERSION and commit if changed
+        if: ${{ steps.bump.outputs.skip != 'true' }}
+        run: |
+          set -euo pipefail
+          next="${{ steps.bump.outputs.next }}"
+          echo "$next" > VERSION
+          if git diff --quiet --exit-code VERSION; then
+            echo "VERSION unchanged; no commit"; exit 0
+          fi
+          git add VERSION
+          git commit -m "chore(release): bump version to $next"
+          git push origin HEAD:main
+
+      - name: Create and push tag
+        if: ${{ steps.bump.outputs.skip != 'true' }}
+        run: |
+          set -euo pipefail
+          next="${{ steps.bump.outputs.next }}"
+          tag="${next}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists; skipping"; exit 0
+          fi
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"

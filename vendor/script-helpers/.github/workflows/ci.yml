@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop, "release/*" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-and-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Environment info
+        run: |
+          bash --version
+          printf "\nmake: "; make --version | head -n1 || true
+          printf "\nshellcheck: "; shellcheck --version | head -n1 || true
+
+      - name: Lint shell scripts (ShellCheck)
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.sh' || true)
+          if [[ -n "$files" ]]; then
+            echo "$files" | xargs -r shellcheck || true
+          else
+            echo "No shell scripts found."
+          fi
+
+      - name: Lint documentation coverage
+        run: |
+          set -euo pipefail
+          make lint-docs
+
+      - name: Run non-interactive examples
+        run: |
+          make examples

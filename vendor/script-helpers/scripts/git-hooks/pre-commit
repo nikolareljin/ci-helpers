@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Change to repo root
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+echo "[pre-commit] Linting docs coverage..."
+if bash scripts/lint_docs.sh; then
+  echo "[pre-commit] Docs OK"
+else
+  echo "[pre-commit] Documentation issues found. Aborting commit." >&2
+  exit 1
+fi
+
