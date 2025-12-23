@@ -9,6 +9,46 @@ Includes:
 - Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
+## Docs
+
+See detailed usage, inputs, and examples in:
+- `docs/README.md`
+- `docs/workflows.md`
+- `docs/presets.md`
+- `docs/actions.md`
+- `docs/examples.md`
+
+## Quick Start
+
+1) Create `.github/workflows/ci.yml` in your repo:
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+2) Commit and push. GitHub will run the workflow on PRs and main.
+
+3) Need E2E? Add an `e2e_command` (runs after Docker if set):
+
+```yaml
+jobs:
+  ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/playwright.yml@v0.1.0
+    with:
+      node_version: "20"
+      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
+```
+
 ## Layout
 
 - `.github/workflows/ci.yml`: reusable CI workflow (lint/test/build/docker/extra)
