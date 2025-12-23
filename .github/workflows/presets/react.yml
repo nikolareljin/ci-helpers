@@ -1,0 +1,45 @@
+name: preset-react
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      node_version:
+        type: string
+        default: "20"
+      lint_command:
+        type: string
+        default: "npm ci && npm run lint"
+      test_command:
+        type: string
+        default: "npm test -- --watchAll=false"
+      build_command:
+        type: string
+        default: "npm run build"
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      node_version: ${{ inputs.node_version }}
+      lint_command: ${{ inputs.lint_command }}
+      test_command: ${{ inputs.test_command }}
+      build_command: ${{ inputs.build_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}

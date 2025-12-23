@@ -1,0 +1,29 @@
+name: preset-docker
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      docker_command:
+        type: string
+        default: "docker build ."
+      extra_command:
+        type: string
+        default: ""
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}

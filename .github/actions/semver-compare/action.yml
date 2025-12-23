@@ -1,0 +1,21 @@
+name: semver-compare
+description: Compare two semver versions (X.Y.Z) and output lt/eq/gt
+inputs:
+  version_a:
+    description: First version to compare
+    required: true
+  version_b:
+    description: Second version to compare
+    required: true
+outputs:
+  result:
+    description: lt, eq, or gt
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        ROOT_DIR="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        result="$($ROOT_DIR/scripts/semver_compare.sh "${{ inputs.version_a }}" "${{ inputs.version_b }}")"
+        echo "result=$result" >> "$GITHUB_OUTPUT"

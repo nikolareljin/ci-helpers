@@ -1,0 +1,45 @@
+name: preset-php
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      php_version:
+        type: string
+        default: "8.2"
+      lint_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist"
+      test_command:
+        type: string
+        default: "vendor/bin/phpunit"
+      build_command:
+        type: string
+        default: ""
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      php_version: ${{ inputs.php_version }}
+      lint_command: ${{ inputs.lint_command }}
+      test_command: ${{ inputs.test_command }}
+      build_command: ${{ inputs.build_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}

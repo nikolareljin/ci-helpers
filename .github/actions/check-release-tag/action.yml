@@ -1,0 +1,40 @@
+name: check-release-tag
+description: Fail if a release/X.Y.Z branch already has a tag
+inputs:
+  release_branch:
+    description: Branch name to check (defaults to GITHUB_HEAD_REF/GITHUB_REF_NAME)
+    required: false
+    default: ""
+  repo_dir:
+    description: Path to the repo workspace
+    required: false
+    default: ""
+  fetch_tags:
+    description: Fetch tags before checking
+    required: false
+    default: "true"
+outputs:
+  version:
+    description: Parsed version from release branch
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        ROOT_DIR="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
+        repo_dir_input="${{ inputs.repo_dir }}"
+        if [[ -z "$repo_dir_input" ]]; then
+          repo_dir_input="${GITHUB_WORKSPACE:-$(pwd)}"
+        fi
+        args=("--repo" "$repo_dir_input")
+        if [[ -n "${{ inputs.release_branch }}" ]]; then
+          args+=("--branch" "${{ inputs.release_branch }}")
+        fi
+        if [[ "${{ inputs.fetch_tags }}" == "true" ]]; then
+          args+=("--fetch-tags")
+        fi
+        version="$($ROOT_DIR/scripts/check_release_tag.sh "${args[@]}" --print-version)"
+        if [[ -n "$version" ]]; then
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+        fi

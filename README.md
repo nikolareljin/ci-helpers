@@ -1,0 +1,248 @@
+# ci-helpers
+
+Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
+
+Includes:
+- Reusable workflows for CI, PR gating, and deploys.
+- Composite actions for semver comparison and release tag checks.
+- Vendored `script-helpers` to reuse common Bash logging/utilities.
+- Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker).
+
+## Layout
+
+- `.github/workflows/ci.yml`: reusable CI workflow (lint/test/build/docker/extra)
+- `.github/workflows/pr-gate.yml`: reusable PR gate workflow with optional release tag checks
+- `.github/workflows/deploy.yml`: reusable deploy workflow
+- `.github/actions/semver-compare`: composite action for semver comparison
+- `.github/actions/check-release-tag`: composite action for release tag guard
+- `scripts/`: bash utilities used by actions
+- `vendor/script-helpers`: vendored helper scripts (sync via `scripts/sync_script_helpers.sh`)
+- `.github/workflows/presets/*.yml`: reusable stack presets
+
+## Reusable workflow examples
+
+PR gate example:
+
+```yaml
+name: PR
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: <owner>/ci-helpers/.github/workflows/pr-gate.yml@v0.1.0
+    with:
+      node_version: "20"
+      lint_command: "npm ci && npm run lint"
+      test_command: "npm test"
+      build_command: "npm run build"
+      check_release_tag: true
+      release_branch: ${{ github.head_ref }}
+```
+
+CI example (push/main):
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ci:
+    uses: <owner>/ci-helpers/.github/workflows/ci.yml@v0.1.0
+    with:
+      python_version: "3.12"
+      test_command: "pip install -r requirements.txt && pytest"
+```
+
+## Preset usage by language/framework
+
+Node.js:
+
+```yaml
+jobs:
+  node:
+    uses: <owner>/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+React:
+
+```yaml
+jobs:
+  react:
+    uses: <owner>/ci-helpers/.github/workflows/presets/react.yml@v0.1.0
+    with:
+      node_version: "20"
+      test_command: "npm test -- --watchAll=false"
+```
+
+Python:
+
+```yaml
+jobs:
+  python:
+    uses: <owner>/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
+    with:
+      python_version: "3.12"
+      lint_command: "python -m pip install -r requirements.txt"
+      test_command: "python -m pytest"
+```
+
+PHP:
+
+```yaml
+jobs:
+  php:
+    uses: <owner>/ci-helpers/.github/workflows/presets/php.yml@v0.1.0
+    with:
+      php_version: "8.2"
+      lint_command: "composer install --no-interaction --prefer-dist"
+      test_command: "vendor/bin/phpunit"
+```
+
+Go:
+
+```yaml
+jobs:
+  go:
+    uses: <owner>/ci-helpers/.github/workflows/presets/go.yml@v0.1.0
+    with:
+      go_version: "1.22"
+      test_command: "go test ./..."
+      build_command: "go build ./..."
+```
+
+Java (Maven defaults):
+
+```yaml
+jobs:
+  java:
+    uses: <owner>/ci-helpers/.github/workflows/presets/java.yml@v0.1.0
+    with:
+      java_version: "17"
+      test_command: "mvn -B test"
+      build_command: "mvn -B package"
+```
+
+C# (.NET):
+
+```yaml
+jobs:
+  csharp:
+    uses: <owner>/ci-helpers/.github/workflows/presets/csharp.yml@v0.1.0
+    with:
+      dotnet_version: "8.0.x"
+      test_command: "dotnet test"
+      build_command: "dotnet build -c Release"
+```
+
+Docker:
+
+```yaml
+jobs:
+  docker:
+    uses: <owner>/ci-helpers/.github/workflows/presets/docker.yml@v0.1.0
+    with:
+      docker_command: "docker build ."
+```
+
+Notes for presets:
+- Defaults assume common commands per stack; override `lint_command`, `test_command`, `build_command`, or `docker_command` as needed.
+
+Deploy example:
+
+```yaml
+name: Deploy
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: <owner>/ci-helpers/.github/workflows/deploy.yml@v0.1.0
+    with:
+      deploy_command: "./scripts/deploy.sh"
+```
+
+## Composite action examples
+
+Semver compare:
+
+```yaml
+- name: Compare versions
+  id: semver
+  uses: <owner>/ci-helpers/.github/actions/semver-compare@v0.1.0
+  with:
+    version_a: "1.2.3"
+    version_b: "1.3.0"
+
+- name: Use result
+  run: echo "Result: ${{ steps.semver.outputs.result }}"  # lt, eq, or gt
+```
+
+Release tag guard (release/X.Y.Z):
+
+```yaml
+- name: Guard release tag
+  uses: <owner>/ci-helpers/.github/actions/check-release-tag@v0.1.0
+  with:
+    release_branch: ${{ github.head_ref }}
+```
+
+## Notes
+
+- The PR gate only blocks if your branch protection requires its status checks.
+- `check-release-tag` expects branch naming `release/X.Y.Z` or `release/vX.Y.Z`.
+- Update vendored `script-helpers` with:
+  - `./scripts/sync_script_helpers.sh /path/to/script-helpers`
+  - Or, if you keep both repos side-by-side under `/home/nikos/Projects`, just run `./scripts/sync_script_helpers.sh` from `ci-helpers`.
+
+## Using from other repositories
+
+1) Create a workflow in your repo (for example `.github/workflows/ci.yml`) and call a reusable workflow:
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ci:
+    uses: <owner>/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+```
+
+2) Pin to a tag or commit SHA:
+
+```yaml
+uses: <owner>/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
+```
+
+3) Add/override commands and versions as needed:
+
+```yaml
+jobs:
+  ci:
+    uses: <owner>/ci-helpers/.github/workflows/ci.yml@v0.1.0
+    with:
+      node_version: "20"
+      lint_command: "npm ci && npm run lint"
+      test_command: "npm test"
+      build_command: "npm run build"
+```
+
+4) For PR blocking, add branch protection rules in your repo:
+- Settings → Branches → Branch protection rules
+- Require status checks to pass before merging
+- Select the workflow job name you use (for example `gate` or `ci`)
+
+## Clone locally (optional)
+
+```bash
+git clone git@github.com:<owner>/ci-helpers.git
+cd ci-helpers
+```
+
+Use this when you want to update workflows, actions, or sync vendored helpers.

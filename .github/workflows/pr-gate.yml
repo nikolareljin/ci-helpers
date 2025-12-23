@@ -1,0 +1,146 @@
+name: ci-helpers-pr-gate
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      node_version:
+        type: string
+        default: ""
+      java_version:
+        type: string
+        default: ""
+      dotnet_version:
+        type: string
+        default: ""
+      python_version:
+        type: string
+        default: ""
+      go_version:
+        type: string
+        default: ""
+      php_version:
+        type: string
+        default: ""
+      lint_command:
+        type: string
+        default: ""
+      test_command:
+        type: string
+        default: ""
+      build_command:
+        type: string
+        default: ""
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+      check_release_tag:
+        type: boolean
+        default: false
+      release_branch:
+        type: string
+        default: ""
+
+jobs:
+  pr-gate:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Check release tag availability
+        if: ${{ inputs.check_release_tag }}
+        uses: ./.github/actions/check-release-tag
+        with:
+          release_branch: ${{ inputs.release_branch }}
+          repo_dir: ${{ github.workspace }}
+          fetch_tags: true
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Java
+        if: ${{ inputs.java_version != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup .NET
+        if: ${{ inputs.dotnet_version != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: Setup Python
+        if: ${{ inputs.python_version != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Setup Go
+        if: ${{ inputs.go_version != '' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Setup PHP
+        if: ${{ inputs.php_version != '' }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+
+      - name: Lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
+
+      - name: Test
+        if: ${{ inputs.test_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.test_command }}
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Docker
+        if: ${{ inputs.docker_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.docker_command }}
+
+      - name: Extra
+        if: ${{ inputs.extra_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.extra_command }}
