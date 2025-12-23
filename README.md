@@ -196,8 +196,8 @@ Release tag guard (release/X.Y.Z):
 - The PR gate only blocks if your branch protection requires its status checks.
 - `check-release-tag` expects branch naming `release/X.Y.Z` or `release/vX.Y.Z`.
 - Update vendored `script-helpers` with:
-  - `./scripts/sync_script_helpers.sh /path/to/script-helpers`
-  - Or, if you keep both repos side-by-side under `/home/nikos/Projects`, just run `./scripts/sync_script_helpers.sh` from `ci-helpers`.
+  - `./scripts/sync_script_helpers.sh`
+  - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
 
 ## Using from other repositories
 
