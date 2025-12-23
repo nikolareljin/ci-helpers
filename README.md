@@ -5,7 +5,7 @@ Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Composite actions for semver comparison and release tag checks.
-- Vendored `script-helpers` to reuse common Bash logging/utilities.
+- Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
 - Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
@@ -57,7 +57,7 @@ jobs:
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `scripts/`: bash utilities used by actions
-- `vendor/script-helpers`: vendored helper scripts (sync via `scripts/sync_script_helpers.sh`)
+- `vendor/script-helpers`: vendored helper scripts from [`script-helpers`](https://github.com/nikolareljin/script-helpers) (sync via `scripts/sync_script_helpers.sh`)
 - `.github/workflows/presets/*.yml`: reusable stack presets
 
 ## Reusable workflow examples
@@ -264,6 +264,7 @@ Release tag guard (release/X.Y.Z):
 - Update vendored `script-helpers` with:
   - `./scripts/sync_script_helpers.sh`
   - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
+  - Source repo: `https://github.com/nikolareljin/script-helpers`
 
 ## Using from other repositories
 
