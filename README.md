@@ -30,7 +30,7 @@ on:
 
 jobs:
   gate:
-    uses: <owner>/ci-helpers/.github/workflows/pr-gate.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@v0.1.0
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"
@@ -50,7 +50,7 @@ on:
 
 jobs:
   ci:
-    uses: <owner>/ci-helpers/.github/workflows/ci.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@v0.1.0
     with:
       python_version: "3.12"
       test_command: "pip install -r requirements.txt && pytest"
@@ -63,7 +63,7 @@ Node.js:
 ```yaml
 jobs:
   node:
-    uses: <owner>/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
     with:
       node_version: "20"
 ```
@@ -73,7 +73,7 @@ React:
 ```yaml
 jobs:
   react:
-    uses: <owner>/ci-helpers/.github/workflows/presets/react.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/react.yml@v0.1.0
     with:
       node_version: "20"
       test_command: "npm test -- --watchAll=false"
@@ -84,7 +84,7 @@ Python:
 ```yaml
 jobs:
   python:
-    uses: <owner>/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
     with:
       python_version: "3.12"
       lint_command: "python -m pip install -r requirements.txt"
@@ -96,7 +96,7 @@ PHP:
 ```yaml
 jobs:
   php:
-    uses: <owner>/ci-helpers/.github/workflows/presets/php.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/php.yml@v0.1.0
     with:
       php_version: "8.2"
       lint_command: "composer install --no-interaction --prefer-dist"
@@ -108,7 +108,7 @@ Go:
 ```yaml
 jobs:
   go:
-    uses: <owner>/ci-helpers/.github/workflows/presets/go.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/go.yml@v0.1.0
     with:
       go_version: "1.22"
       test_command: "go test ./..."
@@ -120,7 +120,7 @@ Java (Maven defaults):
 ```yaml
 jobs:
   java:
-    uses: <owner>/ci-helpers/.github/workflows/presets/java.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/java.yml@v0.1.0
     with:
       java_version: "17"
       test_command: "mvn -B test"
@@ -132,7 +132,7 @@ C# (.NET):
 ```yaml
 jobs:
   csharp:
-    uses: <owner>/ci-helpers/.github/workflows/presets/csharp.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/csharp.yml@v0.1.0
     with:
       dotnet_version: "8.0.x"
       test_command: "dotnet test"
@@ -144,7 +144,7 @@ Docker:
 ```yaml
 jobs:
   docker:
-    uses: <owner>/ci-helpers/.github/workflows/presets/docker.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/docker.yml@v0.1.0
     with:
       docker_command: "docker build ."
 ```
@@ -161,7 +161,7 @@ on:
 
 jobs:
   deploy:
-    uses: <owner>/ci-helpers/.github/workflows/deploy.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@v0.1.0
     with:
       deploy_command: "./scripts/deploy.sh"
 ```
@@ -173,7 +173,7 @@ Semver compare:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: <owner>/ci-helpers/.github/actions/semver-compare@v0.1.0
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@v0.1.0
   with:
     version_a: "1.2.3"
     version_b: "1.3.0"
@@ -186,7 +186,7 @@ Release tag guard (release/X.Y.Z):
 
 ```yaml
 - name: Guard release tag
-  uses: <owner>/ci-helpers/.github/actions/check-release-tag@v0.1.0
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.0
   with:
     release_branch: ${{ github.head_ref }}
 ```
@@ -211,13 +211,13 @@ on:
 
 jobs:
   ci:
-    uses: <owner>/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
 ```
 
 2) Pin to a tag or commit SHA:
 
 ```yaml
-uses: <owner>/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
+uses: nikolareljin/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
 ```
 
 3) Add/override commands and versions as needed:
@@ -225,7 +225,7 @@ uses: <owner>/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
 ```yaml
 jobs:
   ci:
-    uses: <owner>/ci-helpers/.github/workflows/ci.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@v0.1.0
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"
@@ -241,7 +241,14 @@ jobs:
 ## Clone locally (optional)
 
 ```bash
-git clone git@github.com:<owner>/ci-helpers.git
+git clone git@github.com:nikolareljin/ci-helpers.git
+cd ci-helpers
+```
+
+HTTPS alternative:
+
+```bash
+git clone https://github.com/nikolareljin/ci-helpers.git
 cd ci-helpers
 ```
 
