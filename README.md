@@ -6,7 +6,8 @@ Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Composite actions for semver comparison and release tag checks.
 - Vendored `script-helpers` to reuse common Bash logging/utilities.
-- Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker).
+- Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
+- Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
 ## Layout
 
@@ -36,6 +37,7 @@ jobs:
       lint_command: "npm ci && npm run lint"
       test_command: "npm test"
       build_command: "npm run build"
+      e2e_command: "npm run e2e"
       check_release_tag: true
       release_branch: ${{ github.head_ref }}
 ```
@@ -54,6 +56,7 @@ jobs:
     with:
       python_version: "3.12"
       test_command: "pip install -r requirements.txt && pytest"
+      e2e_command: "python -m pytest tests/e2e"
 ```
 
 ## Preset usage by language/framework
@@ -77,6 +80,27 @@ jobs:
     with:
       node_version: "20"
       test_command: "npm test -- --watchAll=false"
+      e2e_command: "npm run e2e"
+```
+
+Playwright:
+
+```yaml
+jobs:
+  playwright:
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/playwright.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+Cypress:
+
+```yaml
+jobs:
+  cypress:
+    uses: nikolareljin/ci-helpers/.github/workflows/presets/cypress.yml@v0.1.0
+    with:
+      node_version: "20"
 ```
 
 Python:
@@ -151,6 +175,8 @@ jobs:
 
 Notes for presets:
 - Defaults assume common commands per stack; override `lint_command`, `test_command`, `build_command`, or `docker_command` as needed.
+- Use `e2e_command` for Playwright or Cypress (default presets use Yarn + `start-server-and-test`).
+- `e2e_command` runs after `docker_command` if both are set.
 
 Deploy example:
 

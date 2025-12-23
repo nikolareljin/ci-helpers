@@ -38,6 +38,9 @@ on:
       build_command:
         type: string
         default: ""
+      e2e_command:
+        type: string
+        default: ""
       docker_command:
         type: string
         default: ""
@@ -122,6 +125,14 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.docker_command }}
+
+      - name: E2E
+        if: ${{ inputs.e2e_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.e2e_command }}
 
       - name: Extra
         if: ${{ inputs.extra_command != '' }}

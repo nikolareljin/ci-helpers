@@ -23,6 +23,9 @@ on:
       build_command:
         type: string
         default: "npm run build"
+      e2e_command:
+        type: string
+        default: ""
       docker_command:
         type: string
         default: ""
@@ -41,5 +44,6 @@ jobs:
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}
+      e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}

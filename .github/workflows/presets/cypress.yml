@@ -1,4 +1,4 @@
-name: preset-java
+name: preset-cypress
 on:
   workflow_call:
     inputs:
@@ -11,24 +11,24 @@ on:
       fetch_depth:
         type: number
         default: 0
-      java_version:
+      node_version:
         type: string
-        default: "17"
+        default: "20"
       lint_command:
         type: string
         default: ""
       test_command:
         type: string
-        default: "mvn -B test"
+        default: ""
       build_command:
-        type: string
-        default: "mvn -B package"
-      e2e_command:
         type: string
         default: ""
       docker_command:
         type: string
         default: ""
+      e2e_command:
+        type: string
+        default: "yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
       extra_command:
         type: string
         default: ""
@@ -40,10 +40,10 @@ jobs:
       runner: ${{ inputs.runner }}
       working_directory: ${{ inputs.working_directory }}
       fetch_depth: ${{ inputs.fetch_depth }}
-      java_version: ${{ inputs.java_version }}
+      node_version: ${{ inputs.node_version }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}
-      e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
+      e2e_command: ${{ inputs.e2e_command }}
       extra_command: ${{ inputs.extra_command }}

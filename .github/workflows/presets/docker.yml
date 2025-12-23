@@ -14,6 +14,9 @@ on:
       docker_command:
         type: string
         default: "docker build ."
+      e2e_command:
+        type: string
+        default: ""
       extra_command:
         type: string
         default: ""
@@ -26,4 +29,5 @@ jobs:
       working_directory: ${{ inputs.working_directory }}
       fetch_depth: ${{ inputs.fetch_depth }}
       docker_command: ${{ inputs.docker_command }}
+      e2e_command: ${{ inputs.e2e_command }}
       extra_command: ${{ inputs.extra_command }}
