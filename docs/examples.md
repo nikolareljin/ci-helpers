@@ -3,6 +3,11 @@
 This file provides extended examples that combine multiple inputs and common
 real-world patterns.
 
+Related docs:
+- [Reusable workflows](workflows.md)
+- [Presets](presets.md)
+- [Composite actions](actions.md)
+
 ## Monorepo (subdirectory)
 
 ```yaml

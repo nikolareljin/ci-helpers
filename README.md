@@ -12,11 +12,11 @@ Includes:
 ## Docs
 
 See detailed usage, inputs, and examples in:
-- `docs/README.md`
-- `docs/workflows.md`
-- `docs/presets.md`
-- `docs/actions.md`
-- `docs/examples.md`
+- [Docs index](docs/README.md)
+- [Reusable workflows](docs/workflows.md)
+- [Presets](docs/presets.md)
+- [Composite actions](docs/actions.md)
+- [Examples](docs/examples.md)
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ jobs:
 
 2) Commit and push. GitHub will run the workflow on PRs and main.
 
-3) Need E2E? Add an `e2e_command` (runs after Docker if set):
+3) Need E2E? Add an `e2e_command` (runs after Docker if set). See [presets](docs/presets.md) and [examples](docs/examples.md) for more patterns:
 
 ```yaml
 jobs:

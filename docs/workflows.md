@@ -3,6 +3,11 @@
 This repo exposes reusable workflows via `workflow_call`. You consume them from
 your own repo by referencing this repo path and a tag or commit SHA.
 
+Related docs:
+- [Presets](presets.md)
+- [Composite actions](actions.md)
+- [Examples](examples.md)
+
 All workflows use Bash with `set -euo pipefail` for the commands you pass in.
 All commands run inside `inputs.working_directory` (default `"."`).
 

@@ -4,6 +4,10 @@ Presets are reusable workflows that wrap `ci.yml` with sane defaults for
 specific stacks or E2E tools. All presets accept the same core inputs as
 `ci.yml` and simply provide default values for common commands.
 
+Related docs:
+- [Reusable workflows](workflows.md)
+- [Examples](examples.md)
+
 Use a preset if you want a fast setup with minimal inputs, and override any
 command or version as needed.
 

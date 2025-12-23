@@ -2,6 +2,10 @@
 
 These composite actions are intended for reuse inside your workflows.
 
+Related docs:
+- [Reusable workflows](workflows.md)
+- [Examples](examples.md)
+
 ## semver-compare
 
 Path: `.github/actions/semver-compare`
