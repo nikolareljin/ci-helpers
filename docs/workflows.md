@@ -132,6 +132,108 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## trivy-scan.yml
+
+Workflow: `.github/workflows/trivy-scan.yml`
+
+Purpose: Run Trivy filesystem scan with optional SARIF upload.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `scan_path` (string, default `"."`)
+- `format` (string, default `sarif`)
+- `output` (string, default `trivy-results.sarif`)
+- `severity` (string, default `CRITICAL,HIGH`)
+- `ignore_unfixed` (string, default `"true"`)
+- `vuln_type` (string, default `os,library`)
+- `fail_on_findings` (boolean, default `false`)
+- `upload_sarif` (boolean, default `true`)
+- `upload_artifact` (boolean, default `false`)
+- `artifact_name` (string, default `trivy-results`)
+
+Example:
+
+```yaml
+jobs:
+  trivy:
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@v0.1.0
+    with:
+      scan_path: "."
+      fail_on_findings: true
+      upload_artifact: true
+```
+
+## noseyparker-scan.yml
+
+Workflow: `.github/workflows/noseyparker-scan.yml`
+
+Purpose: Run NoseyParker in Docker and emit a report.
+
+Note: Requires Docker on the runner (use Ubuntu runners).
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `scan_path` (string, default `"."`)
+- `image` (string, default `ghcr.io/praetorian-inc/noseyparker:latest`)
+- `datastore_dir` (string, default `.noseyparker`)
+- `report_format` (string, default `json`)
+- `output` (string, default `noseyparker-report.json`)
+- `fail_on_findings` (boolean, default `false`)
+- `upload_artifact` (boolean, default `false`)
+- `artifact_name` (string, default `noseyparker-report`)
+
+Example:
+
+```yaml
+jobs:
+  noseyparker:
+    uses: nikolareljin/ci-helpers/.github/workflows/noseyparker-scan.yml@v0.1.0
+    with:
+      scan_path: "."
+      fail_on_findings: true
+      upload_artifact: true
+```
+
+## wp-plugin-check.yml
+
+Workflow: `.github/workflows/wp-plugin-check.yml`
+
+Purpose: Run WordPress plugin-check via Docker, with optional PHPUnit/lint.
+
+Note: Requires Docker on the runner and a compose file that mounts the plugin.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `compose_file` (string, default `test/docker-compose.yml`)
+- `plugin_slug` (string, required)
+- `plugin_src` (string, default `"."`)
+- `plugin_src_env` (string, default `PLUGIN_SRC`)
+- `out_dir` (string, default `test/tmp`)
+- `php_version` (string, default `""`)
+- `php_lint_command` (string, default `""`)
+- `phpcs_warning_command` (string, default `""`)
+- `phpunit_command` (string, default `""`)
+- `fail_on_findings` (boolean, default `false`)
+- `upload_artifact` (boolean, default `false`)
+- `artifact_name` (string, default `plugin-check-results`)
+
+Example:
+
+```yaml
+jobs:
+  plugin-check:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@v0.1.0
+    with:
+      plugin_slug: my-plugin
+      plugin_src_env: MY_PLUGIN_SRC
+      plugin_src: "."
+      php_version: "8.2"
+      phpunit_command: "vendor/bin/phpunit"
+      phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
+      fail_on_findings: true
+      upload_artifact: true
+```
+
 ## Pinning versions
 
 You should pin to a tag or commit SHA:

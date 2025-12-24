@@ -1,0 +1,297 @@
+name: WordPress Plugin Check
+description: Run WP plugin-check via Docker + optional PHP lint and PHPUnit.
+inputs:
+  compose_file:
+    description: Docker Compose file for WordPress test stack.
+    default: test/docker-compose.yml
+    required: false
+  plugin_slug:
+    description: WordPress plugin slug.
+    required: true
+  plugin_src:
+    description: Path to plugin source on the host.
+    default: .
+    required: false
+  plugin_src_env:
+    description: Environment variable name used by compose to mount plugin.
+    default: PLUGIN_SRC
+    required: false
+  wpcli_service:
+    description: Docker Compose service name for WP-CLI.
+    default: wpcli
+    required: false
+  db_service:
+    description: Docker Compose service name for DB.
+    default: db
+    required: false
+  wordpress_service:
+    description: Docker Compose service name for WordPress.
+    default: wordpress
+    required: false
+  host_port:
+    description: Host port exposed by WordPress service.
+    default: "8080"
+    required: false
+  out_dir:
+    description: Output directory for plugin check artifacts.
+    default: test/tmp
+    required: false
+  db_wait_seconds:
+    description: Seconds to wait for DB readiness.
+    default: "30"
+    required: false
+  multisite:
+    description: Install WordPress in multisite mode.
+    default: "true"
+    required: false
+  activate_network:
+    description: Network-activate plugin when multisite is enabled.
+    default: "true"
+    required: false
+  admin_user:
+    description: WordPress admin username.
+    default: admin
+    required: false
+  admin_password:
+    description: WordPress admin password.
+    default: admin
+    required: false
+  admin_email:
+    description: WordPress admin email.
+    default: admin@example.com
+    required: false
+  site_title:
+    description: WordPress site title.
+    default: WP Test Site
+    required: false
+  meta_check_script:
+    description: Optional path to a WP-CLI eval-file script for meta checks.
+    default: ""
+    required: false
+  php_version:
+    description: PHP version for linting/PHPUnit steps.
+    default: ""
+    required: false
+  php_lint_command:
+    description: Optional PHP lint command (errors only).
+    default: ""
+    required: false
+  phpcs_warning_command:
+    description: Optional PHPCS warning command (runs without failing).
+    default: ""
+    required: false
+  phpunit_command:
+    description: Optional PHPUnit command (standalone).
+    default: ""
+    required: false
+  phpunit_working_directory:
+    description: Working directory for PHPUnit command.
+    default: .
+    required: false
+  fail_on_findings:
+    description: Fail on plugin-check or meta-check errors.
+    default: "false"
+    required: false
+  cleanup:
+    description: Run docker compose down after checks.
+    default: "true"
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Setup PHP
+      if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ inputs.php_version }}
+
+    - name: PHP lint (errors only)
+      if: ${{ inputs.php_lint_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ${{ inputs.php_lint_command }}
+
+    - name: PHPCS warnings (non-blocking)
+      if: ${{ inputs.phpcs_warning_command != '' }}
+      continue-on-error: true
+      shell: bash
+      run: |
+        set -euo pipefail
+        ${{ inputs.phpcs_warning_command }}
+
+    - name: PHPUnit (standalone)
+      if: ${{ inputs.phpunit_command != '' }}
+      shell: bash
+      working-directory: ${{ inputs.phpunit_working_directory }}
+      run: |
+        set -euo pipefail
+        ${{ inputs.phpunit_command }}
+
+    - name: Prepare WP-CLI config
+      shell: bash
+      run: |
+        set -euo pipefail
+        out_dir="${{ inputs.out_dir }}"
+        host_port="${{ inputs.host_port }}"
+        mkdir -p "$out_dir"
+        cat > "$out_dir/wp-cli.yml" <<WPCLI
+path: /var/www/html
+url: http://localhost:${host_port}
+color: false
+disable_wp_cron: true
+apache_modules:
+  - mod_rewrite
+WPCLI
+
+    - name: Start WordPress stack
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        db_service="${{ inputs.db_service }}"
+        wordpress_service="${{ inputs.wordpress_service }}"
+        plugin_src_env="${{ inputs.plugin_src_env }}"
+        plugin_src="${{ inputs.plugin_src }}"
+
+        export "$plugin_src_env"="$plugin_src"
+        docker compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
+
+    - name: Wait for DB
+      shell: bash
+      run: |
+        set -euo pipefail
+        sleep "${{ inputs.db_wait_seconds }}"
+
+    - name: Install WordPress
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        wpcli_service="${{ inputs.wpcli_service }}"
+        host_port="${{ inputs.host_port }}"
+        admin_user="${{ inputs.admin_user }}"
+        admin_password="${{ inputs.admin_password }}"
+        admin_email="${{ inputs.admin_email }}"
+        site_title="${{ inputs.site_title }}"
+        multisite="${{ inputs.multisite }}"
+
+        docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
+
+        if [[ "$multisite" == "true" ]]; then
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core multisite-install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email --subdomains=0"
+        else
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email"
+        fi
+
+    - name: Activate plugin
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        wpcli_service="${{ inputs.wpcli_service }}"
+        plugin_slug="${{ inputs.plugin_slug }}"
+        activate_network="${{ inputs.activate_network }}"
+
+        if [[ "$activate_network" == "true" ]]; then
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug} --network || wp plugin activate ${plugin_slug}"
+        else
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug}"
+        fi
+
+    - name: Install plugin-check
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        wpcli_service="${{ inputs.wpcli_service }}"
+
+        docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
+
+    - name: Run plugin-check
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        wpcli_service="${{ inputs.wpcli_service }}"
+        plugin_slug="${{ inputs.plugin_slug }}"
+        out_dir="${{ inputs.out_dir }}"
+
+        if docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
+          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin check ${plugin_slug} --format=json" > "$out_dir/plugin-check.json" || true
+          echo "plugin-check JSON saved to $out_dir/plugin-check.json"
+        else
+          echo "'wp plugin check' command not available in WP-CLI."
+        fi
+
+    - name: Run meta checks
+      if: ${{ inputs.meta_check_script != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        wpcli_service="${{ inputs.wpcli_service }}"
+        meta_check_script="${{ inputs.meta_check_script }}"
+        out_dir="${{ inputs.out_dir }}"
+
+        docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp eval-file /workspace/${meta_check_script}" > "$out_dir/meta-check.json"
+        echo "meta-check JSON saved to $out_dir/meta-check.json"
+
+    - name: Fail on findings
+      if: ${{ inputs.fail_on_findings == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        python3 - <<'PY'
+import json
+import sys
+from pathlib import Path
+
+out_dir = Path("${{ inputs.out_dir }}")
+plugin_check = out_dir / "plugin-check.json"
+meta_check = out_dir / "meta-check.json"
+
+error_count = 0
+
+if plugin_check.exists():
+    data = json.loads(plugin_check.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        if isinstance(data.get("errors"), int):
+            error_count += data.get("errors", 0)
+        for key in ("results", "issues", "messages"):
+            items = data.get(key)
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        level = str(item.get("severity") or item.get("level") or item.get("type") or "").lower()
+                        if level in {"error", "critical", "fatal"}:
+                            error_count += 1
+                    else:
+                        error_count += 1
+    elif isinstance(data, list):
+        error_count += len(data)
+
+if meta_check.exists():
+    data = json.loads(meta_check.read_text(encoding="utf-8"))
+    checks = data.get("checks") if isinstance(data, dict) else None
+    if isinstance(checks, dict):
+        for value in checks.values():
+            if isinstance(value, dict) and value.get("ok") is False:
+                error_count += 1
+
+if error_count > 0:
+    print(f"Plugin checks reported {error_count} error(s)")
+    sys.exit(4)
+
+print("No plugin-check errors detected.")
+PY
+
+    - name: Cleanup
+      if: ${{ always() && inputs.cleanup == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        docker compose -f "$compose_file" down -v

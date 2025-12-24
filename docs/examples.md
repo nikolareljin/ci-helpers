@@ -81,3 +81,43 @@ jobs:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
 ```
+
+## Trivy scan + SARIF upload
+
+```yaml
+jobs:
+  trivy:
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@v0.1.0
+    with:
+      scan_path: "."
+      fail_on_findings: true
+      upload_artifact: true
+```
+
+## NoseyParker scan
+
+```yaml
+jobs:
+  noseyparker:
+    uses: nikolareljin/ci-helpers/.github/workflows/noseyparker-scan.yml@v0.1.0
+    with:
+      scan_path: "."
+      fail_on_findings: true
+```
+
+## WordPress plugin check + standalone PHPUnit
+
+```yaml
+jobs:
+  plugin-check:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@v0.1.0
+    with:
+      plugin_slug: my-plugin
+      plugin_src_env: MY_PLUGIN_SRC
+      plugin_src: "."
+      php_version: "8.2"
+      phpunit_command: "vendor/bin/phpunit"
+      phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
+      fail_on_findings: true
+      upload_artifact: true
+```

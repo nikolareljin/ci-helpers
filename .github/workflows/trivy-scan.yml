@@ -1,0 +1,63 @@
+name: trivy-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      scan_path:
+        type: string
+        default: "."
+      format:
+        type: string
+        default: sarif
+      output:
+        type: string
+        default: trivy-results.sarif
+      severity:
+        type: string
+        default: CRITICAL,HIGH
+      ignore_unfixed:
+        type: string
+        default: "true"
+      vuln_type:
+        type: string
+        default: os,library
+      fail_on_findings:
+        type: boolean
+        default: false
+      upload_sarif:
+        type: boolean
+        default: true
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: trivy-results
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          scan_path: ${{ inputs.scan_path }}
+          format: ${{ inputs.format }}
+          output: ${{ inputs.output }}
+          severity: ${{ inputs.severity }}
+          ignore_unfixed: ${{ inputs.ignore_unfixed }}
+          vuln_type: ${{ inputs.vuln_type }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}
+          upload_sarif: ${{ inputs.upload_sarif }}
+
+      - name: Upload artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.output }}
+          if-no-files-found: warn

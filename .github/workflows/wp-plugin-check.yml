@@ -1,0 +1,127 @@
+name: wp-plugin-check
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      compose_file:
+        type: string
+        default: test/docker-compose.yml
+      plugin_slug:
+        type: string
+        required: true
+      plugin_src:
+        type: string
+        default: .
+      plugin_src_env:
+        type: string
+        default: PLUGIN_SRC
+      wpcli_service:
+        type: string
+        default: wpcli
+      db_service:
+        type: string
+        default: db
+      wordpress_service:
+        type: string
+        default: wordpress
+      host_port:
+        type: string
+        default: "8080"
+      out_dir:
+        type: string
+        default: test/tmp
+      db_wait_seconds:
+        type: string
+        default: "30"
+      multisite:
+        type: boolean
+        default: true
+      activate_network:
+        type: boolean
+        default: true
+      admin_user:
+        type: string
+        default: admin
+      admin_password:
+        type: string
+        default: admin
+      admin_email:
+        type: string
+        default: admin@example.com
+      site_title:
+        type: string
+        default: WP Test Site
+      meta_check_script:
+        type: string
+        default: ""
+      php_version:
+        type: string
+        default: ""
+      php_lint_command:
+        type: string
+        default: ""
+      phpcs_warning_command:
+        type: string
+        default: ""
+      phpunit_command:
+        type: string
+        default: ""
+      phpunit_working_directory:
+        type: string
+        default: .
+      fail_on_findings:
+        type: boolean
+        default: false
+      cleanup:
+        type: boolean
+        default: true
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: plugin-check-results
+
+jobs:
+  check:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: WordPress plugin check
+        uses: ./.github/actions/wp-plugin-check
+        with:
+          compose_file: ${{ inputs.compose_file }}
+          plugin_slug: ${{ inputs.plugin_slug }}
+          plugin_src: ${{ inputs.plugin_src }}
+          plugin_src_env: ${{ inputs.plugin_src_env }}
+          wpcli_service: ${{ inputs.wpcli_service }}
+          db_service: ${{ inputs.db_service }}
+          wordpress_service: ${{ inputs.wordpress_service }}
+          host_port: ${{ inputs.host_port }}
+          out_dir: ${{ inputs.out_dir }}
+          db_wait_seconds: ${{ inputs.db_wait_seconds }}
+          multisite: ${{ inputs.multisite }}
+          activate_network: ${{ inputs.activate_network }}
+          admin_user: ${{ inputs.admin_user }}
+          admin_password: ${{ inputs.admin_password }}
+          admin_email: ${{ inputs.admin_email }}
+          site_title: ${{ inputs.site_title }}
+          meta_check_script: ${{ inputs.meta_check_script }}
+          php_version: ${{ inputs.php_version }}
+          php_lint_command: ${{ inputs.php_lint_command }}
+          phpcs_warning_command: ${{ inputs.phpcs_warning_command }}
+          phpunit_command: ${{ inputs.phpunit_command }}
+          phpunit_working_directory: ${{ inputs.phpunit_working_directory }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}
+          cleanup: ${{ inputs.cleanup }}
+
+      - name: Upload artifacts
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.out_dir }}
+          if-no-files-found: warn

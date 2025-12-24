@@ -1,0 +1,55 @@
+name: noseyparker-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      scan_path:
+        type: string
+        default: "."
+      image:
+        type: string
+        default: ghcr.io/praetorian-inc/noseyparker:latest
+      datastore_dir:
+        type: string
+        default: .noseyparker
+      report_format:
+        type: string
+        default: json
+      output:
+        type: string
+        default: noseyparker-report.json
+      fail_on_findings:
+        type: boolean
+        default: false
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: noseyparker-report
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: NoseyParker scan
+        uses: ./.github/actions/noseyparker-scan
+        with:
+          scan_path: ${{ inputs.scan_path }}
+          image: ${{ inputs.image }}
+          datastore_dir: ${{ inputs.datastore_dir }}
+          report_format: ${{ inputs.report_format }}
+          output: ${{ inputs.output }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}
+
+      - name: Upload artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.output }}
+          if-no-files-found: warn

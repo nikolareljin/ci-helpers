@@ -63,3 +63,89 @@ Example:
 
 Notes:
 - The guard expects branch naming `release/X.Y.Z` or `release/vX.Y.Z`.
+
+## trivy-scan
+
+Path: `.github/actions/trivy-scan`
+
+Purpose: Run Trivy filesystem scans with optional SARIF upload.
+
+Inputs:
+- `scan_path` (default `"."`)
+- `format` (default `sarif`)
+- `output` (default `trivy-results.sarif`)
+- `severity` (default `CRITICAL,HIGH`)
+- `ignore_unfixed` (default `"true"`)
+- `vuln_type` (default `os,library`)
+- `fail_on_findings` (default `"false"`)
+- `upload_sarif` (default `"true"`)
+
+Example:
+
+```yaml
+- name: Trivy scan
+  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@v0.1.0
+  with:
+    scan_path: "."
+    fail_on_findings: "true"
+```
+
+## noseyparker-scan
+
+Path: `.github/actions/noseyparker-scan`
+
+Purpose: Run NoseyParker scan in Docker and generate a report.
+
+Note: Requires Docker on the runner.
+
+Inputs:
+- `scan_path` (default `"."`)
+- `image` (default `ghcr.io/praetorian-inc/noseyparker:latest`)
+- `datastore_dir` (default `.noseyparker`)
+- `report_format` (default `json`)
+- `output` (default `noseyparker-report.json`)
+- `fail_on_findings` (default `"false"`, requires `report_format=json`)
+
+Example:
+
+```yaml
+- name: NoseyParker scan
+  uses: nikolareljin/ci-helpers/.github/actions/noseyparker-scan@v0.1.0
+  with:
+    scan_path: "."
+    fail_on_findings: "true"
+```
+
+## wp-plugin-check
+
+Path: `.github/actions/wp-plugin-check`
+
+Purpose: Run WordPress plugin-check in Docker and optional standalone PHPUnit.
+
+Note: Requires Docker on the runner and a compose file that mounts the plugin.
+
+Inputs (selected):
+- `compose_file` (default `test/docker-compose.yml`)
+- `plugin_slug` (required)
+- `plugin_src` (default `"."`)
+- `plugin_src_env` (default `PLUGIN_SRC`)
+- `out_dir` (default `test/tmp`)
+- `php_version` (optional for lint/PHPUnit)
+- `php_lint_command` (optional, errors only)
+- `phpcs_warning_command` (optional, non-blocking)
+- `phpunit_command` (optional, standalone)
+- `fail_on_findings` (default `"false"`)
+
+Example:
+
+```yaml
+- name: Plugin check
+  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@v0.1.0
+  with:
+    plugin_slug: my-plugin
+    plugin_src_env: MY_PLUGIN_SRC
+    plugin_src: "."
+    php_version: "8.2"
+    phpunit_command: "vendor/bin/phpunit"
+    fail_on_findings: "true"
+```
