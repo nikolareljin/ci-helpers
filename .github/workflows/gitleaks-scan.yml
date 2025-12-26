@@ -10,10 +10,10 @@ on:
         default: "."
       report_format:
         type: string
-        default: json
+        default: sarif
       output:
         type: string
-        default: gitleaks-report.json
+        default: results.sarif
       config_path:
         type: string
         default: ""

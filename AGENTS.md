@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-- `.github/workflows/`: reusable workflows (`ci.yml`, `pr-gate.yml`, `deploy.yml`) and presets under `.github/workflows/presets/`.
+- `.github/workflows/`: reusable workflows (`ci.yml`, `pr-gate.yml`, `deploy.yml`) and top-level preset workflows (for GitHub reusable workflow requirements).
 - `.github/actions/`: composite actions (`semver-compare`, `check-release-tag`).
 - `scripts/`: Bash helpers used by actions and maintenance tasks.
 - `vendor/script-helpers/`: vendored Bash utilities (sync with `scripts/sync_script_helpers.sh`).
@@ -24,8 +24,8 @@
 
 ## Versioning
 
-- Current production tag: v0.1.0 (from VERSION).
-- `VERSION` is the source of truth; keep docs/examples `@vX.Y.Z` references in sync.
+- Current production tag: 0.1.1 (from VERSION).
+- `VERSION` is the source of truth; keep docs/examples `@X.Y.Z` references in sync.
 - Use `scripts/version_bump.sh major|minor|patch` to bump and update documentation/examples.
 
 ## Testing Guidelines

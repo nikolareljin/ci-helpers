@@ -6,12 +6,12 @@ inputs:
     default: "."
     required: false
   report_format:
-    description: Report format (json or sarif).
-    default: json
+    description: Report format (sarif only; gitleaks-action output).
+    default: sarif
     required: false
   output:
     description: Output report file path.
-    default: gitleaks-report.json
+    default: results.sarif
     required: false
   config_path:
     description: Optional Gitleaks config file path.
@@ -30,31 +30,31 @@ runs:
         set -euo pipefail
         output="${{ inputs.output }}"
         mkdir -p "$(dirname "$output")"
-    - name: Gitleaks scan (default config)
-      if: ${{ inputs.config_path == '' }}
+    - name: Gitleaks scan
       uses: gitleaks/gitleaks-action@v2
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      with:
-        args: >-
-          detect
-          --source="${{ inputs.scan_path }}"
-          --report-format="${{ inputs.report_format }}"
-          --report-path="${{ inputs.output }}"
-          --exit-code=0
-    - name: Gitleaks scan (custom config)
-      if: ${{ inputs.config_path != '' }}
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      with:
-        args: >-
-          detect
-          --source="${{ inputs.scan_path }}"
-          --config="${{ inputs.config_path }}"
-          --report-format="${{ inputs.report_format }}"
-          --report-path="${{ inputs.output }}"
-          --exit-code=0
+    - name: Normalize report output
+      shell: bash
+      run: |
+        set -euo pipefail
+        requested_output="${{ inputs.output }}"
+        default_output="results.sarif"
+
+        if [[ "${{ inputs.scan_path }}" != "." ]]; then
+          echo "Warning: gitleaks-action ignores scan_path; it scans git history by default." >&2
+        fi
+        if [[ -n "${{ inputs.config_path }}" ]]; then
+          echo "Warning: gitleaks-action ignores config_path; only .gitleaks.toml is auto-detected." >&2
+        fi
+        if [[ "${{ inputs.report_format }}" != "sarif" ]]; then
+          echo "Warning: gitleaks-action emits SARIF only; overriding report_format to sarif." >&2
+        fi
+
+        if [[ -f "$default_output" && "$requested_output" != "$default_output" ]]; then
+          mkdir -p "$(dirname "$requested_output")"
+          cp "$default_output" "$requested_output"
+        fi
     - name: Evaluate findings
       shell: bash
       run: |
@@ -63,46 +63,49 @@ runs:
         output="${{ inputs.output }}"
         fail_on_findings="${{ inputs.fail_on_findings }}"
 
-        python3 - <<'PY'
-import json
-import os
-import sys
+        if [[ "$report_format" != "sarif" ]]; then
+          report_format="sarif"
+        fi
+        if [[ ! -f "$output" && -f "results.sarif" ]]; then
+          output="results.sarif"
+        fi
 
-report_format = os.environ["REPORT_FORMAT"]
-output = os.environ["OUTPUT"]
-fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
+        REPORT_FORMAT="$report_format" OUTPUT="$output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
+        import json
+        import os
+        import sys
 
-count = 0
-if report_format == "sarif":
-    with open(output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    runs = data.get("runs", [])
-    for run in runs:
-        results = run.get("results", [])
-        if isinstance(results, list):
-            count += len(results)
-else:
-    with open(output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    if isinstance(data, list):
-        count = len(data)
-    elif isinstance(data, dict):
-        for key in ("findings", "leaks", "results", "issues"):
-            value = data.get(key)
-            if isinstance(value, list):
-                count += len(value)
+        report_format = os.environ["REPORT_FORMAT"]
+        output = os.environ["OUTPUT"]
+        fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
 
-if count > 0:
-    print(f"Gitleaks findings detected: {count}")
-    print("Tip: remove leaked secrets with Leak-Lock:")
-    print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
-    print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
-    if fail_on_findings:
-        sys.exit(3)
-else:
-    print("No Gitleaks findings detected.")
-PY
-      env:
-        REPORT_FORMAT: ${{ inputs.report_format }}
-        OUTPUT: ${{ inputs.output }}
-        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        count = 0
+        if report_format == "sarif":
+            with open(output, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            runs = data.get("runs", [])
+            for run in runs:
+                results = run.get("results", [])
+                if isinstance(results, list):
+                    count += len(results)
+        else:
+            with open(output, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, list):
+                count = len(data)
+            elif isinstance(data, dict):
+                for key in ("findings", "leaks", "results", "issues"):
+                    value = data.get(key)
+                    if isinstance(value, list):
+                        count += len(value)
+
+        if count > 0:
+            print(f"Gitleaks findings detected: {count}")
+            print("Tip: remove leaked secrets with Leak-Lock:")
+            print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
+            print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
+            if fail_on_findings:
+                sys.exit(3)
+        else:
+            print("No Gitleaks findings detected.")
+        PY

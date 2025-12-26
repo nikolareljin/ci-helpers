@@ -7,7 +7,12 @@
 - Added `scripts/version_bump.sh` to bump VERSION and update @vX.Y.Z references.
 
 ### Changed
+- Moved preset workflows to the top-level `.github/workflows/` directory to satisfy reusable workflow requirements.
+- Updated the Gitleaks composite action defaults to SARIF (`results.sarif`) to match `gitleaks-action` output and avoid missing report files.
 - Standardized script headers and help output for all scripts in `scripts/`.
+
+### Added
+- Added a release-branch guard workflow that checks for existing tags when `release/*` branches are created.
 
 ## 2025-12-25
 
