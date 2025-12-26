@@ -13,7 +13,7 @@ command or version as needed.
 
 ## Node
 
-Workflow: `.github/workflows/presets/node.yml`
+Workflow: `.github/workflows/node.yml`
 
 Defaults:
 - `node_version`: `20`
@@ -26,14 +26,14 @@ Example:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@v0.1.1
     with:
       node_version: "20"
 ```
 
 ## React
 
-Workflow: `.github/workflows/presets/react.yml`
+Workflow: `.github/workflows/react.yml`
 
 Defaults:
 - `node_version`: `20`
@@ -46,14 +46,14 @@ Example:
 ```yaml
 jobs:
   react:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/react.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@v0.1.1
     with:
       node_version: "20"
 ```
 
 ## Python
 
-Workflow: `.github/workflows/presets/python.yml`
+Workflow: `.github/workflows/python.yml`
 
 Defaults:
 - `python_version`: `3.12`
@@ -65,14 +65,14 @@ Example:
 ```yaml
 jobs:
   python:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/python.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@v0.1.1
     with:
       python_version: "3.12"
 ```
 
 ## PHP
 
-Workflow: `.github/workflows/presets/php.yml`
+Workflow: `.github/workflows/php.yml`
 
 Defaults:
 - `php_version`: `8.2`
@@ -84,14 +84,14 @@ Example:
 ```yaml
 jobs:
   php:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/php.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@v0.1.1
     with:
       php_version: "8.2"
 ```
 
 ## Go
 
-Workflow: `.github/workflows/presets/go.yml`
+Workflow: `.github/workflows/go.yml`
 
 Defaults:
 - `go_version`: `1.22`
@@ -103,14 +103,14 @@ Example:
 ```yaml
 jobs:
   go:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/go.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@v0.1.1
     with:
       go_version: "1.22"
 ```
 
 ## Java
 
-Workflow: `.github/workflows/presets/java.yml`
+Workflow: `.github/workflows/java.yml`
 
 Defaults:
 - `java_version`: `17`
@@ -122,14 +122,14 @@ Example:
 ```yaml
 jobs:
   java:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/java.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@v0.1.1
     with:
       java_version: "17"
 ```
 
 ## C#
 
-Workflow: `.github/workflows/presets/csharp.yml`
+Workflow: `.github/workflows/csharp.yml`
 
 Defaults:
 - `dotnet_version`: `8.0.x`
@@ -141,14 +141,14 @@ Example:
 ```yaml
 jobs:
   csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/csharp.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@v0.1.1
     with:
       dotnet_version: "8.0.x"
 ```
 
 ## Docker
 
-Workflow: `.github/workflows/presets/docker.yml`
+Workflow: `.github/workflows/docker.yml`
 
 Defaults:
 - `docker_command`: `docker build .`
@@ -158,14 +158,14 @@ Example:
 ```yaml
 jobs:
   docker:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/docker.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@v0.1.1
     with:
       docker_command: "docker build -t myapp:ci ."
 ```
 
 ## Playwright
 
-Workflow: `.github/workflows/presets/playwright.yml`
+Workflow: `.github/workflows/playwright.yml`
 
 Defaults:
 - `node_version`: `20`
@@ -181,7 +181,7 @@ Example:
 ```yaml
 jobs:
   playwright:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/playwright.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@v0.1.1
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
@@ -189,7 +189,7 @@ jobs:
 
 ## Cypress
 
-Workflow: `.github/workflows/presets/cypress.yml`
+Workflow: `.github/workflows/cypress.yml`
 
 Defaults:
 - `node_version`: `20`
@@ -205,7 +205,7 @@ Example:
 ```yaml
 jobs:
   cypress:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/cypress.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@v0.1.1
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
@@ -219,7 +219,7 @@ E2E in the Node preset:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/presets/node.yml@v0.1.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@v0.1.1
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."

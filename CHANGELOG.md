@@ -7,6 +7,7 @@
 - Added `scripts/version_bump.sh` to bump VERSION and update @vX.Y.Z references.
 
 ### Changed
+- Moved preset workflows to the top-level `.github/workflows/` directory to satisfy reusable workflow requirements.
 - Standardized script headers and help output for all scripts in `scripts/`.
 
 ## 2025-12-25
