@@ -64,44 +64,44 @@ runs:
         fail_on_findings="${{ inputs.fail_on_findings }}"
 
         python3 - <<'PY'
-import json
-import os
-import sys
+        import json
+        import os
+        import sys
 
-report_format = os.environ["REPORT_FORMAT"]
-output = os.environ["OUTPUT"]
-fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
+        report_format = os.environ["REPORT_FORMAT"]
+        output = os.environ["OUTPUT"]
+        fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
 
-count = 0
-if report_format == "sarif":
-    with open(output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    runs = data.get("runs", [])
-    for run in runs:
-        results = run.get("results", [])
-        if isinstance(results, list):
-            count += len(results)
-else:
-    with open(output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    if isinstance(data, list):
-        count = len(data)
-    elif isinstance(data, dict):
-        for key in ("findings", "leaks", "results", "issues"):
-            value = data.get(key)
-            if isinstance(value, list):
-                count += len(value)
+        count = 0
+        if report_format == "sarif":
+            with open(output, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            runs = data.get("runs", [])
+            for run in runs:
+                results = run.get("results", [])
+                if isinstance(results, list):
+                    count += len(results)
+        else:
+            with open(output, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, list):
+                count = len(data)
+            elif isinstance(data, dict):
+                for key in ("findings", "leaks", "results", "issues"):
+                    value = data.get(key)
+                    if isinstance(value, list):
+                        count += len(value)
 
-if count > 0:
-    print(f"Gitleaks findings detected: {count}")
-    print("Tip: remove leaked secrets with Leak-Lock:")
-    print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
-    print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
-    if fail_on_findings:
-        sys.exit(3)
-else:
-    print("No Gitleaks findings detected.")
-PY
+        if count > 0:
+            print(f"Gitleaks findings detected: {count}")
+            print("Tip: remove leaked secrets with Leak-Lock:")
+            print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
+            print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
+            if fail_on_findings:
+                sys.exit(3)
+        else:
+            print("No Gitleaks findings detected.")
+        PY
       env:
         REPORT_FORMAT: ${{ inputs.report_format }}
         OUTPUT: ${{ inputs.output }}
