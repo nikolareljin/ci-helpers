@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: version_bump.sh
-# DESCRIPTION: Bump VERSION and update docs/examples that reference @vX.Y.Z.
+# DESCRIPTION: Bump VERSION and update docs/examples that reference @X.Y.Z.
 # USAGE: ./version_bump.sh [major|minor|patch] [-h]
 # PARAMETERS:
 #   major|minor|patch   Which part of the version to increment.
@@ -50,8 +50,8 @@ current_version="$(tr -d ' \t\r\n' < "${version_file}")"
 version_bump "$1" -f "${version_file}"
 next_version="$(tr -d ' \t\r\n' < "${version_file}")"
 
-old_tag="v${current_version}"
-new_tag="v${next_version}"
+old_tag="${current_version}"
+new_tag="${next_version}"
 
 mapfile -t tag_files < <(rg -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${tag_files[@]}"; do

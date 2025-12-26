@@ -26,7 +26,7 @@ Example:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
     with:
       node_version: "20"
 ```
@@ -46,7 +46,7 @@ Example:
 ```yaml
 jobs:
   react:
-    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.1.1
     with:
       node_version: "20"
 ```
@@ -65,7 +65,7 @@ Example:
 ```yaml
 jobs:
   python:
-    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
     with:
       python_version: "3.12"
 ```
@@ -84,7 +84,7 @@ Example:
 ```yaml
 jobs:
   php:
-    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.1
     with:
       php_version: "8.2"
 ```
@@ -103,7 +103,7 @@ Example:
 ```yaml
 jobs:
   go:
-    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.1.1
     with:
       go_version: "1.22"
 ```
@@ -122,7 +122,7 @@ Example:
 ```yaml
 jobs:
   java:
-    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.1.1
     with:
       java_version: "17"
 ```
@@ -141,7 +141,7 @@ Example:
 ```yaml
 jobs:
   csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.1.1
     with:
       dotnet_version: "8.0.x"
 ```
@@ -158,7 +158,7 @@ Example:
 ```yaml
 jobs:
   docker:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.1.1
     with:
       docker_command: "docker build -t myapp:ci ."
 ```
@@ -181,7 +181,7 @@ Example:
 ```yaml
 jobs:
   playwright:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.1
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
@@ -205,7 +205,7 @@ Example:
 ```yaml
 jobs:
   cypress:
-    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.1.1
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
@@ -219,7 +219,7 @@ E2E in the Node preset:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@v0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."

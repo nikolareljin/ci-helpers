@@ -24,7 +24,7 @@ Example:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@v0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.1
   with:
     version_a: "1.2.3"
     version_b: "1.4.0"
@@ -37,7 +37,7 @@ Example:
 
 Path: `.github/actions/check-release-tag`
 
-Purpose: Fail if a `release/X.Y.Z` (or `release/vX.Y.Z`) branch already has a tag.
+Purpose: Fail if a `release/X.Y.Z` branch already has a tag.
 
 Inputs:
 - `release_branch` (optional, defaults to `GITHUB_HEAD_REF`/`GITHUB_REF_NAME`)
@@ -52,7 +52,7 @@ Example:
 ```yaml
 - name: Guard release tag
   id: release_guard
-  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.1
   with:
     release_branch: ${{ github.head_ref }}
     fetch_tags: true
@@ -62,7 +62,7 @@ Example:
 ```
 
 Notes:
-- The guard expects branch naming `release/X.Y.Z` or `release/vX.Y.Z`.
+- The guard expects branch naming `release/X.Y.Z`.
 
 ## trivy-scan
 
@@ -84,7 +84,7 @@ Example:
 
 ```yaml
 - name: Trivy scan
-  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@v0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.1
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -110,7 +110,7 @@ Example:
 
 ```yaml
 - name: Gitleaks scan
-  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@v0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.1
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -140,7 +140,7 @@ Example:
 
 ```yaml
 - name: Plugin check
-  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@v0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.1
   with:
     plugin_slug: my-plugin
     plugin_src_env: MY_PLUGIN_SRC
