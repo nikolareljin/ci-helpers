@@ -1,0 +1,21 @@
+name: release-tag-check
+on:
+  create:
+    branches:
+      - "release/*"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Check release tag availability
+        uses: ./.github/actions/check-release-tag
+        with:
+          release_branch: ${{ github.ref_name }}
+          repo_dir: ${{ github.workspace }}
+          fetch_tags: true
