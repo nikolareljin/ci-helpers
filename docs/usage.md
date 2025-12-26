@@ -13,7 +13,7 @@ Gitleaks on PRs:
 name: Secrets Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   gitleaks:
@@ -30,7 +30,7 @@ PHP scan (unit + framework lint + WP-CLI):
 name: PHP Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   php_scan:
@@ -45,7 +45,7 @@ Python scan (unit + Django):
 name: Python Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   python_scan:
@@ -60,7 +60,7 @@ Go scan (tests + gosec):
 name: Go Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   go_scan:
@@ -75,7 +75,7 @@ Rust scan (tests + cargo-audit):
 name: Rust Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   rust_scan:
@@ -88,7 +88,7 @@ Java scan (tests + dependency check):
 name: Java Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   java_scan:
@@ -103,7 +103,7 @@ C# scan (tests + vulnerable packages):
 name: C# Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   csharp_scan:
@@ -118,7 +118,7 @@ Node.js scan (lint/test/audit):
 name: Node Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   node_scan:
@@ -133,7 +133,7 @@ React scan (lint/test/build/audit):
 name: React Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   react_scan:
@@ -148,7 +148,7 @@ Vue scan (lint/test/build/audit):
 name: Vue Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   vue_scan:
@@ -163,7 +163,7 @@ Docker scan (Trivy + Snyk):
 name: Docker Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   docker_scan:
@@ -184,7 +184,7 @@ Gitleaks composite action:
 name: Secrets Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   gitleaks:
@@ -204,7 +204,7 @@ Trivy composite action:
 name: Trivy Scan
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   trivy:
@@ -227,7 +227,7 @@ WordPress plugin-check composite action:
 name: WP Plugin Check
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   plugin_check:
@@ -252,7 +252,7 @@ Semver compare:
 name: Compare Versions
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   semver:
@@ -275,7 +275,7 @@ Release tag guard (PR):
 name: Release Tag Guard (PR)
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   release_guard:

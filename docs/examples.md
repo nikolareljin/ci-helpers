@@ -198,7 +198,7 @@ jobs:
 name: Auto Tag Release
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   tag:

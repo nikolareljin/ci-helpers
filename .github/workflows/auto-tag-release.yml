@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - master
 
 permissions:
   contents: write
@@ -29,7 +30,9 @@ jobs:
               commit_sha: sha,
             });
 
-            const merged = prs.data.find((pr) => pr.merged_at && pr.base.ref === "main");
+            const merged = prs.data.find(
+              (pr) => pr.merged_at && ["main", "master"].includes(pr.base.ref)
+            );
             if (!merged) {
               core.info("No merged PR associated with the latest commit.");
               core.setOutput("version", "");

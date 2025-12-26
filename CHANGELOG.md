@@ -10,6 +10,7 @@
 ### Changed
 - Replaced NoseyParker scan docs and references with Gitleaks.
 - Gitleaks reports now include Leak-Lock extension links when leaks are found.
+- PR and auto-tag examples now include `master` alongside `main`.
 
 ## 2025-12-23 (0.1.0)
 

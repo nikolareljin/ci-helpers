@@ -29,7 +29,7 @@ See detailed usage, inputs, and examples in:
 name: CI
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
       node_version: "20"
 ```
 
-2) Commit and push. GitHub will run the workflow on PRs and main.
+2) Commit and push. GitHub will run the workflow on PRs and main/master.
 
 3) Need E2E? Add an `e2e_command` (runs after Docker if set). See [presets](docs/presets.md) and [examples](docs/examples.md) for more patterns:
 
@@ -102,13 +102,13 @@ jobs:
       release_branch: ${{ github.head_ref }}
 ```
 
-CI example (push/main):
+CI example (push/main or master):
 
 ```yaml
 name: CI
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   ci:
@@ -294,7 +294,7 @@ Release tag guard (release/X.Y.Z):
 name: CI
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   ci:

@@ -430,10 +430,10 @@ jobs:
 
 Workflow: `.github/workflows/auto-tag-release.yml`
 
-Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/vX.Y.Z` PR is merged into `main`.
+Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/vX.Y.Z` PR is merged into `main` or `master`.
 
 Notes:
-- Runs on pushes to `main` and detects the merged PR for squash/merge commits.
+- Runs on pushes to `main` or `master` and detects the merged PR for squash/merge commits.
 - Checks if the tag already exists before creating and pushing it.
 
 Example:
@@ -442,7 +442,7 @@ Example:
 name: Auto Tag Release
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   tag:
