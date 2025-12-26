@@ -72,7 +72,11 @@ version_bump() {
         shift 2
         ;;
       -h|--help)
-        echo "Usage: version_bump {major|minor|patch} [-f VERSION_FILE]"
+        if declare -F show_help >/dev/null 2>&1 && [[ -n "${SHLIB_CALLER_SCRIPT:-}" && -f "$SHLIB_CALLER_SCRIPT" ]]; then
+          show_help "$SHLIB_CALLER_SCRIPT"
+        else
+          echo "Usage: version_bump {major|minor|patch} [-f VERSION_FILE]"
+        fi
         return 0
         ;;
       *)

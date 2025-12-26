@@ -13,6 +13,7 @@ Functions
   - Behavior:
     - Creates the file with `0.1.0` when missing.
     - Preserves a leading `v`/`V` prefix and any suffix after the first `-` when writing the bumped value.
+    - `-h/--help` will render script-level help when available (falls back to function usage).
   - Returns: 0 on success; non-zero on invalid input or write errors.
   - Dependencies: logging for output; uses `env::get_project_root` when available to resolve the default path.
 

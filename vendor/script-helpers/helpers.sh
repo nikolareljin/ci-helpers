@@ -18,6 +18,11 @@ _shlib_dir_resolve() {
 _SHLIB_ROOT_DIR="$(_shlib_dir_resolve)"
 _SHLIB_LIB_DIR="$_SHLIB_ROOT_DIR/lib"
 
+# Track the script that sourced helpers.sh for consistent help output.
+if [[ -n "${BASH_SOURCE[1]:-}" ]]; then
+  export SHLIB_CALLER_SCRIPT="${BASH_SOURCE[1]}"
+fi
+
 # Import modules by name. Example: shlib_import logging docker json
 shlib_import() {
   local name file

@@ -2,6 +2,12 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [0.9.0] - 2025-12-26
+
+- Changed: Unified script help rendering across `display_help`, `print_help`, and `show_help` with a shared renderer.
+- Changed: `-h/--help` now prefers script-level header help when the caller script is known.
+- Fixed: Header parsing now only reads the top comment block and captures parameter lines reliably without pulling unrelated script comments.
+
 ## [0.8.0] - 2025-12-20
 
 - Added: `version` module (`version_bump`, `version_compare`) with support for optional version file paths and preserving prefixes/suffixes.
