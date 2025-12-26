@@ -175,12 +175,14 @@ removing leaked credentials.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `scan_path` (string, default `"."`)
-- `report_format` (string, default `json`)
-- `output` (string, default `gitleaks-report.json`)
+- `report_format` (string, default `sarif`)
+- `output` (string, default `results.sarif`)
 - `config_path` (string, default `""`)
 - `fail_on_findings` (boolean, default `false`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `gitleaks-report`)
+
+Note: `gitleaks-action` emits SARIF only; other `report_format` values are ignored, and `scan_path`/`config_path` are not honored (it auto-detects `.gitleaks.toml`).
 
 Example:
 

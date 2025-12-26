@@ -101,10 +101,12 @@ removing leaked credentials.
 
 Inputs:
 - `scan_path` (default `"."`)
-- `report_format` (default `json`)
-- `output` (default `gitleaks-report.json`)
+- `report_format` (default `sarif`)
+- `output` (default `results.sarif`)
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"false"`)
+
+Note: `gitleaks-action` emits SARIF only; other `report_format` values are ignored, and `scan_path`/`config_path` are not honored (it auto-detects `.gitleaks.toml`).
 
 Example:
 

@@ -20,8 +20,8 @@ jobs:
         uses: ./.github/actions/gitleaks-scan
         with:
           scan_path: "."
-          report_format: json
-          output: gitleaks-report.json
+          report_format: sarif
+          output: results.sarif
           fail_on_findings: true
 
       - name: Upload artifact
@@ -29,5 +29,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
-          path: gitleaks-report.json
+          path: results.sarif
           if-no-files-found: warn
