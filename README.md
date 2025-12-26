@@ -73,6 +73,7 @@ jobs:
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches
+- `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/trivy-scan`: composite action for Trivy scanning

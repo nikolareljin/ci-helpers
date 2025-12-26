@@ -11,6 +11,9 @@
 - Updated the Gitleaks composite action defaults to SARIF (`results.sarif`) to match `gitleaks-action` output and avoid missing report files.
 - Standardized script headers and help output for all scripts in `scripts/`.
 
+### Added
+- Added a release-branch guard workflow that checks for existing tags when `release/*` branches are created.
+
 ## 2025-12-25
 
 ### Added
