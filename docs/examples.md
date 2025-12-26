@@ -192,6 +192,19 @@ jobs:
         run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
 ```
 
+## Auto-tag release
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@v0.1.0
+```
+
 ## WordPress plugin check + standalone PHPUnit
 
 ```yaml

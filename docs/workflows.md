@@ -426,6 +426,29 @@ jobs:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
+## auto-tag-release.yml
+
+Workflow: `.github/workflows/auto-tag-release.yml`
+
+Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/vX.Y.Z` PR is merged into `main`.
+
+Notes:
+- Runs on pushes to `main` and detects the merged PR for squash/merge commits.
+- Checks if the tag already exists before creating and pushing it.
+
+Example:
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@v0.1.0
+```
+
 ## wp-plugin-check.yml
 
 Workflow: `.github/workflows/wp-plugin-check.yml`

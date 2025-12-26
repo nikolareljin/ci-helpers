@@ -1,0 +1,66 @@
+name: auto-tag-release
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Detect release version
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.sha;
+            const { owner, repo } = context.repo;
+            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: sha,
+            });
+
+            const merged = prs.data.find((pr) => pr.merged_at && pr.base.ref === "main");
+            if (!merged) {
+              core.info("No merged PR associated with the latest commit.");
+              core.setOutput("version", "");
+              return;
+            }
+
+            const match = merged.head.ref.match(/^release\/v?(\d+\.\d+\.\d+)$/);
+            if (!match) {
+              core.info("Merged PR is not a release/* branch.");
+              core.setOutput("version", "");
+              return;
+            }
+
+            core.setOutput("version", match[1]);
+
+      - name: Check tag availability
+        if: ${{ steps.release.outputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
+            echo "Tag $version already exists, skipping."
+            exit 0
+          fi
+
+      - name: Create and push tag
+        if: ${{ steps.release.outputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          git tag "$version"
+          git push origin "$version"
