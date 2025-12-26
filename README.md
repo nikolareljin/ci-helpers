@@ -2,6 +2,8 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
+Current production tag: v0.1.0 (from VERSION).
+
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.

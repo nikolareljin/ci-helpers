@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
+# SCRIPT: semver_compare.sh
+# DESCRIPTION: Compare two semantic versions.
+# USAGE: ./semver_compare.sh <version_a> <version_b>
+# EXAMPLE: ./semver_compare.sh 1.2.3 1.3.0
+# PARAMETERS:
+#   version_a   First semver (X.Y.Z).
+#   version_b   Second semver (X.Y.Z).
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HELPERS_DIR="$ROOT_DIR/vendor/script-helpers"
-if [[ -f "$HELPERS_DIR/helpers.sh" ]]; then
-  # shellcheck disable=SC1090
-  source "$HELPERS_DIR/helpers.sh"
-  shlib_import logging
-fi
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+# shellcheck source=/dev/null
+source "${SCRIPT_HELPERS_DIR}/helpers.sh"
+shlib_import logging help
 
-usage() {
-  cat <<'USAGE'
-Usage: semver_compare.sh <version_a> <version_b>
-
-Outputs one of: lt, eq, gt
-Exit codes: 0 on success, 2 on invalid input.
-USAGE
-}
+usage() { display_help; }
 
 normalize() {
   local v="$1"

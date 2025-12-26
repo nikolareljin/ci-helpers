@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-# Sync script-helpers from remote repository
-# This script clones the script-helpers repository and removes the .git directory
-# to avoid nested git repositories. The vendor directory is gitignored.
+# SCRIPT: sync_script_helpers.sh
+# DESCRIPTION: Sync vendor/script-helpers from the upstream repository.
+# USAGE: ./sync_script_helpers.sh [-h]
+# EXAMPLE: ./sync_script_helpers.sh
+# PARAMETERS:
+#   -h, --help   Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+# shellcheck source=/dev/null
+source "${SCRIPT_HELPERS_DIR}/helpers.sh"
+shlib_import logging help
+
+usage() { display_help; }
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 DEST_DIR="$ROOT_DIR/vendor/script-helpers"
 REPO_URL="${SCRIPT_HELPERS_REPO_URL:-git@github.com:nikolareljin/script-helpers.git}"
 REF="${SCRIPT_HELPERS_REF:-}"

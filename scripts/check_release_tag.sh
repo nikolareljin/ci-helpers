@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
+# SCRIPT: check_release_tag.sh
+# DESCRIPTION: Guard against tagging an existing release from a release/X.Y.Z branch.
+# USAGE: ./check_release_tag.sh --branch <branch> [--repo <path>] [--fetch-tags] [--print-version]
+# EXAMPLE: ./check_release_tag.sh --branch release/1.2.3 --fetch-tags
+# PARAMETERS:
+#   --branch <branch>    Release branch name (defaults to GITHUB_REF_NAME/GITHUB_HEAD_REF).
+#   --repo <path>        Repository path (default: GITHUB_WORKSPACE or cwd).
+#   --fetch-tags         Fetch tags before checking.
+#   --print-version      Print the parsed version if eligible.
+#   -h, --help           Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HELPERS_DIR="$ROOT_DIR/vendor/script-helpers"
-if [[ -f "$HELPERS_DIR/helpers.sh" ]]; then
-  # shellcheck disable=SC1090
-  source "$HELPERS_DIR/helpers.sh"
-  shlib_import logging
-fi
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+# shellcheck source=/dev/null
+source "${SCRIPT_HELPERS_DIR}/helpers.sh"
+shlib_import logging help
 
-usage() {
-  cat <<'USAGE'
-Usage: check_release_tag.sh --branch <branch> [--repo <path>] [--fetch-tags] [--print-version]
-
-Checks if a release branch (release/X.Y.Z) already has a tag in the repo.
-Exits 0 if branch is not a release branch or tag does not exist.
-Exits 1 if the tag already exists.
-Exits 2 on invalid input.
-USAGE
-}
+usage() { display_help; }
 
 log_info_safe() {
   if declare -F log_info >/dev/null 2>&1; then

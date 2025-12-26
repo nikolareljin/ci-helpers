@@ -3,6 +3,8 @@
 This directory contains detailed guidance for using and extending the reusable
 workflows and composite actions in this repository.
 
+Current production tag: v0.1.0 (from VERSION).
+
 Start here:
 - [Reusable workflows](workflows.md) for CI/PR gate/deploy/scan workflow inputs, ordering, and examples.
 - [Presets](presets.md) for stack-specific and E2E presets (Node/React/Playwright/Cypress).

@@ -22,6 +22,12 @@
 - Keep modules small, dependency-light, and named after their feature (`logging.sh`).
 - Guard optional dependencies with `command -v` (Docker, dialog, etc.).
 
+## Versioning
+
+- Current production tag: v0.1.0 (from VERSION).
+- `VERSION` is the source of truth; keep docs/examples `@vX.Y.Z` references in sync.
+- Use `scripts/version_bump.sh major|minor|patch` to bump and update documentation/examples.
+
 ## Testing Guidelines
 
 - Bash examples in `scripts/` serve as regression coverage; add a demo when behavior changes.
