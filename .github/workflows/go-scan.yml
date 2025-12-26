@@ -1,0 +1,50 @@
+name: go-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      go_version:
+        type: string
+        default: "1.22"
+      test_command:
+        type: string
+        default: "go test ./..."
+      gosec_args:
+        type: string
+        default: "./..."
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Go tests
+        if: ${{ inputs.test_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.test_command }}
+
+      - name: Gosec scan
+        if: ${{ inputs.gosec_args != '' }}
+        uses: securego/gosec@master
+        with:
+          args: ${{ inputs.gosec_args }}

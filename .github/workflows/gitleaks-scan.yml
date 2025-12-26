@@ -1,4 +1,4 @@
-name: noseyparker-scan
+name: gitleaks-scan
 on:
   workflow_call:
     inputs:
@@ -8,18 +8,15 @@ on:
       scan_path:
         type: string
         default: "."
-      image:
-        type: string
-        default: ghcr.io/praetorian-inc/noseyparker:latest
-      datastore_dir:
-        type: string
-        default: .noseyparker
       report_format:
         type: string
         default: json
       output:
         type: string
-        default: noseyparker-report.json
+        default: gitleaks-report.json
+      config_path:
+        type: string
+        default: ""
       fail_on_findings:
         type: boolean
         default: false
@@ -28,7 +25,7 @@ on:
         default: false
       artifact_name:
         type: string
-        default: noseyparker-report
+        default: gitleaks-report
 
 jobs:
   scan:
@@ -36,14 +33,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: NoseyParker scan
-        uses: ./.github/actions/noseyparker-scan
+      - name: Gitleaks scan
+        uses: ./.github/actions/gitleaks-scan
         with:
           scan_path: ${{ inputs.scan_path }}
-          image: ${{ inputs.image }}
-          datastore_dir: ${{ inputs.datastore_dir }}
           report_format: ${{ inputs.report_format }}
           output: ${{ inputs.output }}
+          config_path: ${{ inputs.config_path }}
           fail_on_findings: ${{ inputs.fail_on_findings }}
 
       - name: Upload artifact

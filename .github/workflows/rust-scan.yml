@@ -1,0 +1,59 @@
+name: rust-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      rust_toolchain:
+        type: string
+        default: "stable"
+      test_command:
+        type: string
+        default: "cargo test"
+      audit_command:
+        type: string
+        default: "cargo audit"
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Rust tests
+        if: ${{ inputs.test_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.test_command }}
+
+      - name: Install cargo-audit
+        if: ${{ inputs.audit_command != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-audit --locked
+
+      - name: Cargo audit
+        if: ${{ inputs.audit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.audit_command }}

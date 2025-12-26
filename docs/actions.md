@@ -90,27 +90,27 @@ Example:
     fail_on_findings: "true"
 ```
 
-## noseyparker-scan
+## gitleaks-scan
 
-Path: `.github/actions/noseyparker-scan`
+Path: `.github/actions/gitleaks-scan`
 
-Purpose: Run NoseyParker scan in Docker and generate a report.
+Purpose: Run Gitleaks scan and generate a report.
 
-Note: Requires Docker on the runner.
+Note: When findings are detected, the action prints Leak-Lock links for help
+removing leaked credentials.
 
 Inputs:
 - `scan_path` (default `"."`)
-- `image` (default `ghcr.io/praetorian-inc/noseyparker:latest`)
-- `datastore_dir` (default `.noseyparker`)
 - `report_format` (default `json`)
-- `output` (default `noseyparker-report.json`)
-- `fail_on_findings` (default `"false"`, requires `report_format=json`)
+- `output` (default `gitleaks-report.json`)
+- `config_path` (default `""`)
+- `fail_on_findings` (default `"false"`)
 
 Example:
 
 ```yaml
-- name: NoseyParker scan
-  uses: nikolareljin/ci-helpers/.github/actions/noseyparker-scan@v0.1.0
+- name: Gitleaks scan
+  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@v0.1.0
   with:
     scan_path: "."
     fail_on_findings: "true"

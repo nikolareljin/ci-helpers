@@ -1,0 +1,322 @@
+# Usage Guide
+
+This guide shows how to consume reusable workflows and composite actions from
+another repository.
+
+## Reusable workflows
+
+Create a workflow in your repo, then call the reusable workflow via `uses`.
+
+Gitleaks on PRs:
+
+```yaml
+name: Secrets Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gitleaks:
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@v0.1.0
+    with:
+      scan_path: "."
+      fail_on_findings: true
+      upload_artifact: true
+```
+
+PHP scan (unit + framework lint + WP-CLI):
+
+```yaml
+name: PHP Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  php_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@v0.1.0
+    with:
+      php_version: "8.2"
+```
+
+Python scan (unit + Django):
+
+```yaml
+name: Python Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@v0.1.0
+    with:
+      python_version: "3.12"
+```
+
+Go scan (tests + gosec):
+
+```yaml
+name: Go Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  go_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@v0.1.0
+    with:
+      go_version: "1.22"
+```
+
+Rust scan (tests + cargo-audit):
+
+```yaml
+name: Rust Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  rust_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@v0.1.0
+```
+
+Java scan (tests + dependency check):
+
+```yaml
+name: Java Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  java_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@v0.1.0
+    with:
+      java_version: "17"
+```
+
+C# scan (tests + vulnerable packages):
+
+```yaml
+name: C# Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  csharp_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@v0.1.0
+    with:
+      dotnet_version: "8.0.x"
+```
+
+Node.js scan (lint/test/audit):
+
+```yaml
+name: Node Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  node_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+React scan (lint/test/build/audit):
+
+```yaml
+name: React Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  react_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+Vue scan (lint/test/build/audit):
+
+```yaml
+name: Vue Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  vue_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@v0.1.0
+    with:
+      node_version: "20"
+```
+
+Docker scan (Trivy + Snyk):
+
+```yaml
+name: Docker Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docker_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@v0.1.0
+    with:
+      image_name: "app:ci"
+    secrets:
+      snyk_token: ${{ secrets.SNYK_TOKEN }}
+```
+
+## Composite actions
+
+Composite actions run inside a normal job. Always include `actions/checkout`.
+
+Gitleaks composite action:
+
+```yaml
+name: Secrets Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gitleaks scan
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@v0.1.0
+        with:
+          scan_path: "."
+          fail_on_findings: "true"
+```
+
+Trivy composite action:
+
+```yaml
+name: Trivy Scan
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy scan
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@v0.1.0
+        with:
+          scan_path: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+          fail_on_findings: "true"
+          upload_sarif: "true"
+```
+
+WordPress plugin-check composite action:
+
+```yaml
+name: WP Plugin Check
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  plugin_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plugin check
+        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@v0.1.0
+        with:
+          plugin_slug: my-plugin
+          plugin_src_env: MY_PLUGIN_SRC
+          plugin_src: "."
+          php_version: "8.2"
+          phpunit_command: "vendor/bin/phpunit"
+          phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
+          fail_on_findings: "true"
+```
+
+Semver compare:
+
+```yaml
+name: Compare Versions
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  semver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare versions
+        id: semver
+        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@v0.1.0
+        with:
+          version_a: "1.2.3"
+          version_b: "1.4.0"
+      - name: Use result
+        run: echo "Result: ${{ steps.semver.outputs.result }}"
+```
+
+Release tag guard (PR):
+
+```yaml
+name: Release Tag Guard (PR)
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  release_guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Guard release tag
+        id: release_guard
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.0
+        with:
+          release_branch: ${{ github.head_ref }}
+          fetch_tags: true
+      - name: Use version
+        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+```
+
+Release tag guard (release):
+
+```yaml
+name: Release Tag Guard (Release)
+on:
+  release:
+    types: [ created, published ]
+
+jobs:
+  release_guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Guard release tag
+        id: release_guard
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.0
+        with:
+          release_branch: ${{ github.ref_name }}
+          fetch_tags: true
+      - name: Use version
+        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+```

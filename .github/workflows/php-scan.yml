@@ -1,0 +1,169 @@
+name: php-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      php_version:
+        type: string
+        default: "8.2"
+      composer_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist"
+      unit_command:
+        type: string
+        default: "vendor/bin/phpunit"
+      lint_wp_command:
+        type: string
+        default: "vendor/bin/phpcs --standard=WordPress --extensions=php"
+      lint_drupal_command:
+        type: string
+        default: "vendor/bin/phpcs --standard=Drupal --extensions=php"
+      lint_laravel_command:
+        type: string
+        default: "vendor/bin/pint"
+      wp_cli_scan:
+        type: boolean
+        default: true
+      wp_root:
+        type: string
+        default: "wp-cli-site"
+      wp_site_url:
+        type: string
+        default: "http://localhost:8080"
+      wp_site_title:
+        type: string
+        default: "CI Site"
+      wp_admin_user:
+        type: string
+        default: "admin"
+      wp_admin_password:
+        type: string
+        default: "admin"
+      wp_admin_email:
+        type: string
+        default: "admin@example.com"
+      wp_posts_count:
+        type: number
+        default: 10
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+
+      - name: Install dependencies
+        if: ${{ inputs.composer_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.composer_command }}
+
+      - name: PHP unit tests
+        if: ${{ inputs.unit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.unit_command }}
+
+      - name: PHP lint (WordPress)
+        if: ${{ inputs.lint_wp_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_wp_command }}
+
+      - name: PHP lint (Drupal)
+        if: ${{ inputs.lint_drupal_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_drupal_command }}
+
+      - name: PHP lint (Laravel)
+        if: ${{ inputs.lint_laravel_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_laravel_command }}
+
+      - name: WP-CLI scan
+        if: ${{ inputs.wp_cli_scan }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          wp_root="${{ inputs.wp_root }}"
+
+          curl -sSLo wp-cli.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          php wp-cli.phar --info
+
+          mkdir -p "$wp_root"
+
+          for _ in {1..30}; do
+            if nc -z 127.0.0.1 3306; then
+              break
+            fi
+            sleep 2
+          done
+
+          php wp-cli.phar core download --path="$wp_root" --allow-root
+          php wp-cli.phar config create \
+            --path="$wp_root" \
+            --dbname=wordpress \
+            --dbuser=root \
+            --dbpass=root \
+            --dbhost=127.0.0.1 \
+            --dbprefix=wp_ \
+            --skip-check \
+            --allow-root
+          php wp-cli.phar db create --path="$wp_root" --allow-root
+          php wp-cli.phar core install \
+            --path="$wp_root" \
+            --url="${{ inputs.wp_site_url }}" \
+            --title="${{ inputs.wp_site_title }}" \
+            --admin_user="${{ inputs.wp_admin_user }}" \
+            --admin_password="${{ inputs.wp_admin_password }}" \
+            --admin_email="${{ inputs.wp_admin_email }}" \
+            --skip-email \
+            --allow-root
+          php wp-cli.phar post generate \
+            --path="$wp_root" \
+            --count="${{ inputs.wp_posts_count }}" \
+            --post_type=post \
+            --allow-root
+          php wp-cli.phar plugin list --path="$wp_root" --format=table --allow-root

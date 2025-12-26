@@ -1,0 +1,74 @@
+name: docker-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      image_name:
+        type: string
+        default: "ci-image:latest"
+      dockerfile:
+        type: string
+        default: "Dockerfile"
+      context:
+        type: string
+        default: "."
+      trivy_severity:
+        type: string
+        default: "CRITICAL,HIGH"
+      trivy_ignore_unfixed:
+        type: string
+        default: "true"
+      fail_on_findings:
+        type: boolean
+        default: true
+      run_snyk:
+        type: boolean
+        default: true
+      snyk_severity_threshold:
+        type: string
+        default: "high"
+    secrets:
+      snyk_token:
+        required: false
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Build image
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          docker build -f "${{ inputs.dockerfile }}" -t "${{ inputs.image_name }}" "${{ inputs.context }}"
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.image_name }}
+          format: table
+          severity: ${{ inputs.trivy_severity }}
+          ignore-unfixed: ${{ inputs.trivy_ignore_unfixed }}
+          exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
+
+      - name: Snyk scan
+        if: ${{ inputs.run_snyk }}
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk_token }}
+        with:
+          image: ${{ inputs.image_name }}
+          args: --severity-threshold=${{ inputs.snyk_severity_threshold }}

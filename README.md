@@ -4,9 +4,9 @@ Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
-- Reusable scan workflows for Trivy, NoseyParker, and WordPress plugin-check.
+- Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
 - Composite actions for semver comparison and release tag checks.
-- Composite actions for Trivy, NoseyParker, and WordPress plugin-check scans.
+- Composite actions for Trivy, Gitleaks, and WordPress plugin-check scans.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
 - Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
@@ -19,6 +19,7 @@ See detailed usage, inputs, and examples in:
 - [Presets](docs/presets.md)
 - [Composite actions](docs/actions.md)
 - [Examples](docs/examples.md)
+- [Usage guide](docs/usage.md)
 
 ## Quick Start
 
@@ -56,13 +57,23 @@ jobs:
 - `.github/workflows/ci.yml`: reusable CI workflow (lint/test/build/docker/extra)
 - `.github/workflows/pr-gate.yml`: reusable PR gate workflow with optional release tag checks
 - `.github/workflows/deploy.yml`: reusable deploy workflow
+- `.github/workflows/php-scan.yml`: reusable PHP scan workflow (unit, framework lint, WP-CLI scan)
+- `.github/workflows/python-scan.yml`: reusable Python scan workflow (unit + Django)
+- `.github/workflows/go-scan.yml`: reusable Go scan workflow (tests + gosec)
+- `.github/workflows/rust-scan.yml`: reusable Rust scan workflow (tests + audit)
+- `.github/workflows/java-scan.yml`: reusable Java scan workflow (tests + dependency check)
+- `.github/workflows/csharp-scan.yml`: reusable C# scan workflow (tests + vulnerable packages)
+- `.github/workflows/node-scan.yml`: reusable Node.js scan workflow (lint/test/audit)
+- `.github/workflows/react-scan.yml`: reusable React scan workflow (lint/test/build/audit)
+- `.github/workflows/vue-scan.yml`: reusable Vue scan workflow (lint/test/build/audit)
+- `.github/workflows/docker-scan.yml`: reusable Docker scan workflow (Trivy + Snyk)
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
-- `.github/workflows/noseyparker-scan.yml`: reusable NoseyParker scan workflow
+- `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
-- `.github/actions/noseyparker-scan`: composite action for NoseyParker scanning
+- `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
 - `scripts/`: bash utilities used by actions
 - `vendor/script-helpers`: vendored helper scripts from [`script-helpers`](https://github.com/nikolareljin/script-helpers) (sync via `scripts/sync_script_helpers.sh`)

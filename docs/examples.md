@@ -94,15 +94,102 @@ jobs:
       upload_artifact: true
 ```
 
-## NoseyParker scan
+## Gitleaks scan
 
 ```yaml
 jobs:
-  noseyparker:
-    uses: nikolareljin/ci-helpers/.github/workflows/noseyparker-scan.yml@v0.1.0
+  gitleaks:
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@v0.1.0
     with:
       scan_path: "."
       fail_on_findings: true
+```
+
+## PHP scan (unit + framework lint + WP-CLI)
+
+```yaml
+jobs:
+  php_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@v0.1.0
+    with:
+      php_version: "8.2"
+```
+
+## Docker scan (Trivy + Snyk)
+
+```yaml
+jobs:
+  docker_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@v0.1.0
+    with:
+      image_name: "app:ci"
+    secrets:
+      snyk_token: ${{ secrets.SNYK_TOKEN }}
+```
+
+## Composite actions (Gitleaks + Trivy)
+
+```yaml
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gitleaks scan
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@v0.1.0
+        with:
+          scan_path: "."
+          fail_on_findings: "true"
+      - name: Trivy scan
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@v0.1.0
+        with:
+          scan_path: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+          fail_on_findings: "true"
+          upload_sarif: "true"
+```
+
+## Release tag guard (PR)
+
+```yaml
+jobs:
+  release_guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Guard release tag
+        id: release_guard
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.0
+        with:
+          release_branch: ${{ github.head_ref }}
+          fetch_tags: true
+      - name: Use version
+        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+```
+
+## Release tag guard (release)
+
+```yaml
+jobs:
+  release_guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Guard release tag
+        id: release_guard
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@v0.1.0
+        with:
+          release_branch: ${{ github.ref_name }}
+          fetch_tags: true
+      - name: Use version
+        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
 ```
 
 ## WordPress plugin check + standalone PHPUnit

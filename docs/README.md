@@ -8,3 +8,4 @@ Start here:
 - [Presets](presets.md) for stack-specific and E2E presets (Node/React/Playwright/Cypress).
 - [Composite actions](actions.md) for semver compare, release tag guard, and scan helpers.
 - [Examples](examples.md) for common usage patterns (monorepos, E2E servers, Docker + E2E).
+- [Usage guide](usage.md) for consuming workflows and actions from other repos.

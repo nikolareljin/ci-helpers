@@ -163,35 +163,267 @@ jobs:
       upload_artifact: true
 ```
 
-## noseyparker-scan.yml
+## gitleaks-scan.yml
 
-Workflow: `.github/workflows/noseyparker-scan.yml`
+Workflow: `.github/workflows/gitleaks-scan.yml`
 
-Purpose: Run NoseyParker in Docker and emit a report.
+Purpose: Run Gitleaks and emit a report.
 
-Note: Requires Docker on the runner (use Ubuntu runners).
+Note: When findings are detected, the workflow prints Leak-Lock links for help
+removing leaked credentials.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `scan_path` (string, default `"."`)
-- `image` (string, default `ghcr.io/praetorian-inc/noseyparker:latest`)
-- `datastore_dir` (string, default `.noseyparker`)
 - `report_format` (string, default `json`)
-- `output` (string, default `noseyparker-report.json`)
+- `output` (string, default `gitleaks-report.json`)
+- `config_path` (string, default `""`)
 - `fail_on_findings` (boolean, default `false`)
 - `upload_artifact` (boolean, default `false`)
-- `artifact_name` (string, default `noseyparker-report`)
+- `artifact_name` (string, default `gitleaks-report`)
 
 Example:
 
 ```yaml
 jobs:
-  noseyparker:
-    uses: nikolareljin/ci-helpers/.github/workflows/noseyparker-scan.yml@v0.1.0
+  gitleaks:
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@v0.1.0
     with:
       scan_path: "."
       fail_on_findings: true
       upload_artifact: true
+```
+
+## php-scan.yml
+
+Workflow: `.github/workflows/php-scan.yml`
+
+Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content.
+
+Inputs (selected):
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `php_version` (string, default `8.2`)
+- `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
+- `unit_command` (string, default `vendor/bin/phpunit`)
+- `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`)
+- `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`)
+- `lint_laravel_command` (string, default `vendor/bin/pint`)
+- `wp_cli_scan` (boolean, default `true`)
+- `wp_root` (string, default `wp-cli-site`)
+
+Example:
+
+```yaml
+jobs:
+  php_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@v0.1.0
+```
+
+## python-scan.yml
+
+Workflow: `.github/workflows/python-scan.yml`
+
+Purpose: Run Python unit tests and Django tests.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `python_version` (string, default `3.12`)
+- `install_command` (string, default `python -m pip install -r requirements.txt`)
+- `unit_command` (string, default `python -m pytest`)
+- `django_command` (string, default `python manage.py test`)
+
+Example:
+
+```yaml
+jobs:
+  python_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@v0.1.0
+```
+
+## go-scan.yml
+
+Workflow: `.github/workflows/go-scan.yml`
+
+Purpose: Run Go tests and gosec scanning.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `go_version` (string, default `1.22`)
+- `test_command` (string, default `go test ./...`)
+- `gosec_args` (string, default `./...`)
+
+Example:
+
+```yaml
+jobs:
+  go_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@v0.1.0
+```
+
+## rust-scan.yml
+
+Workflow: `.github/workflows/rust-scan.yml`
+
+Purpose: Run Rust tests and cargo-audit.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `rust_toolchain` (string, default `stable`)
+- `test_command` (string, default `cargo test`)
+- `audit_command` (string, default `cargo audit`)
+
+Example:
+
+```yaml
+jobs:
+  rust_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@v0.1.0
+```
+
+## java-scan.yml
+
+Workflow: `.github/workflows/java-scan.yml`
+
+Purpose: Run Java tests and OWASP dependency checks.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `java_version` (string, default `17`)
+- `test_command` (string, default `mvn -B test`)
+- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:check`)
+
+Example:
+
+```yaml
+jobs:
+  java_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@v0.1.0
+```
+
+## csharp-scan.yml
+
+Workflow: `.github/workflows/csharp-scan.yml`
+
+Purpose: Run .NET tests and list vulnerable packages.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `dotnet_version` (string, default `8.0.x`)
+- `test_command` (string, default `dotnet test`)
+- `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
+
+Example:
+
+```yaml
+jobs:
+  csharp_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@v0.1.0
+```
+
+## node-scan.yml
+
+Workflow: `.github/workflows/node-scan.yml`
+
+Purpose: Run Node.js lint/test/audit and optional build.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `node_version` (string, default `20`)
+- `install_command` (string, default `npm ci`)
+- `lint_command` (string, default `npm run lint`)
+- `test_command` (string, default `npm test`)
+- `audit_command` (string, default `npm audit --audit-level=high`)
+- `build_command` (string, default `""`)
+
+Example:
+
+```yaml
+jobs:
+  node_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@v0.1.0
+```
+
+## react-scan.yml
+
+Workflow: `.github/workflows/react-scan.yml`
+
+Purpose: Run React lint/test/build with npm audit.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `node_version` (string, default `20`)
+- `install_command` (string, default `npm ci`)
+- `lint_command` (string, default `npm run lint`)
+- `test_command` (string, default `npm test -- --watchAll=false`)
+- `audit_command` (string, default `npm audit --audit-level=high`)
+- `build_command` (string, default `npm run build`)
+
+Example:
+
+```yaml
+jobs:
+  react_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@v0.1.0
+```
+
+## vue-scan.yml
+
+Workflow: `.github/workflows/vue-scan.yml`
+
+Purpose: Run Vue lint/test/build with npm audit.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `node_version` (string, default `20`)
+- `install_command` (string, default `npm ci`)
+- `lint_command` (string, default `npm run lint`)
+- `test_command` (string, default `npm test`)
+- `audit_command` (string, default `npm audit --audit-level=high`)
+- `build_command` (string, default `npm run build`)
+
+Example:
+
+```yaml
+jobs:
+  vue_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@v0.1.0
+```
+
+## docker-scan.yml
+
+Workflow: `.github/workflows/docker-scan.yml`
+
+Purpose: Build a Docker image and scan with Trivy and Snyk.
+
+Note: Snyk requires a `SNYK_TOKEN` secret.
+
+Inputs (selected):
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `image_name` (string, default `ci-image:latest`)
+- `dockerfile` (string, default `Dockerfile`)
+- `context` (string, default `"."`)
+- `trivy_severity` (string, default `CRITICAL,HIGH`)
+- `fail_on_findings` (boolean, default `true`)
+- `run_snyk` (boolean, default `true`)
+
+Example:
+
+```yaml
+jobs:
+  docker_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@v0.1.0
+    secrets:
+      snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
 ## wp-plugin-check.yml

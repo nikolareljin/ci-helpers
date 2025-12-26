@@ -1,0 +1,32 @@
+name: gitleaks-check
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "0 5 * * 6"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Gitleaks scan
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: "."
+          report_format: json
+          output: gitleaks-report.json
+          fail_on_findings: true
+
+      - name: Upload artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: warn
