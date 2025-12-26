@@ -105,6 +105,8 @@ Inputs:
 - `output` (default `results.sarif`)
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"false"`)
+- `upload_artifact` (default `"false"`)
+- `artifact_name` (default `gitleaks-report`)
 
 Note: `gitleaks-action` emits SARIF only; other `report_format` values are ignored, and `scan_path`/`config_path` are not honored (it auto-detects `.gitleaks.toml`).
 
@@ -116,6 +118,7 @@ Example:
   with:
     scan_path: "."
     fail_on_findings: "true"
+    upload_artifact: "true"
 ```
 
 ## wp-plugin-check

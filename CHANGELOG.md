@@ -9,6 +9,7 @@
 ### Changed
 - Moved preset workflows to the top-level `.github/workflows/` directory to satisfy reusable workflow requirements.
 - Updated the Gitleaks composite action defaults to SARIF (`results.sarif`) to match `gitleaks-action` output and avoid missing report files.
+- Added optional artifact upload support to the Gitleaks composite action and updated docs/examples.
 - Standardized script headers and help output for all scripts in `scripts/`.
 
 ### Added

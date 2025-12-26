@@ -99,10 +99,15 @@ jobs:
 ```yaml
 jobs:
   gitleaks:
-    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.1
-    with:
-      scan_path: "."
-      fail_on_findings: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run gitleaks scan
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.1
+        with:
+          scan_path: "."
+          fail_on_findings: "true"
+          upload_artifact: "true"
 ```
 
 ## PHP scan (unit + framework lint + WP-CLI)
@@ -140,6 +145,7 @@ jobs:
         with:
           scan_path: "."
           fail_on_findings: "true"
+          upload_artifact: "true"
       - name: Trivy scan
         uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.1
         with:
