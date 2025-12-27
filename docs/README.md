@@ -3,7 +3,7 @@
 This directory contains detailed guidance for using and extending the reusable
 workflows and composite actions in this repository.
 
-Current production tag: 0.1.1 (from VERSION).
+Current production tag: 0.1.2 (from VERSION).
 
 Start here:
 - [Reusable workflows](workflows.md) for CI/PR gate/deploy/scan workflow inputs, ordering, and examples.

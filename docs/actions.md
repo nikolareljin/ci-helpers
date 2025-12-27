@@ -24,7 +24,7 @@ Example:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.2
   with:
     version_a: "1.2.3"
     version_b: "1.4.0"
@@ -37,7 +37,7 @@ Example:
 
 Path: `.github/actions/check-release-tag`
 
-Purpose: Fail if a `release/X.Y.Z` branch already has a tag.
+Purpose: Fail if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch already has a tag.
 
 Inputs:
 - `release_branch` (optional, defaults to `GITHUB_HEAD_REF`/`GITHUB_REF_NAME`)
@@ -45,14 +45,14 @@ Inputs:
 - `fetch_tags` (optional, default `"true"`)
 
 Outputs:
-- `version` (parsed from the release branch, e.g. `1.2.3`)
+- `version` (parsed from the release branch, e.g. `1.2.3` or `1.2.3-rc.1`)
 
 Example:
 
 ```yaml
 - name: Guard release tag
   id: release_guard
-  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
   with:
     release_branch: ${{ github.head_ref }}
     fetch_tags: true
@@ -62,7 +62,7 @@ Example:
 ```
 
 Notes:
-- The guard expects branch naming `release/X.Y.Z`.
+- The guard expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
 
 ## trivy-scan
 
@@ -84,7 +84,7 @@ Example:
 
 ```yaml
 - name: Trivy scan
-  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.2
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -114,7 +114,7 @@ Example:
 
 ```yaml
 - name: Gitleaks scan
-  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -145,7 +145,7 @@ Example:
 
 ```yaml
 - name: Plugin check
-  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.2
   with:
     plugin_slug: my-plugin
     plugin_src_env: MY_PLUGIN_SRC

@@ -2,7 +2,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.1.1 (from VERSION).
+Current production tag: 0.1.2 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -36,7 +36,7 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -48,7 +48,7 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.2
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
@@ -73,6 +73,7 @@ jobs:
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches
+- `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
@@ -94,7 +95,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"
@@ -115,7 +116,7 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       python_version: "3.12"
       test_command: "pip install -r requirements.txt && pytest"
@@ -129,7 +130,7 @@ Node.js:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -139,7 +140,7 @@ React:
 ```yaml
 jobs:
   react:
-    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.1.2
     with:
       node_version: "20"
       test_command: "npm test -- --watchAll=false"
@@ -151,7 +152,7 @@ Playwright:
 ```yaml
 jobs:
   playwright:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -161,7 +162,7 @@ Cypress:
 ```yaml
 jobs:
   cypress:
-    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -171,7 +172,7 @@ Python:
 ```yaml
 jobs:
   python:
-    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.2
     with:
       python_version: "3.12"
       lint_command: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check ."
@@ -183,7 +184,7 @@ PHP:
 ```yaml
 jobs:
   php:
-    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.2
     with:
       php_version: "8.2"
       lint_command: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
@@ -195,7 +196,7 @@ Go:
 ```yaml
 jobs:
   go:
-    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.1.2
     with:
       go_version: "1.22"
       test_command: "go test ./..."
@@ -207,7 +208,7 @@ Java (Maven defaults):
 ```yaml
 jobs:
   java:
-    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.1.2
     with:
       java_version: "17"
       test_command: "mvn -B test"
@@ -219,7 +220,7 @@ C# (.NET):
 ```yaml
 jobs:
   csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.1.2
     with:
       dotnet_version: "8.0.x"
       test_command: "dotnet test"
@@ -231,7 +232,7 @@ Docker:
 ```yaml
 jobs:
   docker:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.1.2
     with:
       docker_command: "docker build ."
 ```
@@ -250,7 +251,7 @@ on:
 
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.2
     with:
       deploy_command: "./scripts/deploy.sh"
 ```
@@ -262,7 +263,7 @@ Semver compare:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.2
   with:
     version_a: "1.2.3"
     version_b: "1.3.0"
@@ -271,11 +272,11 @@ Semver compare:
   run: echo "Result: ${{ steps.semver.outputs.result }}"  # lt, eq, or gt
 ```
 
-Release tag guard (release/X.Y.Z):
+Release tag guard (release/X.Y.Z or release/X.Y.Z-rcN):
 
 ```yaml
 - name: Guard release tag
-  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.1
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
   with:
     release_branch: ${{ github.head_ref }}
 ```
@@ -283,7 +284,39 @@ Release tag guard (release/X.Y.Z):
 ## Notes
 
 - The PR gate only blocks if your branch protection requires its status checks.
-- `check-release-tag` expects branch naming `release/X.Y.Z`.
+- `check-release-tag` expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
+
+## Release tagging in external repos
+
+Recommended setup:
+- Add a PR gate that blocks merges if the release tag already exists.
+- Require that gate in your branch protection rules.
+- Add an auto-tag workflow on your default branch; it fails if the tag already exists.
+
+PR gate workflow:
+
+```yaml
+name: Release Tag Gate
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+```
+
+Auto-tag workflow:
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+```
 - Update vendored `script-helpers` with:
   - `./scripts/sync_script_helpers.sh`
   - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
@@ -301,13 +334,13 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.2
 ```
 
 2) Pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
+uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.2
 ```
 
 3) Add/override commands and versions as needed:
@@ -315,7 +348,7 @@ uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"

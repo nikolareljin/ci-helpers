@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -38,7 +38,7 @@ on:
 
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.2
     with:
       php_version: "8.2"
 ```
@@ -53,7 +53,7 @@ on:
 
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.2
     with:
       python_version: "3.12"
 ```
@@ -68,7 +68,7 @@ on:
 
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.2
     with:
       go_version: "1.22"
 ```
@@ -83,7 +83,7 @@ on:
 
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.2
 ```
 
 Java scan (tests + dependency check):
@@ -96,7 +96,7 @@ on:
 
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.2
     with:
       java_version: "17"
 ```
@@ -111,7 +111,7 @@ on:
 
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.2
     with:
       dotnet_version: "8.0.x"
 ```
@@ -126,7 +126,7 @@ on:
 
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -141,7 +141,7 @@ on:
 
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -156,7 +156,7 @@ on:
 
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -171,7 +171,7 @@ on:
 
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.2
     with:
       image_name: "app:ci"
     secrets:
@@ -196,7 +196,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy scan
-        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.2
         with:
           scan_path: "."
           format: "sarif"
@@ -240,7 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Plugin check
-        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.2
         with:
           plugin_slug: my-plugin
           plugin_src_env: MY_PLUGIN_SRC
@@ -266,7 +266,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compare versions
         id: semver
-        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.2
         with:
           version_a: "1.2.3"
           version_b: "1.4.0"
@@ -292,7 +292,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
         with:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
@@ -318,10 +318,64 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.1
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
         with:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
       - name: Use version
         run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+```
+
+Release tag gate (reusable workflow):
+
+```yaml
+name: Release Tag Gate
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+```
+
+Auto tag release (reusable workflow):
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+```
+
+Release tagging in external repos (recommended setup):
+
+1) Add the PR gate to block merges when the tag already exists.
+2) Require the gate in branch protection for your default branch.
+3) Add the auto-tag workflow on the default branch; it fails if the tag already exists.
+
+Minimal setup:
+
+```yaml
+name: Release Tag Gate
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+```
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
 ```

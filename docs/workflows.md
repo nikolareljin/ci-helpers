@@ -47,7 +47,7 @@ Example (Node + E2E with Playwright):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -61,7 +61,7 @@ Example (Docker build + E2E):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."
@@ -93,7 +93,7 @@ Example (PR gate with release tag check + E2E):
 ```yaml
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -126,7 +126,7 @@ Example:
 ```yaml
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.2
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
@@ -156,7 +156,7 @@ Example:
 ```yaml
 jobs:
   trivy:
-    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.1.2
     with:
       scan_path: "."
       fail_on_findings: true
@@ -189,7 +189,7 @@ Example:
 ```yaml
 jobs:
   gitleaks:
-    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.2
     with:
       scan_path: "."
       fail_on_findings: true
@@ -219,7 +219,7 @@ Example:
 ```yaml
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.2
 ```
 
 ## python-scan.yml
@@ -242,7 +242,7 @@ Example:
 ```yaml
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.2
 ```
 
 ## go-scan.yml
@@ -264,7 +264,7 @@ Example:
 ```yaml
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.2
 ```
 
 ## rust-scan.yml
@@ -287,7 +287,7 @@ Example:
 ```yaml
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.2
 ```
 
 ## java-scan.yml
@@ -309,7 +309,7 @@ Example:
 ```yaml
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.2
 ```
 
 ## csharp-scan.yml
@@ -331,7 +331,7 @@ Example:
 ```yaml
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.2
 ```
 
 ## node-scan.yml
@@ -355,7 +355,7 @@ Example:
 ```yaml
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.2
 ```
 
 ## react-scan.yml
@@ -379,7 +379,7 @@ Example:
 ```yaml
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.2
 ```
 
 ## vue-scan.yml
@@ -403,7 +403,7 @@ Example:
 ```yaml
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.2
 ```
 
 ## docker-scan.yml
@@ -429,7 +429,7 @@ Example:
 ```yaml
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.2
     secrets:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
@@ -438,11 +438,16 @@ jobs:
 
 Workflow: `.github/workflows/auto-tag-release.yml`
 
-Purpose: Auto-tag releases when a `release/X.Y.Z` PR is merged into `main` or `master`.
+Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/X.Y.Z-rcN` PR is merged into the default branch.
 
 Notes:
-- Runs on pushes to `main` or `master` and detects the merged PR for squash/merge commits.
-- Checks if the tag already exists before creating and pushing it.
+- Detects the repo default branch; falls back to `main` if missing.
+- Fails the workflow if the tag already exists (prevents merge from appearing successful).
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `fetch_depth` (number, default `0`)
+- `default_branch` (string, default `""`, uses repo default)
 
 Example:
 
@@ -454,7 +459,32 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+```
+
+## release-tag-gate.yml
+
+Workflow: `.github/workflows/release-tag-gate.yml`
+
+Purpose: Block PRs if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch targets the default branch and the tag already exists.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `fetch_depth` (number, default `0`)
+- `release_branch` (string, default `""`, uses PR head/ref)
+- `base_branch` (string, default `""`, uses PR base)
+- `default_branch` (string, default `""`, uses repo default)
+
+Example:
+
+```yaml
+name: Release Tag Gate
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
 ```
 
 ## wp-plugin-check.yml
@@ -485,7 +515,7 @@ Example:
 ```yaml
 jobs:
   plugin-check:
-    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.1.2
     with:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
@@ -502,7 +532,7 @@ jobs:
 You should pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
 ```
 
 Using a commit SHA is safest for reproducibility:
