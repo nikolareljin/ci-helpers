@@ -14,6 +14,9 @@ on:
       java_version:
         type: string
         default: "17"
+      lint_command:
+        type: string
+        default: "mvn -B -DskipTests checkstyle:check"
       test_command:
         type: string
         default: "mvn -B test"
@@ -35,6 +38,14 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+
+      - name: Java lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: Java tests
         if: ${{ inputs.test_command != '' }}

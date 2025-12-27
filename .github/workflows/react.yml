@@ -19,7 +19,7 @@ on:
         default: "npm ci && npm run lint"
       test_command:
         type: string
-        default: "npm test -- --watchAll=false"
+        default: "npm ci && npm test -- --watchAll=false"
       build_command:
         type: string
         default: "npm run build"

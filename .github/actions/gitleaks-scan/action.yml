@@ -21,6 +21,14 @@ inputs:
     description: Fail when findings are detected.
     default: "false"
     required: false
+  upload_artifact:
+    description: Upload the report as an artifact.
+    default: "false"
+    required: false
+  artifact_name:
+    description: Artifact name when uploading the report.
+    default: gitleaks-report
+    required: false
 runs:
   using: composite
   steps:
@@ -109,3 +117,10 @@ runs:
         else:
             print("No Gitleaks findings detected.")
         PY
+    - name: Upload artifact
+      if: ${{ inputs.upload_artifact == 'true' && always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.output }}
+        if-no-files-found: warn
