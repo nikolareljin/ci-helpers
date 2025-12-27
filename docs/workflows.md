@@ -226,7 +226,7 @@ jobs:
 
 Workflow: `.github/workflows/python-scan.yml`
 
-Purpose: Run Python lint, unit tests, and Django tests.
+Purpose: Run Python lint, unit tests, and Django tests when a Django project is detected.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -235,7 +235,7 @@ Inputs:
 - `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
-- `django_command` (string, default `python manage.py test`)
+- `django_command` (string, default `python manage.py test`, only runs when Django is detected)
 
 Example:
 

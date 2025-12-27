@@ -41,6 +41,31 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Detect Django project
+        id: detect_django
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          is_django=false
+          if [ -f manage.py ]; then
+            is_django=true
+          fi
+          if [ "$is_django" = "false" ] && [ -f pyproject.toml ]; then
+            if grep -qiE '(^|[[:space:]"'"'"'=<>!~])django([[:space:]"'"'"'=<>!~]|$)' pyproject.toml; then
+              is_django=true
+            fi
+          fi
+          if [ "$is_django" = "false" ]; then
+            for req_file in requirements.txt requirements-dev.txt requirements-dev.in requirements.in; do
+              if [ -f "$req_file" ] && grep -qiE '(^|[[:space:]"'"'"'=<>!~])django([[:space:]"'"'"'=<>!~]|$)' "$req_file"; then
+                is_django=true
+                break
+              fi
+            done
+          fi
+          echo "is_django=$is_django" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         if: ${{ inputs.install_command != '' }}
         shell: bash
@@ -66,7 +91,7 @@ jobs:
           ${{ inputs.unit_command }}
 
       - name: Django tests
-        if: ${{ inputs.django_command != '' }}
+        if: ${{ inputs.django_command != '' && steps.detect_django.outputs.is_django == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |

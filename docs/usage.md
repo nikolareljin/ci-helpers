@@ -43,7 +43,7 @@ jobs:
       php_version: "8.2"
 ```
 
-Python scan (unit + Django):
+Python scan (unit + Django when detected):
 
 ```yaml
 name: Python Scan
