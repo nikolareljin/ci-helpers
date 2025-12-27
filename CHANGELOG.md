@@ -1,5 +1,19 @@
 # Changelog
 
+## 2025-12-27 (0.1.2)
+
+### Added
+- Added lint defaults across language presets and scan workflows (Python, C#, Java, Go, Rust, PHP, Node, React).
+- Added release tag PR gate workflow and an auto-tag push wrapper for repo-local usage.
+- Documented release tag gate + auto-tag setup for external repos.
+
+### Changed
+- Python defaults now install pytest before running tests and support pyproject-only installs (with pyinstaller).
+- Node/React/C#/Go/Rust defaults now fetch dependencies before running tests.
+- Auto-tag release workflow is now reusable, default-branch aware, and hard-fails if the tag already exists.
+- Release branch tag guard now accepts `release/X.Y.Z-rcN` branches.
+- Updated docs and references to version 0.1.2.
+
 ## 2025-12-26
 
 ### Added
