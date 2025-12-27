@@ -234,7 +234,7 @@ Inputs:
 - `python_version` (string, default `3.12`)
 - `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
-- `unit_command` (string, default `python -m pytest`)
+- `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
 - `django_command` (string, default `python manage.py test`)
 
 Example:
@@ -256,7 +256,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `go_version` (string, default `1.22`)
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
-- `test_command` (string, default `go test ./...`)
+- `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
 
 Example:
@@ -279,7 +279,7 @@ Inputs:
 - `rust_toolchain` (string, default `stable`)
 - `rust_components` (string, default `rustfmt, clippy`)
 - `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
-- `test_command` (string, default `cargo test`)
+- `test_command` (string, default `cargo fetch && cargo test`)
 - `audit_command` (string, default `cargo audit`)
 
 Example:
@@ -323,7 +323,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `dotnet_version` (string, default `8.0.x`)
 - `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
-- `test_command` (string, default `dotnet test`)
+- `test_command` (string, default `dotnet restore && dotnet test`)
 - `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
 
 Example:

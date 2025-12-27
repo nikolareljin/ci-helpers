@@ -18,7 +18,7 @@ Workflow: `.github/workflows/node.yml`
 Defaults:
 - `node_version`: `20`
 - `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm test`
+- `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
 
 Example:
@@ -38,7 +38,7 @@ Workflow: `.github/workflows/react.yml`
 Defaults:
 - `node_version`: `20`
 - `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm test -- --watchAll=false`
+- `test_command`: `npm ci && npm test -- --watchAll=false`
 - `build_command`: `npm run build`
 
 Example:
@@ -58,7 +58,7 @@ Workflow: `.github/workflows/python.yml`
 Defaults:
 - `python_version`: `3.12`
 - `lint_command`: `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check .`
-- `test_command`: `python -m pytest`
+- `test_command`: `python -m pip install pytest && python -m pytest`
 
 Example:
 
@@ -96,7 +96,7 @@ Workflow: `.github/workflows/go.yml`
 Defaults:
 - `go_version`: `1.22`
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
-- `test_command`: `go test ./...`
+- `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
 
 Example:
@@ -136,8 +136,8 @@ Workflow: `.github/workflows/csharp.yml`
 Defaults:
 - `dotnet_version`: `8.0.x`
 - `lint_command`: `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`
-- `test_command`: `dotnet test`
-- `build_command`: `dotnet build -c Release`
+- `test_command`: `dotnet restore && dotnet test`
+- `build_command`: `dotnet restore && dotnet build -c Release`
 
 Example:
 

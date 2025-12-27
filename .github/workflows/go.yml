@@ -19,7 +19,7 @@ on:
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
       test_command:
         type: string
-        default: "go test ./..."
+        default: "go mod download && go test ./..."
       build_command:
         type: string
         default: "go build ./..."

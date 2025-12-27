@@ -22,7 +22,7 @@ on:
         default: "python -m pip install ruff && ruff check ."
       unit_command:
         type: string
-        default: "python -m pytest"
+        default: "python -m pip install pytest && python -m pytest"
       django_command:
         type: string
         default: "python manage.py test"

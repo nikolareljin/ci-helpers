@@ -19,10 +19,10 @@ on:
         default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
       test_command:
         type: string
-        default: "dotnet test"
+        default: "dotnet restore && dotnet test"
       build_command:
         type: string
-        default: "dotnet build -c Release"
+        default: "dotnet restore && dotnet build -c Release"
       e2e_command:
         type: string
         default: ""

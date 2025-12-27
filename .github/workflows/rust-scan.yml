@@ -22,7 +22,7 @@ on:
         default: "cargo fmt -- --check && cargo clippy -- -D warnings"
       test_command:
         type: string
-        default: "cargo test"
+        default: "cargo fetch && cargo test"
       audit_command:
         type: string
         default: "cargo audit"
