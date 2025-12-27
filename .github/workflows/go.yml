@@ -16,7 +16,7 @@ on:
         default: "1.22"
       lint_command:
         type: string
-        default: ""
+        default: 'test -z "$(gofmt -l .)" && go vet ./...'
       test_command:
         type: string
         default: "go test ./..."

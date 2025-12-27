@@ -16,7 +16,7 @@ on:
         default: "8.2"
       lint_command:
         type: string
-        default: "composer install --no-interaction --prefer-dist"
+        default: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
       test_command:
         type: string
         default: "vendor/bin/phpunit"

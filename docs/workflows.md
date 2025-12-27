@@ -226,13 +226,14 @@ jobs:
 
 Workflow: `.github/workflows/python-scan.yml`
 
-Purpose: Run Python unit tests and Django tests.
+Purpose: Run Python lint, unit tests, and Django tests.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `python_version` (string, default `3.12`)
 - `install_command` (string, default `python -m pip install -r requirements.txt`)
+- `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pytest`)
 - `django_command` (string, default `python manage.py test`)
 
@@ -248,12 +249,13 @@ jobs:
 
 Workflow: `.github/workflows/go-scan.yml`
 
-Purpose: Run Go tests and gosec scanning.
+Purpose: Run Go lint, tests, and gosec scanning.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `go_version` (string, default `1.22`)
+- `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
 - `test_command` (string, default `go test ./...`)
 - `gosec_args` (string, default `./...`)
 
@@ -269,12 +271,14 @@ jobs:
 
 Workflow: `.github/workflows/rust-scan.yml`
 
-Purpose: Run Rust tests and cargo-audit.
+Purpose: Run Rust lint, tests, and cargo-audit.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `rust_toolchain` (string, default `stable`)
+- `rust_components` (string, default `rustfmt, clippy`)
+- `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
 - `test_command` (string, default `cargo test`)
 - `audit_command` (string, default `cargo audit`)
 
@@ -290,12 +294,13 @@ jobs:
 
 Workflow: `.github/workflows/java-scan.yml`
 
-Purpose: Run Java tests and OWASP dependency checks.
+Purpose: Run Java lint, tests, and OWASP dependency checks.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `java_version` (string, default `17`)
+- `lint_command` (string, default `mvn -B -DskipTests checkstyle:check`)
 - `test_command` (string, default `mvn -B test`)
 - `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:check`)
 
@@ -311,12 +316,13 @@ jobs:
 
 Workflow: `.github/workflows/csharp-scan.yml`
 
-Purpose: Run .NET tests and list vulnerable packages.
+Purpose: Run .NET lint, tests, and list vulnerable packages.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `dotnet_version` (string, default `8.0.x`)
+- `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
 - `test_command` (string, default `dotnet test`)
 - `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
 

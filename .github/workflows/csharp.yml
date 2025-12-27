@@ -16,7 +16,7 @@ on:
         default: "8.0.x"
       lint_command:
         type: string
-        default: "dotnet restore"
+        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
       test_command:
         type: string
         default: "dotnet test"

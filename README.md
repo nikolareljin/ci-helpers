@@ -60,11 +60,11 @@ jobs:
 - `.github/workflows/pr-gate.yml`: reusable PR gate workflow with optional release tag checks
 - `.github/workflows/deploy.yml`: reusable deploy workflow
 - `.github/workflows/php-scan.yml`: reusable PHP scan workflow (unit, framework lint, WP-CLI scan)
-- `.github/workflows/python-scan.yml`: reusable Python scan workflow (unit + Django)
-- `.github/workflows/go-scan.yml`: reusable Go scan workflow (tests + gosec)
-- `.github/workflows/rust-scan.yml`: reusable Rust scan workflow (tests + audit)
-- `.github/workflows/java-scan.yml`: reusable Java scan workflow (tests + dependency check)
-- `.github/workflows/csharp-scan.yml`: reusable C# scan workflow (tests + vulnerable packages)
+- `.github/workflows/python-scan.yml`: reusable Python scan workflow (lint + unit + Django)
+- `.github/workflows/go-scan.yml`: reusable Go scan workflow (lint + tests + gosec)
+- `.github/workflows/rust-scan.yml`: reusable Rust scan workflow (lint + tests + audit)
+- `.github/workflows/java-scan.yml`: reusable Java scan workflow (lint + tests + dependency check)
+- `.github/workflows/csharp-scan.yml`: reusable C# scan workflow (lint + tests + vulnerable packages)
 - `.github/workflows/node-scan.yml`: reusable Node.js scan workflow (lint/test/audit)
 - `.github/workflows/react-scan.yml`: reusable React scan workflow (lint/test/build/audit)
 - `.github/workflows/vue-scan.yml`: reusable Vue scan workflow (lint/test/build/audit)
@@ -174,7 +174,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
     with:
       python_version: "3.12"
-      lint_command: "python -m pip install -r requirements.txt"
+      lint_command: "python -m pip install -r requirements.txt && python -m pip install ruff && ruff check ."
       test_command: "python -m pytest"
 ```
 
@@ -186,7 +186,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.1
     with:
       php_version: "8.2"
-      lint_command: "composer install --no-interaction --prefer-dist"
+      lint_command: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
       test_command: "vendor/bin/phpunit"
 ```
 

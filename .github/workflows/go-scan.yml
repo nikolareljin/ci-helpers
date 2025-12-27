@@ -14,6 +14,9 @@ on:
       go_version:
         type: string
         default: "1.22"
+      lint_command:
+        type: string
+        default: 'test -z "$(gofmt -l .)" && go vet ./...'
       test_command:
         type: string
         default: "go test ./..."
@@ -34,6 +37,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Go lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: Go tests
         if: ${{ inputs.test_command != '' }}

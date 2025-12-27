@@ -17,6 +17,9 @@ on:
       install_command:
         type: string
         default: "python -m pip install -r requirements.txt"
+      lint_command:
+        type: string
+        default: "python -m pip install ruff && ruff check ."
       unit_command:
         type: string
         default: "python -m pytest"
@@ -45,6 +48,14 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.install_command }}
+
+      - name: Python lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: Python unit tests
         if: ${{ inputs.unit_command != '' }}

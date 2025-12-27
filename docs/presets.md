@@ -57,7 +57,7 @@ Workflow: `.github/workflows/python.yml`
 
 Defaults:
 - `python_version`: `3.12`
-- `lint_command`: `python -m pip install -r requirements.txt`
+- `lint_command`: `python -m pip install -r requirements.txt && python -m pip install ruff && ruff check .`
 - `test_command`: `python -m pytest`
 
 Example:
@@ -76,7 +76,7 @@ Workflow: `.github/workflows/php.yml`
 
 Defaults:
 - `php_version`: `8.2`
-- `lint_command`: `composer install --no-interaction --prefer-dist`
+- `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
 Example:
@@ -95,6 +95,7 @@ Workflow: `.github/workflows/go.yml`
 
 Defaults:
 - `go_version`: `1.22`
+- `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: `go test ./...`
 - `build_command`: `go build ./...`
 
@@ -114,6 +115,7 @@ Workflow: `.github/workflows/java.yml`
 
 Defaults:
 - `java_version`: `17`
+- `lint_command`: `mvn -B -DskipTests checkstyle:check`
 - `test_command`: `mvn -B test`
 - `build_command`: `mvn -B package`
 
@@ -133,6 +135,7 @@ Workflow: `.github/workflows/csharp.yml`
 
 Defaults:
 - `dotnet_version`: `8.0.x`
+- `lint_command`: `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`
 - `test_command`: `dotnet test`
 - `build_command`: `dotnet build -c Release`
 

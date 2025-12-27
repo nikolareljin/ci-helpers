@@ -14,6 +14,12 @@ on:
       rust_toolchain:
         type: string
         default: "stable"
+      rust_components:
+        type: string
+        default: "rustfmt, clippy"
+      lint_command:
+        type: string
+        default: "cargo fmt -- --check && cargo clippy -- -D warnings"
       test_command:
         type: string
         default: "cargo test"
@@ -34,6 +40,15 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ inputs.rust_toolchain }}
+          components: ${{ inputs.rust_components }}
+
+      - name: Rust lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: Rust tests
         if: ${{ inputs.test_command != '' }}
