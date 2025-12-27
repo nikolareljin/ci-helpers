@@ -232,7 +232,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `python_version` (string, default `3.12`)
-- `install_command` (string, default `python -m pip install -r requirements.txt`)
+- `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pytest`)
 - `django_command` (string, default `python manage.py test`)

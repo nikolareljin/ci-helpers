@@ -16,7 +16,7 @@ on:
         default: "3.12"
       install_command:
         type: string
-        default: "python -m pip install -r requirements.txt"
+        default: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi"
       lint_command:
         type: string
         default: "python -m pip install ruff && ruff check ."

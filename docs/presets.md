@@ -57,7 +57,7 @@ Workflow: `.github/workflows/python.yml`
 
 Defaults:
 - `python_version`: `3.12`
-- `lint_command`: `python -m pip install -r requirements.txt && python -m pip install ruff && ruff check .`
+- `lint_command`: `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check .`
 - `test_command`: `python -m pytest`
 
 Example:
