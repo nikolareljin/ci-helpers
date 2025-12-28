@@ -1,21 +1,38 @@
 name: auto-tag-release
 on:
-  push:
-    branches:
-      - main
-      - master
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      fetch_depth:
+        type: number
+        default: 0
+      default_branch:
+        type: string
+        default: ""
 
 permissions:
   contents: write
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+
+      - name: Resolve default branch
+        id: defaults
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const input = core.getInput("default_branch");
+            const payloadDefault = context.payload?.repository?.default_branch || "";
+            const branch = input || payloadDefault || "main";
+            core.setOutput("default_branch", branch);
 
       - name: Detect release version
         id: release
@@ -24,6 +41,7 @@ jobs:
           script: |
             const sha = context.sha;
             const { owner, repo } = context.repo;
+            const defaultBranch = "${{ steps.defaults.outputs.default_branch }}";
             const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner,
               repo,
@@ -31,7 +49,7 @@ jobs:
             });
 
             const merged = prs.data.find(
-              (pr) => pr.merged_at && ["main", "master"].includes(pr.base.ref)
+              (pr) => pr.merged_at && pr.base.ref === defaultBranch
             );
             if (!merged) {
               core.info("No merged PR associated with the latest commit.");
@@ -39,7 +57,7 @@ jobs:
               return;
             }
 
-            const match = merged.head.ref.match(/^release\/v?(\d+\.\d+\.\d+)$/);
+            const match = merged.head.ref.match(/^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/);
             if (!match) {
               core.info("Merged PR is not a release/* branch.");
               core.setOutput("version", "");
@@ -55,8 +73,8 @@ jobs:
           set -euo pipefail
           version="${{ steps.release.outputs.version }}"
           if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
-            echo "Tag $version already exists, skipping."
-            exit 0
+            echo "Tag $version already exists."
+            exit 1
           fi
 
       - name: Create and push tag
