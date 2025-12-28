@@ -28,7 +28,7 @@ jobs:
           upload_artifact: "true"
 ```
 
-PHP scan (unit + framework lint + WP-CLI):
+PHP scan (unit + framework lint + WP-CLI when detected):
 
 ```yaml
 name: PHP Scan

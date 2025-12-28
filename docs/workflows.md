@@ -200,7 +200,7 @@ jobs:
 
 Workflow: `.github/workflows/php-scan.yml`
 
-Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content.
+Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content when detected.
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
@@ -208,10 +208,10 @@ Inputs (selected):
 - `php_version` (string, default `8.2`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
 - `unit_command` (string, default `vendor/bin/phpunit`)
-- `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`)
-- `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`)
+- `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
+- `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
 - `lint_laravel_command` (string, default `vendor/bin/pint`)
-- `wp_cli_scan` (boolean, default `true`)
+- `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
 - `wp_root` (string, default `wp-cli-site`)
 
 Example:
