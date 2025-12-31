@@ -14,9 +14,12 @@ on:
       dotnet_version:
         type: string
         default: "8.0.x"
+      lint_command:
+        type: string
+        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
       test_command:
         type: string
-        default: "dotnet test"
+        default: "dotnet restore && dotnet test"
       vuln_command:
         type: string
         default: "dotnet list package --vulnerable --include-transitive"
@@ -34,6 +37,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: .NET lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: .NET tests
         if: ${{ inputs.test_command != '' }}

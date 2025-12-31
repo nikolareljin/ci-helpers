@@ -1,0 +1,10 @@
+name: auto-tag-release-push
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  tag:
+    uses: ./.github/workflows/auto-tag-release.yml

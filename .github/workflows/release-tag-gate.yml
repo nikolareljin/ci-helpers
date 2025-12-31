@@ -1,0 +1,82 @@
+name: release-tag-gate
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      fetch_depth:
+        type: number
+        default: 0
+      release_branch:
+        type: string
+        default: ""
+      base_branch:
+        type: string
+        default: ""
+      default_branch:
+        type: string
+        default: ""
+
+jobs:
+  gate:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Resolve branches
+        id: branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const inputDefault = core.getInput("default_branch");
+            const payloadDefault = context.payload?.repository?.default_branch || "";
+            const defaultBranch = inputDefault || payloadDefault || "main";
+
+            const inputBase = core.getInput("base_branch");
+            const payloadBase = context.payload?.pull_request?.base?.ref || "";
+            const baseBranch = inputBase || payloadBase;
+
+            const inputRelease = core.getInput("release_branch");
+            const payloadRelease = context.payload?.pull_request?.head?.ref || "";
+            const releaseBranch = inputRelease || payloadRelease || context.ref_name || "";
+
+            core.setOutput("default_branch", defaultBranch);
+            core.setOutput("base_branch", baseBranch);
+            core.setOutput("release_branch", releaseBranch);
+
+      - name: Decide whether to check release tag
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="${{ steps.branches.outputs.default_branch }}"
+          base_branch="${{ steps.branches.outputs.base_branch }}"
+          release_branch="${{ steps.branches.outputs.release_branch }}"
+          if [[ -z "$base_branch" ]]; then
+            echo "Base branch is missing; skipping release tag check."
+            echo "run_check=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$base_branch" != "$default_branch" ]]; then
+            echo "Base branch '$base_branch' does not match default '$default_branch'; skipping."
+            echo "run_check=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$release_branch" =~ ^release\/v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?$ ]]; then
+            echo "Branch '$release_branch' is not a release branch; skipping."
+            echo "run_check=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run_check=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check release tag availability
+        if: ${{ steps.gate.outputs.run_check == 'true' }}
+        uses: ./.github/actions/check-release-tag
+        with:
+          release_branch: ${{ steps.branches.outputs.release_branch }}
+          repo_dir: ${{ github.workspace }}
+          fetch_tags: true

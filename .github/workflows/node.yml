@@ -19,7 +19,7 @@ on:
         default: "npm ci && npm run lint"
       test_command:
         type: string
-        default: "npm test"
+        default: "npm ci && npm test"
       build_command:
         type: string
         default: "npm run build"

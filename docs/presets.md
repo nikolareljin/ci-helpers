@@ -18,7 +18,7 @@ Workflow: `.github/workflows/node.yml`
 Defaults:
 - `node_version`: `20`
 - `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm test`
+- `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
 
 Example:
@@ -26,7 +26,7 @@ Example:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -38,7 +38,7 @@ Workflow: `.github/workflows/react.yml`
 Defaults:
 - `node_version`: `20`
 - `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm test -- --watchAll=false`
+- `test_command`: `npm ci && npm test -- --watchAll=false`
 - `build_command`: `npm run build`
 
 Example:
@@ -46,7 +46,7 @@ Example:
 ```yaml
 jobs:
   react:
-    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.1.2
     with:
       node_version: "20"
 ```
@@ -57,15 +57,15 @@ Workflow: `.github/workflows/python.yml`
 
 Defaults:
 - `python_version`: `3.12`
-- `lint_command`: `python -m pip install -r requirements.txt`
-- `test_command`: `python -m pytest`
+- `lint_command`: `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check .`
+- `test_command`: `python -m pip install pytest && python -m pytest`
 
 Example:
 
 ```yaml
 jobs:
   python:
-    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.1.2
     with:
       python_version: "3.12"
 ```
@@ -76,7 +76,7 @@ Workflow: `.github/workflows/php.yml`
 
 Defaults:
 - `php_version`: `8.2`
-- `lint_command`: `composer install --no-interaction --prefer-dist`
+- `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
 Example:
@@ -84,7 +84,7 @@ Example:
 ```yaml
 jobs:
   php:
-    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.1.2
     with:
       php_version: "8.2"
 ```
@@ -95,7 +95,8 @@ Workflow: `.github/workflows/go.yml`
 
 Defaults:
 - `go_version`: `1.22`
-- `test_command`: `go test ./...`
+- `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
+- `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
 
 Example:
@@ -103,7 +104,7 @@ Example:
 ```yaml
 jobs:
   go:
-    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.1.2
     with:
       go_version: "1.22"
 ```
@@ -114,6 +115,7 @@ Workflow: `.github/workflows/java.yml`
 
 Defaults:
 - `java_version`: `17`
+- `lint_command`: `mvn -B -DskipTests checkstyle:check`
 - `test_command`: `mvn -B test`
 - `build_command`: `mvn -B package`
 
@@ -122,7 +124,7 @@ Example:
 ```yaml
 jobs:
   java:
-    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.1.2
     with:
       java_version: "17"
 ```
@@ -133,15 +135,16 @@ Workflow: `.github/workflows/csharp.yml`
 
 Defaults:
 - `dotnet_version`: `8.0.x`
-- `test_command`: `dotnet test`
-- `build_command`: `dotnet build -c Release`
+- `lint_command`: `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`
+- `test_command`: `dotnet restore && dotnet test`
+- `build_command`: `dotnet restore && dotnet build -c Release`
 
 Example:
 
 ```yaml
 jobs:
   csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.1.2
     with:
       dotnet_version: "8.0.x"
 ```
@@ -158,7 +161,7 @@ Example:
 ```yaml
 jobs:
   docker:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.1.2
     with:
       docker_command: "docker build -t myapp:ci ."
 ```
@@ -181,7 +184,7 @@ Example:
 ```yaml
 jobs:
   playwright:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.1.2
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
@@ -205,7 +208,7 @@ Example:
 ```yaml
 jobs:
   cypress:
-    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.1.2
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
@@ -219,7 +222,7 @@ E2E in the Node preset:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.1.2
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."

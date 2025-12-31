@@ -81,6 +81,37 @@ jobs:
         with:
           php-version: ${{ inputs.php_version }}
 
+      - name: Detect WordPress/Drupal project
+        id: detect_php_frameworks
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          is_wordpress=false
+          is_drupal=false
+
+          if [ -f wp-config.php ] || [ -d wp-content ] || [ -f wp-includes/version.php ]; then
+            is_wordpress=true
+          fi
+          if [ "$is_wordpress" = "false" ] && [ -f composer.json ]; then
+            if grep -qiE '"(wordpress/|johnpbloch/wordpress|wp-cli/wp-cli|roots/wordpress|roots/bedrock)"' composer.json; then
+              is_wordpress=true
+            fi
+          fi
+
+          if [ -f core/lib/Drupal.php ] || [ -f web/core/lib/Drupal.php ] || \
+             [ -f core/modules/system/system.module ] || [ -f web/core/modules/system/system.module ]; then
+            is_drupal=true
+          fi
+          if [ "$is_drupal" = "false" ] && [ -f composer.json ]; then
+            if grep -qiE '"(drupal/core|drupal/core-recommended|drupal/recommended-project)"' composer.json; then
+              is_drupal=true
+            fi
+          fi
+
+          echo "is_wordpress=$is_wordpress" >> "$GITHUB_OUTPUT"
+          echo "is_drupal=$is_drupal" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         if: ${{ inputs.composer_command != '' }}
         shell: bash
@@ -98,7 +129,7 @@ jobs:
           ${{ inputs.unit_command }}
 
       - name: PHP lint (WordPress)
-        if: ${{ inputs.lint_wp_command != '' }}
+        if: ${{ inputs.lint_wp_command != '' && steps.detect_php_frameworks.outputs.is_wordpress == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |
@@ -106,7 +137,7 @@ jobs:
           ${{ inputs.lint_wp_command }}
 
       - name: PHP lint (Drupal)
-        if: ${{ inputs.lint_drupal_command != '' }}
+        if: ${{ inputs.lint_drupal_command != '' && steps.detect_php_frameworks.outputs.is_drupal == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |
@@ -122,7 +153,7 @@ jobs:
           ${{ inputs.lint_laravel_command }}
 
       - name: WP-CLI scan
-        if: ${{ inputs.wp_cli_scan }}
+        if: ${{ inputs.wp_cli_scan && steps.detect_php_frameworks.outputs.is_wordpress == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |

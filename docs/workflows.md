@@ -47,7 +47,7 @@ Example (Node + E2E with Playwright):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -61,7 +61,7 @@ Example (Docker build + E2E):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."
@@ -93,7 +93,7 @@ Example (PR gate with release tag check + E2E):
 ```yaml
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.2
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -126,7 +126,7 @@ Example:
 ```yaml
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.2
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
@@ -156,7 +156,7 @@ Example:
 ```yaml
 jobs:
   trivy:
-    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.1.2
     with:
       scan_path: "."
       fail_on_findings: true
@@ -189,7 +189,7 @@ Example:
 ```yaml
 jobs:
   gitleaks:
-    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.2
     with:
       scan_path: "."
       fail_on_findings: true
@@ -200,7 +200,7 @@ jobs:
 
 Workflow: `.github/workflows/php-scan.yml`
 
-Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content.
+Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content when detected.
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
@@ -208,10 +208,10 @@ Inputs (selected):
 - `php_version` (string, default `8.2`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
 - `unit_command` (string, default `vendor/bin/phpunit`)
-- `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`)
-- `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`)
+- `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
+- `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
 - `lint_laravel_command` (string, default `vendor/bin/pint`)
-- `wp_cli_scan` (boolean, default `true`)
+- `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
 - `wp_root` (string, default `wp-cli-site`)
 
 Example:
@@ -219,42 +219,44 @@ Example:
 ```yaml
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.2
 ```
 
 ## python-scan.yml
 
 Workflow: `.github/workflows/python-scan.yml`
 
-Purpose: Run Python unit tests and Django tests.
+Purpose: Run Python lint, unit tests, and Django tests when a Django project is detected.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `python_version` (string, default `3.12`)
-- `install_command` (string, default `python -m pip install -r requirements.txt`)
-- `unit_command` (string, default `python -m pytest`)
-- `django_command` (string, default `python manage.py test`)
+- `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
+- `lint_command` (string, default `python -m pip install ruff && ruff check .`)
+- `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
+- `django_command` (string, default `if [ -f manage.py ]; then python manage.py test; fi`, only runs when Django is detected)
 
 Example:
 
 ```yaml
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.2
 ```
 
 ## go-scan.yml
 
 Workflow: `.github/workflows/go-scan.yml`
 
-Purpose: Run Go tests and gosec scanning.
+Purpose: Run Go lint, tests, and gosec scanning.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `go_version` (string, default `1.22`)
-- `test_command` (string, default `go test ./...`)
+- `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
+- `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
 
 Example:
@@ -262,20 +264,22 @@ Example:
 ```yaml
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.2
 ```
 
 ## rust-scan.yml
 
 Workflow: `.github/workflows/rust-scan.yml`
 
-Purpose: Run Rust tests and cargo-audit.
+Purpose: Run Rust lint, tests, and cargo-audit.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `rust_toolchain` (string, default `stable`)
-- `test_command` (string, default `cargo test`)
+- `rust_components` (string, default `rustfmt, clippy`)
+- `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
+- `test_command` (string, default `cargo fetch && cargo test`)
 - `audit_command` (string, default `cargo audit`)
 
 Example:
@@ -283,19 +287,20 @@ Example:
 ```yaml
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.2
 ```
 
 ## java-scan.yml
 
 Workflow: `.github/workflows/java-scan.yml`
 
-Purpose: Run Java tests and OWASP dependency checks.
+Purpose: Run Java lint, tests, and OWASP dependency checks.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `java_version` (string, default `17`)
+- `lint_command` (string, default `mvn -B -DskipTests checkstyle:check`)
 - `test_command` (string, default `mvn -B test`)
 - `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:check`)
 
@@ -304,20 +309,21 @@ Example:
 ```yaml
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.2
 ```
 
 ## csharp-scan.yml
 
 Workflow: `.github/workflows/csharp-scan.yml`
 
-Purpose: Run .NET tests and list vulnerable packages.
+Purpose: Run .NET lint, tests, and list vulnerable packages.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `dotnet_version` (string, default `8.0.x`)
-- `test_command` (string, default `dotnet test`)
+- `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
+- `test_command` (string, default `dotnet restore && dotnet test`)
 - `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
 
 Example:
@@ -325,7 +331,7 @@ Example:
 ```yaml
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.2
 ```
 
 ## node-scan.yml
@@ -349,7 +355,7 @@ Example:
 ```yaml
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.2
 ```
 
 ## react-scan.yml
@@ -373,7 +379,7 @@ Example:
 ```yaml
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.2
 ```
 
 ## vue-scan.yml
@@ -397,7 +403,7 @@ Example:
 ```yaml
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.2
 ```
 
 ## docker-scan.yml
@@ -423,7 +429,7 @@ Example:
 ```yaml
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.2
     secrets:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
@@ -432,11 +438,16 @@ jobs:
 
 Workflow: `.github/workflows/auto-tag-release.yml`
 
-Purpose: Auto-tag releases when a `release/X.Y.Z` PR is merged into `main` or `master`.
+Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/X.Y.Z-rcN` PR is merged into the default branch.
 
 Notes:
-- Runs on pushes to `main` or `master` and detects the merged PR for squash/merge commits.
-- Checks if the tag already exists before creating and pushing it.
+- Detects the repo default branch; falls back to `main` if missing.
+- Fails the workflow if the tag already exists (prevents merge from appearing successful).
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `fetch_depth` (number, default `0`)
+- `default_branch` (string, default `""`, uses repo default)
 
 Example:
 
@@ -448,7 +459,32 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+```
+
+## release-tag-gate.yml
+
+Workflow: `.github/workflows/release-tag-gate.yml`
+
+Purpose: Block PRs if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch targets the default branch and the tag already exists.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `fetch_depth` (number, default `0`)
+- `release_branch` (string, default `""`, uses PR head/ref)
+- `base_branch` (string, default `""`, uses PR base)
+- `default_branch` (string, default `""`, uses repo default)
+
+Example:
+
+```yaml
+name: Release Tag Gate
+on:
+  pull_request:
+
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
 ```
 
 ## wp-plugin-check.yml
@@ -479,7 +515,7 @@ Example:
 ```yaml
 jobs:
   plugin-check:
-    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.1.1
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.1.2
     with:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
@@ -496,7 +532,7 @@ jobs:
 You should pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.1
+uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
 ```
 
 Using a commit SHA is safest for reproducibility:
