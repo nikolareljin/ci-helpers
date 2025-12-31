@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -38,7 +38,7 @@ on:
 
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.2.0
     with:
       php_version: "8.2"
 ```
@@ -53,7 +53,7 @@ on:
 
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.2.0
     with:
       python_version: "3.12"
 ```
@@ -68,7 +68,7 @@ on:
 
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.2.0
     with:
       go_version: "1.22"
 ```
@@ -83,7 +83,7 @@ on:
 
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.2.0
 ```
 
 Java scan (tests + dependency check):
@@ -96,7 +96,7 @@ on:
 
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.2.0
     with:
       java_version: "17"
 ```
@@ -111,7 +111,7 @@ on:
 
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.2.0
     with:
       dotnet_version: "8.0.x"
 ```
@@ -126,7 +126,7 @@ on:
 
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.2.0
     with:
       node_version: "20"
 ```
@@ -141,7 +141,7 @@ on:
 
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.2.0
     with:
       node_version: "20"
 ```
@@ -156,7 +156,7 @@ on:
 
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.2.0
     with:
       node_version: "20"
 ```
@@ -171,7 +171,7 @@ on:
 
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.2.0
     with:
       image_name: "app:ci"
     secrets:
@@ -196,7 +196,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy scan
-        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.2.0
         with:
           scan_path: "."
           format: "sarif"
@@ -240,7 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Plugin check
-        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.2.0
         with:
           plugin_slug: my-plugin
           plugin_src_env: MY_PLUGIN_SRC
@@ -266,12 +266,35 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compare versions
         id: semver
-        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.2.0
         with:
           version_a: "1.2.3"
           version_b: "1.4.0"
       - name: Use result
         run: echo "Result: ${{ steps.semver.outputs.result }}"
+```
+
+Release notes generator:
+
+```yaml
+name: Release Notes
+on:
+  workflow_dispatch:
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate release notes
+        id: notes
+        uses: nikolareljin/ci-helpers/.github/actions/release-notes@0.2.0
+        with:
+          binary_links: |
+            Linux|myapp-linux
+            macOS|myapp-mac
+      - name: Use notes
+        run: echo "${{ steps.notes.outputs.notes }}"
 ```
 
 Release tag guard (PR):
@@ -292,7 +315,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
         with:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
@@ -318,7 +341,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
         with:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
@@ -335,7 +358,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
 ```
 
 Auto tag release (reusable workflow):
@@ -348,7 +371,106 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+```
+
+## Install specific versions from Git tags
+
+When you publish tagged releases, you can install a specific version directly:
+
+Go:
+
+```bash
+GOBIN="$HOME/.local/bin" go install github.com/OWNER/REPO@v1.2.3
+```
+
+Rust:
+
+```bash
+cargo install --git https://github.com/OWNER/REPO --tag v1.2.3 --bin your-binary
+```
+
+Python:
+
+```bash
+python -m pip install "git+https://github.com/OWNER/REPO@v1.2.3"
+```
+
+Java (build from tag):
+
+```bash
+git clone --branch v1.2.3 https://github.com/OWNER/REPO.git
+cd REPO
+./mvnw -DskipTests package
+```
+
+Release build (generic):
+
+```yaml
+name: Release Build
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    with:
+      build_command: "go build -o dist/myapp ./cmd/myapp"
+      artifact_paths: "dist/*"
+      binary_links: |
+        Linux|myapp-linux
+        macOS|myapp-mac
+```
+
+Rust release build:
+
+```yaml
+name: Rust Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@0.2.0
+    with:
+      bin_name: "image-view"
+      linux_gnu_aliases: "deb,pacman,yum,redhat"
+```
+
+Go release build:
+
+```yaml
+name: Go Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@0.2.0
+    with:
+      bin_name: "myapp"
+      main_path: "./cmd/myapp"
+      build_targets: "linux/amd64,windows/amd64,darwin/amd64"
+```
+
+Java release build (Maven example):
+
+```yaml
+name: Java Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    with:
+      java_version: "17"
+      build_command: "mvn -B package"
+      artifact_paths: "target/*.jar"
 ```
 
 Release tagging in external repos (recommended setup):
@@ -366,7 +488,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
 ```
 
 ```yaml
@@ -377,5 +499,5 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
 ```
