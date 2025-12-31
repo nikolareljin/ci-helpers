@@ -1,0 +1,211 @@
+name: release-build
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      node_version:
+        type: string
+        default: ""
+      java_version:
+        type: string
+        default: ""
+      dotnet_version:
+        type: string
+        default: ""
+      python_version:
+        type: string
+        default: ""
+      go_version:
+        type: string
+        default: ""
+      php_version:
+        type: string
+        default: ""
+      build_command:
+        type: string
+        default: ""
+      artifact_paths:
+        type: string
+        default: ""
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: "release-artifacts"
+      release_tag:
+        type: string
+        default: ""
+      release_name:
+        type: string
+        default: ""
+      release_notes:
+        type: string
+        default: ""
+      generate_release_notes:
+        type: boolean
+        default: true
+      binary_links:
+        type: string
+        default: ""
+      binary_base_url:
+        type: string
+        default: ""
+
+jobs:
+  release:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Java
+        if: ${{ inputs.java_version != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup .NET
+        if: ${{ inputs.dotnet_version != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: Setup Python
+        if: ${{ inputs.python_version != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Setup Go
+        if: ${{ inputs.go_version != '' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Setup PHP
+        if: ${{ inputs.php_version != '' }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Upload workflow artifact
+        if: ${{ inputs.upload_artifact && inputs.artifact_paths != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.artifact_paths }}
+
+      - name: Generate release notes
+        id: notes
+        if: ${{ inputs.generate_release_notes && inputs.release_notes == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="${GITHUB_WORKSPACE:-.}"
+          cd "$repo_dir"
+
+          since_tag=""
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            since_tag="$(git describe --tags --abbrev=0)"
+          fi
+
+          notes_file="$(mktemp)"
+          if [ -n "$since_tag" ]; then
+            git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
+          else
+            git log --pretty=format:"* %s" > "$notes_file"
+          fi
+
+          if [ ! -s "$notes_file" ]; then
+            echo "* No changes listed." > "$notes_file"
+          fi
+
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            release_tag="${GITHUB_REF_NAME:-}"
+          fi
+
+          binary_base_url="${{ inputs.binary_base_url }}"
+          if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
+            binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+          fi
+
+          binary_links="${{ inputs.binary_links }}"
+          if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
+            {
+              echo ""
+              echo "## Download Binaries"
+              echo ""
+              echo "| Platform | Binary |"
+              echo "|----------|--------|"
+            } >> "$notes_file"
+
+            while IFS= read -r line; do
+              trimmed="${line#"${line%%[![:space:]]*}"}"
+              if [ -z "$trimmed" ]; then
+                continue
+              fi
+              label="${trimmed%%|*}"
+              filename="${trimmed#*|}"
+              if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
+                continue
+              fi
+              printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
+            done <<< "$binary_links"
+          fi
+
+          notes_content="$(cat "$notes_file")"
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes_content" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release (with files)
+        if: ${{ inputs.artifact_paths != '' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          files: ${{ inputs.artifact_paths }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub release (no files)
+        if: ${{ inputs.artifact_paths == '' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
