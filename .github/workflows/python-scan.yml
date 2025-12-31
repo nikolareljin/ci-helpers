@@ -16,13 +16,16 @@ on:
         default: "3.12"
       install_command:
         type: string
-        default: "python -m pip install -r requirements.txt"
+        default: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi"
+      lint_command:
+        type: string
+        default: "python -m pip install ruff && ruff check ."
       unit_command:
         type: string
-        default: "python -m pytest"
+        default: "python -m pip install pytest && python -m pytest"
       django_command:
         type: string
-        default: "python manage.py test"
+        default: "if [ -f manage.py ]; then python manage.py test; fi"
 
 jobs:
   scan:
@@ -38,6 +41,31 @@ jobs:
         with:
           python-version: ${{ inputs.python_version }}
 
+      - name: Detect Django project
+        id: detect_django
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          is_django=false
+          if [ -f manage.py ]; then
+            is_django=true
+          fi
+          if [ "$is_django" = "false" ] && [ -f pyproject.toml ]; then
+            if grep -qiE '(^|[[:space:]"'"'"'=<>!~])django([[:space:]"'"'"'=<>!~]|$)' pyproject.toml; then
+              is_django=true
+            fi
+          fi
+          if [ "$is_django" = "false" ]; then
+            for req_file in requirements.txt requirements-dev.txt requirements-dev.in requirements.in; do
+              if [ -f "$req_file" ] && grep -qiE '(^|[[:space:]"'"'"'=<>!~])django([[:space:]"'"'"'=<>!~]|$)' "$req_file"; then
+                is_django=true
+                break
+              fi
+            done
+          fi
+          echo "is_django=$is_django" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         if: ${{ inputs.install_command != '' }}
         shell: bash
@@ -45,6 +73,14 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.install_command }}
+
+      - name: Python lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
 
       - name: Python unit tests
         if: ${{ inputs.unit_command != '' }}
@@ -55,7 +91,7 @@ jobs:
           ${{ inputs.unit_command }}
 
       - name: Django tests
-        if: ${{ inputs.django_command != '' }}
+        if: ${{ inputs.django_command != '' && steps.detect_django.outputs.is_django == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |
