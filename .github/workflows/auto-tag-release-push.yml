@@ -5,6 +5,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: write
+
 jobs:
   tag:
     uses: ./.github/workflows/auto-tag-release.yml
