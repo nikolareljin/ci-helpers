@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -38,7 +38,7 @@ on:
 
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@production
     with:
       php_version: "8.2"
 ```
@@ -53,7 +53,7 @@ on:
 
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@production
     with:
       python_version: "3.12"
 ```
@@ -68,7 +68,7 @@ on:
 
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@production
     with:
       go_version: "1.22"
 ```
@@ -83,7 +83,7 @@ on:
 
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@production
 ```
 
 Java scan (tests + dependency check):
@@ -96,7 +96,7 @@ on:
 
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@production
     with:
       java_version: "17"
 ```
@@ -111,7 +111,7 @@ on:
 
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@production
     with:
       dotnet_version: "8.0.x"
 ```
@@ -126,7 +126,7 @@ on:
 
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@production
     with:
       node_version: "20"
 ```
@@ -141,7 +141,7 @@ on:
 
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@production
     with:
       node_version: "20"
 ```
@@ -156,7 +156,7 @@ on:
 
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@production
     with:
       node_version: "20"
 ```
@@ -171,7 +171,7 @@ on:
 
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
     with:
       image_name: "app:ci"
     secrets:
@@ -196,7 +196,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy scan
-        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@production
         with:
           scan_path: "."
           format: "sarif"
@@ -240,7 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Plugin check
-        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@production
         with:
           plugin_slug: my-plugin
           plugin_src_env: MY_PLUGIN_SRC
@@ -266,7 +266,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compare versions
         id: semver
-        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/semver-compare@production
         with:
           version_a: "1.2.3"
           version_b: "1.4.0"
@@ -288,7 +288,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Generate release notes
         id: notes
-        uses: nikolareljin/ci-helpers/.github/actions/release-notes@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/release-notes@production
         with:
           binary_links: |
             Linux|myapp-linux
@@ -315,7 +315,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
@@ -341,7 +341,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
@@ -358,7 +358,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
 Auto tag release (reusable workflow):
@@ -371,7 +371,7 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```
 
 ## Install specific versions from Git tags
@@ -404,6 +404,39 @@ cd REPO
 ./mvnw -DskipTests package
 ```
 
+## Production branch (optional)
+
+This repo includes a repo-local workflow that moves the `production` branch to
+the latest non-rc tag. It is not a reusable workflow; copy it into other repos
+only if you want the same behavior.
+
+```yaml
+name: Update Production Branch
+on:
+  push:
+    tags:
+      - "*.*.*"
+      - "v*.*.*"
+
+jobs:
+  production:
+    if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Update production
+        run: ./scripts/create_production.sh -t "${GITHUB_REF_NAME}" --fetch-tags
+```
+
+Manual override (point production at an older tag):
+
+```bash
+./scripts/create_production.sh -t 1.2.2
+```
+
 Release build (generic):
 
 ```yaml
@@ -414,7 +447,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
       build_command: "go build -o dist/myapp ./cmd/myapp"
       artifact_paths: "dist/*"
@@ -433,7 +466,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@production
     with:
       bin_name: "image-view"
       linux_gnu_aliases: "deb,pacman,yum,redhat"
@@ -449,7 +482,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@production
     with:
       bin_name: "myapp"
       main_path: "./cmd/myapp"
@@ -466,7 +499,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
       java_version: "17"
       build_command: "mvn -B package"
@@ -488,7 +521,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
 ```yaml
@@ -499,5 +532,5 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```

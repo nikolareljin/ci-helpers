@@ -13,7 +13,7 @@ Related docs:
 ```yaml
 jobs:
   web:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       working_directory: "apps/web"
       node_version: "20"
@@ -27,7 +27,7 @@ jobs:
 ```yaml
 jobs:
   e2e:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
@@ -38,7 +38,7 @@ jobs:
 ```yaml
 jobs:
   e2e:
-    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev:ci' http://localhost:3000 'npx cypress run'"
@@ -51,7 +51,7 @@ E2E always runs after Docker when both are set.
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."
@@ -63,7 +63,7 @@ jobs:
 ```yaml
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
       check_release_tag: true
       release_branch: ${{ github.head_ref }}
@@ -76,7 +76,7 @@ jobs:
 ```yaml
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
@@ -87,7 +87,7 @@ jobs:
 ```yaml
 jobs:
   trivy:
-    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@production
     with:
       scan_path: "."
       fail_on_findings: true
@@ -103,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: "."
           fail_on_findings: "true"
@@ -115,7 +115,7 @@ jobs:
 ```yaml
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@production
     with:
       php_version: "8.2"
 ```
@@ -125,7 +125,7 @@ jobs:
 ```yaml
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
     with:
       image_name: "app:ci"
     secrets:
@@ -141,13 +141,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: "."
           fail_on_findings: "true"
           upload_artifact: "true"
       - name: Trivy scan
-        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@production
         with:
           scan_path: "."
           format: "sarif"
@@ -169,7 +169,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
@@ -190,7 +190,7 @@ jobs:
           fetch-tags: true
       - name: Guard release tag
         id: release_guard
-        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
@@ -208,7 +208,7 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```
 
 ## WordPress plugin check + standalone PHPUnit
@@ -216,7 +216,7 @@ jobs:
 ```yaml
 jobs:
   plugin-check:
-    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@production
     with:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
