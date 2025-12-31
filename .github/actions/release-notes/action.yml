@@ -1,0 +1,94 @@
+name: release-notes
+description: Generate release notes from git history with optional binary links
+inputs:
+  repo_dir:
+    description: Repository root (defaults to GITHUB_WORKSPACE)
+    required: false
+    default: ""
+  since_tag:
+    description: Tag to start notes from (defaults to latest tag if available)
+    required: false
+    default: ""
+  release_tag:
+    description: Tag used for binary download links (defaults to GITHUB_REF_NAME)
+    required: false
+    default: ""
+  binary_links:
+    description: Newline-delimited list of label|filename entries for binary links
+    required: false
+    default: ""
+  binary_base_url:
+    description: Base URL for binaries (defaults to repo releases/download/<tag>)
+    required: false
+    default: ""
+outputs:
+  notes:
+    description: Generated release notes markdown
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        repo_dir="${{ inputs.repo_dir }}"
+        if [ -z "$repo_dir" ]; then
+          repo_dir="${GITHUB_WORKSPACE:-.}"
+        fi
+        cd "$repo_dir"
+
+        since_tag="${{ inputs.since_tag }}"
+        if [ -z "$since_tag" ]; then
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            since_tag="$(git describe --tags --abbrev=0)"
+          fi
+        fi
+
+        notes_file="$(mktemp)"
+        if [ -n "$since_tag" ]; then
+          git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
+        else
+          git log --pretty=format:"* %s" > "$notes_file"
+        fi
+
+        if [ ! -s "$notes_file" ]; then
+          echo "* No changes listed." > "$notes_file"
+        fi
+
+        release_tag="${{ inputs.release_tag }}"
+        if [ -z "$release_tag" ]; then
+          release_tag="${GITHUB_REF_NAME:-}"
+        fi
+
+        binary_base_url="${{ inputs.binary_base_url }}"
+        if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
+          binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+        fi
+
+        binary_links="${{ inputs.binary_links }}"
+        if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
+          {
+            echo ""
+            echo "## Download Binaries"
+            echo ""
+            echo "| Platform | Binary |"
+            echo "|----------|--------|"
+          } >> "$notes_file"
+
+          while IFS= read -r line; do
+            trimmed="${line#"${line%%[![:space:]]*}"}"
+            if [ -z "$trimmed" ]; then
+              continue
+            fi
+            label="${trimmed%%|*}"
+            filename="${trimmed#*|}"
+            if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
+              continue
+            fi
+            printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
+          done <<< "$binary_links"
+        fi
+
+        notes_content="$(cat "$notes_file")"
+        echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$notes_content" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"

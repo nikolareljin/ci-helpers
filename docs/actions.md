@@ -24,7 +24,7 @@ Example:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.1.2
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@production
   with:
     version_a: "1.2.3"
     version_b: "1.4.0"
@@ -52,7 +52,7 @@ Example:
 ```yaml
 - name: Guard release tag
   id: release_guard
-  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.1.2
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
   with:
     release_branch: ${{ github.head_ref }}
     fetch_tags: true
@@ -63,6 +63,37 @@ Example:
 
 Notes:
 - The guard expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
+
+## release-notes
+
+Path: `.github/actions/release-notes`
+
+Purpose: Generate release notes from git history with optional binary links.
+
+Inputs:
+- `repo_dir` (default `GITHUB_WORKSPACE`)
+- `since_tag` (default `""`, uses latest tag when omitted)
+- `release_tag` (default `GITHUB_REF_NAME`)
+- `binary_links` (default `""`, `label|filename` per line)
+- `binary_base_url` (default `""`, uses repo releases/download/<tag>)
+
+Outputs:
+- `notes` (generated markdown)
+
+Example:
+
+```yaml
+- name: Generate release notes
+  id: notes
+  uses: nikolareljin/ci-helpers/.github/actions/release-notes@production
+  with:
+    binary_links: |
+      Linux|myapp-linux
+      macOS|myapp-mac
+
+- name: Use notes
+  run: echo "${{ steps.notes.outputs.notes }}"
+```
 
 ## trivy-scan
 
@@ -84,7 +115,7 @@ Example:
 
 ```yaml
 - name: Trivy scan
-  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@0.1.2
+  uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@production
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -114,7 +145,7 @@ Example:
 
 ```yaml
 - name: Gitleaks scan
-  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0.1.2
+  uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
   with:
     scan_path: "."
     fail_on_findings: "true"
@@ -145,7 +176,7 @@ Example:
 
 ```yaml
 - name: Plugin check
-  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@0.1.2
+  uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@production
   with:
     plugin_slug: my-plugin
     plugin_src_env: MY_PLUGIN_SRC

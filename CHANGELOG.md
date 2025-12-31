@@ -1,5 +1,17 @@
 # Changelog
 
+## 2025-12-31 (0.2.0)
+
+### Added
+- Added a release-notes composite action with optional binary links.
+- Added a generic release-build reusable workflow for publishing release artifacts.
+- Added a Rust multi-target release workflow and rust release build helper script.
+- Added a Go multi-target release workflow.
+- Added a production branch update script and repo-local workflow.
+
+### Changed
+- Updated docs with release workflows, release notes usage, and install-from-git examples.
+
 ## 2025-12-27 (0.1.2)
 
 ### Added
@@ -14,7 +26,7 @@
 - Release branch tag guard now accepts `release/X.Y.Z-rcN` branches.
 - Updated docs and references to version 0.1.2.
 
-## 2025-12-26
+## 2025-12-26 (0.1.1)
 
 ### Added
 - Documented VERSION as the source of truth for the production tag in README, docs, and AGENTS.
