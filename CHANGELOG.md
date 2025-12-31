@@ -7,6 +7,7 @@
 - Added a generic release-build reusable workflow for publishing release artifacts.
 - Added a Rust multi-target release workflow and rust release build helper script.
 - Added a Go multi-target release workflow.
+- Added a production branch update script and repo-local workflow.
 
 ### Changed
 - Updated docs with release workflows, release notes usage, and install-from-git examples.

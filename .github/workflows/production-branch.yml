@@ -1,0 +1,24 @@
+name: update-production-branch
+on:
+  push:
+    tags:
+      - "*.*.*"
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  production:
+    if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Update production branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/create_production.sh -t "${GITHUB_REF_NAME}" --fetch-tags

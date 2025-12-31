@@ -37,7 +37,7 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
       node_version: "20"
 ```
@@ -49,7 +49,7 @@ jobs:
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "20"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
@@ -82,6 +82,7 @@ jobs:
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
+- `.github/workflows/production-branch.yml`: repo-local workflow to move `production` to a released tag
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
@@ -100,7 +101,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"
@@ -121,7 +122,7 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       python_version: "3.12"
       test_command: "pip install -r requirements.txt && pytest"
@@ -135,7 +136,7 @@ Node.js:
 ```yaml
 jobs:
   node:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
       node_version: "20"
 ```
@@ -145,7 +146,7 @@ React:
 ```yaml
 jobs:
   react:
-    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
       node_version: "20"
       test_command: "npm test -- --watchAll=false"
@@ -157,7 +158,7 @@ Playwright:
 ```yaml
 jobs:
   playwright:
-    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "20"
 ```
@@ -167,7 +168,7 @@ Cypress:
 ```yaml
 jobs:
   cypress:
-    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
       node_version: "20"
 ```
@@ -177,7 +178,7 @@ Python:
 ```yaml
 jobs:
   python:
-    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/python.yml@production
     with:
       python_version: "3.12"
       lint_command: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check ."
@@ -189,7 +190,7 @@ PHP:
 ```yaml
 jobs:
   php:
-    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
     with:
       php_version: "8.2"
       lint_command: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
@@ -201,7 +202,7 @@ Go:
 ```yaml
 jobs:
   go:
-    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
       go_version: "1.22"
       test_command: "go test ./..."
@@ -213,7 +214,7 @@ Java (Maven defaults):
 ```yaml
 jobs:
   java:
-    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/java.yml@production
     with:
       java_version: "17"
       test_command: "mvn -B test"
@@ -225,7 +226,7 @@ C# (.NET):
 ```yaml
 jobs:
   csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@production
     with:
       dotnet_version: "8.0.x"
       test_command: "dotnet test"
@@ -237,7 +238,7 @@ Docker:
 ```yaml
 jobs:
   docker:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/docker.yml@production
     with:
       docker_command: "docker build ."
 ```
@@ -256,7 +257,7 @@ on:
 
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
       deploy_command: "./scripts/deploy.sh"
 ```
@@ -268,7 +269,7 @@ Semver compare:
 ```yaml
 - name: Compare versions
   id: semver
-  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@0.2.0
+  uses: nikolareljin/ci-helpers/.github/actions/semver-compare@production
   with:
     version_a: "1.2.3"
     version_b: "1.3.0"
@@ -281,7 +282,7 @@ Release tag guard (release/X.Y.Z or release/X.Y.Z-rcN):
 
 ```yaml
 - name: Guard release tag
-  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@0.2.0
+  uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
   with:
     release_branch: ${{ github.head_ref }}
 ```
@@ -307,7 +308,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
 Auto-tag workflow:
@@ -320,7 +321,7 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```
 - Update vendored `script-helpers` with:
   - `./scripts/sync_script_helpers.sh`
@@ -339,13 +340,13 @@ on:
 
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
 ```
 
 2) Pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.2.0
+uses: nikolareljin/ci-helpers/.github/workflows/python.yml@production
 ```
 
 3) Add/override commands and versions as needed:
@@ -353,7 +354,7 @@ uses: nikolareljin/ci-helpers/.github/workflows/python.yml@0.2.0
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       node_version: "20"
       lint_command: "npm ci && npm run lint"

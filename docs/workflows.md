@@ -47,7 +47,7 @@ Example (Node + E2E with Playwright):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -61,7 +61,7 @@ Example (Docker build + E2E):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."
@@ -93,7 +93,7 @@ Example (PR gate with release tag check + E2E):
 ```yaml
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -126,7 +126,7 @@ Example:
 ```yaml
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
@@ -156,7 +156,7 @@ Example:
 ```yaml
 jobs:
   trivy:
-    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@production
     with:
       scan_path: "."
       fail_on_findings: true
@@ -189,7 +189,7 @@ Example:
 ```yaml
 jobs:
   gitleaks:
-    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@production
     with:
       scan_path: "."
       fail_on_findings: true
@@ -219,7 +219,7 @@ Example:
 ```yaml
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@production
 ```
 
 ## python-scan.yml
@@ -242,7 +242,7 @@ Example:
 ```yaml
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@production
 ```
 
 ## go-scan.yml
@@ -264,7 +264,7 @@ Example:
 ```yaml
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@production
 ```
 
 ## rust-scan.yml
@@ -287,7 +287,7 @@ Example:
 ```yaml
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@production
 ```
 
 ## java-scan.yml
@@ -309,7 +309,7 @@ Example:
 ```yaml
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@production
 ```
 
 ## csharp-scan.yml
@@ -331,7 +331,7 @@ Example:
 ```yaml
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@production
 ```
 
 ## node-scan.yml
@@ -355,7 +355,7 @@ Example:
 ```yaml
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@production
 ```
 
 ## react-scan.yml
@@ -379,7 +379,7 @@ Example:
 ```yaml
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@production
 ```
 
 ## vue-scan.yml
@@ -403,7 +403,7 @@ Example:
 ```yaml
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@production
 ```
 
 ## docker-scan.yml
@@ -429,7 +429,7 @@ Example:
 ```yaml
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
     secrets:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
@@ -459,7 +459,7 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```
 
 ## release-tag-gate.yml
@@ -484,7 +484,7 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
 ## release-build.yml
@@ -519,7 +519,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
       build_command: "npm ci && npm run build"
       artifact_paths: "dist/*"
@@ -557,7 +557,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@production
     with:
       bin_name: "image-view"
       linux_gnu_aliases: "deb,pacman,yum,redhat"
@@ -591,7 +591,7 @@ on:
 
 jobs:
   release:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@production
     with:
       bin_name: "myapp"
       main_path: "./cmd/myapp"
@@ -626,7 +626,7 @@ Example:
 ```yaml
 jobs:
   plugin-check:
-    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.2.0
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@production
     with:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
@@ -643,7 +643,7 @@ jobs:
 You should pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
+uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
 ```
 
 Using a commit SHA is safest for reproducibility:
