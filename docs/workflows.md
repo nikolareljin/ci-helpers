@@ -47,7 +47,7 @@ Example (Node + E2E with Playwright):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -61,7 +61,7 @@ Example (Docker build + E2E):
 ```yaml
 jobs:
   ci:
-    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
     with:
       node_version: "20"
       docker_command: "docker build -t myapp:ci ."
@@ -93,7 +93,7 @@ Example (PR gate with release tag check + E2E):
 ```yaml
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@0.2.0
     with:
       node_version: "20"
       lint_command: "yarn lint"
@@ -126,7 +126,7 @@ Example:
 ```yaml
 jobs:
   deploy:
-    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@0.2.0
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
@@ -156,7 +156,7 @@ Example:
 ```yaml
 jobs:
   trivy:
-    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@0.2.0
     with:
       scan_path: "."
       fail_on_findings: true
@@ -189,7 +189,7 @@ Example:
 ```yaml
 jobs:
   gitleaks:
-    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-scan.yml@0.2.0
     with:
       scan_path: "."
       fail_on_findings: true
@@ -219,7 +219,7 @@ Example:
 ```yaml
 jobs:
   php_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@0.2.0
 ```
 
 ## python-scan.yml
@@ -242,7 +242,7 @@ Example:
 ```yaml
 jobs:
   python_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@0.2.0
 ```
 
 ## go-scan.yml
@@ -264,7 +264,7 @@ Example:
 ```yaml
 jobs:
   go_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@0.2.0
 ```
 
 ## rust-scan.yml
@@ -287,7 +287,7 @@ Example:
 ```yaml
 jobs:
   rust_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-scan.yml@0.2.0
 ```
 
 ## java-scan.yml
@@ -309,7 +309,7 @@ Example:
 ```yaml
 jobs:
   java_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/java-scan.yml@0.2.0
 ```
 
 ## csharp-scan.yml
@@ -331,7 +331,7 @@ Example:
 ```yaml
 jobs:
   csharp_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@0.2.0
 ```
 
 ## node-scan.yml
@@ -355,7 +355,7 @@ Example:
 ```yaml
 jobs:
   node_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@0.2.0
 ```
 
 ## react-scan.yml
@@ -379,7 +379,7 @@ Example:
 ```yaml
 jobs:
   react_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@0.2.0
 ```
 
 ## vue-scan.yml
@@ -403,7 +403,7 @@ Example:
 ```yaml
 jobs:
   vue_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@0.2.0
 ```
 
 ## docker-scan.yml
@@ -429,7 +429,7 @@ Example:
 ```yaml
 jobs:
   docker_scan:
-    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@0.2.0
     secrets:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
@@ -459,7 +459,7 @@ on:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@0.2.0
 ```
 
 ## release-tag-gate.yml
@@ -484,7 +484,118 @@ on:
 
 jobs:
   gate:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@0.2.0
+```
+
+## release-build.yml
+
+Workflow: `.github/workflows/release-build.yml`
+
+Purpose: Build release artifacts in any language and publish a GitHub Release.
+
+Inputs (selected):
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `php_version` (optional toolchain setup)
+- `build_command` (string, default `""`)
+- `artifact_paths` (string, default `""`, supports globs)
+- `upload_artifact` (boolean, default `false`)
+- `artifact_name` (string, default `release-artifacts`)
+- `release_tag` (string, default `""`)
+- `release_name` (string, default `""`)
+- `release_notes` (string, default `""`)
+- `generate_release_notes` (boolean, default `true`)
+- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_base_url` (string, default `""`)
+
+Example:
+
+```yaml
+name: Release Build
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@0.2.0
+    with:
+      build_command: "npm ci && npm run build"
+      artifact_paths: "dist/*"
+      binary_links: |
+        Linux|myapp-linux
+        macOS|myapp-mac
+```
+
+## rust-release.yml
+
+Workflow: `.github/workflows/rust-release.yml`
+
+Purpose: Build multi-target Rust release binaries and publish a GitHub Release.
+
+Inputs (selected):
+- `bin_name` (string, required)
+- `artifact_dir` (string, default `artifacts`)
+- `rust_toolchain` (string, default `stable`)
+- `install_deps` (boolean, default `true`)
+- `apt_packages` (string, default `build-essential mingw-w64 musl-tools`)
+- `build_windows`, `build_linux_gnu`, `build_linux_musl`, `build_macos` (booleans, default `true`)
+- `linux_gnu_aliases` (string, default `""`, comma-delimited)
+- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `generate_release_notes` (boolean, default `true`)
+- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_base_url` (string, default `""`)
+
+Example:
+
+```yaml
+name: Rust Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust-release.yml@0.2.0
+    with:
+      bin_name: "image-view"
+      linux_gnu_aliases: "deb,pacman,yum,redhat"
+```
+
+## go-release.yml
+
+Workflow: `.github/workflows/go-release.yml`
+
+Purpose: Build multi-target Go binaries and publish a GitHub Release.
+
+Inputs (selected):
+- `bin_name` (string, required)
+- `main_path` (string, default `"."`)
+- `artifact_dir` (string, default `artifacts`)
+- `go_version` (string, default `1.22`)
+- `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
+- `ldflags` (string, default `""`)
+- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `generate_release_notes` (boolean, default `true`)
+- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_base_url` (string, default `""`)
+
+Example:
+
+```yaml
+name: Go Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-release.yml@0.2.0
+    with:
+      bin_name: "myapp"
+      main_path: "./cmd/myapp"
+      build_targets: "linux/amd64,windows/amd64,darwin/amd64"
 ```
 
 ## wp-plugin-check.yml
@@ -515,7 +626,7 @@ Example:
 ```yaml
 jobs:
   plugin-check:
-    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.1.2
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@0.2.0
     with:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
@@ -532,7 +643,7 @@ jobs:
 You should pin to a tag or commit SHA:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.1.2
+uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@0.2.0
 ```
 
 Using a commit SHA is safest for reproducibility:

@@ -1,0 +1,289 @@
+name: rust-release
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      rust_toolchain:
+        type: string
+        default: "stable"
+      bin_name:
+        type: string
+        required: true
+      artifact_dir:
+        type: string
+        default: "artifacts"
+      apt_packages:
+        type: string
+        default: "build-essential mingw-w64 musl-tools"
+      install_deps:
+        type: boolean
+        default: true
+      build_windows:
+        type: boolean
+        default: true
+      build_linux_gnu:
+        type: boolean
+        default: true
+      build_linux_musl:
+        type: boolean
+        default: true
+      build_macos:
+        type: boolean
+        default: true
+      linux_gnu_aliases:
+        type: string
+        default: ""
+      release_tag:
+        type: string
+        default: ""
+      binary_links:
+        type: string
+        default: ""
+      binary_base_url:
+        type: string
+        default: ""
+      release_name:
+        type: string
+        default: ""
+      release_notes:
+        type: string
+        default: ""
+      generate_release_notes:
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Install build dependencies
+        if: ${{ inputs.install_deps }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+
+      - name: Add Rust targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            rustup target add x86_64-pc-windows-gnu
+          fi
+          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+            rustup target add x86_64-unknown-linux-gnu
+          fi
+          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+            rustup target add x86_64-unknown-linux-musl
+          fi
+          if [ "${{ inputs.build_macos }}" = "true" ]; then
+            rustup target add x86_64-apple-darwin
+          fi
+
+      - name: Build release binaries
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          bin="${{ inputs.bin_name }}"
+          artifact_dir="${{ inputs.artifact_dir }}"
+          mkdir -p "$artifact_dir"
+
+          cargo build --release
+
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            cargo build --release --target=x86_64-pc-windows-gnu
+            if [ -f "target/x86_64-pc-windows-gnu/release/${bin}.exe" ]; then
+              cp "target/x86_64-pc-windows-gnu/release/${bin}.exe" "${artifact_dir}/${bin}-windows.exe"
+            else
+              echo "Windows binary not found!" >&2
+              exit 1
+            fi
+          fi
+
+          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+            cargo build --release --target=x86_64-unknown-linux-gnu
+            if [ -f "target/x86_64-unknown-linux-gnu/release/${bin}" ]; then
+              cp "target/x86_64-unknown-linux-gnu/release/${bin}" "${artifact_dir}/${bin}-linux"
+            else
+              echo "Linux GNU binary not found!" >&2
+              exit 1
+            fi
+
+            aliases="${{ inputs.linux_gnu_aliases }}"
+            if [ -n "$aliases" ]; then
+              IFS=',' read -r -a alias_list <<< "$aliases"
+              for alias in "${alias_list[@]}"; do
+                cp "target/x86_64-unknown-linux-gnu/release/${bin}" "${artifact_dir}/${bin}-${alias}"
+              done
+            fi
+          fi
+
+          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+            cargo build --release --target=x86_64-unknown-linux-musl
+            if [ -f "target/x86_64-unknown-linux-musl/release/${bin}" ]; then
+              cp "target/x86_64-unknown-linux-musl/release/${bin}" "${artifact_dir}/${bin}-musl"
+            else
+              echo "Linux MUSL binary not found!" >&2
+              exit 1
+            fi
+          fi
+
+          if [ "${{ inputs.build_macos }}" = "true" ]; then
+            if command -v x86_64-apple-darwin-gcc >/dev/null 2>&1; then
+              export CARGO_BUILD_TARGET_X86_64_APPLE_DARWIN_LINKER=x86_64-apple-darwin-gcc
+              cargo build --release --target=x86_64-apple-darwin
+              if [ -f "target/x86_64-apple-darwin/release/${bin}" ]; then
+                cp "target/x86_64-apple-darwin/release/${bin}" "${artifact_dir}/${bin}-mac"
+              else
+                echo "macOS binary not found!" >&2
+              fi
+            else
+              echo "macOS cross-compiler not found, skipping macOS build."
+            fi
+          fi
+
+          ls -al "$artifact_dir"
+
+      - name: Collect binary links
+        id: binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary_links="${{ inputs.binary_links }}"
+          if [ -n "$binary_links" ]; then
+            echo "links<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$binary_links" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          links=()
+          bin="${{ inputs.bin_name }}"
+
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            links+=("Windows (.exe)|${bin}-windows.exe")
+          fi
+          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+            links+=("Linux GNU|${bin}-linux")
+            aliases="${{ inputs.linux_gnu_aliases }}"
+            if [ -n "$aliases" ]; then
+              IFS=',' read -r -a alias_list <<< "$aliases"
+              for alias in "${alias_list[@]}"; do
+                case "$alias" in
+                  deb) label="Debian (.deb)";;
+                  pacman) label="Arch (.pacman)";;
+                  yum) label="Yum (.yum)";;
+                  redhat) label="RedHat";;
+                  *) label="Linux (${alias})";;
+                esac
+                links+=("${label}|${bin}-${alias}")
+              done
+            fi
+          fi
+          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+            links+=("Linux MUSL|${bin}-musl")
+          fi
+          if [ "${{ inputs.build_macos }}" = "true" ]; then
+            links+=("macOS|${bin}-mac")
+          fi
+
+          echo "links<<EOF" >> "$GITHUB_OUTPUT"
+          printf "%s\n" "${links[@]}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        if: ${{ inputs.generate_release_notes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="${GITHUB_WORKSPACE:-.}"
+          cd "$repo_dir"
+
+          since_tag=""
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            since_tag="$(git describe --tags --abbrev=0)"
+          fi
+
+          notes_file="$(mktemp)"
+          if [ -n "$since_tag" ]; then
+            git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
+          else
+            git log --pretty=format:"* %s" > "$notes_file"
+          fi
+
+          if [ ! -s "$notes_file" ]; then
+            echo "* No changes listed." > "$notes_file"
+          fi
+
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            release_tag="${GITHUB_REF_NAME:-}"
+          fi
+
+          binary_base_url="${{ inputs.binary_base_url }}"
+          if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
+            binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+          fi
+
+          binary_links="${{ steps.binaries.outputs.links }}"
+          if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
+            {
+              echo ""
+              echo "## Download Binaries"
+              echo ""
+              echo "| Platform | Binary |"
+              echo "|----------|--------|"
+            } >> "$notes_file"
+
+            while IFS= read -r line; do
+              trimmed="${line#"${line%%[![:space:]]*}"}"
+              if [ -z "$trimmed" ]; then
+                continue
+              fi
+              label="${trimmed%%|*}"
+              filename="${trimmed#*|}"
+              if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
+                continue
+              fi
+              printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
+            done <<< "$binary_links"
+          fi
+
+          notes_content="$(cat "$notes_file")"
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes_content" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          files: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

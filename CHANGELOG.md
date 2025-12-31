@@ -1,6 +1,17 @@
 # Changelog
 
-## 2025-12-27 (0.1.2)
+## 2025-12-31
+
+### Added
+- Added a release-notes composite action with optional binary links.
+- Added a generic release-build reusable workflow for publishing release artifacts.
+- Added a Rust multi-target release workflow and rust release build helper script.
+- Added a Go multi-target release workflow.
+
+### Changed
+- Updated docs with release workflows, release notes usage, and install-from-git examples.
+
+## 2025-12-27 (0.2.0)
 
 ### Added
 - Added lint defaults across language presets and scan workflows (Python, C#, Java, Go, Rust, PHP, Node, React).
@@ -12,7 +23,7 @@
 - Node/React/C#/Go/Rust defaults now fetch dependencies before running tests.
 - Auto-tag release workflow is now reusable, default-branch aware, and hard-fails if the tag already exists.
 - Release branch tag guard now accepts `release/X.Y.Z-rcN` branches.
-- Updated docs and references to version 0.1.2.
+- Updated docs and references to version 0.2.0.
 
 ## 2025-12-26
 
