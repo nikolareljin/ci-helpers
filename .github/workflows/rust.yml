@@ -1,0 +1,53 @@
+name: preset-rust
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      rust_toolchain:
+        type: string
+        default: "stable"
+      rust_components:
+        type: string
+        default: ""
+      lint_command:
+        type: string
+        default: ""
+      test_command:
+        type: string
+        default: "cargo test --verbose"
+      build_command:
+        type: string
+        default: "cargo build --verbose"
+      e2e_command:
+        type: string
+        default: ""
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      rust_toolchain: ${{ inputs.rust_toolchain }}
+      rust_components: ${{ inputs.rust_components }}
+      lint_command: ${{ inputs.lint_command }}
+      test_command: ${{ inputs.test_command }}
+      build_command: ${{ inputs.build_command }}
+      e2e_command: ${{ inputs.e2e_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}
