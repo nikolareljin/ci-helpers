@@ -35,6 +35,8 @@ Inputs:
 - `python_version` (string, default `""`)
 - `go_version` (string, default `""`)
 - `php_version` (string, default `""`)
+- `rust_toolchain` (string, default `""`)
+- `rust_components` (string, default `""`)
 - `lint_command` (string, default `""`)
 - `test_command` (string, default `""`)
 - `build_command` (string, default `""`)
@@ -649,7 +651,7 @@ uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
 Using a commit SHA is safest for reproducibility:
 
 ```yaml
-uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@<commit-sha>
+uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
 ```
 
 ## Working directory

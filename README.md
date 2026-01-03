@@ -2,7 +2,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.2.0 (from VERSION).
+Current production tag: 0.3.0 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -11,7 +11,7 @@ Includes:
 - Composite actions for semver comparison, release tag checks, and release notes.
 - Composite actions for Trivy, Gitleaks, and WordPress plugin-check scans.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
-- Preset workflows for common stacks (Java, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
+- Preset workflows for common stacks (Java, Kotlin, Rust, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
 ## Docs
@@ -88,7 +88,7 @@ jobs:
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
 - `scripts/`: bash utilities used by actions
 - `vendor/script-helpers`: vendored helper scripts from [`script-helpers`](https://github.com/nikolareljin/script-helpers) (sync via `scripts/sync_script_helpers.sh`)
-- `.github/workflows/{node,react,python,go,java,csharp,php,docker,playwright,cypress}.yml`: reusable stack presets
+- `.github/workflows/{node,react,python,go,java,java-gradle,kotlin,rust,csharp,php,docker,playwright,cypress}.yml`: reusable stack presets
 
 ## Reusable workflow examples
 
@@ -219,6 +219,43 @@ jobs:
       java_version: "17"
       test_command: "mvn -B test"
       build_command: "mvn -B package"
+```
+
+Java (Gradle defaults):
+
+```yaml
+jobs:
+  java_gradle:
+    uses: nikolareljin/ci-helpers/.github/workflows/java-gradle.yml@production
+    with:
+      java_version: "17"
+      test_command: "./gradlew test"
+      build_command: "./gradlew build"
+```
+
+Kotlin (Gradle/Android defaults):
+
+```yaml
+jobs:
+  kotlin:
+    uses: nikolareljin/ci-helpers/.github/workflows/kotlin.yml@production
+    with:
+      java_version: "17"
+      lint_command: "./gradlew lint"
+      test_command: "./gradlew test"
+      build_command: "./gradlew assembleDebug"
+```
+
+Rust:
+
+```yaml
+jobs:
+  rust:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust.yml@production
+    with:
+      rust_toolchain: "stable"
+      test_command: "cargo test --verbose"
+      build_command: "cargo build --verbose"
 ```
 
 C# (.NET):

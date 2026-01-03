@@ -129,6 +129,65 @@ jobs:
       java_version: "17"
 ```
 
+## Java (Gradle)
+
+Workflow: `.github/workflows/java-gradle.yml`
+
+Defaults:
+- `java_version`: `17`
+- `lint_command`: `./gradlew check -x test`
+- `test_command`: `./gradlew test`
+- `build_command`: `./gradlew build`
+
+Example:
+
+```yaml
+jobs:
+  java_gradle:
+    uses: nikolareljin/ci-helpers/.github/workflows/java-gradle.yml@production
+    with:
+      java_version: "17"
+```
+
+## Kotlin (Gradle/Android)
+
+Workflow: `.github/workflows/kotlin.yml`
+
+Defaults:
+- `java_version`: `17`
+- `lint_command`: `./gradlew lint`
+- `test_command`: `./gradlew test`
+- `build_command`: `./gradlew assembleDebug`
+
+Example:
+
+```yaml
+jobs:
+  kotlin:
+    uses: nikolareljin/ci-helpers/.github/workflows/kotlin.yml@production
+    with:
+      java_version: "17"
+```
+
+## Rust
+
+Workflow: `.github/workflows/rust.yml`
+
+Defaults:
+- `rust_toolchain`: `stable`
+- `test_command`: `cargo test --verbose`
+- `build_command`: `cargo build --verbose`
+
+Example:
+
+```yaml
+jobs:
+  rust:
+    uses: nikolareljin/ci-helpers/.github/workflows/rust.yml@production
+    with:
+      rust_toolchain: "stable"
+```
+
 ## C#
 
 Workflow: `.github/workflows/csharp.yml`
