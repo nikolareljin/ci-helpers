@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-01-03 (0.3.0)
+
+### Changed
+- Updated docs to consistently point reusable workflow/action references at @production.
+- Bumped production tag references to 0.3.0 in documentation.
+
 ## 2025-12-31 (0.2.0)
 
 ### Added

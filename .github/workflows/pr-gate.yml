@@ -29,6 +29,12 @@ on:
       php_version:
         type: string
         default: ""
+      rust_toolchain:
+        type: string
+        default: ""
+      rust_components:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: ""
@@ -101,6 +107,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Setup Rust
+        if: ${{ inputs.rust_toolchain != '' }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          components: ${{ inputs.rust_components }}
 
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
