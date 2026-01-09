@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # /etc/hosts helpers
 
+# Usage: add_to_etc_hosts <domain> <ip>; appends entry if missing.
 add_to_etc_hosts() {
   local domain="$1" ip_address="$2"
   if ! grep -qE "(^|\s)${domain}(\s|$)" /etc/hosts; then
@@ -10,4 +11,3 @@ add_to_etc_hosts() {
     print_info "$domain is already present in /etc/hosts"
   fi
 }
-

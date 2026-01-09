@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Certificates and trust store helpers
 
+# Usage: create_self_signed_certs <cert_dir> <domain>; creates key/cert if missing.
 create_self_signed_certs() {
   local cert_dir="$1" domain="$2"
   local cert_file="$cert_dir/$domain.crt" key_file="$cert_dir/$domain.key" openssl_config_file="$cert_dir/openssl.cnf"
@@ -18,6 +19,7 @@ create_self_signed_certs() {
   run_with_optional_sudo true chmod 600 "$key_file"
 }
 
+# Usage: add_cert_to_trust_store <cert_file> [friendly_name]; installs into trust store.
 add_cert_to_trust_store() {
   local cert_file="$1" friendly_name="${2:-script-helpers}"
   if [[ -z "$cert_file" || ! -f "$cert_file" ]]; then
@@ -67,4 +69,3 @@ add_cert_to_trust_store() {
   esac
   return 1
 }
-

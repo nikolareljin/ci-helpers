@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # OS detection and sudo helpers.
 
+# Usage: get_os; prints linux|mac|windows|unknown.
 get_os() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     echo "linux"
@@ -25,4 +26,3 @@ run_with_optional_sudo() {
     "$@"
   fi
 }
-

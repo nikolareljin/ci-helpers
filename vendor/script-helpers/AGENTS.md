@@ -9,6 +9,7 @@ Goal
 ----
 
 Keep the documentation in `./docs` up to date whenever code changes. Every function and module exposed by `lib/*.sh` and the loader (`helpers.sh`) must be documented with purpose, parameters, return values, environment variables, dependencies, and examples when appropriate.
+Also keep script usage docs updated when scripts under `scripts/` change (e.g., include/update patterns and examples).
 
 When to update docs
 -------------------
@@ -16,6 +17,7 @@ When to update docs
 - Adding, renaming, or removing a module in `lib/`.
 - Adding, changing, or removing a function in any existing module or in `helpers.sh`.
 - Changing behavior, defaults, required environment variables, or external dependencies of any function.
+- Adding or changing scripts under `scripts/` that are referenced in docs (e.g., `include.sh`, `update.sh`, usage patterns).
 
 What to update
 --------------
@@ -28,6 +30,7 @@ What to update
   - Update the module overview list if modules were added/removed/renamed.
 - `docs/usage.md` —
   - Update examples if function signatures or behaviors changed in a user-visible way.
+  - Update script patterns and snippets when `scripts/` changes.
 
 Checklist (run before finishing a change)
 ----------------------------------------
@@ -64,4 +67,3 @@ Validation
 ----------
 
 - Where possible, run `make examples` to sanity-check behavior. Avoid adding hard dependencies just for docs.
-

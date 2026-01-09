@@ -2,6 +2,14 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## [0.9.1] - 2026-01-08
+
+- Added: `lib/package_publish.sh` for shared Debian/PPA publishing helpers.
+- Added: package publish example script.
+- Changed: packaging scripts now use shared helpers via `shlib_import`.
+
+- Added: Debian packaging helpers (`scripts/build_deb_artifacts.sh`, `scripts/ppa_upload.sh`).
+
 ## [0.9.0] - 2025-12-26
 
 - Changed: Unified script help rendering across `display_help`, `print_help`, and `show_help` with a shared renderer.

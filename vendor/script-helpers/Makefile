@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker lint-docs install-git-hooks
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks
 
 help:
 	@echo "Available targets:"
@@ -15,7 +15,7 @@ help:
 RUN_NETWORK ?= 0
 RUN_INTERACTIVE ?= 0
 
-examples: example_logging example_env example_json example_docker
+examples: example_logging example_env example_json example_docker example_package_publish
 	@# Interactive dialog example (opt-in)
 	@if [[ "$(RUN_INTERACTIVE)" == "1" ]]; then \
 	  if command -v dialog >/dev/null 2>&1; then \
@@ -64,6 +64,10 @@ example_docker:
 	else \
 	  echo "Docker not found; skipping docker example"; \
 	fi
+
+example_package_publish:
+	@echo "\n--- Running: example_package_publish ---"
+	@bash scripts/example_package_publish.sh
 
 lint-docs:
 	@bash scripts/lint_docs.sh
