@@ -1,0 +1,68 @@
+name: ci-helpers-deb-build
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      prebuild_command:
+        type: string
+        default: "make man"
+      build_command:
+        type: string
+        default: ""
+      extra_packages:
+        type: string
+        default: ""
+      artifact_name:
+        type: string
+        default: "deb-packages"
+      artifact_glob:
+        type: string
+        default: "../*.deb"
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install packaging prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            debhelper \
+            devscripts \
+            dh-python \
+            python3
+          if [ -n "${{ inputs.extra_packages }}" ]; then
+            sudo apt-get install -y ${{ inputs.extra_packages }}
+          fi
+
+      - name: Build package
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
+            --repo "${{ inputs.working_directory }}" \
+            --prebuild "${{ inputs.prebuild_command }}" \
+            --build "${{ inputs.build_command }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.artifact_glob }}
