@@ -4,6 +4,7 @@
 
 # Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env
 
+# Usage: _ollama_default_repo_url; prints default models repo URL.
 _ollama_default_repo_url() {
   echo "https://github.com/webfarmer/ollama-get-models.git"
 }
@@ -225,4 +226,3 @@ ollama_install_model_flow() {
 
   ollama_pull_model "$model" "$size"
 }
-

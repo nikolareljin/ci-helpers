@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Browser helpers
 
+# Usage: check_port <port> [host]; returns 0 if TCP port is reachable.
 check_port() {
   local port="$1" host="${2:-localhost}"
   if command -v nc >/dev/null 2>&1; then
@@ -15,6 +16,7 @@ check_port() {
   fi
 }
 
+# Usage: open_url <url>; uses OS-specific open command.
 open_url() {
   local url="$1"
   if command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 || true; return 0; fi
@@ -26,6 +28,7 @@ open_url() {
   esac
 }
 
+# Usage: open_frontend_when_ready [max_wait_seconds]; waits and opens frontend URL.
 open_frontend_when_ready() {
   local host="${FRONTEND_HOST:-localhost}" port="${FRONTEND_PORT:-3000}" max_wait="${1:-120}" waited=0
   local compose_extra=( )

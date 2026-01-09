@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Environment and project helpers
 
+# Usage: get_project_root; prints repo root based on caller script location.
 get_project_root() {
   local source_path="" script_dir=""
 
@@ -23,6 +24,7 @@ get_project_root() {
   echo "$(dirname "$script_dir")"
 }
 
+# Usage: load_env [env_file]; sources environment file if present.
 load_env() {
   local env_file="${1:-.env}"
   if [[ -f "$env_file" ]]; then
@@ -34,6 +36,7 @@ load_env() {
   fi
 }
 
+# Usage: require_env <VAR...>; returns non-zero if any are missing.
 require_env() {
   local missing=()
   local var
@@ -60,6 +63,7 @@ resolve_env_value() {
   echo "$value"
 }
 
+# Usage: run_superuser_setup; runs scripts/superuser.sh from project root.
 run_superuser_setup() {
   local project_root su_script
   project_root=$(get_project_root)
@@ -72,6 +76,7 @@ run_superuser_setup() {
   "$su_script"
 }
 
+# Usage: init_include; sets up traps, cd to root, and loads .env.
 init_include() {
   # Initialize traps, move to project root, and load .env
   if declare -F setup_traps >/dev/null 2>&1; then setup_traps; fi

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-01-07 (0.4.0)
+
+### Changed
+- Vendored new script-helpers package publishing helpers and updated workflows to use them.
+
+## 2026-01-06
+
+### Changed
+- Moved PPA upload helper to vendored script-helpers and updated workflows to use it.
+
+## 2026-01-05
+
+### Added
+- Added a reusable Debian package build workflow that uploads artifacts.
+
+## 2026-01-04
+
+### Added
+- Added a reusable workflow to build and publish Debian source packages to Launchpad PPAs.
+- Documented PPA publish inputs and required secrets.
+
 ## 2026-01-03 (0.3.0)
 
 ### Changed

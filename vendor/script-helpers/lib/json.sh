@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # JSON helpers
 
+# Usage: json_escape <string>; escapes for safe JSON output.
 json_escape() {
   local input="$1"
   input=${input//\\/\\\\}
@@ -25,6 +26,7 @@ format_response() {
   echo "$response" | jq -r '.response'
 }
 
+# Usage: format_md_response <string>; strips fenced code blocks if present.
 format_md_response() {
   local response="$1"
   if [[ "$response" == *"\`\`\`"* ]]; then
@@ -33,4 +35,3 @@ format_md_response() {
     echo "$response"
   fi
 }
-

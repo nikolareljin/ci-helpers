@@ -2,7 +2,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.3.0 (from VERSION).
+Current production tag: 0.4.0 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -79,6 +79,8 @@ jobs:
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language
 - `.github/workflows/rust-release.yml`: reusable Rust multi-target release workflow
 - `.github/workflows/go-release.yml`: reusable Go multi-target release workflow
+- `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
+- `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
@@ -87,6 +89,7 @@ jobs:
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
 - `scripts/`: bash utilities used by actions
+- `vendor/script-helpers/scripts/ppa_upload.sh`: helper to build and upload a Debian source package to Launchpad
 - `vendor/script-helpers`: vendored helper scripts from [`script-helpers`](https://github.com/nikolareljin/script-helpers) (sync via `scripts/sync_script_helpers.sh`)
 - `.github/workflows/{node,react,python,go,java,java-gradle,kotlin,rust,csharp,php,docker,playwright,cypress}.yml`: reusable stack presets
 
