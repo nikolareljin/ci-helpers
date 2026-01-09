@@ -14,6 +14,7 @@ COLOR_BOLD="\033[1m"
 COLOR_UNDERLINE="\033[4m"
 COLOR_RESET="\033[0m";     NC="\033[0m"
 
+# Usage: _shlib__color_code_from_name <name>; maps color names to ANSI codes.
 _shlib__color_code_from_name() {
   case "$1" in
     red) echo -e "$RED";;
@@ -60,16 +61,25 @@ print_color() {
   fi
 }
 
+# Usage: print_info <message...>; info output helper.
 print_info()    { print_color "$WHITE"   "[Info]: $*"; }
+# Usage: print_error <message...>; error output helper (audible bell).
 print_error()   { print_color "$RED"     "[Error!]: $*"; echo -e "\a"; }
+# Usage: print_success <message...>; success output helper.
 print_success() { print_color "$GREEN"   "Success [OK]: $*"; }
+# Usage: print_warning <message...>; warning output helper (audible bell).
 print_warning() { print_color "$YELLOW"  "[Warning!]: $*"; echo -e "\a"; }
+# Usage: print_line; prints a horizontal divider.
 print_line()    { echo "----------------------------------------"; }
 
 # Compatibility with network-scan logging style
+# Usage: log_info <message...>; stderr info log.
 log_info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
+# Usage: log_warn <message...>; stderr warning log.
 log_warn()  { echo -e "${BOLD_YELLOW:-$YELLOW}[WARN]${NC} $*" >&2; }
+# Usage: log_error <message...>; stderr error log.
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+# Usage: log_debug <message...>; stderr debug log when DEBUG=true.
 log_debug() {
   if [[ "${DEBUG:-}" == "true" ]]; then
     echo -e "${BLUE}[DEBUG]${NC} $*" >&2
@@ -87,7 +97,11 @@ print() {
 }
 
 # Additional compatibility helpers used by some scripts
+# Usage: print_red <message...>; color helper.
 print_red()    { print_color "$RED"    "$*"; }
+# Usage: print_green <message...>; color helper.
 print_green()  { print_color "$GREEN"  "$*"; }
+# Usage: print_yellow <message...>; color helper.
 print_yellow() { print_color "$YELLOW" "$*"; }
+# Usage: print_blue <message...>; color helper.
 print_blue()   { print_color "$BLUE"   "$*"; }

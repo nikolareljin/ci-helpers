@@ -19,6 +19,11 @@ Functions
   - Purpose: Print the PIDs that are listening on a TCP port.
   - Behavior: Similar detection strategy as above; prints unique PIDs found.
 
+- port_in_use_by port
+  - Purpose: Print process details for listeners on a TCP port, or nothing if unused.
+  - Behavior: Wraps `list_port_usage_details` and prints detail lines when found.
+  - Returns: 0 and prints details if any found; non-zero with no output if unused.
+
 - check_required_ports_available [env_file=.env]
   - Purpose: Check a common set of env vars → ports for conflicts on the local machine.
   - Uses `REQUIRED_PORT_DEFAULTS` to know which variables to examine (with defaults):
@@ -35,4 +40,3 @@ Dependencies
 ------------
 
 - `lsof`/`ss`/`netstat`/`fuser` (any subset available), optional `sudo` when allowed.
-

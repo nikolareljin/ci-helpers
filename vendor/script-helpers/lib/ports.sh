@@ -3,6 +3,7 @@
 
 PORT_DETECTION_ALLOW_SUDO=${PORT_DETECTION_ALLOW_SUDO:-false}
 
+# Usage: list_port_usage_details <port>; prints process/user details for listeners.
 list_port_usage_details() {
   local port="$1"
   local -a details=()
@@ -48,6 +49,7 @@ list_port_usage_details() {
   return 1
 }
 
+# Usage: list_port_listener_pids <port>; prints unique listener PIDs.
 list_port_listener_pids() {
   local port="$1"; local -a pids=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
@@ -101,6 +103,18 @@ list_port_listener_pids() {
   fi
 }
 
+# Usage: port_in_use_by <port>; prints process details or nothing if unused.
+port_in_use_by() {
+  local port="$1"
+  local -a details=()
+  mapfile -t details < <(list_port_usage_details "$port" 2>/dev/null || true)
+  if [[ ${#details[@]} -gt 0 ]]; then
+    printf '%s\n' "${details[@]}"
+    return 0
+  fi
+  return 1
+}
+
 # Defaults used by document-tracker; callers may override or pass a different list
 REQUIRED_PORT_DEFAULTS=(
   "TRAEFIK_HTTP_PORT:80"
@@ -115,6 +129,7 @@ REQUIRED_PORT_DEFAULTS=(
   "API_PORT:8080"
 )
 
+# Usage: check_required_ports_available [env_file]; populates conflict globals.
 check_required_ports_available() {
   local env_file="${1:-.env}"
   REQUIRED_PORT_CONFLICT_MESSAGES=()
@@ -179,4 +194,3 @@ check_required_ports_available() {
 
   [[ $conflict_found -eq 0 ]]
 }
-

@@ -67,6 +67,7 @@ select_multiple_distros() {
   echo "$selected_distros"
 }
 
+# Usage: select_distro; expects DISTROS associative array and echoes selection.
 select_distro() {
   dialog_init; check_if_dialog_installed || return 1
   local selected_distro options=() d

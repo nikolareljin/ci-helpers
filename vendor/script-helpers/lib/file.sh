@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # File/dir and checksum helpers
 
+# Usage: command_exists <command>; returns 0 when command is available.
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# Usage: directory_exists <path>; returns 0 if directory exists.
 directory_exists() { [[ -d "$1" ]]; }
+# Usage: file_exists <path>; returns 0 if file exists.
 file_exists() { [[ -f "$1" ]]; }
 
+# Usage: create_directory <path>; creates directory if missing.
 create_directory() {
   if ! directory_exists "$1"; then
     mkdir -p "$1" && { echo "Directory $1 created."; return 0; }
@@ -15,6 +19,7 @@ create_directory() {
   fi
 }
 
+# Usage: download_file <url> [output]; downloads quietly with optional dialog.
 download_file() {
   local url="$1"; local output="${2:-}"
   if [[ -z "$output" ]]; then
@@ -59,9 +64,12 @@ download_file() {
   fi
 }
 
+# Usage: is_valid_iso <path>; returns 0 if ISO signature is detected.
 is_valid_iso() { file "$1" | grep -q "ISO 9660"; }
+# Usage: is_valid_checksum <path>; returns 0 if checksum file looks like text.
 is_valid_checksum() { file "$1" | grep -q "ASCII text"; }
 
+# Usage: verify_checksum <iso_file> <checksum_file> [checksum_type]; checks hashes.
 verify_checksum() {
   local iso_file="$1"; local checksum_file="$2"; local checksum_type="${3:-sha256sum}"
   if ! is_valid_iso "$iso_file"; then
