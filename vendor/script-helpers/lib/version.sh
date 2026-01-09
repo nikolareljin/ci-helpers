@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Version helpers for bumping and comparing semantic versions.
 
+# Usage: _version__parse_triplet <version>; internal parser for X.Y.Z.
 _version__parse_triplet() {
   local raw="$1"
 
@@ -19,6 +20,7 @@ _version__parse_triplet() {
   echo "$major $minor $patch"
 }
 
+# Usage: version_compare <version_a> <version_b>; returns 0 if equal.
 version_compare() {
   local left="${1:-}" right="${2:-}"
   if [[ -z "$left" || -z "$right" ]]; then
@@ -50,6 +52,7 @@ version_compare() {
   fi
 }
 
+# Usage: version_bump {major|minor|patch} [-f VERSION_FILE]; bumps version file.
 version_bump() {
   local bump_type="" version_file="" prefix="" suffix="" normalized current_dir
 

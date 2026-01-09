@@ -198,6 +198,75 @@ jobs:
       upload_artifact: true
 ```
 
+## ppa-deb.yml
+
+Workflow: `.github/workflows/ppa-deb.yml`
+
+Purpose: Build a Debian source package and upload it to a Launchpad PPA.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `"make man"`)
+- `build_command` (string, default `""`)
+- `series` (string, default `""`)
+- `ppa_target` (string, required, e.g. `ppa:your-launchpad-id/ppa-name`)
+- `deb_fullname` (string, default `""`)
+- `deb_email` (string, default `""`)
+- `signing_key_id` (string, required, GPG key ID or fingerprint)
+- `extra_packages` (string, default `""`)
+
+Secrets:
+- `gpg_private_key` (armored private key)
+- `gpg_passphrase` (GPG key passphrase)
+- `launchpad_ssh_private_key` (SSH key registered with Launchpad)
+
+Example:
+
+```yaml
+jobs:
+  ppa:
+    uses: nikolareljin/ci-helpers/.github/workflows/ppa-deb.yml@production
+    with:
+      working_directory: "."
+      ppa_target: "ppa:your-launchpad-id/distrodeck"
+      deb_fullname: "Nikola Reljin"
+      deb_email: "nikola.reljin@gmail.com"
+      signing_key_id: ${{ secrets.PPA_GPG_KEY_ID }}
+    secrets:
+      gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+      gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
+      launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+```
+
+## deb-build.yml
+
+Workflow: `.github/workflows/deb-build.yml`
+
+Purpose: Build Debian packages and upload artifacts.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `"make man"`)
+- `build_command` (string, default `""`)
+- `extra_packages` (string, default `""`)
+- `artifact_name` (string, default `"deb-packages"`)
+- `artifact_glob` (string, default `"../*.deb"`)
+
+Example:
+
+```yaml
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.deb"
+```
+
 ## php-scan.yml
 
 Workflow: `.github/workflows/php-scan.yml`

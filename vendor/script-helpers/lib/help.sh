@@ -5,18 +5,22 @@
 # header comments in shell scripts. Supports multi-line fields and consistent output
 # for script name, description, usage, parameters, examples, and more.
 
+# Usage: display_help [script_file]; renders concise help.
 display_help() {
   _help__render "concise" "${1:-$0}"
 }
 
+# Usage: print_help [script_file]; renders full help.
 print_help() {
   _help__render "full" "${1:-$0}"
 }
 
+# Usage: show_help [script_file]; renders minimal help.
 show_help() {
   _help__render "minimal" "${1:-${BASH_SOURCE[1]:-$0}}"
 }
 
+# Usage: _help__print_inline <color> <label> <value>; internal inline renderer.
 _help__print_inline() {
   local color="$1" label="$2" value="$3"
   local line="${label}: ${value}"
@@ -27,6 +31,7 @@ _help__print_inline() {
   fi
 }
 
+# Usage: _help__print_block <color> <label> <value>; internal block renderer.
 _help__print_block() {
   local color="$1" label="$2" value="$3"
   if [[ -z "$value" ]]; then
@@ -42,6 +47,7 @@ _help__print_block() {
   done <<< "$value"
 }
 
+# Usage: _help__render <mode> <script_file>; internal help rendering engine.
 _help__render() {
   local mode="$1" script_file="$2"
   if [[ ! -f "$script_file" ]]; then
@@ -192,6 +198,7 @@ Environment Variables:
 EOF
 }
 
+# Usage: parse_common_args <args...>; handles -h/-v/-d for scripts.
 parse_common_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in

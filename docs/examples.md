@@ -227,3 +227,42 @@ jobs:
       fail_on_findings: true
       upload_artifact: true
 ```
+
+## PPA publish
+
+```yaml
+name: PPA
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ppa:
+    uses: nikolareljin/ci-helpers/.github/workflows/ppa-deb.yml@production
+    with:
+      working_directory: "."
+      ppa_target: "ppa:your-launchpad-id/distrodeck"
+      deb_fullname: "Nikola Reljin"
+      deb_email: "nikola.reljin@gmail.com"
+      signing_key_id: ${{ secrets.PPA_GPG_KEY_ID }}
+    secrets:
+      gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+      gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
+      launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+```
+
+## Debian package build
+
+```yaml
+name: Debian Build
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.deb"
+```

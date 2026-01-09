@@ -32,6 +32,7 @@ run_docker_compose_command() {
   $cmd $*
 }
 
+# Usage: check_docker; validates Docker CLI and daemon availability.
 check_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     log_error "Docker CLI not found. Install Docker and ensure it is on PATH."
@@ -51,6 +52,7 @@ check_docker() {
   fi
 }
 
+# Usage: check_project_root; errors if docker-compose.yml is missing in CWD.
 check_project_root() {
   if [[ ! -f "docker-compose.yml" ]]; then
     log_error "docker-compose.yml not found. Run from the project root."
@@ -58,6 +60,7 @@ check_project_root() {
   fi
 }
 
+# Usage: wait_for_service <service_name> [max_wait_seconds]; waits until running.
 wait_for_service() {
   local service_name="$1"; local max_wait="${2:-60}"; local wait_time=0
   log_info "Waiting for service '$service_name' to be ready..."

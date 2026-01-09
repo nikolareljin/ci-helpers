@@ -456,6 +456,53 @@ jobs:
         macOS|myapp-mac
 ```
 
+PPA publish:
+
+```yaml
+name: PPA
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ppa:
+    uses: nikolareljin/ci-helpers/.github/workflows/ppa-deb.yml@production
+    with:
+      working_directory: "."
+      ppa_target: "ppa:your-launchpad-id/distrodeck"
+      deb_fullname: "Nikola Reljin"
+      deb_email: "nikola.reljin@gmail.com"
+      signing_key_id: ${{ secrets.PPA_GPG_KEY_ID }}
+    secrets:
+      gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+      gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
+      launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+```
+
+Required secrets for PPA publish:
+- `PPA_GPG_PRIVATE_KEY`: armored private key used to sign the source package.
+- `PPA_GPG_PASSPHRASE`: passphrase for the signing key.
+- `PPA_GPG_KEY_ID`: key ID or fingerprint (passed as an input).
+- `PPA_SSH_PRIVATE_KEY`: SSH key registered with Launchpad for uploads.
+Optional inputs:
+- `series`: distro codename override for `debian/changelog` (uses `dch`).
+
+Debian package build:
+
+```yaml
+name: Debian Build
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.deb"
+```
+
 Rust release build:
 
 ```yaml

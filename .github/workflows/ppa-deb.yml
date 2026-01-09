@@ -1,0 +1,115 @@
+name: ci-helpers-ppa-deb
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      prebuild_command:
+        type: string
+        default: "make man"
+      build_command:
+        type: string
+        default: ""
+      series:
+        type: string
+        default: ""
+      ppa_target:
+        type: string
+        required: true
+      deb_fullname:
+        type: string
+        default: ""
+      deb_email:
+        type: string
+        default: ""
+      signing_key_id:
+        type: string
+        required: true
+      extra_packages:
+        type: string
+        default: ""
+    secrets:
+      gpg_private_key:
+        required: true
+      gpg_passphrase:
+        required: true
+      launchpad_ssh_private_key:
+        required: true
+
+jobs:
+  ppa:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install packaging prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            debhelper \
+            devscripts \
+            dh-python \
+            dput \
+            gnupg \
+            python3
+          if [ -n "${{ inputs.extra_packages }}" ]; then
+            sudo apt-get install -y ${{ inputs.extra_packages }}
+          fi
+
+      - name: Configure GPG
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
+          GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
+          GPG_KEY_ID: ${{ inputs.signing_key_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          printf '5\ny\n' | gpg --batch --command-fd 0 --edit-key "$GPG_KEY_ID" trust
+          gpg --batch --list-keys "$GPG_KEY_ID"
+          export GPG_TTY="$(tty)"
+
+      - name: Configure Launchpad SSH
+        shell: bash
+        env:
+          LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ppa.launchpad.net >> ~/.ssh/known_hosts
+
+      - name: Build and upload to PPA
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          DEBEMAIL: ${{ inputs.deb_email }}
+          DEBFULLNAME: ${{ inputs.deb_fullname }}
+          PPA_GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
+        run: |
+          set -euo pipefail
+          ./vendor/script-helpers/scripts/ppa_upload.sh \
+            --ppa "${{ inputs.ppa_target }}" \
+            --key-id "${{ inputs.signing_key_id }}" \
+            --repo "${{ inputs.working_directory }}" \
+            --prebuild "${{ inputs.prebuild_command }}" \
+            --build "${{ inputs.build_command }}" \
+            --series "${{ inputs.series }}"

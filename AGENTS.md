@@ -24,7 +24,7 @@
 
 ## Versioning
 
-- Current production tag: 0.3.0 (from VERSION).
+- Current production tag: 0.4.0 (from VERSION).
 - `VERSION` is the source of truth; keep docs/examples `@X.Y.Z` references in sync.
 - Use `scripts/version_bump.sh major|minor|patch` to bump and update documentation/examples.
 
