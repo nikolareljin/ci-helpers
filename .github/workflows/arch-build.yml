@@ -1,0 +1,67 @@
+name: ci-helpers-arch-build
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      prebuild_command:
+        type: string
+        default: ""
+      pkg_dir:
+        type: string
+        default: "packaging/arch"
+      artifact_name:
+        type: string
+        default: "arch-packages"
+      artifact_glob:
+        type: string
+        default: "artifacts/*.pkg.tar.*"
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    container: archlinux:latest
+    steps:
+      - name: Install base packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Configure build user
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+
+      - name: Build package
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_cmd='set -euo pipefail\n'
+          build_cmd+="cd \"${GITHUB_WORKSPACE}/${{ inputs.working_directory }}\"\\n"
+          build_cmd+='args=(--repo "'"${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"'" --pkg-dir "'"${{ inputs.pkg_dir }}"'" --artifact-dir "'"${GITHUB_WORKSPACE}/artifacts"'")\n'
+          build_cmd+='if [ -n "'"${{ inputs.prebuild_command }}"'" ]; then args+=(--prebuild "'"${{ inputs.prebuild_command }}"'"); fi\n'
+          build_cmd+='./vendor/script-helpers/scripts/build_arch_artifacts.sh "${args[@]}"\n'
+          su - builder -c "$build_cmd"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.artifact_glob }}

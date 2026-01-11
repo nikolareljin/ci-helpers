@@ -503,6 +503,82 @@ jobs:
       artifact_glob: "../*.deb"
 ```
 
+RPM package build:
+
+```yaml
+name: RPM Build
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.rpm"
+```
+
+Arch package build:
+
+```yaml
+name: Arch Build
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  arch:
+    uses: nikolareljin/ci-helpers/.github/workflows/arch-build.yml@production
+    with:
+      working_directory: "."
+```
+
+Homebrew tap update:
+
+```yaml
+name: Brew Tap
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  brew:
+    uses: nikolareljin/ci-helpers/.github/workflows/brew-tap.yml@production
+    with:
+      tap_repo: "your-org/homebrew-tap"
+      formula_path: "Formula/myapp.rb"
+    secrets:
+      tap_token: ${{ secrets.BREW_TAP_TOKEN }}
+```
+
+Unified packaging release:
+
+```yaml
+name: Packaging Release
+on:
+  push:
+    tags: [ "v*.*.*" ]
+
+jobs:
+  packaging:
+    uses: nikolareljin/ci-helpers/.github/workflows/packaging-release.yml@production
+    with:
+      upload_ppa: true
+      ppa_target: "ppa:your-launchpad-id/myapp"
+      ppa_signing_key_id: ${{ secrets.PPA_GPG_KEY_ID }}
+      ppa_deb_fullname: "Your Name"
+      ppa_deb_email: "you@example.com"
+      update_brew_tap: true
+      brew_tap_repo: "your-org/homebrew-tap"
+      brew_formula_path: "Formula/myapp.rb"
+    secrets:
+      ppa_gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+      ppa_gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
+      ppa_launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+      brew_tap_token: ${{ secrets.BREW_TAP_TOKEN }}
+```
+
 Rust release build:
 
 ```yaml

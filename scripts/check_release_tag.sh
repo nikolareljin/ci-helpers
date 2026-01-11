@@ -72,7 +72,7 @@ if $fetch_tags; then
   git -C "$repo_dir" fetch --tags --prune --force >/dev/null 2>&1 || true
 fi
 
-if git -C "$repo_dir" show-ref --tags -q "refs/tags/$version"; then
+if git -C "$repo_dir" rev-parse -q --verify "refs/tags/$version" >/dev/null; then
   log_error_safe "Tag $version already exists for release branch $branch"
   exit 1
 fi

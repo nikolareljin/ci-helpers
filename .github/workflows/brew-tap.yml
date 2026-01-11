@@ -1,0 +1,106 @@
+name: ci-helpers-brew-tap
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      tap_repo:
+        type: string
+        required: true
+      tap_branch:
+        type: string
+        default: "main"
+      formula_path:
+        type: string
+        default: ""
+      release_tag:
+        type: string
+        default: ""
+      brew_url:
+        type: string
+        default: ""
+      brew_sha256:
+        type: string
+        default: ""
+      tap_git_user:
+        type: string
+        default: "github-actions[bot]"
+      tap_git_email:
+        type: string
+        default: "github-actions[bot]@users.noreply.github.com"
+    secrets:
+      tap_token:
+        required: true
+
+jobs:
+  update:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.tap_repo }}
+          ref: ${{ inputs.tap_branch }}
+          token: ${{ secrets.tap_token }}
+          path: tap
+
+      - name: Render formula
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            release_tag="${GITHUB_REF_NAME:-}"
+          fi
+
+          brew_url="${{ inputs.brew_url }}"
+          if [ -z "$brew_url" ]; then
+            brew_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${release_tag}.tar.gz"
+          fi
+
+          brew_sha="${{ inputs.brew_sha256 }}"
+          if [ -z "$brew_sha" ]; then
+            brew_sha=$(curl -sL "$brew_url" | shasum -a 256 | awk '{print $1}')
+          fi
+
+          formula_path="${{ inputs.formula_path }}"
+          if [ -z "$formula_path" ]; then
+            formula_name=$(grep -E '^BREW_FORMULA_NAME=' packaging/packaging.env | tail -n1 | sed 's/^BREW_FORMULA_NAME=//' | tr -d '"')
+            formula_path="Formula/${formula_name}.rb"
+          fi
+
+          ./vendor/script-helpers/scripts/render_brew_formula.sh \
+            --repo "${{ inputs.working_directory }}" \
+            --output "${GITHUB_WORKSPACE}/tap/${formula_path}" \
+            --url "$brew_url" \
+            --sha256 "$brew_sha" \
+            --version "${release_tag#v}"
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tap
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No formula changes detected."
+            exit 0
+          fi
+          git config user.name "${{ inputs.tap_git_user }}"
+          git config user.email "${{ inputs.tap_git_email }}"
+          git add .
+          git commit -m "Update formula for ${GITHUB_REPOSITORY} ${GITHUB_REF_NAME}"
+          git push origin "${{ inputs.tap_branch }}"

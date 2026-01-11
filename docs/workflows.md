@@ -267,6 +267,130 @@ jobs:
       artifact_glob: "../*.deb"
 ```
 
+## rpm-build.yml
+
+Workflow: `.github/workflows/rpm-build.yml`
+
+Purpose: Build RPM packages and upload artifacts.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `""`)
+- `spec_path` (string, default `""`)
+- `extra_packages` (string, default `""`)
+- `artifact_name` (string, default `"rpm-packages"`)
+- `artifact_glob` (string, default `"../*.rpm"`)
+
+Example:
+
+```yaml
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.rpm"
+```
+
+## arch-build.yml
+
+Workflow: `.github/workflows/arch-build.yml`
+
+Purpose: Build Arch Linux packages via PKGBUILD and upload artifacts.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `""`)
+- `pkg_dir` (string, default `"packaging/arch"`)
+- `artifact_name` (string, default `"arch-packages"`)
+- `artifact_glob` (string, default `"artifacts/*.pkg.tar.*"`)
+
+Example:
+
+```yaml
+jobs:
+  arch:
+    uses: nikolareljin/ci-helpers/.github/workflows/arch-build.yml@production
+    with:
+      working_directory: "."
+```
+
+## brew-tap.yml
+
+Workflow: `.github/workflows/brew-tap.yml`
+
+Purpose: Render and publish a Homebrew formula in a tap repository.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `tap_repo` (string, required)
+- `tap_branch` (string, default `"main"`)
+- `formula_path` (string, default `""`)
+- `release_tag` (string, default `""`)
+- `brew_url` (string, default `""`)
+- `brew_sha256` (string, default `""`)
+- `tap_git_user` (string, default `github-actions[bot]`)
+- `tap_git_email` (string, default `github-actions[bot]@users.noreply.github.com`)
+
+Secrets:
+- `tap_token` (token with push access to the tap repo)
+
+Example:
+
+```yaml
+jobs:
+  brew:
+    uses: nikolareljin/ci-helpers/.github/workflows/brew-tap.yml@production
+    with:
+      tap_repo: "your-org/homebrew-tap"
+      formula_path: "Formula/myapp.rb"
+    secrets:
+      tap_token: ${{ secrets.BREW_TAP_TOKEN }}
+```
+
+## packaging-release.yml
+
+Workflow: `.github/workflows/packaging-release.yml`
+
+Purpose: Build deb/rpm/arch packages, publish release assets, and optionally update PPA and Homebrew tap.
+
+Inputs (selected):
+- `build_deb`, `build_rpm`, `build_arch` (booleans, default `true`)
+- `prebuild_command` (string, default `""`)
+- `deb_extra_packages`, `rpm_extra_packages` (string, default `""`)
+- `release_tag`, `release_name`, `release_notes`, `generate_release_notes`
+- `upload_ppa` (boolean, default `false`) + `ppa_target`, `ppa_signing_key_id`, `ppa_deb_fullname`, `ppa_deb_email`
+- `update_brew_tap` (boolean, default `false`) + `brew_tap_repo`, `brew_formula_path`
+
+Example:
+
+```yaml
+jobs:
+  packaging:
+    uses: nikolareljin/ci-helpers/.github/workflows/packaging-release.yml@production
+    with:
+      prebuild_command: "make man"
+      upload_ppa: true
+      ppa_target: "ppa:your-launchpad-id/myapp"
+      ppa_signing_key_id: ${{ secrets.PPA_GPG_KEY_ID }}
+      ppa_deb_fullname: "Your Name"
+      ppa_deb_email: "you@example.com"
+      update_brew_tap: true
+      brew_tap_repo: "your-org/homebrew-tap"
+      brew_formula_path: "Formula/myapp.rb"
+    secrets:
+      ppa_gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+      ppa_gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
+      ppa_launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+      brew_tap_token: ${{ secrets.BREW_TAP_TOKEN }}
+```
+
 ## php-scan.yml
 
 Workflow: `.github/workflows/php-scan.yml`

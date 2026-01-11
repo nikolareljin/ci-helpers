@@ -1,0 +1,382 @@
+name: ci-helpers-packaging-release
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      build_deb:
+        type: boolean
+        default: true
+      build_rpm:
+        type: boolean
+        default: true
+      build_arch:
+        type: boolean
+        default: true
+      prebuild_command:
+        type: string
+        default: ""
+      deb_build_command:
+        type: string
+        default: ""
+      deb_extra_packages:
+        type: string
+        default: ""
+      rpm_extra_packages:
+        type: string
+        default: ""
+      arch_pkg_dir:
+        type: string
+        default: "packaging/arch"
+      deb_artifact_name:
+        type: string
+        default: "deb-packages"
+      rpm_artifact_name:
+        type: string
+        default: "rpm-packages"
+      arch_artifact_name:
+        type: string
+        default: "arch-packages"
+      deb_artifact_glob:
+        type: string
+        default: "../*.deb"
+      rpm_artifact_glob:
+        type: string
+        default: "../*.rpm"
+      arch_artifact_glob:
+        type: string
+        default: "artifacts/*.pkg.tar.*"
+      release_tag:
+        type: string
+        default: ""
+      release_name:
+        type: string
+        default: ""
+      release_notes:
+        type: string
+        default: ""
+      generate_release_notes:
+        type: boolean
+        default: true
+      upload_ppa:
+        type: boolean
+        default: false
+      ppa_target:
+        type: string
+        default: ""
+      ppa_series:
+        type: string
+        default: ""
+      ppa_deb_fullname:
+        type: string
+        default: ""
+      ppa_deb_email:
+        type: string
+        default: ""
+      ppa_signing_key_id:
+        type: string
+        default: ""
+      ppa_extra_packages:
+        type: string
+        default: ""
+      update_brew_tap:
+        type: boolean
+        default: false
+      brew_tap_repo:
+        type: string
+        default: ""
+      brew_tap_branch:
+        type: string
+        default: "main"
+      brew_formula_path:
+        type: string
+        default: ""
+      brew_url:
+        type: string
+        default: ""
+      brew_sha256:
+        type: string
+        default: ""
+      brew_tap_git_user:
+        type: string
+        default: "github-actions[bot]"
+      brew_tap_git_email:
+        type: string
+        default: "github-actions[bot]@users.noreply.github.com"
+    secrets:
+      ppa_gpg_private_key:
+        required: false
+      ppa_gpg_passphrase:
+        required: false
+      ppa_launchpad_ssh_private_key:
+        required: false
+      brew_tap_token:
+        required: false
+
+jobs:
+  deb:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install packaging prerequisites
+        if: ${{ inputs.build_deb }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            debhelper \
+            devscripts \
+            dh-python \
+            python3
+          if [ -n "${{ inputs.deb_extra_packages }}" ]; then
+            sudo apt-get install -y ${{ inputs.deb_extra_packages }}
+          fi
+
+      - name: Build package
+        if: ${{ inputs.build_deb }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
+            --repo "${{ inputs.working_directory }}" \
+            --prebuild "${{ inputs.prebuild_command }}" \
+            --build "${{ inputs.deb_build_command }}"
+
+      - name: Upload artifacts
+        if: ${{ inputs.build_deb }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.deb_artifact_name }}
+          path: ${{ inputs.deb_artifact_glob }}
+
+  rpm:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install packaging prerequisites
+        if: ${{ inputs.build_rpm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            rpm
+          if [ -n "${{ inputs.rpm_extra_packages }}" ]; then
+            sudo apt-get install -y ${{ inputs.rpm_extra_packages }}
+          fi
+
+      - name: Build package
+        if: ${{ inputs.build_rpm }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ./vendor/script-helpers/scripts/build_rpm_artifacts.sh \
+            --repo "${{ inputs.working_directory }}" \
+            --prebuild "${{ inputs.prebuild_command }}"
+
+      - name: Upload artifacts
+        if: ${{ inputs.build_rpm }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.rpm_artifact_name }}
+          path: ${{ inputs.rpm_artifact_glob }}
+
+  arch:
+    runs-on: ${{ inputs.runner }}
+    container: archlinux:latest
+    steps:
+      - name: Install base packages
+        if: ${{ inputs.build_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+
+      - uses: actions/checkout@v4
+        if: ${{ inputs.build_arch }}
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Configure build user
+        if: ${{ inputs.build_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+
+      - name: Build package
+        if: ${{ inputs.build_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_cmd='set -euo pipefail\n'
+          build_cmd+="cd \"${GITHUB_WORKSPACE}/${{ inputs.working_directory }}\"\\n"
+          build_cmd+='args=(--repo "'"${GITHUB_WORKSPACE}/${{ inputs.working_directory }}"'" --pkg-dir "'"${{ inputs.arch_pkg_dir }}"'" --artifact-dir "'"${GITHUB_WORKSPACE}/artifacts"'")\n'
+          build_cmd+='if [ -n "'"${{ inputs.prebuild_command }}"'" ]; then args+=(--prebuild "'"${{ inputs.prebuild_command }}"'"); fi\n'
+          build_cmd+='./vendor/script-helpers/scripts/build_arch_artifacts.sh "${args[@]}"\n'
+          su - builder -c "$build_cmd"
+
+      - name: Upload artifacts
+        if: ${{ inputs.build_arch }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.arch_artifact_name }}
+          path: ${{ inputs.arch_artifact_glob }}
+
+  release:
+    runs-on: ${{ inputs.runner }}
+    needs: [deb, rpm, arch]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Download deb artifacts
+        if: ${{ inputs.build_deb }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.deb_artifact_name }}
+          path: release-assets
+
+      - name: Download rpm artifacts
+        if: ${{ inputs.build_rpm }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.rpm_artifact_name }}
+          path: release-assets
+
+      - name: Download arch artifacts
+        if: ${{ inputs.build_arch }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.arch_artifact_name }}
+          path: release-assets
+
+      - name: Generate release notes
+        id: notes
+        if: ${{ inputs.generate_release_notes && inputs.release_notes == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_dir="${GITHUB_WORKSPACE:-.}"
+          cd "$repo_dir"
+
+          since_tag=""
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            since_tag="$(git describe --tags --abbrev=0)"
+          fi
+
+          notes_file="$(mktemp)"
+          if [ -n "$since_tag" ]; then
+            git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
+          else
+            git log --pretty=format:"* %s" > "$notes_file"
+          fi
+
+          if [ ! -s "$notes_file" ]; then
+            echo "* No changes listed." > "$notes_file"
+          fi
+
+          notes_content="$(cat "$notes_file")"
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$notes_content" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Check for release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d release-assets ] && [ -n \"$(find release-assets -maxdepth 2 -type f 2>/dev/null)\" ]; then
+            echo \"has_files=true\" >> \"$GITHUB_OUTPUT\"
+          else
+            echo \"has_files=false\" >> \"$GITHUB_OUTPUT\"
+          fi
+
+      - name: Create GitHub release (with files)
+        if: ${{ steps.assets.outputs.has_files == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          files: release-assets/**
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub release (no files)
+        if: ${{ steps.assets.outputs.has_files == 'false' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  ppa:
+    if: ${{ inputs.upload_ppa }}
+    uses: ./.github/workflows/ppa-deb.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      prebuild_command: ${{ inputs.prebuild_command }}
+      build_command: ${{ inputs.deb_build_command }}
+      series: ${{ inputs.ppa_series }}
+      ppa_target: ${{ inputs.ppa_target }}
+      deb_fullname: ${{ inputs.ppa_deb_fullname }}
+      deb_email: ${{ inputs.ppa_deb_email }}
+      signing_key_id: ${{ inputs.ppa_signing_key_id }}
+      extra_packages: ${{ inputs.ppa_extra_packages }}
+    secrets:
+      gpg_private_key: ${{ secrets.ppa_gpg_private_key }}
+      gpg_passphrase: ${{ secrets.ppa_gpg_passphrase }}
+      launchpad_ssh_private_key: ${{ secrets.ppa_launchpad_ssh_private_key }}
+
+  brew:
+    if: ${{ inputs.update_brew_tap }}
+    uses: ./.github/workflows/brew-tap.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      tap_repo: ${{ inputs.brew_tap_repo }}
+      tap_branch: ${{ inputs.brew_tap_branch }}
+      formula_path: ${{ inputs.brew_formula_path }}
+      release_tag: ${{ inputs.release_tag }}
+      brew_url: ${{ inputs.brew_url }}
+      brew_sha256: ${{ inputs.brew_sha256 }}
+      tap_git_user: ${{ inputs.brew_tap_git_user }}
+      tap_git_email: ${{ inputs.brew_tap_git_email }}
+    secrets:
+      tap_token: ${{ secrets.brew_tap_token }}
