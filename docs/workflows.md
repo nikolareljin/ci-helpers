@@ -222,6 +222,8 @@ Secrets:
 - `gpg_passphrase` (GPG key passphrase)
 - `launchpad_ssh_private_key` (SSH key registered with Launchpad)
 
+Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
+
 Example:
 
 ```yaml
