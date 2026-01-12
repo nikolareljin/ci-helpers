@@ -11,7 +11,7 @@ cd "$ROOT_DIR"
 version=$(cat VERSION | tr -d ' \t\n\r')
 tag="${version}"
 
-if git rev-parse "$tag" >/dev/null 2>&1; then
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
   echo "Tag $tag already exists" >&2
   exit 1
 fi
