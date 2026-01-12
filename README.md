@@ -81,6 +81,8 @@ jobs:
 - `.github/workflows/go-release.yml`: reusable Go multi-target release workflow
 - `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
 - `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)
+- `.github/workflows/rpm-build.yml`: reusable RPM build workflow (artifacts only)
+- `.github/workflows/homebrew-package.yml`: reusable Homebrew tarball/formula build + optional publish workflow
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation

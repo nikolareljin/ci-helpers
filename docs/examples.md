@@ -82,6 +82,41 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## RPM build
+
+```yaml
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      prebuild_command: "./tools/gen-man.sh"
+      spec_path: "packaging/myapp.spec"
+      artifact_glob: "dist/*.rpm"
+```
+
+## Homebrew build + publish
+
+```yaml
+jobs:
+  brew:
+    uses: nikolareljin/ci-helpers/.github/workflows/homebrew-package.yml@production
+    with:
+      name: "myapp"
+      desc: "My CLI tool"
+      homepage: "https://github.com/owner/myapp"
+      deps: "curl,jq"
+      entrypoint: "bin/myapp"
+      man_path: "docs/man/myapp.1"
+      use_libexec: "true"
+      env_var: "MYAPP_ROOT"
+      release_repo: "owner/myapp"
+      publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
+      tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
+      tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
+    secrets:
+      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+```
+
 ## Trivy scan + SARIF upload
 
 ```yaml

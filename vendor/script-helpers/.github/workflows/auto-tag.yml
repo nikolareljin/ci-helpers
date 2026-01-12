@@ -73,7 +73,7 @@ jobs:
           set -euo pipefail
           next="${{ steps.bump.outputs.next }}"
           tag="${next}"
-          if git rev-parse "$tag" >/dev/null 2>&1; then
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             echo "Tag $tag already exists; skipping"; exit 0
           fi
           git tag -a "$tag" -m "Release $tag"

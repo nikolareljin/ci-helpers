@@ -226,3 +226,26 @@ compose_cmd=$(get_docker_compose_cmd)
 log_info "Compose: $compose_cmd"
 docker_status
 ```
+
+Packaging scaffolding and builds
+--------------------------------
+
+Generate packaging files (debian/, RPM spec, PKGBUILD, Homebrew formula):
+
+```bash
+./vendor/script-helpers/scripts/packaging_init.sh --repo .
+```
+
+Build packages (expects packaging files to exist):
+
+```bash
+./vendor/script-helpers/scripts/build_deb_artifacts.sh --repo .
+./vendor/script-helpers/scripts/build_rpm_artifacts.sh --repo .
+./vendor/script-helpers/scripts/build_arch_artifacts.sh --repo .
+```
+
+Render a Homebrew formula with a release tarball SHA:
+
+```bash
+./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha256>
+```
