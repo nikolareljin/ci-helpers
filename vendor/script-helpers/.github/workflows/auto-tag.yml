@@ -1,12 +1,11 @@
 name: Auto tag on main (conventional commits)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   auto-tag:
@@ -54,21 +53,33 @@ jobs:
           echo "next=$next_version" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-      - name: Update VERSION and commit if changed
+      - name: Update VERSION
         if: ${{ steps.bump.outputs.skip != 'true' }}
+        id: version
         run: |
           set -euo pipefail
           next="${{ steps.bump.outputs.next }}"
           echo "$next" > VERSION
           if git diff --quiet --exit-code VERSION; then
-            echo "VERSION unchanged; no commit"; exit 0
+            echo "VERSION unchanged; no commit"
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          git add VERSION
-          git commit -m "chore(release): bump version to $next"
-          git push origin HEAD:main
+          echo "version_changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open version bump PR
+        if: ${{ steps.bump.outputs.skip != 'true' && steps.version.outputs.version_changed == 'true' }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "chore(release): bump version to ${{ steps.bump.outputs.next }}"
+          commit-message: "chore(release): bump version to ${{ steps.bump.outputs.next }}"
+          branch: "chore/version-bump-${{ steps.bump.outputs.next }}"
+          base: "main"
+          body: "Automated version bump."
+          add-paths: VERSION
 
       - name: Create and push tag
-        if: ${{ steps.bump.outputs.skip != 'true' }}
+        if: ${{ steps.bump.outputs.skip != 'true' && steps.version.outputs.version_changed != 'true' }}
         run: |
           set -euo pipefail
           next="${{ steps.bump.outputs.next }}"
