@@ -77,6 +77,7 @@ jobs:
           GPG_KEY_ID: ${{ inputs.signing_key_id }}
         run: |
           set -euo pipefail
+          set +x
           mkdir -p ~/.gnupg
           chmod 700 ~/.gnupg
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
@@ -91,6 +92,7 @@ jobs:
           LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
         run: |
           set -euo pipefail
+          set +x
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           echo "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
@@ -106,6 +108,7 @@ jobs:
           PPA_GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
         run: |
           set -euo pipefail
+          set +x
           ./vendor/script-helpers/scripts/ppa_upload.sh \
             --ppa "${{ inputs.ppa_target }}" \
             --key-id "${{ inputs.signing_key_id }}" \

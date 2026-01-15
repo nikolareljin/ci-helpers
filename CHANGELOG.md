@@ -4,6 +4,7 @@
 
 ### Changed
 - Vendored new script-helpers package publishing helpers and updated workflows to use them.
+- Added reusable RPM build and Homebrew packaging workflows with optional publish support.
 
 ## 2026-01-06
 

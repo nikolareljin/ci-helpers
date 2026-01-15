@@ -8,17 +8,20 @@ Functions
 - display_help [script_file]
   - Purpose: Parse header tags from a script and print a concise help block using the shared renderer.
   - Signature: `display_help [path]`
+  - Sets `SHLIB_HELP_SHOWN=true` for callers that want to skip UI cleanup.
   - Args: script_file — script to parse; defaults to `$0`.
   - Reads header keys: `# SCRIPT:`, `# DESCRIPTION:`, `# USAGE:`, `# PARAMETERS:`, `# EXAMPLE:`.
 
 - print_help [script_file]
   - Purpose: Print a full help block from standard header tags using the shared renderer.
   - Signature: `print_help [path]`
+  - Sets `SHLIB_HELP_SHOWN=true` for callers that want to skip UI cleanup.
   - Header keys: `SCRIPT`, `DESCRIPTION`, `AUTHOR`, `CREATED`, `VERSION`, `USAGE`, `PARAMETERS`.
 
 - show_help [script_file]
   - Purpose: Help printer that scans header lines and prints Usage/Description/Parameters/Example/Exit Codes/Date/Version/Creator using the shared renderer.
   - Signature: `show_help [path]`
+  - Sets `SHLIB_HELP_SHOWN=true` for callers that want to skip UI cleanup.
   - Behavior: uses `# USAGE:` when present; emits errors via `log_error` if the script file cannot be read.
 
 - get_script_metadata script_file meta_ref

@@ -158,6 +158,10 @@ Packaging helpers
 
 - `scripts/build_deb_artifacts.sh` — Build Debian packages and emit artifacts.
 - `scripts/ppa_upload.sh` — Build and upload a Debian source package to a Launchpad PPA.
+- `scripts/build_rpm_artifacts.sh` — Build RPM packages and emit artifacts.
+- `scripts/build_brew_tarball.sh` — Build a Homebrew tarball from a repo checkout.
+- `scripts/gen_brew_formula.sh` — Generate a Homebrew formula from a tarball.
+- `scripts/publish_homebrew.sh` — Publish a formula to a Homebrew tap repository.
 
 Library helpers:
 - `lib/package_publish.sh` — Shared helpers for Debian builds and PPA publishing.

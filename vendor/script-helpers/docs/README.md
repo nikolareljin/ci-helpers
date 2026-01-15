@@ -4,6 +4,7 @@ Reusable Bash helpers extracted from projects in this workspace. Source the load
 
 - Installation: see ./docs/installation.md
 - Usage: see ./docs/usage.md
+- Packaging: see ./docs/packaging.md
 - Full API: see ./docs/api.md
 
 Quick start
@@ -44,5 +45,7 @@ Modules overview
 - clipboard — copy text to clipboard (Linux/macOS).
 - traps — simple EXIT/INT/TERM traps with error reporting.
 - ollama — install CLI, prepare models index, select/pull/run models.
+- package_publish — Debian package builds and PPA upload helpers.
+- packaging — packaging metadata helpers and template formatting.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.

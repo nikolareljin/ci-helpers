@@ -21,3 +21,4 @@ This index lists all modules and their functions. See the linked module pages fo
 - traps — ./modules/traps.md
 - ollama — ./modules/ollama.md
 - package_publish — ./modules/package_publish.md
+- packaging — ./modules/packaging.md

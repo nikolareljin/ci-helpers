@@ -222,6 +222,8 @@ Secrets:
 - `gpg_passphrase` (GPG key passphrase)
 - `launchpad_ssh_private_key` (SSH key registered with Launchpad)
 
+Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
+
 Example:
 
 ```yaml
@@ -238,6 +240,94 @@ jobs:
       gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
       gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
       launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+
+## rpm-build.yml
+
+Workflow: `.github/workflows/rpm-build.yml`
+
+Purpose: Build RPM artifacts and upload them.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `""`)
+- `spec_path` (string, default `""`, path to `.spec`)
+- `artifact_dir` (string, default `"dist"`)
+- `extra_packages` (string, default `""`)
+- `artifact_name` (string, default `"rpm-packages"`)
+- `artifact_glob` (string, default `"dist/*.rpm"`)
+
+Example:
+
+```yaml
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      prebuild_command: "./tools/gen-man.sh"
+      spec_path: "packaging/myapp.spec"
+      artifact_glob: "dist/*.rpm"
+```
+
+## homebrew-package.yml
+
+Workflow: `.github/workflows/homebrew-package.yml`
+
+Purpose: Build a Homebrew tarball, generate a formula, upload artifacts, and optionally publish to a tap repo.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `prebuild_command` (string, default `""`)
+- `name` (string, required)
+- `desc` (string, required)
+- `homepage` (string, required)
+- `license` (string, default `MIT`)
+- `deps` (string, default `""`, comma-separated)
+- `entrypoint` (string, default `""`)
+- `man_path` (string, default `""`)
+- `use_libexec` (string, default `"false"`)
+- `env_var` (string, default `""`)
+- `tarball_url` (string, default `""`)
+- `release_repo` (string, default `""`, used to build a default tarball URL)
+- `formula_path` (string, default `""`)
+- `dist_dir` (string, default `"dist"`)
+- `exclude_paths` (string, default `".git,.github,dist"`, comma-separated)
+- `artifact_name` (string, default `"homebrew-artifacts"`)
+- `artifact_glob` (string, default `""`, optional override)
+- `publish` (string, default `"false"`)
+- `tap_repo` (string, default `""`)
+- `tap_branch` (string, default `"main"`)
+- `tap_dir` (string, default `"Formula"`)
+- `commit_message` (string, default `""`)
+
+Secrets:
+- `tap_token` (GitHub token with write access to the tap repo)
+
+Example:
+
+```yaml
+jobs:
+  brew:
+    uses: nikolareljin/ci-helpers/.github/workflows/homebrew-package.yml@production
+    with:
+      name: "isoforge"
+      desc: "TUI tool for downloading and flashing ISO images to USB"
+      homepage: "https://github.com/nikolareljin/burn-iso"
+      deps: "dialog,jq,curl"
+      entrypoint: "inc/isoforge.sh"
+      man_path: "docs/man/isoforge.1"
+      use_libexec: "true"
+      env_var: "ISOFORGE_ROOT"
+      release_repo: "nikolareljin/burn-iso"
+      publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
+      tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
+      tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
+    secrets:
+      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+```
 ```
 
 ## deb-build.yml

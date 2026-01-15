@@ -503,6 +503,53 @@ jobs:
       artifact_glob: "../*.deb"
 ```
 
+RPM package build:
+
+```yaml
+name: RPM Build
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      working_directory: "."
+      prebuild_command: "./tools/gen-man.sh"
+      spec_path: "packaging/myapp.spec"
+      artifact_glob: "dist/*.rpm"
+```
+
+Homebrew package build + publish:
+
+```yaml
+name: Homebrew
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  brew:
+    uses: nikolareljin/ci-helpers/.github/workflows/homebrew-package.yml@production
+    with:
+      working_directory: "."
+      name: "myapp"
+      desc: "My CLI tool"
+      homepage: "https://github.com/owner/myapp"
+      deps: "curl,jq"
+      entrypoint: "bin/myapp"
+      man_path: "docs/man/myapp.1"
+      use_libexec: "true"
+      env_var: "MYAPP_ROOT"
+      release_repo: "owner/myapp"
+      publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
+      tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
+      tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
+    secrets:
+      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+```
+
 Rust release build:
 
 ```yaml
