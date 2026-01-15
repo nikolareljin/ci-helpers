@@ -1,0 +1,242 @@
+name: ci-helpers-homebrew-package
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      prebuild_command:
+        type: string
+        default: ""
+      name:
+        type: string
+        required: true
+      desc:
+        type: string
+        required: true
+      homepage:
+        type: string
+        required: true
+      license:
+        type: string
+        default: MIT
+      deps:
+        type: string
+        default: ""
+      entrypoint:
+        type: string
+        default: ""
+      man_path:
+        type: string
+        default: ""
+      use_libexec:
+        type: string
+        default: "false"
+      env_var:
+        type: string
+        default: ""
+      tarball_url:
+        type: string
+        default: ""
+      release_repo:
+        type: string
+        default: ""
+      formula_path:
+        type: string
+        default: ""
+      dist_dir:
+        type: string
+        default: "dist"
+      exclude_paths:
+        type: string
+        default: ".git,.github,dist"
+      artifact_name:
+        type: string
+        default: "homebrew-artifacts"
+      artifact_glob:
+        type: string
+        default: ""
+      publish:
+        type: string
+        default: "false"
+      tap_repo:
+        type: string
+        default: ""
+      tap_branch:
+        type: string
+        default: "main"
+      tap_dir:
+        type: string
+        default: "Formula"
+      commit_message:
+        type: string
+        default: ""
+    secrets:
+      tap_token:
+        required: false
+
+jobs:
+  brew:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install Homebrew packaging prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y rsync libdigest-sha-perl
+
+      - name: Run prebuild command
+        if: ${{ inputs.prebuild_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          bash -lc "${{ inputs.prebuild_command }}"
+
+      - name: Prepare Homebrew inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${{ inputs.working_directory }}"
+          name="${{ inputs.name }}"
+          dist_dir="${{ inputs.dist_dir }}"
+
+          if [[ "$dist_dir" != /* ]]; then
+            dist_dir="$repo/$dist_dir"
+          fi
+
+          if [[ -z "${{ inputs.formula_path }}" ]]; then
+            formula_path="$repo/packaging/homebrew/${name}.rb"
+          else
+            formula_path="${{ inputs.formula_path }}"
+            if [[ "$formula_path" != /* ]]; then
+              formula_path="$repo/$formula_path"
+            fi
+          fi
+
+          version="$(cat "$repo/VERSION")"
+          tarball_path="$dist_dir/${name}-${version}.tar.gz"
+          tarball_url="${{ inputs.tarball_url }}"
+          if [[ -z "$tarball_url" && -n "${{ inputs.release_repo }}" ]]; then
+            tarball_url="https://github.com/${{ inputs.release_repo }}/releases/download/v${version}/${name}-${version}.tar.gz"
+          fi
+          artifact_glob="${{ inputs.artifact_glob }}"
+          if [[ -z "$artifact_glob" ]]; then
+            artifact_glob="$dist_dir/*.tar.gz"$'\n'"$formula_path"
+          fi
+
+          {
+            echo "BREW_REPO=$repo"
+            echo "BREW_NAME=$name"
+            echo "BREW_DIST_DIR=$dist_dir"
+            echo "BREW_FORMULA_PATH=$formula_path"
+            echo "BREW_VERSION=$version"
+            echo "BREW_TARBALL_PATH=$tarball_path"
+            echo "BREW_TARBALL_URL=$tarball_url"
+          } >> "$GITHUB_ENV"
+          {
+            echo "BREW_ARTIFACT_GLOB<<EOF"
+            echo "$artifact_glob"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build Homebrew tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          exclude_csv="${{ inputs.exclude_paths }}"
+          IFS=',' read -r -a excludes <<< "$exclude_csv"
+
+          args=(--name "$BREW_NAME" --repo "$BREW_REPO" --dist-dir "$BREW_DIST_DIR")
+          for ex in "${excludes[@]}"; do
+            ex="$(echo "$ex" | xargs)"
+            [[ -z "$ex" ]] && continue
+            args+=(--exclude "$ex")
+          done
+
+          ./vendor/script-helpers/scripts/build_brew_tarball.sh "${args[@]}"
+
+      - name: Generate Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          deps_csv="${{ inputs.deps }}"
+          IFS=',' read -r -a deps <<< "$deps_csv"
+
+          args=(
+            --name "${{ inputs.name }}"
+            --desc "${{ inputs.desc }}"
+            --homepage "${{ inputs.homepage }}"
+            --license "${{ inputs.license }}"
+            --tarball "$BREW_TARBALL_PATH"
+            --formula-path "$BREW_FORMULA_PATH"
+          )
+
+          if [[ -n "$BREW_TARBALL_URL" ]]; then
+            args+=(--url "$BREW_TARBALL_URL")
+          fi
+
+          if [[ -n "${{ inputs.entrypoint }}" ]]; then
+            args+=(--entrypoint "${{ inputs.entrypoint }}")
+          fi
+
+          if [[ -n "${{ inputs.man_path }}" ]]; then
+            args+=(--man-path "${{ inputs.man_path }}")
+          fi
+
+          if [[ "${{ inputs.use_libexec }}" == "true" ]]; then
+            args+=(--use-libexec)
+            if [[ -n "${{ inputs.env_var }}" ]]; then
+              args+=(--env-var "${{ inputs.env_var }}")
+            fi
+          fi
+
+          for dep in "${deps[@]}"; do
+            dep="$(echo "$dep" | xargs)"
+            [[ -z "$dep" ]] && continue
+            args+=(--dep "$dep")
+          done
+
+          ./vendor/script-helpers/scripts/gen_brew_formula.sh "${args[@]}"
+
+      - name: Upload Homebrew artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ env.BREW_ARTIFACT_GLOB }}
+
+      - name: Publish Homebrew formula
+        if: ${{ inputs.publish == 'true' }}
+        shell: bash
+        env:
+          HOMEBREW_TAP_REPO: ${{ inputs.tap_repo }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.tap_token }}
+          HOMEBREW_TAP_BRANCH: ${{ inputs.tap_branch }}
+        run: |
+          set -euo pipefail
+          args=(--formula "$BREW_FORMULA_PATH")
+          if [[ -n "${{ inputs.tap_repo }}" ]]; then
+            args+=(--tap-repo "${{ inputs.tap_repo }}")
+          fi
+          if [[ -n "${{ inputs.tap_branch }}" ]]; then
+            args+=(--tap-branch "${{ inputs.tap_branch }}")
+          fi
+          if [[ -n "${{ inputs.tap_dir }}" ]]; then
+            args+=(--tap-dir "${{ inputs.tap_dir }}")
+          fi
+          if [[ -n "${{ inputs.commit_message }}" ]]; then
+            args+=(--commit-message "${{ inputs.commit_message }}")
+          fi
+          ./vendor/script-helpers/scripts/publish_homebrew.sh "${args[@]}"
