@@ -85,3 +85,11 @@ jobs:
           version="${{ steps.release.outputs.version }}"
           git tag "$version"
           git push origin "$version"
+
+      - name: Update production branch
+        if: ${{ steps.release.outputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          ./scripts/create_production.sh -t "$version" --fetch-tags
