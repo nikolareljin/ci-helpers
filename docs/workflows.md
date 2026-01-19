@@ -177,6 +177,10 @@ Secrets:
 - `app_store_connect_key_id` (optional, for deploy)
 - `app_store_connect_issuer_id` (optional, for deploy)
 
+Security notes:
+- The workflow masks secrets via `::add-mask::` before use.
+- Secret-handling steps temporarily disable shell tracing (`set +x`).
+
 Example (Android build + Play Store deploy):
 
 ```yaml
