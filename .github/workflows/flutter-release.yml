@@ -122,6 +122,12 @@ jobs:
         if: ${{ (inputs.build_android || inputs.deploy_google_play) && env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
           set -euo pipefail
+          {
+            echo "::add-mask::${ANDROID_KEYSTORE_BASE64}"
+            echo "::add-mask::${ANDROID_KEYSTORE_PASSWORD}"
+            echo "::add-mask::${ANDROID_KEY_PASSWORD}"
+            echo "::add-mask::${ANDROID_KEY_ALIAS}"
+          } >/dev/null
           mkdir -p android
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > android/upload-keystore.jks
           cat > android/key.properties <<'PROPS'
@@ -164,6 +170,7 @@ jobs:
         if: ${{ inputs.deploy_google_play }}
         run: |
           set -euo pipefail
+          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" >/dev/null
           mkdir -p .tmp
           printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > .tmp/google-play.json
           echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=.tmp/google-play.json" >> $GITHUB_ENV
@@ -172,6 +179,11 @@ jobs:
         if: ${{ inputs.deploy_app_store }}
         run: |
           set -euo pipefail
+          {
+            echo "::add-mask::${APP_STORE_CONNECT_API_KEY_BASE64}"
+            echo "::add-mask::${APP_STORE_CONNECT_KEY_ID}"
+            echo "::add-mask::${APP_STORE_CONNECT_ISSUER_ID}"
+          } >/dev/null
           mkdir -p ~/.appstoreconnect/private_keys
           echo "${APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
           echo "APP_STORE_CONNECT_API_KEY_ID=${APP_STORE_CONNECT_KEY_ID}" >> $GITHUB_ENV
