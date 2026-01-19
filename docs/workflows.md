@@ -143,6 +143,7 @@ Purpose: Build Flutter Android/iOS artifacts and optionally deploy to Google Pla
 Notes:
 - iOS builds/uploads require a macOS runner.
 - For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
+- This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
