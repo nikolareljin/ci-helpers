@@ -12,3 +12,5 @@ Start here:
 - [Examples](examples.md) for common usage patterns (monorepos, E2E servers, Docker + E2E).
 - [Usage guide](usage.md) for consuming workflows and actions from other repos, plus production branch automation.
 - [Release RC PR workflow](RELEASE_RC_PR.md) for auto-opening PRs from release candidate branches.
+- [Apple App Store publishing](APPLE_FASTLANE_PUBLISH.md) for Fastlane + GitHub Actions guidance.
+- [Google Play publishing](GOOGLE_PLAY_PUBLISH.md) for Fastlane + GitHub Actions guidance.

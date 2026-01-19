@@ -23,6 +23,8 @@ See detailed usage, inputs, and examples in:
 - [Composite actions](docs/actions.md)
 - [Examples](docs/examples.md)
 - [Usage guide](docs/usage.md)
+  - App Store (Fastlane): `docs/APPLE_FASTLANE_PUBLISH.md`
+  - Google Play (Fastlane): `docs/GOOGLE_PLAY_PUBLISH.md`
 
 ## Quick Start
 
