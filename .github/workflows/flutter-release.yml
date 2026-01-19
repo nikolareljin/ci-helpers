@@ -1,0 +1,212 @@
+name: Flutter Release
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      flutter_version:
+        type: string
+        default: stable
+      flutter_channel:
+        type: string
+        default: stable
+      java_version:
+        type: string
+        default: "17"
+      ruby_version:
+        type: string
+        default: "3.2"
+      build_android:
+        type: boolean
+        default: true
+      build_ios:
+        type: boolean
+        default: false
+      deploy_google_play:
+        type: boolean
+        default: false
+      deploy_app_store:
+        type: boolean
+        default: false
+      android_build_command:
+        type: string
+        default: "flutter build appbundle --release"
+      ios_build_command:
+        type: string
+        default: "flutter build ios --release --no-codesign"
+      android_artifact_path:
+        type: string
+        default: "build/app/outputs/bundle/release/*.aab"
+      ios_artifact_path:
+        type: string
+        default: "build/ios/ipa/*.ipa"
+      upload_artifacts:
+        type: boolean
+        default: true
+      android_artifact_name:
+        type: string
+        default: flutter-android
+      ios_artifact_name:
+        type: string
+        default: flutter-ios
+      fastlane_android_lane:
+        type: string
+        default: android_release
+      fastlane_ios_lane:
+        type: string
+        default: ios_release
+    secrets:
+      android_keystore_base64:
+        required: false
+      android_keystore_password:
+        required: false
+      android_key_alias:
+        required: false
+      android_key_password:
+        required: false
+      google_play_service_account_json:
+        required: false
+      app_store_connect_api_key_base64:
+        required: false
+      app_store_connect_key_id:
+        required: false
+      app_store_connect_issuer_id:
+        required: false
+
+jobs:
+  flutter_release:
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Setup Java
+        if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: ${{ inputs.flutter_channel }}
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Configure Android signing
+        if: ${{ (inputs.build_android || inputs.deploy_google_play) && secrets.android_keystore_base64 != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p android
+          echo "${{ secrets.android_keystore_base64 }}" | base64 -d > android/upload-keystore.jks
+          cat > android/key.properties <<'PROPS'
+          storeFile=upload-keystore.jks
+          storePassword=${{ secrets.android_keystore_password }}
+          keyPassword=${{ secrets.android_key_password }}
+          keyAlias=${{ secrets.android_key_alias }}
+          PROPS
+
+      - name: Build Android appbundle
+        if: ${{ inputs.build_android }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.android_build_command }}
+
+      - name: Build iOS (no codesign)
+        if: ${{ inputs.build_ios && !inputs.deploy_app_store }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" != "macOS" ]]; then
+            echo "iOS builds require a macOS runner." >&2
+            exit 1
+          fi
+          ${{ inputs.ios_build_command }}
+
+      - name: Setup Ruby
+        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ inputs.ruby_version }}
+          bundler-cache: true
+
+      - name: Install Fastlane (no Gemfile)
+        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) == '' }}
+        run: |
+          set -euo pipefail
+          gem install fastlane -N
+
+      - name: Prepare Google Play credentials
+        if: ${{ inputs.deploy_google_play }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          printf '%s' "${{ secrets.google_play_service_account_json }}" > .tmp/google-play.json
+          echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=.tmp/google-play.json" >> $GITHUB_ENV
+
+      - name: Prepare App Store Connect API key
+        if: ${{ inputs.deploy_app_store }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.app_store_connect_api_key_base64 }}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.app_store_connect_key_id }}.p8
+          echo "APP_STORE_CONNECT_API_KEY_ID=${{ secrets.app_store_connect_key_id }}" >> $GITHUB_ENV
+          echo "APP_STORE_CONNECT_API_ISSUER_ID=${{ secrets.app_store_connect_issuer_id }}" >> $GITHUB_ENV
+
+      - name: Deploy to Google Play via Fastlane
+        if: ${{ inputs.deploy_google_play }}
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -f Gemfile ]; then
+            bundle exec fastlane ${{ inputs.fastlane_android_lane }}
+          else
+            fastlane ${{ inputs.fastlane_android_lane }}
+          fi
+
+      - name: Deploy to App Store via Fastlane
+        if: ${{ inputs.deploy_app_store }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ env.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ env.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" != "macOS" ]]; then
+            echo "App Store uploads require a macOS runner." >&2
+            exit 1
+          fi
+          if [ -f Gemfile ]; then
+            bundle exec fastlane ${{ inputs.fastlane_ios_lane }}
+          else
+            fastlane ${{ inputs.fastlane_ios_lane }}
+          fi
+
+      - name: Upload Android artifact
+        if: ${{ inputs.upload_artifacts && inputs.build_android }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.android_artifact_name }}
+          path: ${{ inputs.working_directory }}/${{ inputs.android_artifact_path }}
+
+      - name: Upload iOS artifact
+        if: ${{ inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.ios_artifact_name }}
+          path: ${{ inputs.working_directory }}/${{ inputs.ios_artifact_path }}

@@ -134,6 +134,67 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## flutter-release.yml
+
+Workflow: `.github/workflows/flutter-release.yml`
+
+Purpose: Build Flutter Android/iOS artifacts and optionally deploy to Google Play and Apple App Store via Fastlane.
+
+Notes:
+- iOS builds/uploads require a macOS runner.
+- For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `flutter_version` (string, default `stable`)
+- `flutter_channel` (string, default `stable`)
+- `java_version` (string, default `"17"`)
+- `ruby_version` (string, default `"3.2"`)
+- `build_android` (boolean, default `true`)
+- `build_ios` (boolean, default `false`)
+- `deploy_google_play` (boolean, default `false`)
+- `deploy_app_store` (boolean, default `false`)
+- `android_build_command` (string, default `flutter build appbundle --release`)
+- `ios_build_command` (string, default `flutter build ios --release --no-codesign`)
+- `android_artifact_path` (string, default `build/app/outputs/bundle/release/*.aab`)
+- `ios_artifact_path` (string, default `build/ios/ipa/*.ipa`)
+- `upload_artifacts` (boolean, default `true`)
+- `android_artifact_name` (string, default `flutter-android`)
+- `ios_artifact_name` (string, default `flutter-ios`)
+- `fastlane_android_lane` (string, default `android_release`)
+- `fastlane_ios_lane` (string, default `ios_release`)
+
+Secrets:
+- `android_keystore_base64` (optional)
+- `android_keystore_password` (optional)
+- `android_key_alias` (optional)
+- `android_key_password` (optional)
+- `google_play_service_account_json` (optional, for deploy)
+- `app_store_connect_api_key_base64` (optional, for deploy)
+- `app_store_connect_key_id` (optional, for deploy)
+- `app_store_connect_issuer_id` (optional, for deploy)
+
+Example (Android build + Play Store deploy):
+
+```yaml
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
+    with:
+      working_directory: "apps/mobile"
+      build_android: true
+      deploy_google_play: true
+      fastlane_android_lane: "android_release"
+    secrets:
+      android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      android_key_alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+      android_key_password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+```
+
 ## trivy-scan.yml
 
 Workflow: `.github/workflows/trivy-scan.yml`

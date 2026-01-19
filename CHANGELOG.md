@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-01-19
+
+### Added
+- Added a reusable Flutter release workflow for building Android/iOS and deploying via Fastlane.
+- Documented Flutter release workflow inputs and added an example.
+
 ## 2026-01-07 (0.4.0)
 
 ### Changed
