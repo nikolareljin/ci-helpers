@@ -77,6 +77,7 @@ jobs:
 - `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language
+- `.github/workflows/flutter-release.yml`: reusable Flutter build + store deploy workflow (Android/iOS)
 - `.github/workflows/rust-release.yml`: reusable Rust multi-target release workflow
 - `.github/workflows/go-release.yml`: reusable Go multi-target release workflow
 - `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
