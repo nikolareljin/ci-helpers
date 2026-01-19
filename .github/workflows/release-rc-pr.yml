@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   open_pr:
-    if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') && contains(github.event.ref, '-rc') }}
+    if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') }}
     runs-on: ubuntu-latest
     steps:
       - name: Create PR to default branch
@@ -19,6 +19,11 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const head = context.payload.ref;
+            const pattern = /^release\/\d+\.\d+\.\d+(-rc.*)?$/;
+            if (!pattern.test(head)) {
+              core.info(`Branch ${head} does not match release/X.Y.Z or release/X.Y.Z-rc*; skipping.`);
+              return;
+            }
             const repoInfo = await github.rest.repos.get({ owner, repo });
             const base = repoInfo.data.default_branch;
 
