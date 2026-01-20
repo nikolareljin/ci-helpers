@@ -14,3 +14,4 @@ Start here:
 - [Release RC PR workflow](RELEASE_RC_PR.md) for auto-opening PRs from release candidate branches.
 - [Apple App Store publishing](APPLE_FASTLANE_PUBLISH.md) for Fastlane + GitHub Actions guidance.
 - [Google Play publishing](GOOGLE_PLAY_PUBLISH.md) for Fastlane + GitHub Actions guidance.
+- [Security best practices](SECURITY.md) for CI secret handling.
