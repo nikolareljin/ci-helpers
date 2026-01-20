@@ -1,7 +1,7 @@
 # Apple App Store Publishing (Fastlane + GitHub Actions)
 
 This guide documents the **generic** steps required to automate iOS signing and App Store uploads using **Fastlane** in GitHub Actions.
-It is designed for public CI libraries and does not contain any project‑specific values.
+It is designed for public CI libraries and does not contain any project-specific values.
 
 > Requirements: Apple Developer Program membership and App Store Connect access.
 
@@ -18,7 +18,7 @@ You need four things to fully automate iOS publishing:
 There are two common approaches to signing:
 
 - **Fastlane Match (recommended for CI)**
-- **Manual signing with pre‑generated certificates**
+- **Manual signing with pre-generated certificates**
 
 ---
 
@@ -62,7 +62,7 @@ end
 
 ---
 
-## Option B: Manual signing (non‑Match)
+## Option B: Manual signing (non-Match)
 
 1. Create an **iOS Distribution Certificate**
 2. Create an **App Store Provisioning Profile**
