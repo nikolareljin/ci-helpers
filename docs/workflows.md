@@ -178,7 +178,7 @@ Secrets:
 - `app_store_connect_issuer_id` (optional, for deploy)
 
 Notes:
-- The workflow writes the Google Play JSON to `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
+- The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
 - When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
 - Android signing files are written to `${{ inputs.working_directory }}/android` and your `android/app/build.gradle` should load `key.properties` from the Android project root (e.g., `rootProject.file("key.properties")`).
 
