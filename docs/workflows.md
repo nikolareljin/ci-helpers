@@ -177,6 +177,9 @@ Secrets:
 - `app_store_connect_key_id` (optional, for deploy)
 - `app_store_connect_issuer_id` (optional, for deploy)
 
+Notes:
+- The workflow writes the Google Play JSON to `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH` for Fastlane.
+
 Security notes:
 - The workflow masks secrets via `::add-mask::` before use.
 - Secret-handling steps temporarily disable shell tracing (`set +x`).
