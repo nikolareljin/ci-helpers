@@ -94,9 +94,9 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.google_play_service_account_json }}
-      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
+      FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
+      FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
+      FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -128,10 +128,10 @@ jobs:
             echo "::add-mask::${ANDROID_KEYSTORE_PASSWORD}"
             echo "::add-mask::${ANDROID_KEY_PASSWORD}"
             echo "::add-mask::${ANDROID_KEY_ALIAS}"
-          } >/dev/null
+          }
           mkdir -p android
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > android/upload-keystore.jks
-          cat > android/key.properties <<'PROPS'
+          cat > android/key.properties <<PROPS
           storeFile=upload-keystore.jks
           storePassword=${ANDROID_KEYSTORE_PASSWORD}
           keyPassword=${ANDROID_KEY_PASSWORD}
@@ -173,7 +173,7 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" >/dev/null
+          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
           mkdir -p .tmp
           printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > .tmp/google-play.json
           echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=.tmp/google-play.json" >> $GITHUB_ENV
@@ -185,14 +185,14 @@ jobs:
           set -euo pipefail
           set +x
           {
-            echo "::add-mask::${APP_STORE_CONNECT_API_KEY_BASE64}"
-            echo "::add-mask::${APP_STORE_CONNECT_KEY_ID}"
-            echo "::add-mask::${APP_STORE_CONNECT_ISSUER_ID}"
-          } >/dev/null
+            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}"
+            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_KEY_ID}"
+            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}"
+          }
           mkdir -p ~/.appstoreconnect/private_keys
-          echo "${APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
-          echo "APP_STORE_CONNECT_API_KEY_ID=${APP_STORE_CONNECT_KEY_ID}" >> $GITHUB_ENV
-          echo "APP_STORE_CONNECT_API_ISSUER_ID=${APP_STORE_CONNECT_ISSUER_ID}" >> $GITHUB_ENV
+          echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
+          echo "APP_STORE_CONNECT_API_KEY_ID=${FASTLANE_APP_STORE_CONNECT_KEY_ID}" >> $GITHUB_ENV
+          echo "APP_STORE_CONNECT_API_ISSUER_ID=${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}" >> $GITHUB_ENV
           set -x
 
       - name: Deploy to Google Play via Fastlane
