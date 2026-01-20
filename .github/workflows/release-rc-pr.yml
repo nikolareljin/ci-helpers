@@ -40,8 +40,8 @@ jobs:
               return;
             }
 
-            const title = `Release RC: ${head}`;
-            const body = `Auto-created PR for release candidate branch \`${head}\` into \`${base}\`.`;
+            const title = `Release: ${head}`;
+            const body = `Auto-created PR for release branch \`${head}\` into \`${base}\`.`;
 
             await github.rest.pulls.create({ owner, repo, head, base, title, body });
             core.info(`Created PR ${head} -> ${base}`);
