@@ -168,6 +168,12 @@ jobs:
           PROPS
           set -x
 
+      - name: Note for Android signing config
+        if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        run: |
+          echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
+          echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
+
       - name: Build Android appbundle
         if: ${{ inputs.build_android }}
         run: |
