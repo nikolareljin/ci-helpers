@@ -19,7 +19,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const head = context.payload.ref;
-            const pattern = /^release\/\d+\.\d+\.\d+(-rc.*)?$/;
+            const pattern = /^release\/\d+\.\d+\.\d+(-rc\d+)?$/;
             if (!pattern.test(head)) {
               core.info(`Branch ${head} does not match release/X.Y.Z or release/X.Y.Z-rc*; skipping.`);
               return;
