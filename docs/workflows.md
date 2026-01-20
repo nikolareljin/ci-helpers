@@ -177,7 +177,7 @@ Secrets:
 - `app_store_connect_key_id` (optional, for deploy)
 - `app_store_connect_issuer_id` (optional, for deploy)
 
-Notes:
+Additional notes:
 - The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
 - When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
 - If `deploy_app_store` is true, the standalone iOS build step is skipped even when `build_ios` is enabled.
