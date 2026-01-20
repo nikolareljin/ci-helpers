@@ -194,6 +194,7 @@ jobs:
         if: ${{ inputs.deploy_app_store }}
         run: |
           echo "App Store deploys expect Fastlane to build/upload in the iOS lane."
+          echo "When deploy_app_store=true, the standalone iOS build step is skipped even if build_ios=true."
 
       - name: Setup Ruby
         if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
