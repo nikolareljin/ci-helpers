@@ -64,6 +64,10 @@ jobs:
       fastlane_android_lane: android_release
       working_directory: "."
     secrets:
+      android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      android_key_alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+      android_key_password: ${{ secrets.ANDROID_KEY_PASSWORD }}
       google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
 ```
 

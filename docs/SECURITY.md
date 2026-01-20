@@ -9,7 +9,7 @@ This document covers general security practices for using CI workflows in this r
 - Disable shell tracing (`set +x`) in steps that handle secrets.
 
 ## Service Credentials
-- Use least‑privilege service accounts.
+- Use least-privilege service accounts.
 - Rotate keys on a schedule (e.g., every 90 days).
 - Revoke keys immediately if leaked.
 

@@ -41,7 +41,7 @@ on:
         default: "flutter build appbundle --release"
       ios_build_command:
         type: string
-        default: "flutter build ios --release --no-codesign"
+        default: "flutter build ipa --release"
       android_artifact_path:
         type: string
         default: "build/app/outputs/bundle/release/*.aab"
@@ -94,7 +94,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.google_play_service_account_json }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH: .tmp/google-play.json
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: .tmp/google-play.json
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
@@ -119,6 +119,33 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Validate Android signing secrets
+        if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" ]]; then
+            echo "Missing Android signing secrets. Provide android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias." >&2
+            exit 1
+          fi
+
+      - name: Validate Google Play credentials
+        if: ${{ inputs.deploy_google_play }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]]; then
+            echo "Missing Google Play service account JSON. Provide google_play_service_account_json." >&2
+            exit 1
+          fi
+
+      - name: Validate App Store Connect credentials
+        if: ${{ inputs.deploy_app_store }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" || -z "${FASTLANE_APP_STORE_CONNECT_KEY_ID}" || -z "${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}" ]]; then
+            echo "Missing App Store Connect API key secrets. Provide app_store_connect_api_key_base64, app_store_connect_key_id, and app_store_connect_issuer_id." >&2
+            exit 1
+          fi
+
       - name: Configure Android signing
         if: ${{ (inputs.build_android || inputs.deploy_google_play) && env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
@@ -130,9 +157,10 @@ jobs:
             echo "::add-mask::${ANDROID_KEY_PASSWORD}"
             echo "::add-mask::${ANDROID_KEY_ALIAS}"
           }
-          mkdir -p android
-          echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > android/upload-keystore.jks
-          cat > android/key.properties <<PROPS
+          android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
+          mkdir -p "${android_dir}"
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
+          cat > "${android_dir}/key.properties" <<PROPS
           storeFile=upload-keystore.jks
           storePassword=${ANDROID_KEYSTORE_PASSWORD}
           keyPassword=${ANDROID_KEY_PASSWORD}
@@ -156,6 +184,11 @@ jobs:
           fi
           ${{ inputs.ios_build_command }}
 
+      - name: Note for App Store deploys
+        if: ${{ inputs.deploy_app_store }}
+        run: |
+          echo "App Store deploys expect Fastlane to build/upload in the iOS lane."
+
       - name: Setup Ruby
         if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
         uses: ruby/setup-ruby@v1
@@ -176,7 +209,7 @@ jobs:
           set +x
           echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
           mkdir -p .tmp
-          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH}"
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
           set -x
 
       - name: Prepare App Store Connect API key
@@ -191,14 +224,12 @@ jobs:
           }
           mkdir -p ~/.appstoreconnect/private_keys
           echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
-          echo "APP_STORE_CONNECT_API_KEY_ID=${FASTLANE_APP_STORE_CONNECT_KEY_ID}" >> $GITHUB_ENV
-          echo "APP_STORE_CONNECT_API_ISSUER_ID=${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}" >> $GITHUB_ENV
           set -x
 
       - name: Deploy to Google Play via Fastlane
         if: ${{ inputs.deploy_google_play }}
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH }}
         run: |
           set -euo pipefail
           if [ -f Gemfile ]; then
@@ -210,8 +241,8 @@ jobs:
       - name: Deploy to App Store via Fastlane
         if: ${{ inputs.deploy_app_store }}
         env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ env.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ env.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ env.FASTLANE_APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ env.FASTLANE_APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" != "macOS" ]]; then
