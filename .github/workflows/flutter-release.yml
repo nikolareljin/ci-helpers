@@ -93,7 +93,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.google_play_service_account_json }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: .tmp/google-play.json
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
@@ -132,7 +132,7 @@ jobs:
         if: ${{ inputs.deploy_google_play }}
         run: |
           set -euo pipefail
-          if [[ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]]; then
+          if [[ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" ]]; then
             echo "Missing Google Play service account JSON. Provide google_play_service_account_json." >&2
             exit 1
           fi
@@ -147,7 +147,7 @@ jobs:
           fi
 
       - name: Configure Android signing
-        if: ${{ (inputs.build_android || inputs.deploy_google_play) && env.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ inputs.build_android || inputs.deploy_google_play }}
         run: |
           set -euo pipefail
           set +x
@@ -213,9 +213,9 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
+          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}"
           mkdir -p .tmp
-          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
           set -x
 
       - name: Prepare App Store Connect API key
