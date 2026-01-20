@@ -94,6 +94,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.google_play_service_account_json }}
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH: .tmp/google-play.json
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
@@ -175,8 +176,7 @@ jobs:
           set +x
           echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}"
           mkdir -p .tmp
-          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > .tmp/google-play.json
-          echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=.tmp/google-play.json" >> $GITHUB_ENV
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH}"
           set -x
 
       - name: Prepare App Store Connect API key
@@ -198,7 +198,7 @@ jobs:
       - name: Deploy to Google Play via Fastlane
         if: ${{ inputs.deploy_google_play }}
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH }}
         run: |
           set -euo pipefail
           if [ -f Gemfile ]; then
