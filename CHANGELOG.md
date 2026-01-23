@@ -5,7 +5,7 @@
 ### Added
 - Added a reusable Flutter release workflow for building Android/iOS and deploying via Fastlane.
 - Documented Flutter release workflow inputs and added an example.
-- Added a `release-rc-pr.yml` workflow to open release-candidate PRs using the Flutter release pipeline.
+- Added a `release-rc-pr.yml` workflow to automatically open pull requests for release-candidate branches.
 - Added `SECURITY.md` with security reporting and support policy details.
 - Added `APPLE_FASTLANE_PUBLISH.md` and `GOOGLE_PLAY_PUBLISH.md` guides documenting app store publishing via Fastlane.
 
