@@ -259,7 +259,11 @@ dialog_download_file() {
       printf "Downloaded: %s\n" "$(_dialog__human_size "$cur_bytes")"
       printf "XXX\n"
     fi
-  ) | dialog --title "Downloading" --gauge "Preparing download..." "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0
+  local gauge_height=10
+  local gauge_width="$DIALOG_WIDTH"
+  (( gauge_width > 80 )) && gauge_width=80
+  (( gauge_width < 60 )) && gauge_width=60
+  ) | dialog --no-shadow --title "Downloading" --gauge "Preparing download..." "$gauge_height" "$gauge_width" 0
   local dlg_rc=$?
 
   # If user cancelled the dialog, terminate the download

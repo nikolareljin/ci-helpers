@@ -17,6 +17,9 @@ on:
       spec_path:
         type: string
         default: ""
+      artifact_dir:
+        type: string
+        default: "dist"
       extra_packages:
         type: string
         default: ""
@@ -25,7 +28,7 @@ on:
         default: "rpm-packages"
       artifact_glob:
         type: string
-        default: "../*.rpm"
+        default: "dist/*.rpm"
 
 jobs:
   build:
@@ -36,33 +39,51 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
-      - name: Install packaging prerequisites
+      - name: Install RPM tooling
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            rpm
+          sudo apt-get install -y build-essential rpm rsync
           if [ -n "${{ inputs.extra_packages }}" ]; then
             sudo apt-get install -y ${{ inputs.extra_packages }}
           fi
 
-      - name: Build package
+      - name: Build RPM artifacts
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          args=(--repo "${{ inputs.working_directory }}")
-          if [ -n "${{ inputs.prebuild_command }}" ]; then
-            args+=(--prebuild "${{ inputs.prebuild_command }}")
-          fi
-          if [ -n "${{ inputs.spec_path }}" ]; then
-            args+=(--spec "${{ inputs.spec_path }}")
-          fi
-          ./vendor/script-helpers/scripts/build_rpm_artifacts.sh "${args[@]}"
+          repo="${{ inputs.working_directory }}"
+          spec="${{ inputs.spec_path }}"
+          prebuild="${{ inputs.prebuild_command }}"
+          artifact_dir="${{ inputs.artifact_dir }}"
 
-      - name: Upload artifacts
+          if [[ -n "$spec" && "$spec" != /* ]]; then
+            spec="$repo/$spec"
+          fi
+
+          if [[ "$artifact_dir" != /* ]]; then
+            artifact_dir="$repo/$artifact_dir"
+          fi
+
+          spec_args=()
+          if [[ -n "$spec" ]]; then
+            spec_args=(--spec "$spec")
+          fi
+
+          prebuild_args=()
+          if [[ -n "$prebuild" ]]; then
+            prebuild_args=(--prebuild "$prebuild")
+          fi
+
+          ./vendor/script-helpers/scripts/build_rpm_artifacts.sh \
+            --repo "$repo" \
+            "${spec_args[@]}" \
+            "${prebuild_args[@]}" \
+            --artifact-dir "$artifact_dir"
+
+      - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}

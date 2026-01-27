@@ -7,16 +7,19 @@
 
 # Usage: display_help [script_file]; renders concise help.
 display_help() {
+  export SHLIB_HELP_SHOWN=true
   _help__render "concise" "${1:-$0}"
 }
 
 # Usage: print_help [script_file]; renders full help.
 print_help() {
+  export SHLIB_HELP_SHOWN=true
   _help__render "full" "${1:-$0}"
 }
 
 # Usage: show_help [script_file]; renders minimal help.
 show_help() {
+  export SHLIB_HELP_SHOWN=true
   _help__render "minimal" "${1:-${BASH_SOURCE[1]:-$0}}"
 }
 
@@ -203,6 +206,7 @@ parse_common_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -h|--help)
+        export SHLIB_HELP_SHOWN=true
         if declare -F show_help >/dev/null 2>&1 && [[ -n "${SHLIB_CALLER_SCRIPT:-}" && -f "$SHLIB_CALLER_SCRIPT" ]]; then
           show_help "$SHLIB_CALLER_SCRIPT"
         else
