@@ -831,6 +831,80 @@ jobs:
       build_targets: "linux/amd64,windows/amd64,darwin/amd64"
 ```
 
+## go-deploy.yml
+
+Workflow: `.github/workflows/go-deploy.yml`
+
+Purpose: Build a Go binary and deploy it to a remote server via SSH and rsync.
+
+This workflow cross-compiles a Go binary for a target OS/architecture, transfers
+it to a remote host over SSH, optionally copies extra files (config templates,
+migrations, etc.), and runs a post-deploy command (e.g. restart a systemd
+service). Useful for deploying lightweight Go services to VPS or cloud instances.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `go_version` (string, default `1.22`)
+- `bin_name` (string, required) — output binary name
+- `main_path` (string, default `"."`) — Go package path to build
+- `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
+- `ldflags` (string, default `""`) — optional linker flags
+- `remote_path` (string, required) — destination directory on the remote host
+- `remote_bin_name` (string, default `""`) — rename binary on remote (defaults to `bin_name`)
+- `extra_files` (string, default `""`) — comma-separated list of files to copy alongside the binary
+- `post_deploy_command` (string, default `""`) — command to run on the remote host after deploy
+
+Secrets:
+- `ssh_host` (required) — remote hostname or IP
+- `ssh_user` (required) — SSH username
+- `ssh_key` (required) — SSH private key
+
+Example (deploy a Go service to Oracle Cloud):
+
+```yaml
+name: Deploy
+on:
+  push:
+    branches: [ main ]
+    paths: [ "server/**" ]
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
+    with:
+      working_directory: server
+      go_version: "1.22"
+      bin_name: my-service
+      build_target: linux/amd64
+      remote_path: /opt/my-service
+      extra_files: ".env.example"
+      post_deploy_command: "sudo systemctl restart my-service"
+    secrets:
+      ssh_host: ${{ secrets.DEPLOY_HOST }}
+      ssh_user: ${{ secrets.DEPLOY_USER }}
+      ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
+```
+
+Example (deploy to Arm instance):
+
+```yaml
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
+    with:
+      working_directory: server
+      bin_name: my-service
+      build_target: linux/arm64
+      remote_path: /opt/my-service
+      post_deploy_command: "sudo systemctl restart my-service"
+    secrets:
+      ssh_host: ${{ secrets.DEPLOY_HOST }}
+      ssh_user: ${{ secrets.DEPLOY_USER }}
+      ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
+```
+
 ## wp-plugin-check.yml
 
 Workflow: `.github/workflows/wp-plugin-check.yml`
