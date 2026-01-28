@@ -82,6 +82,25 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## Flutter Android release (build + Play Store)
+
+```yaml
+jobs:
+  flutter_release:
+    uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
+    with:
+      working_directory: "apps/mobile"
+      build_android: true
+      deploy_google_play: true
+      fastlane_android_lane: "android_release"
+    secrets:
+      android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      android_key_alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+      android_key_password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+```
+
 ## RPM build
 
 ```yaml
