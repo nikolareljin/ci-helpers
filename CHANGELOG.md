@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-01-28
+
+### Added
+- Added a reusable `go-deploy.yml` workflow for building and deploying Go binaries to remote servers via SSH/rsync.
+- Documented go-deploy workflow inputs, secrets, and usage examples.
+
 ## 2026-01-19
 
 ### Added
