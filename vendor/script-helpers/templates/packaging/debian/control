@@ -1,0 +1,16 @@
+Source: @APP_NAME@
+Section: @DEB_SECTION@
+Priority: @DEB_PRIORITY@
+Maintainer: @DEB_MAINTAINER@
+Build-Depends: @DEB_BUILD_DEPENDS@
+Standards-Version: 4.6.2
+Homepage: @APP_HOMEPAGE@
+Rules-Requires-Root: no
+
+Package: @APP_NAME@
+Architecture: @DEB_ARCH@
+Depends: ${shlibs:Depends}, ${misc:Depends}@DEB_DEPENDS_SUFFIX@
+@DEB_RECOMMENDS_LINE@
+@DEB_SUGGESTS_LINE@
+Description: @APP_DESCRIPTION@
+ @APP_DESCRIPTION_LONG@

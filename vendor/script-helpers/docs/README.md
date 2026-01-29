@@ -6,6 +6,8 @@ Reusable Bash helpers extracted from projects in this workspace. Source the load
 - Usage: see ./docs/usage.md
 - Packaging: see ./docs/packaging.md
 - Full API: see ./docs/api.md
+- CI helper scripts: see ./docs/usage.md#ci-helper-scripts
+- CI default versions: see ./docs/ci_defaults.md
 
 Quick start
 -----------
@@ -47,5 +49,6 @@ Modules overview
 - ollama — install CLI, prepare models index, select/pull/run models.
 - package_publish — Debian package builds and PPA upload helpers.
 - packaging — packaging metadata helpers and template formatting.
+- ci_defaults — centralized Docker image version defaults for CI helper scripts.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.
