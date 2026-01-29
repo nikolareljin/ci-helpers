@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-01-29
+
+### Changed
+- Added a macOS runner guard for App Store deploy preparation in the Flutter release workflow.
+- Updated App Store Connect key encoding instructions with Linux-friendly examples.
+
 ## 2026-01-28
 
 ### Added
