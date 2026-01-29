@@ -206,6 +206,24 @@ jobs:
       google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
 ```
 
+Example (iOS build + App Store deploy, macOS runner):
+
+```yaml
+jobs:
+  release:
+    runs-on: macos-latest
+    uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
+    with:
+      working_directory: "apps/mobile"
+      build_ios: true
+      deploy_app_store: true
+      fastlane_ios_lane: "ios_release"
+    secrets:
+      app_store_connect_api_key_base64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      app_store_connect_key_id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      app_store_connect_issuer_id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+```
+
 ## trivy-scan.yml
 
 Workflow: `.github/workflows/trivy-scan.yml`
