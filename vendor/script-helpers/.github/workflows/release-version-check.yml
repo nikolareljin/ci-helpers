@@ -1,0 +1,29 @@
+name: Release version check
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    if: ${{ startsWith(github.head_ref, 'release/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate VERSION matches release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_HEAD_REF#release/}"
+          # Ensure the branch name suffix is a plain semantic version: X.Y.Z
+          if [[ ! "$branch" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release branch name '$GITHUB_HEAD_REF' is invalid. Expected format 'release/X.Y.Z'." >&2
+            exit 1
+          fi
+          version="$(head -n1 VERSION | xargs)"
+          if [[ "$version" != "$branch" ]]; then
+            echo "VERSION ($version) does not match release branch ($branch). Please update the VERSION file to match the release branch version or rename the branch to match VERSION." >&2
+            exit 1
+          fi

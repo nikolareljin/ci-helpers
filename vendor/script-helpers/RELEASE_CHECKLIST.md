@@ -12,11 +12,14 @@ Versioning and releases
   - `scripts/tag_release.sh`
   - This creates tag `<version>` (no 'v' prefix) based on VERSION and pushes it
 - GitHub Actions creates a release for pushed tag with auto-generated notes
+- Move `production` branch to the new tag (fast-forward only):
+  - `scripts/pin_production.sh <version>`
+  - If a rollback is needed, fast-forward `production` to a previous tag.
 
 Downstream projects
 -------------------
 - Add as submodule in each project repo (example):
-  - `git submodule add -b main git@github.com:nikolareljin/script-helpers.git inc/script-helpers`
+  - `git submodule add -b production git@github.com:nikolareljin/script-helpers.git inc/script-helpers`
   - Or pin a specific tag:
     - `git submodule add -b 0.1.0 git@github.com:nikolareljin/script-helpers.git inc/script-helpers`
 - To bump submodule in downstream repos to a new version:

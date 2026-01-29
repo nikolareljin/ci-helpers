@@ -1,0 +1,21 @@
+pkgname=@APP_NAME@
+pkgver=@APP_VERSION@
+pkgrel=@ARCH_PKGREL@
+pkgdesc="@APP_DESCRIPTION@"
+arch=('@ARCH_ARCH@')
+url="@APP_HOMEPAGE@"
+license=('@APP_LICENSE@')
+depends=(@ARCH_DEPENDS_ARRAY@)
+makedepends=(@ARCH_MAKEDEPENDS_ARRAY@)
+source=("@ARCH_SOURCE_URL@")
+sha256sums=('@ARCH_SOURCE_SHA256@')
+
+build() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  @APP_BUILD_CMD@
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  DESTDIR="${pkgdir}" PREFIX="@APP_INSTALL_PREFIX@" @APP_INSTALL_CMD@
+}
