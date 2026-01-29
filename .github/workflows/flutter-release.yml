@@ -94,7 +94,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: .tmp/google-play.json
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: ${{ inputs.working_directory }}/.tmp/google-play.json
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
@@ -177,6 +177,7 @@ jobs:
         run: |
           echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
           echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
+          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android/key.properties)."
 
       - name: Build Android appbundle
         if: ${{ inputs.build_android }}
@@ -219,7 +220,7 @@ jobs:
           set -euo pipefail
           set +x
           echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}"
-          mkdir -p .tmp
+          mkdir -p "$(dirname "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}")"
           printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
           set -x
 
@@ -240,7 +241,7 @@ jobs:
       - name: Deploy to Google Play via Fastlane
         if: ${{ inputs.deploy_google_play }}
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.working_directory }}/.tmp/google-play.json
         run: |
           set -euo pipefail
           if [ -f Gemfile ]; then
@@ -252,8 +253,8 @@ jobs:
       - name: Deploy to App Store via Fastlane
         if: ${{ inputs.deploy_app_store }}
         env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ env.FASTLANE_APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ env.FASTLANE_APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.app_store_connect_key_id }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" != "macOS" ]]; then
