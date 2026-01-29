@@ -145,6 +145,10 @@ jobs:
             echo "Missing App Store Connect API key secrets. Provide app_store_connect_api_key_base64, app_store_connect_key_id, and app_store_connect_issuer_id." >&2
             exit 1
           fi
+          if [[ "${{ runner.os }}" != "macOS" ]]; then
+            echo "App Store deploys require a macOS runner." >&2
+            exit 1
+          fi
 
       - name: Configure Android signing
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
@@ -220,7 +224,7 @@ jobs:
           set -x
 
       - name: Prepare App Store Connect API key
-        if: ${{ inputs.deploy_app_store }}
+        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
         run: |
           set -euo pipefail
           set +x

@@ -82,8 +82,14 @@ The reusable Flutter workflow expects the following secrets:
 - `APP_STORE_CONNECT_ISSUER_ID`
 
 **How to create APP_STORE_CONNECT_API_KEY_BASE64**:
-```
+```bash
+# macOS: base64-encode and copy to clipboard
 base64 -i AuthKey_ABC123.p8 | pbcopy
+
+# Linux: base64-encode (copy from terminal or pipe to xclip)
+base64 -w0 AuthKey_ABC123.p8 | xclip -selection clipboard
+# or, without xclip:
+# base64 -w0 AuthKey_ABC123.p8
 ```
 
 Dashboard URLs:
