@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: @APP_TITLE@
+Source: @APP_HOMEPAGE@
+
+Files: *
+Copyright: @APP_VENDOR@
+License: @APP_LICENSE@

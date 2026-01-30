@@ -77,6 +77,8 @@ jobs:
           base: "main"
           body: "Automated version bump."
           add-paths: VERSION
+          delete-branch: true
+          labels: automated, release
 
       - name: Create and push tag
         if: ${{ steps.bump.outputs.skip != 'true' && steps.version.outputs.version_changed != 'true' }}

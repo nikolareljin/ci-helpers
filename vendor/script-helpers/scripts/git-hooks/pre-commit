@@ -13,3 +13,7 @@ else
   exit 1
 fi
 
+if ! bash scripts/check_release_version.sh --version-file VERSION; then
+  echo "[pre-commit] Release branch VERSION check failed." >&2
+  exit 1
+fi

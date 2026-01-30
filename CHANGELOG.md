@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-01-29
+
+### Changed
+- Added a macOS runner guard for App Store deploy preparation in the Flutter release workflow.
+- Updated App Store Connect key encoding instructions with Linux-friendly examples.
+- Documented a macOS runner example for iOS/App Store deployments in flutter-release workflow docs.
+
+## 2026-01-28
+
+### Added
+- Added a reusable `go-deploy.yml` workflow for building and deploying Go binaries to remote servers via SSH/rsync.
+- Documented go-deploy workflow inputs, secrets, and usage examples.
+
+## 2026-01-19
+
+### Added
+- Added a reusable Flutter release workflow for building Android/iOS and deploying via Fastlane.
+- Documented Flutter release workflow inputs and added an example.
+- Added a `release-rc-pr.yml` workflow to automatically open pull requests for release-candidate branches.
+- Added `SECURITY.md` with security reporting and support policy details.
+- Added `APPLE_FASTLANE_PUBLISH.md` and `GOOGLE_PLAY_PUBLISH.md` guides documenting app store publishing via Fastlane.
+
 ## 2026-01-07 (0.4.0)
 
 ### Changed

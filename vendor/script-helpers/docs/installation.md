@@ -8,7 +8,7 @@ Options
   - Point `SCRIPT_HELPERS_DIR` to that folder in your scripts and `source helpers.sh`.
 
 - Git submodule (once hosted remotely):
-  - `git submodule add <repo-url> scripts/script-helpers`
+  - `git submodule add -b production <repo-url> scripts/script-helpers`
   - `git submodule update --init --recursive`
   - Source as shown in the quick start.
   - Create a `scripts/update.sh` in your repo that runs `git submodule update --init --recursive` (see `docs/usage.md` for a sample).

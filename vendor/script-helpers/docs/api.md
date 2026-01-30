@@ -22,3 +22,4 @@ This index lists all modules and their functions. See the linked module pages fo
 - ollama — ./modules/ollama.md
 - package_publish — ./modules/package_publish.md
 - packaging — ./modules/packaging.md
+- ci_defaults — ./modules/ci_defaults.md
