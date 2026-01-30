@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	@APP_BUILD_CMD@
+
+override_dh_auto_install:
+	DESTDIR=$(CURDIR)/debian/@APP_NAME@ PREFIX=@APP_INSTALL_PREFIX@ @APP_INSTALL_CMD@

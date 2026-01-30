@@ -1,0 +1,144 @@
+name: go-deploy
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      go_version:
+        type: string
+        default: "1.22"
+      bin_name:
+        type: string
+        required: true
+      main_path:
+        type: string
+        default: "."
+      build_target:
+        type: string
+        default: "linux/amd64"
+      ldflags:
+        type: string
+        default: ""
+      remote_path:
+        type: string
+        required: true
+      remote_bin_name:
+        type: string
+        default: ""
+      extra_files:
+        type: string
+        default: ""
+      post_deploy_command:
+        type: string
+        default: ""
+    secrets:
+      ssh_host:
+        required: true
+      ssh_user:
+        required: true
+      ssh_key:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Build binary
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          target="${{ inputs.build_target }}"
+          export GOOS="${target%%/*}"
+          export GOARCH="${target##*/}"
+          export CGO_ENABLED=0
+
+          bin_name="${{ inputs.bin_name }}"
+          if [ "$GOOS" = "windows" ]; then
+            bin_name="${bin_name}.exe"
+          fi
+
+          ldflags="${{ inputs.ldflags }}"
+          if [ -n "$ldflags" ]; then
+            go build -o "$bin_name" -ldflags "$ldflags" "${{ inputs.main_path }}"
+          else
+            go build -o "$bin_name" "${{ inputs.main_path }}"
+          fi
+
+          echo "Built ${bin_name} for ${GOOS}/${GOARCH}"
+          ls -lh "$bin_name"
+
+      - name: Deploy to remote
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.ssh_host }}
+          DEPLOY_SSH_USER: ${{ secrets.ssh_user }}
+          DEPLOY_SSH_KEY: ${{ secrets.ssh_key }}
+        run: |
+          set -euo pipefail
+
+          TMP_KEY=$(mktemp)
+          trap "rm -f '$TMP_KEY'" EXIT
+
+          # Write SSH key without tracing to avoid leaking it.
+          set +x
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$TMP_KEY"
+          set -x
+          chmod 600 "$TMP_KEY"
+
+          SSH_OPTS="-i $TMP_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
+          REMOTE="${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}"
+          REMOTE_PATH="${{ inputs.remote_path }}"
+
+          bin_name="${{ inputs.bin_name }}"
+          remote_bin="${{ inputs.remote_bin_name }}"
+          if [ -z "$remote_bin" ]; then
+            remote_bin="$bin_name"
+          fi
+
+          # Ensure remote directory exists.
+          ssh $SSH_OPTS "$REMOTE" "mkdir -p '$REMOTE_PATH'"
+
+          # Transfer binary.
+          rsync -az -e "ssh $SSH_OPTS" "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
+
+          # Transfer extra files (comma-separated list).
+          extra="${{ inputs.extra_files }}"
+          if [ -n "$extra" ]; then
+            IFS=',' read -r -a files <<< "$extra"
+            for f in "${files[@]}"; do
+              f="$(echo "$f" | xargs)"
+              if [ -f "$f" ]; then
+                rsync -az -e "ssh $SSH_OPTS" "$f" "${REMOTE}:${REMOTE_PATH}/"
+              else
+                echo "Warning: extra file '$f' not found, skipping" >&2
+              fi
+            done
+          fi
+
+          # Run post-deploy command on remote.
+          post_cmd="${{ inputs.post_deploy_command }}"
+          if [ -n "$post_cmd" ]; then
+            ssh $SSH_OPTS "$REMOTE" "$post_cmd"
+          fi
+
+          echo "Deployed ${bin_name} to ${DEPLOY_SSH_HOST}:${REMOTE_PATH}"

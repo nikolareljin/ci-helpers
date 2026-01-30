@@ -1,0 +1,5 @@
+@APP_NAME@ (@APP_VERSION@-1) @DEB_SERIES@; urgency=medium
+
+  * Automated release.
+
+ -- @DEB_MAINTAINER@  @DEB_DATE@

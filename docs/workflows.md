@@ -134,6 +134,96 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## flutter-release.yml
+
+Workflow: `.github/workflows/flutter-release.yml`
+
+Purpose: Build Flutter Android/iOS artifacts and optionally deploy to Google Play and Apple App Store via Fastlane.
+
+Notes:
+- iOS builds/uploads require a macOS runner.
+- For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
+- This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `flutter_version` (string, default `stable`)
+- `flutter_channel` (string, default `stable`)
+- `java_version` (string, default `"17"`)
+- `ruby_version` (string, default `"3.2"`)
+- `build_android` (boolean, default `true`)
+- `build_ios` (boolean, default `false`)
+- `deploy_google_play` (boolean, default `false`)
+- `deploy_app_store` (boolean, default `false`)
+- `android_build_command` (string, default `flutter build appbundle --release`)
+- `ios_build_command` (string, default `flutter build ipa --release`)
+- `android_artifact_path` (string, default `build/app/outputs/bundle/release/*.aab`)
+- `ios_artifact_path` (string, default `build/ios/ipa/*.ipa`)
+- `upload_artifacts` (boolean, default `true`)
+- `android_artifact_name` (string, default `flutter-android`)
+- `ios_artifact_name` (string, default `flutter-ios`)
+- `fastlane_android_lane` (string, default `android_release`)
+- `fastlane_ios_lane` (string, default `ios_release`)
+
+Secrets:
+- `android_keystore_base64` (optional)
+- `android_keystore_password` (optional)
+- `android_key_alias` (optional)
+- `android_key_password` (optional)
+- `google_play_service_account_json` (optional, for deploy)
+- `app_store_connect_api_key_base64` (optional, for deploy)
+- `app_store_connect_key_id` (optional, for deploy)
+- `app_store_connect_issuer_id` (optional, for deploy)
+
+Additional notes:
+- The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
+- When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
+- If `deploy_app_store` is true, the standalone iOS build step is skipped even when `build_ios` is enabled.
+- Android signing files are written to `${{ inputs.working_directory }}/android` and your `android/app/build.gradle` should load `key.properties` from the Android project root (e.g., `rootProject.file("key.properties")`).
+
+Security notes:
+- The workflow masks secrets via `::add-mask::` before use.
+- Secret-handling steps temporarily disable shell tracing (`set +x`).
+
+Example (Android build + Play Store deploy):
+
+```yaml
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
+    with:
+      working_directory: "apps/mobile"
+      build_android: true
+      deploy_google_play: true
+      fastlane_android_lane: "android_release"
+    secrets:
+      android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      android_key_alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+      android_key_password: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+```
+
+Example (iOS build + App Store deploy, macOS runner):
+
+```yaml
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
+    with:
+      runner: macos-latest
+      working_directory: "apps/mobile"
+      build_ios: true
+      deploy_app_store: true
+      fastlane_ios_lane: "ios_release"
+    secrets:
+      app_store_connect_api_key_base64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      app_store_connect_key_id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      app_store_connect_issuer_id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+```
+
 ## trivy-scan.yml
 
 Workflow: `.github/workflows/trivy-scan.yml`
@@ -327,7 +417,6 @@ jobs:
       tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
     secrets:
       tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-```
 ```
 
 ## deb-build.yml
@@ -757,6 +846,80 @@ jobs:
       bin_name: "myapp"
       main_path: "./cmd/myapp"
       build_targets: "linux/amd64,windows/amd64,darwin/amd64"
+```
+
+## go-deploy.yml
+
+Workflow: `.github/workflows/go-deploy.yml`
+
+Purpose: Build a Go binary and deploy it to a remote server via SSH and rsync.
+
+This workflow cross-compiles a Go binary for a target OS/architecture, transfers
+it to a remote host over SSH, optionally copies extra files (config templates,
+migrations, etc.), and runs a post-deploy command (e.g. restart a systemd
+service). Useful for deploying lightweight Go services to VPS or cloud instances.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `go_version` (string, default `1.22`)
+- `bin_name` (string, required) — output binary name
+- `main_path` (string, default `"."`) — Go package path to build
+- `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
+- `ldflags` (string, default `""`) — optional linker flags
+- `remote_path` (string, required) — destination directory on the remote host
+- `remote_bin_name` (string, default `""`) — rename binary on remote (defaults to `bin_name`)
+- `extra_files` (string, default `""`) — comma-separated list of files to copy alongside the binary
+- `post_deploy_command` (string, default `""`) — command to run on the remote host after deploy
+
+Secrets:
+- `ssh_host` (required) — remote hostname or IP
+- `ssh_user` (required) — SSH username
+- `ssh_key` (required) — SSH private key
+
+Example (deploy a Go service to Oracle Cloud):
+
+```yaml
+name: Deploy
+on:
+  push:
+    branches: [ main ]
+    paths: [ "server/**" ]
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
+    with:
+      working_directory: server
+      go_version: "1.22"
+      bin_name: my-service
+      build_target: linux/amd64
+      remote_path: /opt/my-service
+      extra_files: ".env.example"
+      post_deploy_command: "sudo systemctl restart my-service"
+    secrets:
+      ssh_host: ${{ secrets.DEPLOY_HOST }}
+      ssh_user: ${{ secrets.DEPLOY_USER }}
+      ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
+```
+
+Example (deploy to Arm instance):
+
+```yaml
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
+    with:
+      working_directory: server
+      bin_name: my-service
+      build_target: linux/arm64
+      remote_path: /opt/my-service
+      post_deploy_command: "sudo systemctl restart my-service"
+    secrets:
+      ssh_host: ${{ secrets.DEPLOY_HOST }}
+      ssh_user: ${{ secrets.DEPLOY_USER }}
+      ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
 ```
 
 ## wp-plugin-check.yml

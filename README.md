@@ -23,6 +23,8 @@ See detailed usage, inputs, and examples in:
 - [Composite actions](docs/actions.md)
 - [Examples](docs/examples.md)
 - [Usage guide](docs/usage.md)
+- [App Store (Fastlane)](docs/APPLE_FASTLANE_PUBLISH.md)
+- [Google Play (Fastlane)](docs/GOOGLE_PLAY_PUBLISH.md)
 
 ## Quick Start
 
@@ -77,8 +79,11 @@ jobs:
 - `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language
+- `.github/workflows/flutter-release.yml`: reusable Flutter build + store deploy workflow (Android/iOS)
+- `.github/workflows/release-rc-pr.yml`: repo-local workflow to open PRs on `release/*-rc*` branch creation
 - `.github/workflows/rust-release.yml`: reusable Rust multi-target release workflow
 - `.github/workflows/go-release.yml`: reusable Go multi-target release workflow
+- `.github/workflows/go-deploy.yml`: reusable Go binary build + SSH/rsync deploy workflow
 - `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
 - `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)
 - `.github/workflows/rpm-build.yml`: reusable RPM build workflow (artifacts only)

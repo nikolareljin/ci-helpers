@@ -1,0 +1,47 @@
+name: Release RC PR
+
+on:
+  create:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open_pr:
+    if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PR to default branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const head = context.payload.ref;
+            const pattern = /^release\/\d+\.\d+\.\d+(-rc\d+)?$/;
+            if (!pattern.test(head)) {
+              core.info(`Branch ${head} does not match release/X.Y.Z or release/X.Y.Z-rc*; skipping.`);
+              return;
+            }
+            const repoInfo = await github.rest.repos.get({ owner, repo });
+            const base = repoInfo.data.default_branch;
+
+            const existing = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${head}`,
+              base,
+            });
+
+            if (existing.data.length > 0) {
+              core.info(`PR already exists for ${head} -> ${base}`);
+              return;
+            }
+
+            const title = `Release: ${head}`;
+            const body = `Auto-created PR for release branch \`${head}\` into \`${base}\`.`;
+
+            await github.rest.pulls.create({ owner, repo, head, base, title, body });
+            core.info(`Created PR ${head} -> ${base}`);

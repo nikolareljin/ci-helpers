@@ -1,0 +1,42 @@
+name: Tag release on main
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Tag VERSION if updated
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            if git diff --quiet HEAD~1 -- VERSION; then
+              echo "VERSION unchanged; skipping tag."
+              exit 0
+            fi
+          fi
+          version="$(head -n1 VERSION | xargs)"
+          if [[ -z "$version" ]]; then
+            echo "ERROR: VERSION is empty; failing tag step." >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "Tag $version already exists; skipping."
+            exit 0
+          fi
+          git tag -a "$version" -m "Release $version"
+          git push origin "$version"

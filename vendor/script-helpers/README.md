@@ -24,10 +24,20 @@ Quick start
 - Git submodule (once this repo is hosted remotely):
   
   ```bash
-  git submodule add git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
+  git submodule add -b production git@github.com:nikolareljin/script-helpers.git scripts/script-helpers
   ```
   
+  - The `production` branch is fast-forwarded to a specific release tag to enable quick rollback.
   - Source as shown above.
+
+Pinning the production branch
+-----------------------------
+
+To manually move `production` to a specific tag:
+
+```bash
+scripts/pin_production.sh 0.10.0
+```
 
 Loader and modules
 ------------------
@@ -94,6 +104,20 @@ log_info "Compose cmd: $compose_cmd"
 
 # Show running containers and compose services status (if docker-compose.yml exists)
 docker_status
+```
+
+CI helper scripts
+-----------------
+
+Use these to run common CI steps locally (Docker by default; pass `--no-docker` to run on the host):
+
+```bash
+./scripts/ci_node.sh --workdir frontend
+./scripts/ci_python.sh --workdir backend --requirements requirements.txt --test-cmd "pytest -q"
+./scripts/ci_flutter.sh --workdir . --skip-test --build-cmd "flutter build appbundle --release"
+./scripts/ci_gradle.sh --workdir . --skip-detekt
+./scripts/ci_go.sh --workdir scanner
+./scripts/ci_security.sh --workdir backend --python-req requirements.txt
 ```
 
 Docker status utility
