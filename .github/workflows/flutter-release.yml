@@ -94,7 +94,7 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
       ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
       GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: ${{ inputs.working_directory }}/.tmp/google-play.json
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: .tmp/google-play.json
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
@@ -165,11 +165,11 @@ jobs:
           mkdir -p "${android_dir}"
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
           cat > "${android_dir}/key.properties" <<PROPS
-          storeFile=upload-keystore.jks
-          storePassword=${ANDROID_KEYSTORE_PASSWORD}
-          keyPassword=${ANDROID_KEY_PASSWORD}
-          keyAlias=${ANDROID_KEY_ALIAS}
-          PROPS
+storeFile=upload-keystore.jks
+storePassword=${ANDROID_KEYSTORE_PASSWORD}
+keyPassword=${ANDROID_KEY_PASSWORD}
+keyAlias=${ANDROID_KEY_ALIAS}
+PROPS
           set -x
 
       - name: Note for Android signing config
@@ -241,7 +241,7 @@ jobs:
       - name: Deploy to Google Play via Fastlane
         if: ${{ inputs.deploy_google_play }}
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.working_directory }}/.tmp/google-play.json
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: .tmp/google-play.json
         run: |
           set -euo pipefail
           if [ -f Gemfile ]; then

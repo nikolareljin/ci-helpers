@@ -418,7 +418,6 @@ jobs:
     secrets:
       tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 ```
-```
 
 ## deb-build.yml
 
