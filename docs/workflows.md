@@ -211,9 +211,9 @@ Example (iOS build + App Store deploy, macOS runner):
 ```yaml
 jobs:
   release:
-    runs-on: macos-latest
     uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
     with:
+      runner: macos-latest
       working_directory: "apps/mobile"
       build_ios: true
       deploy_app_store: true
