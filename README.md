@@ -91,7 +91,7 @@ jobs:
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
-- `.github/workflows/production-branch.yml`: repo-local workflow to move `production` to a released tag
+- `.github/workflows/production-branch.yml`: repo-local workflow to move the `production` tag to a released tag
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check

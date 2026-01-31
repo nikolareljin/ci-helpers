@@ -1,4 +1,4 @@
-name: update-production-branch
+name: update-production-tag
 on:
   push:
     tags:
@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Update production branch
+      - name: Update production tag
         shell: bash
         run: |
           set -euo pipefail
