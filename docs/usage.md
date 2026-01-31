@@ -404,14 +404,14 @@ cd REPO
 ./mvnw -DskipTests package
 ```
 
-## Production branch (optional)
+## Production tag (optional)
 
-This repo includes a repo-local workflow that moves the `production` branch to
+This repo includes a repo-local workflow that moves the `production` tag to
 the latest non-rc tag. It is not a reusable workflow; copy it into other repos
 only if you want the same behavior.
 
 ```yaml
-name: Update Production Branch
+name: Update Production Tag
 on:
   push:
     tags:
@@ -427,7 +427,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Update production
+      - name: Update production tag
         run: ./scripts/create_production.sh -t "${GITHUB_REF_NAME}" --fetch-tags
 ```
 
