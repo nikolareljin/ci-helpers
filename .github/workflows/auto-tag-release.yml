@@ -86,7 +86,7 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
-      - name: Update production branch
+      - name: Update production tag
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
         run: |
