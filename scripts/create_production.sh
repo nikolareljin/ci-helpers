@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SCRIPT: create_production.sh
-# DESCRIPTION: Point a production branch at a specific tag and push it to the remote.
-# USAGE: ./create_production.sh -t <tag> [--branch <name>] [--remote <name>] [--repo <path>] [--fetch-tags]
+# DESCRIPTION: Point a production tag at a specific tag and push it to the remote.
+# USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags]
 # PARAMETERS:
-#   -t, --tag <tag>         Required. Tag to point the production branch at.
-#   --branch <name>         Branch name to update (default: production).
+#   -t, --tag <tag>         Required. Tag to point the production tag at.
+#   --name <name>           Tag name to update (default: production).
 #   --remote <name>         Remote name to push to (default: origin).
 #   --repo <path>           Repository path (default: GITHUB_WORKSPACE or cwd).
-#   --fetch-tags            Fetch tags before updating the branch.
+#   --fetch-tags            Fetch tags before updating the production tag.
 #   -h, --help              Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -37,7 +37,7 @@ log_error_safe() {
 }
 
 tag=""
-branch="production"
+prod_tag="production"
 remote="origin"
 repo_dir="${GITHUB_WORKSPACE:-$(pwd)}"
 fetch_tags=false
@@ -45,7 +45,8 @@ fetch_tags=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -t|--tag) tag="$2"; shift 2;;
-    --branch) branch="$2"; shift 2;;
+    --name|--tag-name) prod_tag="$2"; shift 2;;
+    --branch) prod_tag="$2"; shift 2;;
     --remote) remote="$2"; shift 2;;
     --repo) repo_dir="$2"; shift 2;;
     --fetch-tags) fetch_tags=true; shift;;
@@ -69,7 +70,7 @@ if ! git -C "$repo_dir" rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
   exit 1
 fi
 
-log_info_safe "Updating ${branch} to tag ${tag}"
-git -C "$repo_dir" branch -f "$branch" "$tag"
-git -C "$repo_dir" push "$remote" "refs/heads/${branch}:refs/heads/${branch}" --force-with-lease
-log_info_safe "Production branch ${branch} now points to ${tag}"
+log_info_safe "Updating ${prod_tag} tag to ${tag}"
+git -C "$repo_dir" tag -f "$prod_tag" "$tag"
+git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force-with-lease
+log_info_safe "Production tag ${prod_tag} now points to ${tag}"
