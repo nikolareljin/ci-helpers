@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: WordPress plugin check
-        uses: ./.github/actions/wp-plugin-check
+        uses: nikolareljin/ci-helpers/.github/actions/wp-plugin-check@production
         with:
           compose_file: ${{ inputs.compose_file }}
           plugin_slug: ${{ inputs.plugin_slug }}
