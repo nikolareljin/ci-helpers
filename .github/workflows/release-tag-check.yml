@@ -14,7 +14,7 @@ jobs:
           fetch-tags: true
 
       - name: Check release tag availability
-        uses: ./.github/actions/check-release-tag
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ github.ref_name }}
           repo_dir: ${{ github.workspace }}
