@@ -35,7 +35,7 @@ on:
 
 jobs:
   ci:
-    uses: ./.github/workflows/ci.yml
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       runner: ${{ inputs.runner }}
       working_directory: ${{ inputs.working_directory }}

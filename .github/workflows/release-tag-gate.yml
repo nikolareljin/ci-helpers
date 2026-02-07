@@ -75,7 +75,7 @@ jobs:
 
       - name: Check release tag availability
         if: ${{ steps.gate.outputs.run_check == 'true' }}
-        uses: ./.github/actions/check-release-tag
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ steps.branches.outputs.release_branch }}
           repo_dir: ${{ github.workspace }}

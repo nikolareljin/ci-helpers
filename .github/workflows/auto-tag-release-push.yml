@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   tag:
-    uses: ./.github/workflows/auto-tag-release.yml
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
