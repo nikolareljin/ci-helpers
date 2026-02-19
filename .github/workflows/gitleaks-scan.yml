@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Gitleaks scan
-        uses: ./.github/actions/gitleaks-scan
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: ${{ inputs.scan_path }}
           report_format: ${{ inputs.report_format }}

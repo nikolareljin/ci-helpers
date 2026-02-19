@@ -71,7 +71,7 @@ jobs:
 
       - name: Check release tag availability
         if: ${{ inputs.check_release_tag }}
-        uses: ./.github/actions/check-release-tag
+        uses: nikolareljin/ci-helpers/.github/actions/check-release-tag@production
         with:
           release_branch: ${{ inputs.release_branch }}
           repo_dir: ${{ github.workspace }}
