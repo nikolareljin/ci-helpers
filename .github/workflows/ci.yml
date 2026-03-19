@@ -26,6 +26,12 @@ on:
       go_version:
         type: string
         default: ""
+      flutter_version:
+        type: string
+        default: ""
+      flutter_channel:
+        type: string
+        default: "stable"
       php_version:
         type: string
         default: ""
@@ -93,6 +99,13 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Setup Flutter
+        if: ${{ inputs.flutter_version != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: ${{ inputs.flutter_channel }}
 
       - name: Setup Rust
         if: ${{ inputs.rust_toolchain != '' }}

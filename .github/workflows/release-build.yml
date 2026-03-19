@@ -26,7 +26,19 @@ on:
       go_version:
         type: string
         default: ""
+      flutter_version:
+        type: string
+        default: ""
+      flutter_channel:
+        type: string
+        default: "stable"
       php_version:
+        type: string
+        default: ""
+      lint_command:
+        type: string
+        default: ""
+      test_command:
         type: string
         default: ""
       build_command:
@@ -102,11 +114,34 @@ jobs:
         with:
           go-version: ${{ inputs.go_version }}
 
+      - name: Setup Flutter
+        if: ${{ inputs.flutter_version != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: ${{ inputs.flutter_channel }}
+
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php_version }}
+
+      - name: Lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
+
+      - name: Test
+        if: ${{ inputs.test_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.test_command }}
 
       - name: Build
         if: ${{ inputs.build_command != '' }}
