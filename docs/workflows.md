@@ -34,6 +34,8 @@ Inputs:
 - `dotnet_version` (string, default `""`)
 - `python_version` (string, default `""`)
 - `go_version` (string, default `""`)
+- `flutter_version` (string, default `""`)
+- `flutter_channel` (string, default `"stable"`)
 - `php_version` (string, default `""`)
 - `rust_toolchain` (string, default `""`)
 - `rust_components` (string, default `""`)
@@ -43,6 +45,21 @@ Inputs:
 - `docker_command` (string, default `""`)
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
+
+Example (Flutter mobile CI):
+
+```yaml
+jobs:
+  ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
+    with:
+      flutter_version: "3.38.7"
+      java_version: "17"
+      working_directory: "mobile"
+      lint_command: "dart format --output=none --set-exit-if-changed lib test && flutter analyze"
+      test_command: "flutter test"
+      build_command: "flutter build apk --debug"
+```
 
 Example (Node + E2E with Playwright):
 
@@ -132,6 +149,35 @@ jobs:
     with:
       node_version: "20"
       deploy_command: "./scripts/deploy.sh"
+```
+
+## release-build.yml
+
+Workflow: `.github/workflows/release-build.yml`
+
+Purpose: Build release artifacts, optionally upload workflow artifacts, and publish a GitHub release on tag-driven flows.
+
+Additional runtime setup inputs beyond the basics:
+- `flutter_version` (string, default `""`)
+- `flutter_channel` (string, default `"stable"`)
+- `lint_command` (string, default `""`)
+- `test_command` (string, default `""`)
+
+Example (Flutter APK release on tag push):
+
+```yaml
+jobs:
+  apk:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
+    with:
+      working_directory: "."
+      java_version: "17"
+      flutter_version: "3.38.7"
+      lint_command: "./scripts/mobile_lint.sh"
+      test_command: "./scripts/mobile_test.sh"
+      build_command: "./scripts/mobile_build_release_apk.sh"
+      artifact_paths: "mobile/build/app/outputs/flutter-apk/app-release.apk"
+      artifact_name: "spank-android-apk"
 ```
 
 ## flutter-release.yml
@@ -747,7 +793,9 @@ Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `php_version` (optional toolchain setup)
+- `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)
+- `lint_command` (string, default `""`)
+- `test_command` (string, default `""`)
 - `build_command` (string, default `""`)
 - `artifact_paths` (string, default `""`, supports globs)
 - `upload_artifact` (boolean, default `false`)
@@ -771,7 +819,9 @@ jobs:
   release:
     uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
-      build_command: "npm ci && npm run build"
+      lint_command: "npm ci && npm run lint"
+      test_command: "npm test -- --runInBand"
+      build_command: "npm run build"
       artifact_paths: "dist/*"
       binary_links: |
         Linux|myapp-linux
