@@ -40,7 +40,7 @@ jobs:
   scan:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Trivy scan
         uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@production
