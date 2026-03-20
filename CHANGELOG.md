@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-20
+
+### Changed
+- Reverted repo-internal reusable workflow and composite action wrappers back to local `./.github/...` references so `ci-helpers` validates the current branch instead of self-referencing `@production`.
+
 ## 2026-03-19
 
 ### Changed
