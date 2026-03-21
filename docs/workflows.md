@@ -151,34 +151,13 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
-## release-build.yml
+## Release Build Overview
 
 Workflow: `.github/workflows/release-build.yml`
 
 Purpose: Build release artifacts, optionally upload workflow artifacts, and publish a GitHub release on tag-driven flows.
 
-Additional runtime setup inputs beyond the basics:
-- `flutter_version` (string, default `""`)
-- `flutter_channel` (string, default `"stable"`)
-- `lint_command` (string, default `""`)
-- `test_command` (string, default `""`)
-
-Example (Flutter APK release on tag push):
-
-```yaml
-jobs:
-  apk:
-    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
-    with:
-      working_directory: "."
-      java_version: "17"
-      flutter_version: "3.38.7"
-      lint_command: "./scripts/mobile_lint.sh"
-      test_command: "./scripts/mobile_test.sh"
-      build_command: "./scripts/mobile_build_release_apk.sh"
-      artifact_paths: "mobile/build/app/outputs/flutter-apk/app-release.apk"
-      artifact_name: "spank-android-apk"
-```
+See the detailed `release-build.yml` section later in this document for the full input list and examples, including Flutter APK releases.
 
 ## flutter-release.yml
 
@@ -826,6 +805,23 @@ jobs:
       binary_links: |
         Linux|myapp-linux
         macOS|myapp-mac
+```
+
+Flutter APK example:
+
+```yaml
+jobs:
+  apk:
+    uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
+    with:
+      working_directory: "."
+      java_version: "17"
+      flutter_version: "3.38.7"
+      lint_command: "./scripts/mobile_lint.sh"
+      test_command: "./scripts/mobile_test.sh"
+      build_command: "./scripts/mobile_build_release_apk.sh"
+      artifact_paths: "mobile/build/app/outputs/flutter-apk/app-release.apk"
+      artifact_name: "spank-android-apk"
 ```
 
 ## rust-release.yml

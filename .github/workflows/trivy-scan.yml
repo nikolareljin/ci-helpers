@@ -40,6 +40,8 @@ permissions:
   contents: read
   security-events: write
 
+# NOTE: Because this workflow is reusable (`workflow_call`), callers still need to
+# grant `security-events: write` in the calling workflow when they enable SARIF upload.
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
