@@ -36,6 +36,10 @@ on:
         type: string
         default: trivy-results
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
