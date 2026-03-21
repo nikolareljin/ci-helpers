@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Trivy scan
-        uses: nikolareljin/ci-helpers/.github/actions/trivy-scan@production
+        uses: ./.github/actions/trivy-scan
         with:
           scan_path: ${{ inputs.scan_path }}
           format: ${{ inputs.format }}
