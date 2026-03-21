@@ -36,11 +36,15 @@ on:
         type: string
         default: trivy-results
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Trivy scan
         uses: ./.github/actions/trivy-scan
