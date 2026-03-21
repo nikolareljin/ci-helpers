@@ -17,7 +17,7 @@ jobs:
           fetch-tags: true
 
       - name: Gitleaks scan
-        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
+        uses: ./.github/actions/gitleaks-scan
         with:
           scan_path: "."
           report_format: sarif
