@@ -598,7 +598,7 @@ jobs:
     with:
       java_version: "17"
       test_command: "mvn -B test"
-      build_command: "mvn -B package"
+      build_command: "mvn -B package -DskipTests"
       artifact_paths: "target/*.jar"
 ```
 
