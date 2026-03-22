@@ -35,7 +35,7 @@ Inputs:
 - `python_version` (string, default `""`)
 - `go_version` (string, default `""`)
 - `flutter_version` (string, default `""`)
-- `flutter_channel` (string, default `"stable"`; can be used alone to install the latest Flutter on that channel)
+- `flutter_channel` (string, default `""`; set it alone to install the latest Flutter on that channel, including `stable`)
 - `php_version` (string, default `""`)
 - `rust_toolchain` (string, default `""`)
 - `rust_components` (string, default `""`)
