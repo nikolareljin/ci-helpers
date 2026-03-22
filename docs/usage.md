@@ -449,6 +449,7 @@ jobs:
   release:
     uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
+      test_command: "go test ./..."
       build_command: "go build -o dist/myapp ./cmd/myapp"
       artifact_paths: "dist/*"
       binary_links: |
@@ -596,7 +597,8 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
       java_version: "17"
-      build_command: "mvn -B package"
+      test_command: "mvn -B test"
+      build_command: "mvn -B package -DskipTests"
       artifact_paths: "target/*.jar"
 ```
 

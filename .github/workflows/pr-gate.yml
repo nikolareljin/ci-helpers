@@ -26,6 +26,12 @@ on:
       go_version:
         type: string
         default: ""
+      flutter_version:
+        type: string
+        default: ""
+      flutter_channel:
+        type: string
+        default: ""
       php_version:
         type: string
         default: ""
@@ -64,7 +70,7 @@ jobs:
   pr-gate:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -98,7 +104,7 @@ jobs:
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -107,6 +113,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Setup Flutter
+        if: ${{ inputs.flutter_version != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter_version }}
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
+
+      - name: Setup Flutter (channel only)
+        if: ${{ inputs.flutter_version == '' && inputs.flutter_channel != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter_channel }}
 
       - name: Setup Rust
         if: ${{ inputs.rust_toolchain != '' }}
