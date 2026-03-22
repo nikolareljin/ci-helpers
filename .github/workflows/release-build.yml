@@ -121,6 +121,12 @@ jobs:
           flutter-version: ${{ inputs.flutter_version }}
           channel: ${{ inputs.flutter_channel }}
 
+      - name: Setup Flutter (channel only)
+        if: ${{ inputs.flutter_version == '' && inputs.flutter_channel != 'stable' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter_channel }}
+
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
         uses: shivammathur/setup-php@v2
