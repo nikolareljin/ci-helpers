@@ -41,7 +41,7 @@ jobs:
             const payloadDefault = context.payload?.repository?.default_branch || '';
             const defaultBranch = inputDefault || payloadDefault || 'main';
             const releaseHeadPattern = /^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
-            const mergeMessagePattern = /^Merge pull request #\d+ from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/m;
+            const mergeMessagePattern = /^Merge pull request #(\d+) from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
 
             if (refName !== defaultBranch) {
               core.info(`Push landed on ${refName}; default branch is ${defaultBranch}. Skipping.`);
@@ -50,33 +50,66 @@ jobs:
             }
 
             let version = '';
-            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner,
-              repo,
-              commit_sha: sha,
-            });
+            try {
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+              });
 
-            const merged = prs.data.find(
-              (pr) =>
-                pr.merged_at &&
-                pr.base.ref === defaultBranch &&
-                pr.merge_commit_sha === sha
-            );
-            if (merged) {
-              const match = String(merged.head.ref || '').match(releaseHeadPattern);
-              if (match) {
-                version = match[1];
-                core.info(`Resolved release version ${version} from PR #${merged.number}.`);
+              const merged = prs.data.find(
+                (pr) =>
+                  pr.merged_at &&
+                  pr.base.ref === defaultBranch &&
+                  pr.merge_commit_sha === sha
+              );
+              if (merged) {
+                const match = String(merged.head.ref || '').match(releaseHeadPattern);
+                if (match) {
+                  version = match[1];
+                  core.info(`Resolved release version ${version} from PR #${merged.number}.`);
+                }
               }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              core.warning(
+                `Unable to list pull requests associated with ${sha}; continuing to merge-subject fallback. ` +
+                `Caller workflows should grant pull-requests: read. Details: ${message}`
+              );
             }
 
             if (!version) {
               const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
               const message = String(commit.data.commit.message || '');
-              const match = message.match(mergeMessagePattern);
+              const subject = message.split(/\r?\n/, 1)[0] || '';
+              const match = subject.match(mergeMessagePattern);
               if (match) {
-                version = match[1];
-                core.info(`Resolved release version ${version} from merge commit message fallback.`);
+                const prNumber = Number(match[1]);
+                const fallbackVersion = match[2];
+                try {
+                  const pr = await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                  });
+                  const prData = pr.data;
+                  const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
+                  if (
+                    prData.merged_at &&
+                    prData.base?.ref === defaultBranch &&
+                    prData.merge_commit_sha === sha &&
+                    headMatch &&
+                    headMatch[1] === fallbackVersion
+                  ) {
+                    version = fallbackVersion;
+                    core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
+                  } else {
+                    core.warning(`Merge commit message referenced PR #${prNumber}, but it did not validate against ${sha}.`);
+                  }
+                } catch (error) {
+                  const detail = error instanceof Error ? error.message : String(error);
+                  core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
+                }
               }
             }
 

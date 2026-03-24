@@ -718,7 +718,9 @@ Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/X.Y.Z-rcN` PR is m
 Notes:
 - Detects the repo default branch; falls back to `main` if missing.
 - Only tags pushes that land on the actual default branch.
-- Falls back to parsing the merge commit subject when GitHub has not yet associated the merge commit with its PR.
+- Falls back to parsing only the merge commit subject when GitHub has not yet associated the merge commit with its PR.
+- Validates the PR referenced by the merge subject before tagging, instead of trusting the commit message alone.
+- Warns and continues to the validated merge-subject fallback when the caller omitted `pull-requests: read`.
 - Fails the workflow if the tag already exists (prevents merge from appearing successful).
 
 Inputs:
