@@ -734,6 +734,10 @@ on:
   push:
     branches: [ main, master ]
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
