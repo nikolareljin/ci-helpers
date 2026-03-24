@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   tag:
@@ -24,24 +25,27 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
-      - name: Resolve default branch
-        id: defaults
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const input = core.getInput("default_branch");
-            const payloadDefault = context.payload?.repository?.default_branch || "";
-            const branch = input || payloadDefault || "main";
-            core.setOutput("default_branch", branch);
-
       - name: Detect release version
         id: release
         uses: actions/github-script@v7
         with:
           script: |
             const sha = context.sha;
+            const refName = context.ref.replace('refs/heads/', '');
             const { owner, repo } = context.repo;
-            const defaultBranch = "${{ steps.defaults.outputs.default_branch }}";
+            const inputDefault = core.getInput('default_branch');
+            const payloadDefault = context.payload?.repository?.default_branch || '';
+            const defaultBranch = inputDefault || payloadDefault || 'main';
+            const releaseHeadPattern = /^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
+            const mergeMessagePattern = /^Merge pull request #\d+ from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/m;
+
+            if (refName !== defaultBranch) {
+              core.info(`Push landed on ${refName}; default branch is ${defaultBranch}. Skipping.`);
+              core.setOutput('version', '');
+              return;
+            }
+
+            let version = '';
             const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner,
               repo,
@@ -49,22 +53,34 @@ jobs:
             });
 
             const merged = prs.data.find(
-              (pr) => pr.merged_at && pr.base.ref === defaultBranch
+              (pr) =>
+                pr.merged_at &&
+                pr.base.ref === defaultBranch &&
+                pr.merge_commit_sha === sha
             );
-            if (!merged) {
-              core.info("No merged PR associated with the latest commit.");
-              core.setOutput("version", "");
-              return;
+            if (merged) {
+              const match = String(merged.head.ref || '').match(releaseHeadPattern);
+              if (match) {
+                version = match[1];
+                core.info(`Resolved release version ${version} from PR #${merged.number}.`);
+              }
             }
 
-            const match = merged.head.ref.match(/^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/);
-            if (!match) {
-              core.info("Merged PR is not a release/* branch.");
-              core.setOutput("version", "");
-              return;
+            if (!version) {
+              const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+              const message = String(commit.data.commit.message || '');
+              const match = message.match(mergeMessagePattern);
+              if (match) {
+                version = match[1];
+                core.info(`Resolved release version ${version} from merge commit message fallback.`);
+              }
             }
 
-            core.setOutput("version", match[1]);
+            if (!version) {
+              core.info('No release/* merge detected for this push.');
+            }
+
+            core.setOutput('version', version);
 
       - name: Check tag availability
         if: ${{ steps.release.outputs.version != '' }}
