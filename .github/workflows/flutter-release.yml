@@ -164,12 +164,7 @@ jobs:
           android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
           mkdir -p "${android_dir}"
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
-          cat > "${android_dir}/key.properties" <<PROPS
-storeFile=upload-keystore.jks
-storePassword=${ANDROID_KEYSTORE_PASSWORD}
-keyPassword=${ANDROID_KEY_PASSWORD}
-keyAlias=${ANDROID_KEY_ALIAS}
-PROPS
+          printf '%s\n'             'storeFile=upload-keystore.jks'             "storePassword=${ANDROID_KEYSTORE_PASSWORD}"             "keyPassword=${ANDROID_KEY_PASSWORD}"             "keyAlias=${ANDROID_KEY_ALIAS}"             > "${android_dir}/key.properties"
           set -x
 
       - name: Note for Android signing config
