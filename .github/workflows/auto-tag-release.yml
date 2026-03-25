@@ -14,6 +14,9 @@ on:
 
 permissions:
   contents: write
+  # NOTE: Caller workflows must also grant `pull-requests: read`; reusable
+  # workflows cannot elevate the GITHUB_TOKEN permissions of their callers.
+  pull-requests: read
 
 jobs:
   tag:
@@ -24,47 +27,106 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
-      - name: Resolve default branch
-        id: defaults
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const input = core.getInput("default_branch");
-            const payloadDefault = context.payload?.repository?.default_branch || "";
-            const branch = input || payloadDefault || "main";
-            core.setOutput("default_branch", branch);
-
       - name: Detect release version
         id: release
         uses: actions/github-script@v7
+        env:
+          INPUT_DEFAULT_BRANCH: ${{ inputs.default_branch }}
         with:
           script: |
             const sha = context.sha;
+            const refName = context.ref.replace('refs/heads/', '');
             const { owner, repo } = context.repo;
-            const defaultBranch = "${{ steps.defaults.outputs.default_branch }}";
-            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner,
-              repo,
-              commit_sha: sha,
-            });
+            const inputDefault = process.env.INPUT_DEFAULT_BRANCH || '';
+            const payloadDefault = context.payload?.repository?.default_branch || '';
+            const defaultBranch = inputDefault || payloadDefault || 'main';
+            const releaseHeadPattern = /^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
+            const mergeMessagePattern = /^Merge pull request #(\d+) from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
 
-            const merged = prs.data.find(
-              (pr) => pr.merged_at && pr.base.ref === defaultBranch
-            );
-            if (!merged) {
-              core.info("No merged PR associated with the latest commit.");
-              core.setOutput("version", "");
+            if (refName !== defaultBranch) {
+              core.info(`Push landed on ${refName}; default branch is ${defaultBranch}. Skipping.`);
+              core.setOutput('version', '');
               return;
             }
 
-            const match = merged.head.ref.match(/^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/);
-            if (!match) {
-              core.info("Merged PR is not a release/* branch.");
-              core.setOutput("version", "");
-              return;
+            let version = '';
+            try {
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+              });
+
+              const merged = prs.data.find(
+                (pr) =>
+                  pr.merged_at &&
+                  pr.base.ref === defaultBranch &&
+                  pr.merge_commit_sha === sha
+              );
+              if (merged) {
+                const match = String(merged.head.ref || '').match(releaseHeadPattern);
+                if (match) {
+                  version = match[1];
+                  core.info(`Resolved release version ${version} from PR #${merged.number}.`);
+                }
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              core.warning(
+                `Unable to list pull requests associated with ${sha}. Falling back to merge-commit subject parsing, ` +
+                `but final PR-based validation in this workflow also requires pull-requests: read; without it, tagging will be skipped. ` +
+                `Details: ${message}`
+              );
             }
 
-            core.setOutput("version", match[1]);
+            if (!version) {
+              try {
+                const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+                const message = String(commit.data.commit.message || '');
+                const subject = message.split(/\r?\n/, 1)[0] || '';
+                const match = subject.match(mergeMessagePattern);
+                if (match) {
+                  const prNumber = Number(match[1]);
+                  const fallbackVersion = match[2];
+                  try {
+                    const pr = await github.rest.pulls.get({
+                      owner,
+                      repo,
+                      pull_number: prNumber,
+                    });
+                    const prData = pr.data;
+                    const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
+                    if (
+                      prData.merged_at &&
+                      prData.base?.ref === defaultBranch &&
+                      prData.merge_commit_sha === sha &&
+                      headMatch &&
+                      headMatch[1] === fallbackVersion
+                    ) {
+                      version = fallbackVersion;
+                      core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
+                    } else {
+                      core.warning(`Merge commit message referenced PR #${prNumber}, but it did not validate against ${sha}.`);
+                    }
+                  } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
+                  }
+                }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                core.info(
+                  `Unable to fetch commit ${sha} or parse its message for release tagging fallback. ` +
+                  `Skipping merge-commit subject based version resolution. Details: ${detail}`
+                );
+              }
+            }
+
+            if (!version) {
+              core.info('No release/* merge detected for this push.');
+            }
+
+            core.setOutput('version', version);
 
       - name: Check tag availability
         if: ${{ steps.release.outputs.version != '' }}

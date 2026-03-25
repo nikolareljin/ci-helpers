@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-24
+
+### Fixed
+- Hardened `auto-tag-release.yml` so merged release branches still tag correctly when GitHub has not yet associated the merge commit with its PR, using a merge-subject fallback that validates the referenced PR plus default-branch and `merge_commit_sha` guards.
+
 ## 2026-03-20
 
 ### Changed
