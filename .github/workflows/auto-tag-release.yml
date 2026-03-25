@@ -74,43 +74,51 @@ jobs:
               const message = error instanceof Error ? error.message : String(error);
               core.warning(
                 `Unable to list pull requests associated with ${sha}. Falling back to merge-commit subject parsing, ` +
-                `but final PR-based validation in this workflow also requires pull-requests: read; without it, tagging may be skipped. ` +
+                `but final PR-based validation in this workflow also requires pull-requests: read; without it, tagging will be skipped. ` +
                 `Details: ${message}`
               );
             }
 
             if (!version) {
-              const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
-              const message = String(commit.data.commit.message || '');
-              const subject = message.split(/\r?\n/, 1)[0] || '';
-              const match = subject.match(mergeMessagePattern);
-              if (match) {
-                const prNumber = Number(match[1]);
-                const fallbackVersion = match[2];
-                try {
-                  const pr = await github.rest.pulls.get({
-                    owner,
-                    repo,
-                    pull_number: prNumber,
-                  });
-                  const prData = pr.data;
-                  const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
-                  if (
-                    prData.merged_at &&
-                    prData.base?.ref === defaultBranch &&
-                    prData.merge_commit_sha === sha &&
-                    headMatch &&
-                    headMatch[1] === fallbackVersion
-                  ) {
-                    version = fallbackVersion;
-                    core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
-                  } else {
-                    core.warning(`Merge commit message referenced PR #${prNumber}, but it did not validate against ${sha}.`);
+              try {
+                const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+                const message = String(commit.data.commit.message || '');
+                const subject = message.split(/\r?\n/, 1)[0] || '';
+                const match = subject.match(mergeMessagePattern);
+                if (match) {
+                  const prNumber = Number(match[1]);
+                  const fallbackVersion = match[2];
+                  try {
+                    const pr = await github.rest.pulls.get({
+                      owner,
+                      repo,
+                      pull_number: prNumber,
+                    });
+                    const prData = pr.data;
+                    const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
+                    if (
+                      prData.merged_at &&
+                      prData.base?.ref === defaultBranch &&
+                      prData.merge_commit_sha === sha &&
+                      headMatch &&
+                      headMatch[1] === fallbackVersion
+                    ) {
+                      version = fallbackVersion;
+                      core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
+                    } else {
+                      core.warning(`Merge commit message referenced PR #${prNumber}, but it did not validate against ${sha}.`);
+                    }
+                  } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
                   }
-                } catch (error) {
-                  const detail = error instanceof Error ? error.message : String(error);
-                  core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
                 }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                core.info(
+                  `Unable to fetch commit ${sha} or parse its message for release tagging fallback. ` +
+                  `Skipping merge-commit subject based version resolution. Details: ${detail}`
+                );
               }
             }
 
