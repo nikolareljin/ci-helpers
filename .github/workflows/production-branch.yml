@@ -17,6 +17,19 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+          if [[ ! -e "vendor/script-helpers" ]]; then
+            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+            exit 1
+          fi
       - name: Update production tag
         shell: bash
         run: |
