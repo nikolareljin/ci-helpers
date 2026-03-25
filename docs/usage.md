@@ -410,9 +410,9 @@ cd REPO
 
 ## Production tag (optional)
 
-This repo includes a repo-local workflow that moves the `production` tag to
-the latest non-rc tag. It is not a reusable workflow; copy it into other repos
-only if you want the same behavior.
+This repo includes a repo-local workflow that updates the `production` tag to
+the latest non-rc tag. It does not update a `production` branch. It is not a
+reusable workflow; copy it into other repos only if you want the same behavior.
 
 ```yaml
 name: Update Production Tag

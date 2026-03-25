@@ -1,4 +1,4 @@
-name: update-production-tag
+name: update-production-tag-ref
 on:
   push:
     tags:
@@ -30,7 +30,7 @@ jobs:
             echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
             exit 1
           fi
-      - name: Update production tag
+      - name: Update production tag ref
         shell: bash
         run: |
           set -euo pipefail
