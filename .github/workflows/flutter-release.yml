@@ -221,9 +221,11 @@ jobs:
         run: |
           set -euo pipefail
           set +x
+          umask 077
           echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}"
           mkdir -p "$(dirname "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}")"
           printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
+          chmod 600 "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
           set -x
 
       - name: Prepare App Store Connect API key
@@ -231,6 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           set +x
+          umask 077
           {
             echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}"
             echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_KEY_ID}"
@@ -238,6 +241,7 @@ jobs:
           }
           mkdir -p ~/.appstoreconnect/private_keys
           echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
           set -x
 
       - name: Deploy to Google Play via Fastlane
@@ -280,7 +284,10 @@ jobs:
           rm -f "${google_play_json}"
 
           appstore_keys_dir="${HOME}/.appstoreconnect/private_keys"
-          rm -f "${appstore_keys_dir}"/AuthKey_*.p8 || true
+          if [ -n "${FASTLANE_APP_STORE_CONNECT_KEY_ID:-}" ]; then
+            appstore_key_file="${appstore_keys_dir}/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
+            rm -f "${appstore_key_file}" || true
+          fi
           rmdir "${appstore_keys_dir}" 2>/dev/null || true
           rmdir "${HOME}/.appstoreconnect" 2>/dev/null || true
 
