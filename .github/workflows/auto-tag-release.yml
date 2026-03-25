@@ -76,7 +76,8 @@ jobs:
                 ? Number(error.status)
                 : NaN;
               const isPermissionOrMissing = status === 403 || status === 404;
-              if (!isPermissionOrMissing) {
+              const isTransient = status === 429 || status >= 500;
+              if (!isPermissionOrMissing && !isTransient) {
                 throw error;
               }
               core.warning(
