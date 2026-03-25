@@ -155,6 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           set +x
+          umask 077
           {
             echo "::add-mask::${ANDROID_KEYSTORE_BASE64}"
             echo "::add-mask::${ANDROID_KEYSTORE_PASSWORD}"
@@ -164,12 +165,13 @@ jobs:
           android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
           mkdir -p "${android_dir}"
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
-          cat > "${android_dir}/key.properties" <<PROPS
-storeFile=upload-keystore.jks
-storePassword=${ANDROID_KEYSTORE_PASSWORD}
-keyPassword=${ANDROID_KEY_PASSWORD}
-keyAlias=${ANDROID_KEY_ALIAS}
-PROPS
+          printf '%s\n' \
+            'storeFile=upload-keystore.jks' \
+            "storePassword=${ANDROID_KEYSTORE_PASSWORD}" \
+            "keyPassword=${ANDROID_KEY_PASSWORD}" \
+            "keyAlias=${ANDROID_KEY_ALIAS}" \
+            > "${android_dir}/key.properties"
+          chmod 600 "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
           set -x
 
       - name: Note for Android signing config
@@ -219,9 +221,11 @@ PROPS
         run: |
           set -euo pipefail
           set +x
+          umask 077
           echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}"
           mkdir -p "$(dirname "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}")"
           printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
+          chmod 600 "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
           set -x
 
       - name: Prepare App Store Connect API key
@@ -229,6 +233,7 @@ PROPS
         run: |
           set -euo pipefail
           set +x
+          umask 077
           {
             echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}"
             echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_KEY_ID}"
@@ -236,6 +241,7 @@ PROPS
           }
           mkdir -p ~/.appstoreconnect/private_keys
           echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
           set -x
 
       - name: Deploy to Google Play via Fastlane
@@ -266,6 +272,24 @@ PROPS
           else
             fastlane ${{ inputs.fastlane_ios_lane }}
           fi
+
+      - name: Cleanup signing and deploy credentials
+        if: ${{ always() && (inputs.build_android || inputs.deploy_google_play || inputs.deploy_app_store) }}
+        run: |
+          set -euo pipefail
+          android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
+          rm -f "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
+
+          google_play_json="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
+          rm -f "${google_play_json}"
+
+          appstore_keys_dir="${HOME}/.appstoreconnect/private_keys"
+          if [ -n "${FASTLANE_APP_STORE_CONNECT_KEY_ID:-}" ]; then
+            appstore_key_file="${appstore_keys_dir}/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
+            rm -f "${appstore_key_file}" || true
+          fi
+          rmdir "${appstore_keys_dir}" 2>/dev/null || true
+          rmdir "${HOME}/.appstoreconnect" 2>/dev/null || true
 
       - name: Upload Android artifact
         if: ${{ inputs.upload_artifacts && inputs.build_android }}

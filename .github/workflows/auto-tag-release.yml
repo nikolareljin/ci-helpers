@@ -72,6 +72,14 @@ jobs:
               }
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
+              const status = typeof error === 'object' && error !== null && 'status' in error
+                ? Number(error.status)
+                : NaN;
+              const isPermissionOrMissing = status === 403 || status === 404;
+              const isTransient = status === 429 || status >= 500;
+              if (!isPermissionOrMissing && !isTransient) {
+                throw error;
+              }
               core.warning(
                 `Unable to list pull requests associated with ${sha}. Falling back to merge-commit subject parsing, ` +
                 `but final PR-based validation in this workflow also requires pull-requests: read; without it, tagging will be skipped. ` +
