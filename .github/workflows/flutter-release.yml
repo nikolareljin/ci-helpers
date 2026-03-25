@@ -269,12 +269,20 @@ jobs:
             fastlane ${{ inputs.fastlane_ios_lane }}
           fi
 
-      - name: Cleanup Android signing files
-        if: ${{ always() && (inputs.build_android || inputs.deploy_google_play) }}
+      - name: Cleanup signing and deploy credentials
+        if: ${{ always() && (inputs.build_android || inputs.deploy_google_play || inputs.deploy_app_store) }}
         run: |
           set -euo pipefail
           android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
           rm -f "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
+
+          google_play_json="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
+          rm -f "${google_play_json}"
+
+          appstore_keys_dir="${HOME}/.appstoreconnect/private_keys"
+          rm -f "${appstore_keys_dir}"/AuthKey_*.p8 || true
+          rmdir "${appstore_keys_dir}" 2>/dev/null || true
+          rmdir "${HOME}/.appstoreconnect" 2>/dev/null || true
 
       - name: Upload Android artifact
         if: ${{ inputs.upload_artifacts && inputs.build_android }}
