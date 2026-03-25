@@ -2,7 +2,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.4.0 (from VERSION).
+Current production tag: 0.6.3 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -91,7 +91,7 @@ jobs:
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
-- `.github/workflows/production-branch.yml`: repo-local workflow to move the `production` tag to a released tag
+- `.github/workflows/production-branch.yml`: repo-local workflow that updates the `production` tag to a released tag (it does not move a branch)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check

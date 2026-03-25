@@ -169,7 +169,7 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
-      - name: Update production tag
+      - name: Update production tag ref
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
         run: |
