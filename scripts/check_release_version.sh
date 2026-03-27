@@ -3,6 +3,13 @@
 # DESCRIPTION: Ensure VERSION matches release/X.Y.Z[-rcN] branch names.
 # USAGE: ./check_release_version.sh [--branch <branch>] [--repo <path>] [--version-file <path>] [--print-version]
 # EXAMPLE: ./check_release_version.sh --branch release/1.2.3-rc1 --repo .
+# PARAMETERS:
+#   --branch <branch>      Release branch to validate (default: current branch if detectable).
+#   --repo <path>          Repository path or subdirectory inside the repo (default: GITHUB_WORKSPACE or cwd).
+#   --version-file <path>  Path to VERSION file (default: <repo-root>/VERSION).
+#   --print-version        Print the inferred release version to stdout.
+#   -h, --help             Show this help message.
+# ----------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,6 +51,10 @@ while [[ $# -gt 0 ]]; do
     *) log_error_safe "Unknown argument: $1"; usage; exit 2 ;;
   esac
 done
+
+if repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)"; then
+  repo_dir="$repo_root"
+fi
 
 if [[ -z "$branch" ]]; then
   branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
