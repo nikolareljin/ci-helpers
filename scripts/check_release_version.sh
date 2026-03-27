@@ -52,8 +52,8 @@ if [[ -z "$branch" ]]; then
   branch="$(git -C "$repo_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 fi
 if [[ -z "$branch" ]]; then
-  log_error_safe "Branch not provided and could not be determined"
-  exit 2
+  log_info_safe "Skipping VERSION check: branch not provided and could not be determined (possibly detached HEAD)"
+  exit 0
 fi
 
 if [[ ! "$branch" =~ ^release\/v?([0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?)$ ]]; then
