@@ -24,8 +24,11 @@
 
 ## Versioning
 
-- Current production tag: 0.4.0 (from VERSION).
-- `VERSION` is the source of truth; keep docs/examples `@X.Y.Z` references in sync.
+- Current production tag should match `VERSION`; keep docs/examples `@X.Y.Z` references in sync.
+- Follow semantic versioning for all releases.
+- The required release path is: update `VERSION` to `x.y.z` -> create/update `release/x.y.z` -> merge that branch to `main` via PR -> GitHub auto-tags `main` with `x.y.z`.
+- Release work should be done on `release/x.y.z` branches, not directly on `main`.
+- Changes must not be made directly on `main` unless the user explicitly asks for that.
 - Use `scripts/version_bump.sh major|minor|patch` to bump and update documentation/examples.
 
 ## Testing Guidelines
