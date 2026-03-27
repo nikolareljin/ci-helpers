@@ -1,5 +1,5 @@
 name: check-release-tag
-description: Fail if a release/X.Y.Z branch already has a tag
+description: Fail if a release/[v]X.Y.Z[-rcN|-rc.N] branch already has a tag
 inputs:
   release_branch:
     description: Branch name to check (defaults to GITHUB_HEAD_REF/GITHUB_REF_NAME)
