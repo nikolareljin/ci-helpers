@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: check_release_version.sh
-# DESCRIPTION: Ensure VERSION matches release/X.Y.Z[-rcN] or release/X.Y.Z[-rc.N] branch names.
+# DESCRIPTION: Ensure VERSION matches release/[v]X.Y.Z[-rcN] or release/[v]X.Y.Z[-rc.N] branch names.
 # USAGE: ./check_release_version.sh [--branch <branch>] [--repo <path>] [--version-file <path>] [--print-version]
 # EXAMPLE: ./check_release_version.sh --branch release/1.2.3-rc.1 --repo .
 # PARAMETERS:
