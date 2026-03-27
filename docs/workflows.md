@@ -713,7 +713,7 @@ jobs:
 
 Workflow: `.github/workflows/auto-tag-release.yml`
 
-Purpose: Auto-tag releases when a `release/X.Y.Z` or `release/X.Y.Z-rcN` PR is merged into the default branch.
+Purpose: Auto-tag releases when a `release/X.Y.Z`, `release/X.Y.Z-rcN`, or `release/X.Y.Z-rc.N` PR is merged into the default branch.
 
 Notes:
 - Detects the repo default branch; falls back to `main` if missing.
@@ -749,9 +749,9 @@ jobs:
 
 Workflow: `.github/workflows/release-tag-gate.yml`
 
-Purpose: Block PRs if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch targets the default branch and the tag already exists.
+Purpose: Block PRs if a `release/X.Y.Z`, `release/X.Y.Z-rcN`, or `release/X.Y.Z-rc.N` branch targets the default branch and the tag already exists.
 
-The repo-local `release-tag-check.yml` workflow also validates that `VERSION` matches `release/X.Y.Z[-rcN]` on `create` and `push` events for `release/*` branches.
+The repo-local `release-tag-check.yml` workflow also validates that `VERSION` matches `release/X.Y.Z[-rcN]` or `release/X.Y.Z[-rc.N]` on `create` and `push` events for `release/*` branches.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)

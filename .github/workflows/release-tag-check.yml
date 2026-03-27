@@ -20,7 +20,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/check_release_version.sh --branch "${GITHUB_REF_NAME}" --repo "${GITHUB_WORKSPACE}"
+          ./scripts/check_release_version.sh --branch "${GITHUB_REF_NAME:-}" --repo "${GITHUB_WORKSPACE:-}"
 
       - name: Check release tag availability
         uses: ./.github/actions/check-release-tag

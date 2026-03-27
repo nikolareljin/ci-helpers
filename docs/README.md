@@ -3,7 +3,7 @@
 This directory contains detailed guidance for using and extending the reusable
 workflows and composite actions in this repository.
 
-Current production tag: 0.6.3 (from VERSION).
+Current production tag: 0.6.4 (from VERSION).
 
 Start here:
 - [Reusable workflows](workflows.md) for CI/PR gate/deploy/scan/release workflows, inputs, and examples.
@@ -11,7 +11,7 @@ Start here:
 - [Composite actions](actions.md) for semver compare, release tag guard, release notes, and scan helpers.
 - [Examples](examples.md) for common usage patterns (monorepos, E2E servers, Docker + E2E).
 - [Usage guide](usage.md) for consuming workflows and actions from other repos, plus automation for the `production` tag (not a branch).
-- Local release safety hook: configure `git config core.hooksPath .githooks` to enable the tracked pre-commit guard that verifies `VERSION` matches `release/X.Y.Z[-rcN]`.
+- Local release safety hook: configure `git config core.hooksPath .githooks` to enable the tracked pre-commit guard that verifies `VERSION` matches `release/X.Y.Z[-rcN]` or `release/X.Y.Z[-rc.N]`.
 - [Release RC PR workflow](RELEASE_RC_PR.md) for auto-opening PRs from release candidate branches.
 - [Apple App Store publishing](APPLE_FASTLANE_PUBLISH.md) for Fastlane + GitHub Actions guidance.
 - [Google Play publishing](GOOGLE_PLAY_PUBLISH.md) for Fastlane + GitHub Actions guidance.
