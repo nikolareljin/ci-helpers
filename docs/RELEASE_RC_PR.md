@@ -14,6 +14,7 @@ This repo includes a repo-local workflow that opens a PR when a release candidat
 ## Example branches
 - `release/1.2.3`
 - `release/1.2.3-rc1`
+- `release/1.2.3-rc.1`
 
 ## Notes
 - This only runs on branch creation (not on push).

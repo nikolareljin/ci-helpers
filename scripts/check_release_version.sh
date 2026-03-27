@@ -40,12 +40,36 @@ branch=""
 repo_dir="${GITHUB_WORKSPACE:-$(pwd)}"
 version_file=""
 print_version=false
+release_branch_pattern='^release\/v?([0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?)$'
+
+require_arg_value() {
+  local option="$1"
+  local value="${2-}"
+
+  if [[ -z "$value" || "$value" == --* ]]; then
+    log_error_safe "Missing value for $option"
+    usage
+    exit 2
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --branch) branch="$2"; shift 2 ;;
-    --repo) repo_dir="$2"; shift 2 ;;
-    --version-file) version_file="$2"; shift 2 ;;
+    --branch)
+      require_arg_value "$1" "${2-}"
+      branch="$2"
+      shift 2
+      ;;
+    --repo)
+      require_arg_value "$1" "${2-}"
+      repo_dir="$2"
+      shift 2
+      ;;
+    --version-file)
+      require_arg_value "$1" "${2-}"
+      version_file="$2"
+      shift 2
+      ;;
     --print-version) print_version=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) log_error_safe "Unknown argument: $1"; usage; exit 2 ;;
@@ -67,7 +91,7 @@ if [[ -z "$branch" ]]; then
   exit 0
 fi
 
-if [[ ! "$branch" =~ ^release\/v?([0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?)$ ]]; then
+if [[ ! "$branch" =~ $release_branch_pattern ]]; then
   log_info_safe "Skipping VERSION check: '$branch' is not a release branch"
   exit 0
 fi
