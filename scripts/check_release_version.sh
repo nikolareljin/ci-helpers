@@ -107,7 +107,7 @@ fi
 
 IFS= read -r actual_version < "$version_file" || actual_version=""
 actual_version="${actual_version//$'\r'/}"
-actual_version="$(printf '%s' "$actual_version" | xargs)"
+actual_version="$(printf '%s' "$actual_version" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 if [[ "$actual_version" != "$expected_version" ]]; then
   log_error_safe "VERSION mismatch for $branch: expected '$expected_version', found '$actual_version'"
   exit 1
