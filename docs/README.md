@@ -11,7 +11,7 @@ Start here:
 - [Composite actions](actions.md) for semver compare, release tag guard, release notes, and scan helpers.
 - [Examples](examples.md) for common usage patterns (monorepos, E2E servers, Docker + E2E).
 - [Usage guide](usage.md) for consuming workflows and actions from other repos, plus automation for the `production` tag (not a branch).
-- Local release safety hook: configure `git config core.hooksPath .githooks` to enable the tracked pre-commit guard that verifies `VERSION` matches `release/X.Y.Z[-rcN]` or `release/X.Y.Z[-rc.N]`.
+- Local release safety hook: configure `git config core.hooksPath .githooks` to enable the tracked pre-commit guard that verifies `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`.
 - [Release RC PR workflow](RELEASE_RC_PR.md) for auto-opening PRs from release candidate branches.
 - [Apple App Store publishing](APPLE_FASTLANE_PUBLISH.md) for Fastlane + GitHub Actions guidance.
 - [Google Play publishing](GOOGLE_PLAY_PUBLISH.md) for Fastlane + GitHub Actions guidance.

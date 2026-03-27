@@ -19,9 +19,9 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const head = context.payload.ref;
-            const pattern = /^release\/\d+\.\d+\.\d+(-rc\.?\d+)?$/;
+            const pattern = /^release\/v?\d+\.\d+\.\d+(-rc\.?\d+)?$/;
             if (!pattern.test(head)) {
-              core.info(`Branch ${head} does not match release/X.Y.Z, release/X.Y.Z-rcN, or release/X.Y.Z-rc.N; skipping.`);
+              core.info(`Branch ${head} does not match release/[v]X.Y.Z, release/[v]X.Y.Z-rcN, or release/[v]X.Y.Z-rc.N; skipping.`);
               return;
             }
             const repoInfo = await github.rest.repos.get({ owner, repo });

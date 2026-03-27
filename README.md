@@ -325,7 +325,7 @@ Semver compare:
   run: echo "Result: ${{ steps.semver.outputs.result }}"  # lt, eq, or gt
 ```
 
-Release tag guard (release/X.Y.Z, release/X.Y.Z-rcN, or release/X.Y.Z-rc.N):
+Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`):
 
 ```yaml
 - name: Guard release tag
@@ -337,8 +337,8 @@ Release tag guard (release/X.Y.Z, release/X.Y.Z-rcN, or release/X.Y.Z-rc.N):
 ## Notes
 
 - The PR gate only blocks if your branch protection requires its status checks.
-- `check-release-tag` expects branch naming `release/X.Y.Z`, `release/X.Y.Z-rcN`, or `release/X.Y.Z-rc.N`.
-- `scripts/check_release_version.sh` enforces that `VERSION` matches `release/X.Y.Z[-rcN]` or `release/X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
+- `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
+- `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
 
 ## Release tagging in external repos
 
