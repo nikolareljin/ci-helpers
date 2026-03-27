@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SCRIPT: check_release_version.sh
-# DESCRIPTION: Ensure VERSION matches release/X.Y.Z[-rcN] branch names.
+# DESCRIPTION: Ensure VERSION matches release/X.Y.Z[-rcN] or release/X.Y.Z[-rc.N] branch names.
 # USAGE: ./check_release_version.sh [--branch <branch>] [--repo <path>] [--version-file <path>] [--print-version]
-# EXAMPLE: ./check_release_version.sh --branch release/1.2.3-rc1 --repo .
+# EXAMPLE: ./check_release_version.sh --branch release/1.2.3-rc.1 --repo .
 # PARAMETERS:
 #   --branch <branch>      Release branch to validate (default: current branch if detectable).
 #   --repo <path>          Repository path or subdirectory inside the repo (default: GITHUB_WORKSPACE or cwd).
