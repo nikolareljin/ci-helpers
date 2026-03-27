@@ -338,6 +338,7 @@ Release tag guard (release/X.Y.Z or release/X.Y.Z-rcN):
 
 - The PR gate only blocks if your branch protection requires its status checks.
 - `check-release-tag` expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
+- `scripts/check_release_version.sh` enforces that `VERSION` matches `release/X.Y.Z[-rcN]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
 
 ## Release tagging in external repos
 

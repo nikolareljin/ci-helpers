@@ -751,6 +751,8 @@ Workflow: `.github/workflows/release-tag-gate.yml`
 
 Purpose: Block PRs if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch targets the default branch and the tag already exists.
 
+The repo-local `release-tag-check.yml` workflow also validates that `VERSION` matches `release/X.Y.Z[-rcN]` on `create` and `push` events for `release/*` branches.
+
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)

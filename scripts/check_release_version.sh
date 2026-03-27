@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# SCRIPT: check_release_version.sh
+# DESCRIPTION: Ensure VERSION matches release/X.Y.Z[-rcN] branch names.
+# USAGE: ./check_release_version.sh [--branch <branch>] [--repo <path>] [--version-file <path>] [--print-version]
+# EXAMPLE: ./check_release_version.sh --branch release/1.2.3-rc1 --repo .
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+# shellcheck source=/dev/null
+source "${SCRIPT_HELPERS_DIR}/helpers.sh"
+shlib_import logging help
+
+usage() { display_help; }
+
+log_info_safe() {
+  if declare -F log_info >/dev/null 2>&1; then
+    log_info "$*"
+  else
+    echo "[INFO] $*" >&2
+  fi
+}
+
+log_error_safe() {
+  if declare -F log_error >/dev/null 2>&1; then
+    log_error "$*"
+  else
+    echo "[ERROR] $*" >&2
+  fi
+}
+
+branch=""
+repo_dir="${GITHUB_WORKSPACE:-$(pwd)}"
+version_file=""
+print_version=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch) branch="$2"; shift 2 ;;
+    --repo) repo_dir="$2"; shift 2 ;;
+    --version-file) version_file="$2"; shift 2 ;;
+    --print-version) print_version=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) log_error_safe "Unknown argument: $1"; usage; exit 2 ;;
+  esac
+done
+
+if [[ -z "$branch" ]]; then
+  branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}"
+fi
+if [[ -z "$branch" ]]; then
+  branch="$(git -C "$repo_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+fi
+if [[ -z "$branch" ]]; then
+  log_error_safe "Branch not provided and could not be determined"
+  exit 2
+fi
+
+if [[ ! "$branch" =~ ^release\/v?([0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?)$ ]]; then
+  log_info_safe "Skipping VERSION check: '$branch' is not a release branch"
+  exit 0
+fi
+
+expected_version="${BASH_REMATCH[1]}"
+if [[ -z "$version_file" ]]; then
+  version_file="$repo_dir/VERSION"
+fi
+if [[ ! -f "$version_file" ]]; then
+  log_error_safe "VERSION file not found at $version_file"
+  exit 1
+fi
+
+actual_version="$(tr -d '\r' < "$version_file" | head -n 1 | xargs)"
+if [[ "$actual_version" != "$expected_version" ]]; then
+  log_error_safe "VERSION mismatch for $branch: expected '$expected_version', found '$actual_version'"
+  exit 1
+fi
+
+log_info_safe "VERSION matches release branch $branch -> $expected_version"
+if $print_version; then
+  echo "$expected_version"
+fi
