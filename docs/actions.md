@@ -37,7 +37,7 @@ Example:
 
 Path: `.github/actions/check-release-tag`
 
-Purpose: Fail if a `release/X.Y.Z` or `release/X.Y.Z-rcN` branch already has a tag.
+Purpose: Fail if a `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N` branch already has a tag.
 
 Inputs:
 - `release_branch` (optional, defaults to `GITHUB_HEAD_REF`/`GITHUB_REF_NAME`)
@@ -62,7 +62,7 @@ Example:
 ```
 
 Notes:
-- The guard expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
+- The guard expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 
 ## release-notes
 
