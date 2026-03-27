@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-26
+
+### Added
+- Added `scripts/check_release_version.sh` plus a tracked `.githooks/pre-commit` hook to enforce that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]` branch names during local commits.
+
+### Changed
+- `release-tag-check.yml` now runs on both branch creation and pushes for `release/*` branches and validates `VERSION` before checking tag availability.
+
 ## 2026-03-24
 
 ### Fixed

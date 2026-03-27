@@ -2,7 +2,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.6.3 (from VERSION).
+Current production tag: 0.6.4 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -325,7 +325,7 @@ Semver compare:
   run: echo "Result: ${{ steps.semver.outputs.result }}"  # lt, eq, or gt
 ```
 
-Release tag guard (release/X.Y.Z or release/X.Y.Z-rcN):
+Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`):
 
 ```yaml
 - name: Guard release tag
@@ -337,7 +337,8 @@ Release tag guard (release/X.Y.Z or release/X.Y.Z-rcN):
 ## Notes
 
 - The PR gate only blocks if your branch protection requires its status checks.
-- `check-release-tag` expects branch naming `release/X.Y.Z` or `release/X.Y.Z-rcN`.
+- `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
+- `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
 
 ## Release tagging in external repos
 

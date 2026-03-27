@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: check_release_tag.sh
-# DESCRIPTION: Guard against tagging an existing release from a release/X.Y.Z[-rcN] branch.
+# DESCRIPTION: Guard against tagging an existing release from a release/[v]X.Y.Z[-rcN] or release/[v]X.Y.Z[-rc.N] branch.
 # USAGE: ./check_release_tag.sh --branch <branch> [--repo <path>] [--fetch-tags] [--print-version]
 # EXAMPLE: ./check_release_tag.sh --branch release/1.2.3-rc.1 --fetch-tags
 # PARAMETERS:
@@ -61,7 +61,7 @@ if [[ -z "$branch" ]]; then
   exit 2
 fi
 
-if [[ ! "$branch" =~ ^release\/v?([0-9]+\.[0-9]+\.[0-9]+(?:-rc\.?[0-9]+)?)$ ]]; then
+if [[ ! "$branch" =~ ^release\/v?([0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?)$ ]]; then
   log_info_safe "Skipping: '$branch' is not a release branch"
   exit 0
 fi
