@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-03-30
+
+### Fixed
+- Updated `scripts/create_production.sh` to push the movable `production` tag with `--force` because Git rejects `--force-with-lease` for existing tag refs even after a fresh tag fetch.
+
 ## 2026-03-26
 
 ### Added
