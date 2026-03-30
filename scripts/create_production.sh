@@ -72,5 +72,7 @@ fi
 
 log_info_safe "Updating ${prod_tag} tag to ${tag}"
 git -C "$repo_dir" tag -f "$prod_tag" "$tag"
-git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force-with-lease
+# `--force-with-lease` is reliable for branches, but Git rejects it for moving
+# an existing tag ref even after a fresh tag fetch. Use `--force` for tag alias updates.
+git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force
 log_info_safe "Production tag ${prod_tag} now points to ${tag}"
