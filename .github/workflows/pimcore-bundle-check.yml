@@ -1,0 +1,114 @@
+name: pimcore-bundle-check
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      compose_file:
+        type: string
+        default: test/docker-compose.yml
+      bundle_src:
+        type: string
+        default: "."
+      bundle_src_env:
+        type: string
+        default: BUNDLE_SRC
+      php_service:
+        type: string
+        default: php
+      db_service:
+        type: string
+        default: db
+      db_wait_seconds:
+        type: string
+        default: "20"
+      out_dir:
+        type: string
+        default: test/tmp
+
+      # Standalone PHP checks (shivammathur/setup-php, no Docker)
+      php_version:
+        type: string
+        default: ""
+      composer_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist"
+      php_lint_command:
+        type: string
+        default: ""
+      phpcs_standalone_command:
+        type: string
+        default: ""
+      phpunit_standalone_command:
+        type: string
+        default: ""
+      phpunit_working_directory:
+        type: string
+        default: "."
+
+      # Commands executed inside Docker
+      phpcs_command:
+        type: string
+        default: "vendor/bin/phpcs --standard=PSR12 --extensions=php src/"
+      phpstan_command:
+        type: string
+        default: ""
+      phpunit_command:
+        type: string
+        default: "vendor/bin/phpunit --testdox"
+      phpunit_coverage_command:
+        type: string
+        default: ""
+
+      # Behaviour
+      fail_on_findings:
+        type: boolean
+        default: true
+      cleanup:
+        type: boolean
+        default: true
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: bundle-check-results
+
+jobs:
+  check:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pimcore bundle check
+        uses: ./.github/actions/pimcore-bundle-check
+        with:
+          compose_file: ${{ inputs.compose_file }}
+          bundle_src: ${{ inputs.bundle_src }}
+          bundle_src_env: ${{ inputs.bundle_src_env }}
+          php_service: ${{ inputs.php_service }}
+          db_service: ${{ inputs.db_service }}
+          db_wait_seconds: ${{ inputs.db_wait_seconds }}
+          out_dir: ${{ inputs.out_dir }}
+          php_version: ${{ inputs.php_version }}
+          composer_command: ${{ inputs.composer_command }}
+          php_lint_command: ${{ inputs.php_lint_command }}
+          phpcs_standalone_command: ${{ inputs.phpcs_standalone_command }}
+          phpunit_standalone_command: ${{ inputs.phpunit_standalone_command }}
+          phpunit_working_directory: ${{ inputs.phpunit_working_directory }}
+          phpcs_command: ${{ inputs.phpcs_command }}
+          phpstan_command: ${{ inputs.phpstan_command }}
+          phpunit_command: ${{ inputs.phpunit_command }}
+          phpunit_coverage_command: ${{ inputs.phpunit_coverage_command }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}
+          cleanup: ${{ inputs.cleanup }}
+
+      - name: Upload test artifacts
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.out_dir }}
+          if-no-files-found: warn
