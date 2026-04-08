@@ -1,0 +1,97 @@
+name: pimcore
+
+# Preset for Pimcore 11 bundle CI.
+# Runs Docker-based PHPUnit + PHPCS (PSR-12) against a PHP + MySQL test stack.
+# Override any input to customise for your bundle.
+#
+# Minimal usage:
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#
+# Full usage with overrides:
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#   with:
+#     php_version: "8.2"
+#     phpstan_command: "vendor/bin/phpstan analyse src --level=6"
+#     phpunit_coverage_command: "XDEBUG_MODE=coverage vendor/bin/phpunit"
+#     upload_artifact: true
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      compose_file:
+        type: string
+        default: test/docker-compose.yml
+      bundle_src:
+        type: string
+        default: "."
+      bundle_src_env:
+        type: string
+        default: BUNDLE_SRC
+      php_service:
+        type: string
+        default: php
+      db_service:
+        type: string
+        default: db
+      db_wait_seconds:
+        type: string
+        default: "20"
+      out_dir:
+        type: string
+        default: test/tmp
+      php_version:
+        type: string
+        default: "8.1"
+      composer_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist"
+      phpcs_command:
+        type: string
+        default: "vendor/bin/phpcs --standard=PSR12 --extensions=php src/"
+      phpstan_command:
+        type: string
+        default: ""
+      phpunit_command:
+        type: string
+        default: "vendor/bin/phpunit --testdox"
+      phpunit_coverage_command:
+        type: string
+        default: ""
+      fail_on_findings:
+        type: boolean
+        default: true
+      cleanup:
+        type: boolean
+        default: true
+      upload_artifact:
+        type: boolean
+        default: false
+      artifact_name:
+        type: string
+        default: bundle-check-results
+
+jobs:
+  pimcore-bundle:
+    uses: ./.github/workflows/pimcore-bundle-check.yml
+    with:
+      runner: ${{ inputs.runner }}
+      compose_file: ${{ inputs.compose_file }}
+      bundle_src: ${{ inputs.bundle_src }}
+      bundle_src_env: ${{ inputs.bundle_src_env }}
+      php_service: ${{ inputs.php_service }}
+      db_service: ${{ inputs.db_service }}
+      db_wait_seconds: ${{ inputs.db_wait_seconds }}
+      out_dir: ${{ inputs.out_dir }}
+      php_version: ${{ inputs.php_version }}
+      composer_command: ${{ inputs.composer_command }}
+      phpcs_command: ${{ inputs.phpcs_command }}
+      phpstan_command: ${{ inputs.phpstan_command }}
+      phpunit_command: ${{ inputs.phpunit_command }}
+      phpunit_coverage_command: ${{ inputs.phpunit_coverage_command }}
+      fail_on_findings: ${{ inputs.fail_on_findings }}
+      cleanup: ${{ inputs.cleanup }}
+      upload_artifact: ${{ inputs.upload_artifact }}
+      artifact_name: ${{ inputs.artifact_name }}
