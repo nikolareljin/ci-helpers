@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-04-07
+
+### Added
+- Added `pimcore-bundle-check.yml` reusable workflow and matching composite action
+  `.github/actions/pimcore-bundle-check/action.yml` for Docker-based Pimcore 11
+  bundle testing (PHPUnit, PHPCS PSR-12, PHPStan, coverage). Mirrors the existing
+  `wp-plugin-check` pattern: Docker Compose orchestrates a `php` + `db` (MySQL 8)
+  stack; tests run inside the container via `docker compose exec`.
+- Added `pimcore.yml` preset that wraps `pimcore-bundle-check.yml` with Pimcore 11
+  defaults (PHP 8.1, PSR-12 PHPCS, PHPUnit). Minimal one-liner usage:
+  `uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production`
+- Added Pimcore framework detection to `php-scan.yml`: auto-detects bundles via
+  `"type": "pimcore-bundle"` in `composer.json` or a `pimcore/pimcore` dependency,
+  and conditionally runs `lint_pimcore_command` (default: PSR-12 PHPCS on `src/`).
+
 ## 2026-03-30
 
 ### Fixed

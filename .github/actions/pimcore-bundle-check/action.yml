@@ -1,0 +1,290 @@
+name: Pimcore Bundle Check
+description: >
+  Run PHPUnit, PHPCS, and PHPStan for a Pimcore 11 bundle via Docker Compose.
+  Supports both a lightweight unit-only mode (no Docker required) and a full
+  integration mode with a MySQL-backed Pimcore test application.
+
+inputs:
+  # ── Docker Compose ────────────────────────────────────────────────────────
+  compose_file:
+    description: Path to the Docker Compose file for the Pimcore test stack.
+    default: test/docker-compose.yml
+    required: false
+  bundle_src:
+    description: Host path to the bundle source (mounted into the test container).
+    default: "."
+    required: false
+  bundle_src_env:
+    description: Environment variable name used by Compose to locate the bundle source.
+    default: BUNDLE_SRC
+    required: false
+  php_service:
+    description: Docker Compose service name for the PHP test runner.
+    default: php
+    required: false
+  db_service:
+    description: Docker Compose service name for the database.
+    default: db
+    required: false
+  db_wait_seconds:
+    description: Seconds to wait for the database service to become healthy.
+    default: "20"
+    required: false
+  out_dir:
+    description: Host directory where test result files are written.
+    default: test/tmp
+    required: false
+
+  # ── Standalone PHP checks (no Docker) ────────────────────────────────────
+  php_version:
+    description: >
+      PHP version for standalone lint/PHPUnit steps. Leave empty to skip
+      standalone checks and rely exclusively on Docker.
+    default: ""
+    required: false
+  composer_command:
+    description: Composer install command for standalone steps.
+    default: "composer install --no-interaction --prefer-dist"
+    required: false
+
+  # ── Commands executed inside Docker ──────────────────────────────────────
+  phpcs_command:
+    description: >
+      PHPCS command run inside the php service container.
+      Default enforces PSR-12 on the src/ directory.
+    default: "vendor/bin/phpcs --standard=PSR12 --extensions=php src/"
+    required: false
+  phpstan_command:
+    description: >
+      PHPStan command run inside the php service container.
+      Leave empty to skip static analysis.
+    default: ""
+    required: false
+  phpunit_command:
+    description: PHPUnit command run inside the php service container.
+    default: "vendor/bin/phpunit --testdox"
+    required: false
+  phpunit_coverage_command:
+    description: >
+      Optional PHPUnit coverage command (e.g. with XDEBUG_MODE=coverage).
+      Leave empty to skip coverage.
+    default: ""
+    required: false
+
+  # ── Standalone lint/test overrides ───────────────────────────────────────
+  php_lint_command:
+    description: PHP syntax lint command for the standalone step (no Docker).
+    default: ""
+    required: false
+  phpcs_standalone_command:
+    description: PHPCS command for the standalone step (no Docker).
+    default: ""
+    required: false
+  phpunit_standalone_command:
+    description: PHPUnit command for the standalone step (no Docker).
+    default: ""
+    required: false
+  phpunit_working_directory:
+    description: Working directory for the standalone PHPUnit command.
+    default: "."
+    required: false
+
+  # ── Behaviour ─────────────────────────────────────────────────────────────
+  fail_on_findings:
+    description: Exit with a non-zero code if any check reports errors.
+    default: "true"
+    required: false
+  cleanup:
+    description: Run `docker compose down -v` after all checks complete.
+    default: "true"
+    required: false
+
+runs:
+  using: composite
+  steps:
+
+    # ── Standalone PHP checks (fast, no Docker) ───────────────────────────
+
+    - name: Setup PHP (standalone)
+      if: >
+        inputs.php_version != '' &&
+        (inputs.php_lint_command != '' ||
+         inputs.phpcs_standalone_command != '' ||
+         inputs.phpunit_standalone_command != '')
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ inputs.php_version }}
+        coverage: xdebug
+
+    - name: Install Composer dependencies (standalone)
+      if: >
+        inputs.php_version != '' &&
+        inputs.composer_command != '' &&
+        (inputs.php_lint_command != '' ||
+         inputs.phpcs_standalone_command != '' ||
+         inputs.phpunit_standalone_command != '')
+      shell: bash
+      run: |
+        set -euo pipefail
+        ${{ inputs.composer_command }}
+
+    - name: PHP syntax lint (standalone)
+      if: ${{ inputs.php_lint_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ${{ inputs.php_lint_command }}
+
+    - name: PHPCS PSR-12 (standalone)
+      if: ${{ inputs.phpcs_standalone_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ${{ inputs.phpcs_standalone_command }}
+
+    - name: PHPUnit (standalone)
+      if: ${{ inputs.phpunit_standalone_command != '' }}
+      shell: bash
+      working-directory: ${{ inputs.phpunit_working_directory }}
+      run: |
+        set -euo pipefail
+        ${{ inputs.phpunit_standalone_command }}
+
+    # ── Docker integration test stack ─────────────────────────────────────
+
+    - name: Prepare output directory
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "${{ inputs.out_dir }}"
+
+    - name: Start test stack
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        db_service="${{ inputs.db_service }}"
+        php_service="${{ inputs.php_service }}"
+        bundle_src_env="${{ inputs.bundle_src_env }}"
+        bundle_src="${{ inputs.bundle_src }}"
+
+        export "$bundle_src_env"="$(realpath "$bundle_src")"
+        docker compose -f "$compose_file" up -d "$db_service" "$php_service"
+        echo "Test stack started."
+
+    - name: Wait for database
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        db_service="${{ inputs.db_service }}"
+        wait_secs="${{ inputs.db_wait_seconds }}"
+
+        echo "Waiting up to ${wait_secs}s for ${db_service} to become healthy..."
+        elapsed=0
+        until docker compose -f "$compose_file" exec -T "$db_service" \
+              mysqladmin ping -h 127.0.0.1 --silent 2>/dev/null; do
+          sleep 2
+          elapsed=$((elapsed + 2))
+          if [ "$elapsed" -ge "$wait_secs" ]; then
+            echo "::error::Database did not become healthy within ${wait_secs}s."
+            docker compose -f "$compose_file" logs "$db_service"
+            exit 1
+          fi
+        done
+        echo "Database is ready."
+
+    - name: Install Composer dependencies (Docker)
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        php_service="${{ inputs.php_service }}"
+        composer_cmd="${{ inputs.composer_command }}"
+
+        docker compose -f "$compose_file" exec -T "$php_service" \
+          sh -lc "$composer_cmd"
+
+    - name: PHPCS — PSR-12 code style (Docker)
+      if: ${{ inputs.phpcs_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        php_service="${{ inputs.php_service }}"
+        out_dir="${{ inputs.out_dir }}"
+        fail="${{ inputs.fail_on_findings }}"
+
+        if docker compose -f "$compose_file" exec -T "$php_service" \
+             sh -lc "${{ inputs.phpcs_command }} --report=checkstyle --report-file=/tmp/phpcs.xml" ; then
+          echo "PHPCS: no violations."
+        else
+          docker compose -f "$compose_file" cp \
+            "${php_service}:/tmp/phpcs.xml" "${out_dir}/phpcs.xml" 2>/dev/null || true
+          echo "PHPCS: violations found. Report saved to ${out_dir}/phpcs.xml"
+          if [[ "$fail" == "true" ]]; then exit 1; fi
+        fi
+
+    - name: PHPStan — static analysis (Docker)
+      if: ${{ inputs.phpstan_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        php_service="${{ inputs.php_service }}"
+        out_dir="${{ inputs.out_dir }}"
+        fail="${{ inputs.fail_on_findings }}"
+
+        if docker compose -f "$compose_file" exec -T "$php_service" \
+             sh -lc "${{ inputs.phpstan_command }} --error-format=checkstyle > /tmp/phpstan.xml 2>&1" ; then
+          echo "PHPStan: no issues."
+        else
+          docker compose -f "$compose_file" cp \
+            "${php_service}:/tmp/phpstan.xml" "${out_dir}/phpstan.xml" 2>/dev/null || true
+          echo "PHPStan: issues found. Report saved to ${out_dir}/phpstan.xml"
+          if [[ "$fail" == "true" ]]; then exit 1; fi
+        fi
+
+    - name: PHPUnit — test suite (Docker)
+      if: ${{ inputs.phpunit_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        php_service="${{ inputs.php_service }}"
+        out_dir="${{ inputs.out_dir }}"
+        fail="${{ inputs.fail_on_findings }}"
+
+        if docker compose -f "$compose_file" exec -T "$php_service" \
+             sh -lc "${{ inputs.phpunit_command }} --log-junit /tmp/phpunit.xml" ; then
+          echo "PHPUnit: all tests passed."
+        else
+          docker compose -f "$compose_file" cp \
+            "${php_service}:/tmp/phpunit.xml" "${out_dir}/phpunit.xml" 2>/dev/null || true
+          echo "PHPUnit: test failures. Report saved to ${out_dir}/phpunit.xml"
+          if [[ "$fail" == "true" ]]; then exit 1; fi
+        fi
+
+    - name: PHPUnit — coverage (Docker)
+      if: ${{ inputs.phpunit_coverage_command != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        php_service="${{ inputs.php_service }}"
+        out_dir="${{ inputs.out_dir }}"
+
+        docker compose -f "$compose_file" exec -T "$php_service" \
+          sh -lc "mkdir -p /tmp/coverage && ${{ inputs.phpunit_coverage_command }} --coverage-clover /tmp/coverage/clover.xml"
+        docker compose -f "$compose_file" cp \
+          "${php_service}:/tmp/coverage/clover.xml" "${out_dir}/coverage-clover.xml" 2>/dev/null || true
+        echo "Coverage report saved to ${out_dir}/coverage-clover.xml"
+
+    - name: Cleanup
+      if: ${{ always() && inputs.cleanup == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        compose_file="${{ inputs.compose_file }}"
+        docker compose -f "$compose_file" down -v --remove-orphans
+        echo "Test stack torn down."
