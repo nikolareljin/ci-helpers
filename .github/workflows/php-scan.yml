@@ -29,6 +29,9 @@ on:
       lint_laravel_command:
         type: string
         default: "vendor/bin/pint"
+      lint_pimcore_command:
+        type: string
+        default: "vendor/bin/phpcs --standard=PSR12 --extensions=php src/"
       wp_cli_scan:
         type: boolean
         default: true
@@ -109,8 +112,24 @@ jobs:
             fi
           fi
 
+          is_pimcore=false
+          if [ -f src/*Bundle.php ] || [ -f src/*Bundle.php ] 2>/dev/null; then
+            is_pimcore=true
+          fi
+          if [ "$is_pimcore" = "false" ] && [ -f composer.json ]; then
+            if grep -qiE '"(pimcore/pimcore|pimcore/skeleton)"' composer.json; then
+              is_pimcore=true
+            fi
+          fi
+          if [ "$is_pimcore" = "false" ] && [ -f composer.json ]; then
+            if grep -qiE '"type"[[:space:]]*:[[:space:]]*"pimcore-bundle"' composer.json; then
+              is_pimcore=true
+            fi
+          fi
+
           echo "is_wordpress=$is_wordpress" >> "$GITHUB_OUTPUT"
           echo "is_drupal=$is_drupal" >> "$GITHUB_OUTPUT"
+          echo "is_pimcore=$is_pimcore" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         if: ${{ inputs.composer_command != '' }}
@@ -151,6 +170,14 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.lint_laravel_command }}
+
+      - name: PHP lint (Pimcore)
+        if: ${{ inputs.lint_pimcore_command != '' && steps.detect_php_frameworks.outputs.is_pimcore == 'true' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_pimcore_command }}
 
       - name: WP-CLI scan
         if: ${{ inputs.wp_cli_scan && steps.detect_php_frameworks.outputs.is_wordpress == 'true' }}
