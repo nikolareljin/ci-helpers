@@ -80,7 +80,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: nikolareljin/script-helpers
-          ref: production
+          ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
           path: .script-helpers
           fetch-depth: 1
 
@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ inputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
           if [[ -n "$version" ]]; then
-            echo "Release tag version detected: $version"
+            echo "Resolved release version: $version"
           fi
 
       - name: Setup Node

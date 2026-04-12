@@ -27,14 +27,6 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
-      - name: Checkout script-helpers
-        uses: actions/checkout@v5
-        with:
-          repository: nikolareljin/script-helpers
-          ref: production
-          path: .script-helpers
-          fetch-depth: 1
-
       - name: Resolve branches
         id: branches
         uses: actions/github-script@v7
@@ -80,6 +72,15 @@ jobs:
             exit 0
           fi
           echo "run_check=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout script-helpers
+        if: ${{ steps.gate.outputs.run_check == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
+          path: .script-helpers
+          fetch-depth: 1
 
       - name: Check release tag availability
         if: ${{ steps.gate.outputs.run_check == 'true' }}

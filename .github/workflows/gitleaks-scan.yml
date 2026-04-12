@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: nikolareljin/script-helpers
-          ref: production
+          ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
           path: .script-helpers
           fetch-depth: 1
 
