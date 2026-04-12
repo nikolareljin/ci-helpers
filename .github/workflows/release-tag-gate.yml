@@ -88,5 +88,5 @@ jobs:
           set -euo pipefail
           version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ steps.branches.outputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
           if [[ -n "$version" ]]; then
-            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "Resolved release version: $version"
           fi
