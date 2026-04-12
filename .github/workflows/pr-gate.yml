@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ inputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
           if [[ -n "$version" ]]; then
-            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "Release tag version detected: $version"
           fi
 
       - name: Setup Node
