@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-04-11
+
+### Fixed
+- Reworked reusable workflows that previously depended on caller-local `.github/actions/*` paths to use shared `script-helpers` scripts or direct third-party actions instead, so downstream callers can use them safely.
+
 ## 2026-04-07
 
 ### Added

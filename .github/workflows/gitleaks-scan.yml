@@ -33,14 +33,30 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Gitleaks scan
-        uses: ./.github/actions/gitleaks-scan
+      - name: Checkout script-helpers
+        uses: actions/checkout@v5
         with:
-          scan_path: ${{ inputs.scan_path }}
-          report_format: ${{ inputs.report_format }}
-          output: ${{ inputs.output }}
-          config_path: ${{ inputs.config_path }}
-          fail_on_findings: ${{ inputs.fail_on_findings }}
+          repository: nikolareljin/script-helpers
+          ref: production
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Normalize and evaluate report
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./.script-helpers/scripts/ci_gitleaks_report.sh \
+            --output "results.sarif" \
+            --requested-output "${{ inputs.output }}" \
+            --report-format "${{ inputs.report_format }}" \
+            --scan-path "${{ inputs.scan_path }}" \
+            --config-path "${{ inputs.config_path }}" \
+            --fail-on-findings "${{ inputs.fail_on_findings }}"
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}

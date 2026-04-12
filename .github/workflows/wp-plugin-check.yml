@@ -90,33 +90,43 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: WordPress plugin check
-        uses: ./.github/actions/wp-plugin-check
+      - name: Checkout script-helpers
+        uses: actions/checkout@v5
         with:
-          compose_file: ${{ inputs.compose_file }}
-          plugin_slug: ${{ inputs.plugin_slug }}
-          plugin_src: ${{ inputs.plugin_src }}
-          plugin_src_env: ${{ inputs.plugin_src_env }}
-          wpcli_service: ${{ inputs.wpcli_service }}
-          db_service: ${{ inputs.db_service }}
-          wordpress_service: ${{ inputs.wordpress_service }}
-          host_port: ${{ inputs.host_port }}
-          out_dir: ${{ inputs.out_dir }}
-          db_wait_seconds: ${{ inputs.db_wait_seconds }}
-          multisite: ${{ inputs.multisite }}
-          activate_network: ${{ inputs.activate_network }}
-          admin_user: ${{ inputs.admin_user }}
-          admin_password: ${{ inputs.admin_password }}
-          admin_email: ${{ inputs.admin_email }}
-          site_title: ${{ inputs.site_title }}
-          meta_check_script: ${{ inputs.meta_check_script }}
-          php_version: ${{ inputs.php_version }}
-          php_lint_command: ${{ inputs.php_lint_command }}
-          phpcs_warning_command: ${{ inputs.phpcs_warning_command }}
-          phpunit_command: ${{ inputs.phpunit_command }}
-          phpunit_working_directory: ${{ inputs.phpunit_working_directory }}
-          fail_on_findings: ${{ inputs.fail_on_findings }}
-          cleanup: ${{ inputs.cleanup }}
+          repository: nikolareljin/script-helpers
+          ref: production
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: WordPress plugin check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./.script-helpers/scripts/ci_wp_plugin_check.sh \
+            --compose-file "${{ inputs.compose_file }}" \
+            --plugin-slug "${{ inputs.plugin_slug }}" \
+            --plugin-src "${{ inputs.plugin_src }}" \
+            --plugin-src-env "${{ inputs.plugin_src_env }}" \
+            --wpcli-service "${{ inputs.wpcli_service }}" \
+            --db-service "${{ inputs.db_service }}" \
+            --wordpress-service "${{ inputs.wordpress_service }}" \
+            --host-port "${{ inputs.host_port }}" \
+            --out-dir "${{ inputs.out_dir }}" \
+            --db-wait-seconds "${{ inputs.db_wait_seconds }}" \
+            --multisite "${{ inputs.multisite }}" \
+            --activate-network "${{ inputs.activate_network }}" \
+            --admin-user "${{ inputs.admin_user }}" \
+            --admin-password "${{ inputs.admin_password }}" \
+            --admin-email "${{ inputs.admin_email }}" \
+            --site-title "${{ inputs.site_title }}" \
+            --meta-check-script "${{ inputs.meta_check_script }}" \
+            --php-version "${{ inputs.php_version }}" \
+            --php-lint-command "${{ inputs.php_lint_command }}" \
+            --phpcs-warning-command "${{ inputs.phpcs_warning_command }}" \
+            --phpunit-command "${{ inputs.phpunit_command }}" \
+            --phpunit-working-directory "${{ inputs.phpunit_working_directory }}" \
+            --fail-on-findings "${{ inputs.fail_on_findings }}" \
+            --cleanup "${{ inputs.cleanup }}"
 
       - name: Upload artifacts
         if: ${{ inputs.upload_artifact }}
