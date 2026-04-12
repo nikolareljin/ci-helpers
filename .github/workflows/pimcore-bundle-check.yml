@@ -82,28 +82,38 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Pimcore bundle check
-        uses: ./.github/actions/pimcore-bundle-check
+      - name: Checkout script-helpers
+        uses: actions/checkout@v5
         with:
-          compose_file: ${{ inputs.compose_file }}
-          bundle_src: ${{ inputs.bundle_src }}
-          bundle_src_env: ${{ inputs.bundle_src_env }}
-          php_service: ${{ inputs.php_service }}
-          db_service: ${{ inputs.db_service }}
-          db_wait_seconds: ${{ inputs.db_wait_seconds }}
-          out_dir: ${{ inputs.out_dir }}
-          php_version: ${{ inputs.php_version }}
-          composer_command: ${{ inputs.composer_command }}
-          php_lint_command: ${{ inputs.php_lint_command }}
-          phpcs_standalone_command: ${{ inputs.phpcs_standalone_command }}
-          phpunit_standalone_command: ${{ inputs.phpunit_standalone_command }}
-          phpunit_working_directory: ${{ inputs.phpunit_working_directory }}
-          phpcs_command: ${{ inputs.phpcs_command }}
-          phpstan_command: ${{ inputs.phpstan_command }}
-          phpunit_command: ${{ inputs.phpunit_command }}
-          phpunit_coverage_command: ${{ inputs.phpunit_coverage_command }}
-          fail_on_findings: ${{ inputs.fail_on_findings }}
-          cleanup: ${{ inputs.cleanup }}
+          repository: nikolareljin/script-helpers
+          ref: production
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: Pimcore bundle check
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./.script-helpers/scripts/ci_pimcore_bundle_check.sh \
+            --compose-file "${{ inputs.compose_file }}" \
+            --bundle-src "${{ inputs.bundle_src }}" \
+            --bundle-src-env "${{ inputs.bundle_src_env }}" \
+            --php-service "${{ inputs.php_service }}" \
+            --db-service "${{ inputs.db_service }}" \
+            --db-wait-seconds "${{ inputs.db_wait_seconds }}" \
+            --out-dir "${{ inputs.out_dir }}" \
+            --php-version "${{ inputs.php_version }}" \
+            --composer-command "${{ inputs.composer_command }}" \
+            --php-lint-command "${{ inputs.php_lint_command }}" \
+            --phpcs-standalone-command "${{ inputs.phpcs_standalone_command }}" \
+            --phpunit-standalone-command "${{ inputs.phpunit_standalone_command }}" \
+            --phpunit-working-directory "${{ inputs.phpunit_working_directory }}" \
+            --phpcs-command "${{ inputs.phpcs_command }}" \
+            --phpstan-command "${{ inputs.phpstan_command }}" \
+            --phpunit-command "${{ inputs.phpunit_command }}" \
+            --phpunit-coverage-command "${{ inputs.phpunit_coverage_command }}" \
+            --fail-on-findings "${{ inputs.fail_on_findings }}" \
+            --cleanup "${{ inputs.cleanup }}"
 
       - name: Upload test artifacts
         if: ${{ inputs.upload_artifact }}
