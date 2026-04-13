@@ -6,15 +6,25 @@ on:
         type: string
         default: ubuntu-latest
       scan_path:
+        description: >
+          Must be "." (default). gitleaks-action scans the full git history and
+          does not support path-scoped runs. Providing any other value fails fast.
         type: string
         default: "."
       report_format:
+        description: >
+          Must be "sarif" (default). gitleaks-action emits SARIF only in this
+          workflow. Providing any other value fails fast.
         type: string
         default: sarif
       output:
         type: string
         default: results.sarif
       config_path:
+        description: >
+          Must be empty (default). Custom config files are not supported by
+          gitleaks-action in this reusable workflow. Providing a non-empty value
+          fails fast.
         type: string
         default: ""
       fail_on_findings:
