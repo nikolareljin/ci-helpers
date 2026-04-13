@@ -49,16 +49,22 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Trivy scan
-        uses: ./.github/actions/trivy-scan
+        uses: aquasecurity/trivy-action@f685ba721536b1ff19093eb4e1b1bf994c2bdbe2
         with:
-          scan_path: ${{ inputs.scan_path }}
+          scan-type: fs
+          scan-ref: ${{ inputs.scan_path }}
           format: ${{ inputs.format }}
           output: ${{ inputs.output }}
           severity: ${{ inputs.severity }}
-          ignore_unfixed: ${{ inputs.ignore_unfixed }}
-          vuln_type: ${{ inputs.vuln_type }}
-          fail_on_findings: ${{ inputs.fail_on_findings }}
-          upload_sarif: ${{ inputs.upload_sarif }}
+          ignore-unfixed: ${{ inputs.ignore_unfixed }}
+          vuln-type: ${{ inputs.vuln_type }}
+          exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
+
+      - name: Upload SARIF
+        if: ${{ always() && inputs.upload_sarif && inputs.format == 'sarif' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ inputs.output }}
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
