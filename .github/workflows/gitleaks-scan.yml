@@ -41,21 +41,36 @@ jobs:
           path: .script-helpers
           fetch-depth: 1
 
+      - name: Validate supported Gitleaks inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.scan_path }}" != "." ]]; then
+            echo "::error::gitleaks-action scans git history and does not support scan_path overrides in this reusable workflow." >&2
+            exit 2
+          fi
+          if [[ "${{ inputs.report_format }}" != "sarif" ]]; then
+            echo "::error::gitleaks-action emits SARIF only in this reusable workflow. Use report_format=sarif." >&2
+            exit 2
+          fi
+
       - name: Gitleaks scan
+        id: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_CONFIG: ${{ inputs.config_path }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
       - name: Normalize and evaluate report
         shell: bash
         run: |
           set -euo pipefail
           ./.script-helpers/scripts/ci_gitleaks_report.sh \
-            --output "results.sarif" \
+            --output "${{ steps.gitleaks.outputs.sarif }}" \
             --requested-output "${{ inputs.output }}" \
             --report-format "${{ inputs.report_format }}" \
             --scan-path "${{ inputs.scan_path }}" \
-            --config-path "${{ inputs.config_path }}" \
             --fail-on-findings "${{ inputs.fail_on_findings }}"
 
       - name: Upload artifact
