@@ -11,6 +11,14 @@ on:
       default_branch:
         type: string
         default: ""
+      update_production_tag:
+        description: >
+          When true (default), run the Bootstrap and Update production tag
+          steps after tagging. Set to false in repos that do not carry a
+          production floating tag (e.g. consumers of ci-helpers that only
+          need version tagging).
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -28,6 +36,7 @@ jobs:
           fetch-tags: true
 
       - name: Bootstrap script-helpers
+        if: ${{ inputs.update_production_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -170,7 +179,7 @@ jobs:
           git push origin "$version"
 
       - name: Update production tag ref
-        if: ${{ steps.release.outputs.version != '' }}
+        if: ${{ steps.release.outputs.version != '' && inputs.update_production_tag }}
         shell: bash
         run: |
           set -euo pipefail
