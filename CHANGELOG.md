@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-04-13 — 0.7.2
+
+### Security
+- **Supply chain:** Pinned three floating `@master` action refs to reviewed commit SHAs:
+  `securego/gosec` in `go-scan.yml`, `aquasecurity/trivy-action` and `snyk/actions/docker` in `docker-scan.yml`.
+  Floating refs allow upstream changes to silently alter CI behaviour.
+- **Pinned** `softprops/action-gh-release@v1` to its SHA in `go-release.yml`.
+- **Expression injection (defence in depth):** Moved non-command workflow inputs
+  (`ldflags`, paths, names, WP-CLI args) from direct `${{ inputs.* }}` interpolation
+  in `run:` blocks to `env:` variables in `go-deploy.yml`, `go-release.yml`, and
+  `php-scan.yml`. Prevents shell-level injection if a caller ever passes user-controlled
+  content as a non-command input.
+- **SSH_OPTS quoting:** Changed `SSH_OPTS` in `go-deploy.yml` from an unquoted string
+  (used in `ssh $SSH_OPTS`) to a proper bash array (`SSH_OPTS=(...)`, `"${SSH_OPTS[@]}"`)
+  to prevent word-splitting on the key path.
+- **Explicit permissions:** Added `permissions: contents: read` to `gitleaks-check.yml`
+  and `release-tag-check.yml`; added `pull-requests: read` to `gitleaks-check.yml`.
+  These non-reusable workflows previously relied on the repo's `GITHUB_TOKEN` default.
+- **`version_bump.sh`:** Changed sed delimiter from `/` to `#` so version strings
+  containing `/` cannot break the substitution command.
+- **`rust_release_build.sh`:** Added allowlist validation for the `--apt-packages`
+  argument before passing it to `apt-get install` to prevent command injection via
+  crafted package name strings.
+
 ## 2026-04-11
 
 ### Fixed

@@ -44,6 +44,12 @@ if [ -z "$bin_name" ]; then
 fi
 
 if $install_deps; then
+  # Validate apt_packages: only allow package names (alphanumeric, ., +, -, _) separated by spaces.
+  if [[ ! "$apt_packages" =~ ^[a-zA-Z0-9_.+-]+([[:space:]]+[a-zA-Z0-9_.+-]+)*$ ]]; then
+    echo "Invalid --apt-packages value: only package names separated by spaces are allowed." >&2
+    exit 2
+  fi
+  # shellcheck disable=SC2086  # word-splitting is intentional: apt-get takes multiple package args
   if command -v sudo >/dev/null 2>&1; then
     sudo apt-get update
     sudo apt-get install -y $apt_packages
