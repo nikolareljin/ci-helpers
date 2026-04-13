@@ -90,6 +90,13 @@ jobs:
           path: .script-helpers
           fetch-depth: 1
 
+      - name: Setup PHP (standalone)
+        if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_standalone_command != '' || inputs.phpunit_standalone_command != '') }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          coverage: xdebug
+
       - name: Pimcore bundle check
         shell: bash
         run: |

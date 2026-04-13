@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           ./.script-helpers/scripts/ci_gitleaks_report.sh \
-            --output "${{ steps.gitleaks.outputs.sarif }}" \
+            --output "results.sarif" \
             --requested-output "${{ inputs.output }}" \
             --report-format "${{ inputs.report_format }}" \
             --scan-path "${{ inputs.scan_path }}" \

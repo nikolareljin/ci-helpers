@@ -98,6 +98,12 @@ jobs:
           path: .script-helpers
           fetch-depth: 1
 
+      - name: Setup PHP
+        if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+
       - name: WordPress plugin check
         shell: bash
         run: |
