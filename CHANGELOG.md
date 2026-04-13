@@ -2,6 +2,13 @@
 
 ## 2026-04-13 — 0.7.2
 
+### Added
+- **`scripts/update_pinned_actions.sh`:** Local helper script that scans `.github/` for
+  SHA-pinned action refs annotated with `# <ref> @ <date>`, fetches the current HEAD SHA
+  from the GitHub API (with caching for repeated repo+ref queries), and updates stale pins
+  in place. Supports `--check` (dry-run / CI gate) and `--dir <path>` override. Run with
+  `gh` CLI authenticated.
+
 ### Security
 - **Supply chain:** Pinned three floating `@master` action refs to reviewed commit SHAs:
   `securego/gosec` in `go-scan.yml`, `aquasecurity/trivy-action` and `snyk/actions/docker` in `docker-scan.yml`.

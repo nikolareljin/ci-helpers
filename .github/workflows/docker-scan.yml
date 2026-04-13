@@ -56,7 +56,7 @@ jobs:
           docker build -f "${{ inputs.dockerfile }}" -t "${{ inputs.image_name }}" "${{ inputs.context }}"
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@f685ba721536b1ff19093eb4e1b1bf994c2bdbe2 # master @ 2026-04-13
+        uses: aquasecurity/trivy-action@264c9c5e188ea085e7377fd77abd17bfbd4e5926 # master @ 2026-04-13
         with:
           image-ref: ${{ inputs.image_name }}
           format: table
