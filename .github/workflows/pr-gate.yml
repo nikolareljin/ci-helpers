@@ -75,13 +75,24 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
+      - name: Checkout script-helpers
+        if: ${{ inputs.check_release_tag }}
+        uses: actions/checkout@v5
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
+          path: .script-helpers
+          fetch-depth: 1
+
       - name: Check release tag availability
         if: ${{ inputs.check_release_tag }}
-        uses: ./.github/actions/check-release-tag
-        with:
-          release_branch: ${{ inputs.release_branch }}
-          repo_dir: ${{ github.workspace }}
-          fetch_tags: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ inputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
+          if [[ -n "$version" ]]; then
+            echo "Resolved release version: $version"
+          fi
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}

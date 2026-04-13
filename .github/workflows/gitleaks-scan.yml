@@ -6,15 +6,25 @@ on:
         type: string
         default: ubuntu-latest
       scan_path:
+        description: >
+          Must be "." (default). gitleaks-action scans the full git history and
+          does not support path-scoped runs. Providing any other value fails fast.
         type: string
         default: "."
       report_format:
+        description: >
+          Must be "sarif" (default). gitleaks-action emits SARIF only in this
+          workflow. Providing any other value fails fast.
         type: string
         default: sarif
       output:
         type: string
         default: results.sarif
       config_path:
+        description: >
+          Must be empty (default). Custom config files are not supported by
+          gitleaks-action in this reusable workflow. Providing a non-empty value
+          fails fast.
         type: string
         default: ""
       fail_on_findings:
@@ -32,15 +42,56 @@ jobs:
     runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Checkout script-helpers
+        uses: actions/checkout@v5
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: Validate supported Gitleaks inputs
+        shell: bash
+        env:
+          INPUT_SCAN_PATH: ${{ inputs.scan_path }}
+          INPUT_REPORT_FORMAT: ${{ inputs.report_format }}
+          INPUT_CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          set -euo pipefail
+          if [[ "${INPUT_SCAN_PATH}" != "." ]]; then
+            echo "::error::gitleaks-action scans git history and does not support scan_path overrides in this reusable workflow." >&2
+            exit 2
+          fi
+          if [[ "${INPUT_REPORT_FORMAT}" != "sarif" ]]; then
+            echo "::error::gitleaks-action emits SARIF only in this reusable workflow. Use report_format=sarif." >&2
+            exit 2
+          fi
+          if [[ -n "${INPUT_CONFIG_PATH}" ]]; then
+            echo "::error::gitleaks-action config_path is not supported in this reusable workflow." >&2
+            exit 2
+          fi
 
       - name: Gitleaks scan
-        uses: ./.github/actions/gitleaks-scan
-        with:
-          scan_path: ${{ inputs.scan_path }}
-          report_format: ${{ inputs.report_format }}
-          output: ${{ inputs.output }}
-          config_path: ${{ inputs.config_path }}
-          fail_on_findings: ${{ inputs.fail_on_findings }}
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+      - name: Normalize and evaluate report
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./.script-helpers/scripts/ci_gitleaks_report.sh \
+            --output "results.sarif" \
+            --requested-output "${{ inputs.output }}" \
+            --report-format "${{ inputs.report_format }}" \
+            --scan-path "${{ inputs.scan_path }}" \
+            --fail-on-findings "${{ inputs.fail_on_findings }}"
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
