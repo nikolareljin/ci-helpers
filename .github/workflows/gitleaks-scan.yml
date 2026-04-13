@@ -46,14 +46,22 @@ jobs:
 
       - name: Validate supported Gitleaks inputs
         shell: bash
+        env:
+          INPUT_SCAN_PATH: ${{ inputs.scan_path }}
+          INPUT_REPORT_FORMAT: ${{ inputs.report_format }}
+          INPUT_CONFIG_PATH: ${{ inputs.config_path }}
         run: |
           set -euo pipefail
-          if [[ "${{ inputs.scan_path }}" != "." ]]; then
+          if [[ "${INPUT_SCAN_PATH}" != "." ]]; then
             echo "::error::gitleaks-action scans git history and does not support scan_path overrides in this reusable workflow." >&2
             exit 2
           fi
-          if [[ "${{ inputs.report_format }}" != "sarif" ]]; then
+          if [[ "${INPUT_REPORT_FORMAT}" != "sarif" ]]; then
             echo "::error::gitleaks-action emits SARIF only in this reusable workflow. Use report_format=sarif." >&2
+            exit 2
+          fi
+          if [[ -n "${INPUT_CONFIG_PATH}" ]]; then
+            echo "::error::gitleaks-action config_path is not supported in this reusable workflow." >&2
             exit 2
           fi
 
@@ -62,7 +70,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GITLEAKS_CONFIG: ${{ inputs.config_path }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
       - name: Normalize and evaluate report
