@@ -64,23 +64,27 @@ jobs:
       - name: Build binary
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          INPUT_BUILD_TARGET: ${{ inputs.build_target }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_LDFLAGS: ${{ inputs.ldflags }}
+          INPUT_MAIN_PATH: ${{ inputs.main_path }}
         run: |
           set -euo pipefail
-          target="${{ inputs.build_target }}"
+          target="${INPUT_BUILD_TARGET}"
           export GOOS="${target%%/*}"
           export GOARCH="${target##*/}"
           export CGO_ENABLED=0
 
-          bin_name="${{ inputs.bin_name }}"
+          bin_name="${INPUT_BIN_NAME}"
           if [ "$GOOS" = "windows" ]; then
             bin_name="${bin_name}.exe"
           fi
 
-          ldflags="${{ inputs.ldflags }}"
-          if [ -n "$ldflags" ]; then
-            go build -o "$bin_name" -ldflags "$ldflags" "${{ inputs.main_path }}"
+          if [ -n "${INPUT_LDFLAGS}" ]; then
+            go build -o "$bin_name" -ldflags "${INPUT_LDFLAGS}" "${INPUT_MAIN_PATH}"
           else
-            go build -o "$bin_name" "${{ inputs.main_path }}"
+            go build -o "$bin_name" "${INPUT_MAIN_PATH}"
           fi
 
           echo "Built ${bin_name} for ${GOOS}/${GOARCH}"
@@ -93,6 +97,13 @@ jobs:
           DEPLOY_SSH_HOST: ${{ secrets.ssh_host }}
           DEPLOY_SSH_USER: ${{ secrets.ssh_user }}
           DEPLOY_SSH_KEY: ${{ secrets.ssh_key }}
+          INPUT_REMOTE_PATH: ${{ inputs.remote_path }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_REMOTE_BIN_NAME: ${{ inputs.remote_bin_name }}
+          INPUT_EXTRA_FILES: ${{ inputs.extra_files }}
+          # post_deploy_command is an intentional arbitrary shell command executed on
+          # the remote; callers are trusted to supply safe values.
+          INPUT_POST_DEPLOY_COMMAND: ${{ inputs.post_deploy_command }}
         run: |
           set -euo pipefail
 
@@ -105,40 +116,40 @@ jobs:
           set -x
           chmod 600 "$TMP_KEY"
 
-          SSH_OPTS="-i $TMP_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
+          # Use an array so word-splitting on the key path is never a concern.
+          SSH_OPTS=(-i "$TMP_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes)
+          SSH_CMD="ssh -i $TMP_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
           REMOTE="${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}"
-          REMOTE_PATH="${{ inputs.remote_path }}"
+          REMOTE_PATH="${INPUT_REMOTE_PATH}"
 
-          bin_name="${{ inputs.bin_name }}"
-          remote_bin="${{ inputs.remote_bin_name }}"
+          bin_name="${INPUT_BIN_NAME}"
+          remote_bin="${INPUT_REMOTE_BIN_NAME}"
           if [ -z "$remote_bin" ]; then
             remote_bin="$bin_name"
           fi
 
           # Ensure remote directory exists.
-          ssh $SSH_OPTS "$REMOTE" "mkdir -p '$REMOTE_PATH'"
+          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p '$REMOTE_PATH'"
 
           # Transfer binary.
-          rsync -az -e "ssh $SSH_OPTS" "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
+          rsync -az -e "$SSH_CMD" "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
 
           # Transfer extra files (comma-separated list).
-          extra="${{ inputs.extra_files }}"
-          if [ -n "$extra" ]; then
-            IFS=',' read -r -a files <<< "$extra"
+          if [ -n "${INPUT_EXTRA_FILES}" ]; then
+            IFS=',' read -r -a files <<< "${INPUT_EXTRA_FILES}"
             for f in "${files[@]}"; do
               f="$(echo "$f" | xargs)"
               if [ -f "$f" ]; then
-                rsync -az -e "ssh $SSH_OPTS" "$f" "${REMOTE}:${REMOTE_PATH}/"
+                rsync -az -e "$SSH_CMD" "$f" "${REMOTE}:${REMOTE_PATH}/"
               else
                 echo "Warning: extra file '$f' not found, skipping" >&2
               fi
             done
           fi
 
-          # Run post-deploy command on remote.
-          post_cmd="${{ inputs.post_deploy_command }}"
-          if [ -n "$post_cmd" ]; then
-            ssh $SSH_OPTS "$REMOTE" "$post_cmd"
+          # Run post-deploy command on remote (caller-supplied, trusted).
+          if [ -n "${INPUT_POST_DEPLOY_COMMAND}" ]; then
+            ssh "${SSH_OPTS[@]}" "$REMOTE" "${INPUT_POST_DEPLOY_COMMAND}"
           fi
 
           echo "Deployed ${bin_name} to ${DEPLOY_SSH_HOST}:${REMOTE_PATH}"
