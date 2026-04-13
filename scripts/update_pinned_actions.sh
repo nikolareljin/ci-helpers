@@ -140,7 +140,12 @@ done
 echo ""
 echo "Summary: ${ok_count} up-to-date, ${stale_count} stale, ${warn_count} warnings."
 
-if $check_only && [[ $stale_count -gt 0 ]]; then
-  echo "Run without --check to apply updates."
+if $check_only && [[ $stale_count -gt 0 || $warn_count -gt 0 ]]; then
+  if [[ $stale_count -gt 0 ]]; then
+    echo "Run without --check to apply updates."
+  fi
+  if [[ $warn_count -gt 0 ]]; then
+    echo "Fix the lookup warnings above and rerun --check."
+  fi
   exit 1
 fi
