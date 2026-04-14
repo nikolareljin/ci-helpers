@@ -7,7 +7,7 @@
 # USAGE: ./update_pinned_actions.sh [--dir <path>] [--check] [-h]
 # PARAMETERS:
 #   --dir <path>   Directory to scan recursively (default: .github).
-#   --check        Dry-run: report stale pins and exit 1 if any found; no files modified.
+#   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
 #   -h, --help     Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
@@ -25,9 +25,24 @@ today="$(date +%Y-%m-%d)"
 
 usage() { sed -n '1,28p' "$0"; }
 
+require_arg_value() {
+  local flag="$1"
+  local value="${2-}"
+
+  if [[ -z "$value" ]]; then
+    echo "Missing value for ${flag}" >&2
+    usage
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dir)   dir="$2"; shift 2 ;;
+    --dir)
+      require_arg_value "$1" "${2-}"
+      dir="$2"
+      shift 2
+      ;;
     --check) check_only=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
@@ -145,7 +160,7 @@ if $check_only && [[ $stale_count -gt 0 || $warn_count -gt 0 ]]; then
     echo "Run without --check to apply updates."
   fi
   if [[ $warn_count -gt 0 ]]; then
-    echo "Fix the lookup warnings above and rerun --check."
+    echo "Fix the lookup warnings above and rerun --check; warnings fail verification."
   fi
   exit 1
 fi
