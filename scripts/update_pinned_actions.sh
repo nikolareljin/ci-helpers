@@ -71,6 +71,10 @@ stale_count=0
 ok_count=0
 warn_count=0
 
+url_encode_path_segment() {
+  perl -MURI::Escape=uri_escape_utf8 -e 'print uri_escape_utf8($ARGV[0]);' "$1"
+}
+
 # Fetch SHA for repo+ref, with caching
 fetch_sha() {
   local repo="$1" ref="$2"
@@ -81,8 +85,9 @@ fetch_sha() {
     return
   fi
 
-  local sha
-  sha="$(gh api "repos/${repo}/commits/${ref}" --jq '.sha' 2>/dev/null)" || {
+  local encoded_ref sha
+  encoded_ref="$(url_encode_path_segment "$ref")"
+  sha="$(gh api "repos/${repo}/commits/${encoded_ref}" --jq '.sha' 2>/dev/null)" || {
     echo ""
     return 1
   }
@@ -99,6 +104,9 @@ if [[ ${#files[@]} -eq 0 ]]; then
 fi
 
 for file in "${files[@]}"; do
+  replacements_old=()
+  replacements_new=()
+
   # Detect lines with a pinned SHA and an annotated ref comment.
   # Supported patterns:
   #   uses: owner/repo@<sha40> # <ref> @ <date>
@@ -114,6 +122,11 @@ for file in "${files[@]}"; do
 
       # Repo = first two path segments (owner/repo); subpaths are subdirectories within that repo
       IFS='/' read -r -a path_parts <<< "$action_path"
+      if [[ ${#path_parts[@]} -lt 2 ]]; then
+        echo "WARN  $file: invalid action path '${action_path}' (expected owner/repo[/subdir]) — skipping" >&2
+        warn_count=$((warn_count + 1))
+        continue
+      fi
       repo="${path_parts[0]}/${path_parts[1]}"
 
       new_sha="$(fetch_sha "$repo" "$ref")" || {
@@ -139,16 +152,21 @@ for file in "${files[@]}"; do
         echo "      new:  ${new_sha}  (${today})"
 
         if ! $check_only; then
-          old_fragment="@${old_sha} # ${ref} @ ${old_date}"
-          new_fragment="@${new_sha} # ${ref} @ ${today}"
-          OLD_FRAGMENT="$old_fragment" NEW_FRAGMENT="$new_fragment" \
-            perl -0pi.bak -e 's/\Q$ENV{OLD_FRAGMENT}\E/$ENV{NEW_FRAGMENT}/g' "$file"
-          rm -f "${file}.bak"
-          echo "      UPDATED."
+          replacements_old+=("@${old_sha} # ${ref} @ ${old_date}")
+          replacements_new+=("@${new_sha} # ${ref} @ ${today}")
         fi
       fi
     fi
   done < "$file"
+
+  if ! $check_only && [[ ${#replacements_old[@]} -gt 0 ]]; then
+    for i in "${!replacements_old[@]}"; do
+      OLD_FRAGMENT="${replacements_old[$i]}" NEW_FRAGMENT="${replacements_new[$i]}" \
+        perl -0pi.bak -e 's/\Q$ENV{OLD_FRAGMENT}\E/$ENV{NEW_FRAGMENT}/g' "$file"
+    done
+    rm -f "${file}.bak"
+    echo "      UPDATED."
+  fi
 done
 
 echo ""
