@@ -118,7 +118,8 @@ jobs:
 
           # Use an array so word-splitting on the key path is never a concern.
           SSH_OPTS=(-i "$TMP_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes)
-          SSH_CMD="ssh -i $TMP_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
+          printf -v SSH_CMD '%q ' ssh "${SSH_OPTS[@]}"
+          SSH_CMD="${SSH_CMD% }"
           REMOTE="${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}"
           REMOTE_PATH="${INPUT_REMOTE_PATH}"
 
@@ -128,8 +129,13 @@ jobs:
             remote_bin="$bin_name"
           fi
 
+          if [[ ! "$REMOTE_PATH" =~ ^[[:alnum:]_./~:-]+$ ]]; then
+            echo "Invalid remote_path: only alphanumeric, slash, dot, underscore, tilde, colon, and dash are allowed." >&2
+            exit 2
+          fi
+
           # Ensure remote directory exists.
-          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p '$REMOTE_PATH'"
+          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- '$REMOTE_PATH'"
 
           # Transfer binary.
           rsync -az -e "$SSH_CMD" "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"

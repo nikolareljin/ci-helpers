@@ -44,8 +44,8 @@ if [ -z "$bin_name" ]; then
 fi
 
 if $install_deps; then
-  # Validate apt_packages: only allow package names (alphanumeric, ., +, -, _) separated by spaces.
-  if [[ ! "$apt_packages" =~ ^[a-zA-Z0-9_.+-]+([[:space:]]+[a-zA-Z0-9_.+-]+)*$ ]]; then
+  # Validate apt_packages: each token must start with an alphanumeric package-name character.
+  if [[ ! "$apt_packages" =~ ^[[:alnum:]][[:alnum:].+_-]*( [[:alnum:]][[:alnum:].+_-]*)*$ ]]; then
     echo "Invalid --apt-packages value: only package names separated by spaces are allowed." >&2
     exit 2
   fi
