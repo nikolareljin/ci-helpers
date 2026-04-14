@@ -129,8 +129,8 @@ jobs:
             remote_bin="$bin_name"
           fi
 
-          if [[ ! "$REMOTE_PATH" =~ ^[[:alnum:]_./~:-]+$ ]]; then
-            echo "Invalid remote_path: only alphanumeric, slash, dot, underscore, tilde, colon, and dash are allowed." >&2
+          if [[ ! "$REMOTE_PATH" =~ ^[[:alnum:]_./:-]+$ ]]; then
+            echo "Invalid remote_path: only alphanumeric, slash, dot, underscore, colon, and dash are allowed." >&2
             exit 2
           fi
 

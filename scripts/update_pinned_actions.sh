@@ -139,11 +139,10 @@ for file in "${files[@]}"; do
         echo "      new:  ${new_sha}  (${today})"
 
         if ! $check_only; then
-          # sed: replace old_sha + old_date, keep everything else unchanged.
-          # Use | as delimiter — safe because SHAs are hex and dates are digits/hyphens.
-          sed -i.bak \
-            "s|@${old_sha} # ${ref} @ ${old_date}|@${new_sha} # ${ref} @ ${today}|g" \
-            "$file"
+          old_fragment="@${old_sha} # ${ref} @ ${old_date}"
+          new_fragment="@${new_sha} # ${ref} @ ${today}"
+          OLD_FRAGMENT="$old_fragment" NEW_FRAGMENT="$new_fragment" \
+            perl -0pi.bak -e 's/\Q$ENV{OLD_FRAGMENT}\E/$ENV{NEW_FRAGMENT}/g' "$file"
           rm -f "${file}.bak"
           echo "      UPDATED."
         fi
