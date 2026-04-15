@@ -127,6 +127,10 @@ fetch_sha() {
     echo ""
     return 1
   }
+  if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+    echo ""
+    return 1
+  fi
   sha_cache["$cache_key"]="$sha"
   echo "$sha"
 }

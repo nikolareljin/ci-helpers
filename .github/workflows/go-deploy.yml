@@ -143,7 +143,7 @@ jobs:
           ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- '$REMOTE_PATH'"
 
           # Transfer binary.
-          rsync -az -e "$SSH_CMD" "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
+          rsync -az -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
 
           # Transfer extra files (comma-separated list).
           if [ -n "${INPUT_EXTRA_FILES}" ]; then
@@ -151,7 +151,7 @@ jobs:
             for f in "${files[@]}"; do
               f="$(echo "$f" | xargs)"
               if [ -f "$f" ]; then
-                rsync -az -e "$SSH_CMD" "$f" "${REMOTE}:${REMOTE_PATH}/"
+                rsync -az -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
               else
                 echo "Warning: extra file '$f' not found, skipping" >&2
               fi
