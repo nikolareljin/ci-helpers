@@ -12,6 +12,8 @@
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
+#   - python3
+#   - perl
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
@@ -40,6 +42,7 @@ usage() {
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
 #   - python3
+#   - perl
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
@@ -74,6 +77,16 @@ done
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "Error: gh CLI not found. Install from https://cli.github.com/" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 not found. Install Python 3 to URL-encode refs." >&2
+  exit 1
+fi
+
+if ! command -v perl >/dev/null 2>&1; then
+  echo "Error: perl not found. Install Perl to apply in-place replacements." >&2
   exit 1
 fi
 

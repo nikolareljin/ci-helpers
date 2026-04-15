@@ -44,7 +44,7 @@ if [ -z "$bin_name" ]; then
 fi
 
 if $install_deps; then
-  apt_packages="$(printf '%s' "$apt_packages" | sed 's/^[[:space:]]\+//; s/[[:space:]]\+$//')"
+  apt_packages="$(printf '%s' "$apt_packages" | sed 's/^[[:space:]][[:space:]]*//; s/[[:space:]][[:space:]]*$//')"
   # Validate apt_packages: each token must start with an alphanumeric package-name character.
   if [[ ! "$apt_packages" =~ ^[[:alnum:]][[:alnum:].+_-]*([[:space:]]+[[:alnum:]][[:alnum:].+_-]*)*$ ]]; then
     echo "Invalid --apt-packages value: only package names separated by whitespace are allowed." >&2
