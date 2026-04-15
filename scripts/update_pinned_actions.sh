@@ -205,9 +205,8 @@ for file in "${files[@]}"; do
   if ! $check_only && [[ ${#replacements_old[@]} -gt 0 ]]; then
     for i in "${!replacements_old[@]}"; do
       OLD_FRAGMENT="${replacements_old[$i]}" NEW_FRAGMENT="${replacements_new[$i]}" \
-        perl -0pi.bak -e 's/\Q$ENV{OLD_FRAGMENT}\E/$ENV{NEW_FRAGMENT}/g' "$file"
+        perl -0pi -e 's/\Q$ENV{OLD_FRAGMENT}\E/$ENV{NEW_FRAGMENT}/g' "$file"
     done
-    rm -f "${file}.bak"
     echo "      UPDATED."
   fi
 done
