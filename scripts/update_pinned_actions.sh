@@ -23,13 +23,36 @@ dir=".github"
 check_only=false
 today="$(date +%Y-%m-%d)"
 
-usage() { sed -n '1,28p' "$0"; }
+usage() {
+  cat <<'EOF'
+#!/usr/bin/env bash
+# SCRIPT: update_pinned_actions.sh
+# DESCRIPTION: Refresh SHA pins for third-party GitHub Actions in workflow/action YAML files.
+#              Reads the annotated ref from the inline comment (e.g. "# master @ 2026-04-13"),
+#              fetches the current HEAD SHA for that ref via the GitHub API, and updates stale
+#              pins in place.
+# USAGE: ./update_pinned_actions.sh [--dir <path>] [--check] [-h]
+# PARAMETERS:
+#   --dir <path>   Directory to scan recursively (default: .github).
+#   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
+#   -h, --help     Show this help message.
+# REQUIREMENTS:
+#   - gh CLI authenticated (gh auth status)
+#   - bash 4.0+
+#   - python3
+# EXAMPLES:
+#   ./scripts/update_pinned_actions.sh             # update all stale pins
+#   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
+#   ./scripts/update_pinned_actions.sh --dir .github/workflows
+# ----------------------------------------------------
+EOF
+}
 
 require_arg_value() {
   local flag="$1"
   local value="${2-}"
 
-  if [[ -z "$value" ]]; then
+  if [[ -z "$value" || "$value" == -* ]]; then
     echo "Missing value for ${flag}" >&2
     usage
     exit 2
@@ -72,7 +95,7 @@ ok_count=0
 warn_count=0
 
 url_encode_path_segment() {
-  perl -MURI::Escape=uri_escape_utf8 -e 'print uri_escape_utf8($ARGV[0]);' "$1"
+  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
 }
 
 # Fetch SHA for repo+ref, with caching
@@ -152,8 +175,11 @@ for file in "${files[@]}"; do
         echo "      new:  ${new_sha}  (${today})"
 
         if ! $check_only; then
-          replacements_old+=("@${old_sha} # ${ref} @ ${old_date}")
-          replacements_new+=("@${new_sha} # ${ref} @ ${today}")
+          matched_fragment="$line"
+          updated_fragment="${matched_fragment/@${old_sha}/@${new_sha}}"
+          updated_fragment="${updated_fragment/%${old_date}/${today}}"
+          replacements_old+=("${matched_fragment}")
+          replacements_new+=("${updated_fragment}")
         fi
       fi
     fi
