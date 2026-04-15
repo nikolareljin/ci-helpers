@@ -134,6 +134,11 @@ jobs:
             exit 2
           fi
 
+          if [[ ! "$remote_bin" =~ ^[[:alnum:]_.-]+$ ]]; then
+            echo "Invalid remote_bin_name: only alphanumeric, dot, underscore, and dash are allowed." >&2
+            exit 2
+          fi
+
           # Ensure remote directory exists.
           ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- '$REMOTE_PATH'"
 
