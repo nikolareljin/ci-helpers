@@ -163,6 +163,20 @@ jobs:
           INPUT_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
         run: |
           set -euo pipefail
+          write_multiline_output() {
+            local key="$1"
+            local value="$2"
+            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$value" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
+            {
+              printf '%s<<%s\n' "$key" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
           repo_dir="${GITHUB_WORKSPACE:-.}"
           cd "$repo_dir"
 
@@ -217,9 +231,7 @@ jobs:
           fi
 
           notes_content="$(cat "$notes_file")"
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$notes_content" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output "notes" "$notes_content"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1 @ 2026-04-13
