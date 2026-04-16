@@ -111,6 +111,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          quote_remote_shell_arg() {
+            local value="$1"
+            printf "'%s'" "${value//\'/\'\\\'\'}"
+          }
+
           TMP_KEY=$(mktemp)
           trap "rm -f '$TMP_KEY'" EXIT
 
@@ -133,8 +138,8 @@ jobs:
             remote_bin="$bin_name"
           fi
 
-          if [[ ! "$REMOTE_PATH" =~ ^[[:alnum:]_./:-]+$ ]]; then
-            echo "Invalid remote_path: only alphanumeric, slash, dot, underscore, colon, and dash are allowed." >&2
+          if [[ "$REMOTE_PATH" == *$'\n'* || "$REMOTE_PATH" == *$'\r'* ]]; then
+            echo "Invalid remote_path: newline characters are not allowed." >&2
             exit 2
           fi
 
@@ -143,11 +148,14 @@ jobs:
             exit 2
           fi
 
+          remote_path_quoted="$(quote_remote_shell_arg "$REMOTE_PATH")"
+          remote_binary_target_quoted="$(quote_remote_shell_arg "${REMOTE_PATH}/${remote_bin}")"
+
           # Ensure remote directory exists.
-          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- '$REMOTE_PATH'"
+          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- ${remote_path_quoted}"
 
           # Transfer binary.
-          rsync -az -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${REMOTE_PATH}/${remote_bin}"
+          rsync -az -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target_quoted}"
 
           # Transfer extra files (comma-separated list).
           if [ -n "${INPUT_EXTRA_FILES}" ]; then
@@ -155,7 +163,7 @@ jobs:
             for f in "${files[@]}"; do
               f="$(echo "$f" | xargs)"
               if [ -f "$f" ]; then
-                rsync -az -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
+                rsync -az -e "$SSH_CMD" -- "$f" "${REMOTE}:${remote_path_quoted}/"
               else
                 echo "Warning: extra file '$f' not found, skipping" >&2
               fi
