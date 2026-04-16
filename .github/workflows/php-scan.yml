@@ -198,7 +198,7 @@ jobs:
           curl -sSLo wp-cli.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
           php wp-cli.phar --info
 
-          mkdir -p "$wp_root"
+          mkdir -p -- "$wp_root"
 
           for _ in {1..30}; do
             if nc -z 127.0.0.1 3306; then

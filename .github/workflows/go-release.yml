@@ -75,7 +75,12 @@ jobs:
           INPUT_MAIN_PATH: ${{ inputs.main_path }}
         run: |
           set -euo pipefail
-          mkdir -p "${INPUT_ARTIFACT_DIR}"
+          if [[ "${INPUT_MAIN_PATH}" == -* ]]; then
+            echo "Invalid main_path: values starting with '-' are not allowed." >&2
+            exit 2
+          fi
+
+          mkdir -p -- "${INPUT_ARTIFACT_DIR}"
           IFS=',' read -r -a targets <<< "${INPUT_BUILD_TARGETS}"
 
           for target in "${targets[@]}"; do
@@ -102,7 +107,7 @@ jobs:
             fi
           done
 
-          ls -al "${INPUT_ARTIFACT_DIR}"
+          ls -al -- "${INPUT_ARTIFACT_DIR}"
 
       - name: Collect binary links
         id: binaries
@@ -113,10 +118,22 @@ jobs:
           INPUT_BUILD_TARGETS: ${{ inputs.build_targets }}
         run: |
           set -euo pipefail
+          write_multiline_output() {
+            local key="$1"
+            local value="$2"
+            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$value" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
+            {
+              printf '%s<<%s\n' "$key" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
           if [ -n "${INPUT_BINARY_LINKS}" ]; then
-            echo "links<<EOF" >> "$GITHUB_OUTPUT"
-            echo "${INPUT_BINARY_LINKS}" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            write_multiline_output "links" "${INPUT_BINARY_LINKS}"
             exit 0
           fi
 
@@ -135,9 +152,7 @@ jobs:
             links+=("${label}|${filename}")
           done
 
-          echo "links<<EOF" >> "$GITHUB_OUTPUT"
-          printf "%s\n" "${links[@]}" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output "links" "$(printf "%s\n" "${links[@]}")"
 
       - name: Generate release notes
         id: notes
