@@ -52,15 +52,17 @@ next_version="$(tr -d ' \t\r\n' < "${version_file}")"
 
 old_tag="${current_version}"
 new_tag="${next_version}"
+old_tag_sed="$(printf '%s' "${old_tag}" | sed 's/[][(){}.^$*+?|\\/&#]/\\&/g')"
+new_tag_sed="$(printf '%s' "${new_tag}" | sed 's/[\\/&#]/\\&/g')"
 
 mapfile -t tag_files < <(rg -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${tag_files[@]}"; do
-  sed -i "s#@${old_tag}#@${new_tag}#g" "${file}"
+  sed -i "s#@${old_tag_sed}#@${new_tag_sed}#g" "${file}"
 done
 
 mapfile -t production_files < <(rg -l "Current production tag: ${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${production_files[@]}"; do
-  sed -i "s#Current production tag: ${old_tag}#Current production tag: ${new_tag}#g" "${file}"
+  sed -i "s#Current production tag: ${old_tag_sed}#Current production tag: ${new_tag_sed}#g" "${file}"
 done
 
 log_info "Updated references for ${old_tag} -> ${new_tag}"
