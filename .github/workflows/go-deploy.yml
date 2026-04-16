@@ -72,6 +72,10 @@ jobs:
         run: |
           set -euo pipefail
           target="${INPUT_BUILD_TARGET}"
+          if [[ "${INPUT_MAIN_PATH}" == -* ]]; then
+            echo "Invalid main_path: values starting with '-' are not allowed." >&2
+            exit 2
+          fi
           export GOOS="${target%%/*}"
           export GOARCH="${target##*/}"
           export CGO_ENABLED=0
