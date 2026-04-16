@@ -55,12 +55,12 @@ new_tag="${next_version}"
 old_tag_sed="$(printf '%s' "${old_tag}" | sed 's/[][(){}.^$*+?|\\/&#]/\\&/g')"
 new_tag_sed="$(printf '%s' "${new_tag}" | sed 's/[\\/&#]/\\&/g')"
 
-mapfile -t tag_files < <(rg -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
+mapfile -t tag_files < <(rg -F -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${tag_files[@]}"; do
   sed -i "s#@${old_tag_sed}#@${new_tag_sed}#g" "${file}"
 done
 
-mapfile -t production_files < <(rg -l "Current production tag: ${old_tag}" --glob '!vendor/**' "${repo_root}")
+mapfile -t production_files < <(rg -F -l "Current production tag: ${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${production_files[@]}"; do
   sed -i "s#Current production tag: ${old_tag_sed}#Current production tag: ${new_tag_sed}#g" "${file}"
 done

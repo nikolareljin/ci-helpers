@@ -116,8 +116,8 @@ fetch_sha() {
   local repo="$1" ref="$2"
   local cache_key="${repo}@${ref}"
 
-  if [[ "${sha_cache[$cache_key]+_}" ]]; then
-    echo "${sha_cache[$cache_key]}"
+  if [[ "${sha_cache["$cache_key"]+_}" ]]; then
+    echo "${sha_cache["$cache_key"]}"
     return
   fi
 
