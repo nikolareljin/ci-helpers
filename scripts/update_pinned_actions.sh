@@ -4,7 +4,7 @@
 #              Reads the annotated ref from the inline comment (e.g. "# master @ 2026-04-13"),
 #              fetches the current HEAD SHA for that ref via the GitHub API, and updates stale
 #              pins in place.
-# USAGE: ./update_pinned_actions.sh [--dir <path>] [--check] [-h]
+# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [-h]
 # PARAMETERS:
 #   --dir <path>   Directory to scan recursively (default: .github).
 #   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
@@ -33,7 +33,7 @@ usage() {
 #              Reads the annotated ref from the inline comment (e.g. "# master @ 2026-04-13"),
 #              fetches the current HEAD SHA for that ref via the GitHub API, and updates stale
 #              pins in place.
-# USAGE: ./update_pinned_actions.sh [--dir <path>] [--check] [-h]
+# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [-h]
 # PARAMETERS:
 #   --dir <path>   Directory to scan recursively (default: .github).
 #   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
