@@ -161,6 +161,7 @@ jobs:
         env:
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
+          INPUT_BINARY_LINKS: ${{ steps.binaries.outputs.links }}
         run: |
           set -euo pipefail
           write_multiline_output() {
@@ -206,7 +207,7 @@ jobs:
             binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
           fi
 
-          binary_links="${{ steps.binaries.outputs.links }}"
+          binary_links="${INPUT_BINARY_LINKS}"
           if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
             {
               echo ""
