@@ -194,7 +194,7 @@ for file in "${files[@]}"; do
         if ! $check_only; then
           matched_fragment="$line"
           updated_fragment="${matched_fragment/@${old_sha}/@${new_sha}}"
-          updated_fragment="${updated_fragment/%${old_date}/${today}}"
+          updated_fragment="${updated_fragment/${old_date}/${today}}"
           replacements_old+=("${matched_fragment}")
           replacements_new+=("${updated_fragment}")
         fi
