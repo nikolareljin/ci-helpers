@@ -2,6 +2,16 @@
 
 ## 2026-04-13 — 0.7.2
 
+### Changed
+- **Node.js runtime:** Upgraded `actions/setup-node` from `v4` to `v5` across all
+  Node-using workflows (`ci.yml`, `deploy.yml`, `pr-gate.yml`, `react-scan.yml`,
+  `release-build.yml`, `node-scan.yml`, `vue-scan.yml`). Default `node_version`
+  updated from `"20"` to `"22"` (Active LTS) in `node.yml`, `node-scan.yml`,
+  `react.yml`, `react-scan.yml`, `vue-scan.yml`, `cypress.yml`, `playwright.yml`,
+  `pimcore.yml`, `pimcore-bundle-check.yml`, and the `pimcore-bundle-check`
+  composite action. Node.js 20 GitHub Actions runtime is deprecated; forced
+  migration to Node.js 24 begins June 2, 2026.
+
 ### Added
 - **`scripts/update_pinned_actions.sh`:** Local helper script that scans `.github/` for
   SHA-pinned action refs annotated with `# <ref> @ <date>`, fetches the current HEAD SHA
