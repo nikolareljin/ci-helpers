@@ -21,6 +21,11 @@
 # ----------------------------------------------------
 set -euo pipefail
 
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "Error: bash 4.0+ is required (associative arrays are used by this script)." >&2
+  exit 1
+fi
+
 dir=".github"
 check_only=false
 today="$(date +%Y-%m-%d)"
