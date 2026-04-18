@@ -138,6 +138,11 @@ jobs:
             remote_bin="$bin_name"
           fi
 
+          if [ -z "$REMOTE_PATH" ]; then
+            echo "Invalid remote_path: value must not be empty." >&2
+            exit 2
+          fi
+
           if [[ "$REMOTE_PATH" == *$'\n'* || "$REMOTE_PATH" == *$'\r'* ]]; then
             echo "Invalid remote_path: newline characters are not allowed." >&2
             exit 2
