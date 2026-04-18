@@ -25,8 +25,9 @@
 - **Explicit permissions:** Added `permissions: contents: read` to `gitleaks-check.yml`
   and `release-tag-check.yml`; added `pull-requests: read` to `gitleaks-check.yml`.
   These non-reusable workflows previously relied on the repo's `GITHUB_TOKEN` default.
-- **`version_bump.sh`:** Changed sed delimiter from `/` to `#` so version strings
-  containing `/` cannot break the substitution command.
+- **`version_bump.sh`:** Switched to `rg -F` for literal match discovery and Perl
+  literal replacements so version strings containing `/` and other special characters
+  are handled safely during in-place updates.
 - **`rust_release_build.sh`:** Added allowlist validation for the `--apt-packages`
   argument before passing it to `apt-get install` to prevent command injection via
   crafted package name strings.

@@ -135,7 +135,7 @@ jobs:
           bin_name="${INPUT_BIN_NAME}"
           remote_bin="${INPUT_REMOTE_BIN_NAME}"
           if [ -z "$remote_bin" ]; then
-            remote_bin="$bin_name"
+            remote_bin="${bin_name##*/}"
           fi
 
           if [ -z "$REMOTE_PATH" ]; then
