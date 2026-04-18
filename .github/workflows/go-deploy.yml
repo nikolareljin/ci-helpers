@@ -149,13 +149,14 @@ jobs:
           fi
 
           remote_path_quoted="$(quote_remote_shell_arg "$REMOTE_PATH")"
-          remote_binary_target_quoted="$(quote_remote_shell_arg "${REMOTE_PATH}/${remote_bin}")"
+          remote_binary_target="${REMOTE_PATH}/${remote_bin}"
 
           # Ensure remote directory exists.
           ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- ${remote_path_quoted}"
 
-          # Transfer binary.
-          rsync -az -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target_quoted}"
+          # Use raw rsync destination paths. quote_remote_shell_arg() is only for
+          # strings embedded into a remote shell command, not rsync target specs.
+          rsync -az --protect-args -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target}"
 
           # Transfer extra files (comma-separated list).
           if [ -n "${INPUT_EXTRA_FILES}" ]; then
@@ -163,7 +164,7 @@ jobs:
             for f in "${files[@]}"; do
               f="$(echo "$f" | xargs)"
               if [ -f "$f" ]; then
-                rsync -az -e "$SSH_CMD" -- "$f" "${REMOTE}:${remote_path_quoted}/"
+                rsync -az --protect-args -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
               else
                 echo "Warning: extra file '$f' not found, skipping" >&2
               fi
