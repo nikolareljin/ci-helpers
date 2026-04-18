@@ -28,7 +28,7 @@ inputs:
     required: false
   db_wait_seconds:
     description: Seconds to wait for the database service to become healthy.
-    default: "20"
+    default: "22"
     required: false
   out_dir:
     description: Host directory where test result files are written.
