@@ -38,7 +38,7 @@ on:
         default: db
       db_wait_seconds:
         type: string
-        default: "20"
+        default: "22"
       out_dir:
         type: string
         default: test/tmp
