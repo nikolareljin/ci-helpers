@@ -167,7 +167,12 @@ jobs:
           if [ -n "${INPUT_EXTRA_FILES}" ]; then
             IFS=',' read -r -a files <<< "${INPUT_EXTRA_FILES}"
             for f in "${files[@]}"; do
-              f="$(echo "$f" | xargs)"
+              # Trim only surrounding whitespace; preserve path contents verbatim.
+              f="${f#"${f%%[![:space:]]*}"}"
+              f="${f%"${f##*[![:space:]]}"}"
+              if [ -z "$f" ]; then
+                continue
+              fi
               if [ -f "$f" ]; then
                 rsync -az --protect-args -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
               else
