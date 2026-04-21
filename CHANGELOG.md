@@ -7,9 +7,8 @@
   Node-using workflows (`ci.yml`, `deploy.yml`, `pr-gate.yml`, `react-scan.yml`,
   `release-build.yml`, `node-scan.yml`, `vue-scan.yml`). Default `node_version`
   updated from `"20"` to `"22"` (Active LTS) in `node.yml`, `node-scan.yml`,
-  `react.yml`, `react-scan.yml`, `vue-scan.yml`, `cypress.yml`, `playwright.yml`,
-  `pimcore.yml`, `pimcore-bundle-check.yml`, and the `pimcore-bundle-check`
-  composite action. Node.js 20 GitHub Actions runtime is deprecated; forced
+  `react.yml`, `react-scan.yml`, `vue-scan.yml`, `cypress.yml`, and
+  `playwright.yml`. Node.js 20 GitHub Actions runtime is deprecated; forced
   migration to Node.js 24 begins June 2, 2026.
 
 ### Added
