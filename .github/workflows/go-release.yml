@@ -67,11 +67,21 @@ jobs:
       - name: Build release binaries
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          INPUT_ARTIFACT_DIR: ${{ inputs.artifact_dir }}
+          INPUT_LDFLAGS: ${{ inputs.ldflags }}
+          INPUT_BUILD_TARGETS: ${{ inputs.build_targets }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_MAIN_PATH: ${{ inputs.main_path }}
         run: |
           set -euo pipefail
-          mkdir -p "${{ inputs.artifact_dir }}"
-          ldflags="${{ inputs.ldflags }}"
-          IFS=',' read -r -a targets <<< "${{ inputs.build_targets }}"
+          if [[ "${INPUT_MAIN_PATH}" == -* ]]; then
+            echo "Invalid main_path: values starting with '-' are not allowed." >&2
+            exit 2
+          fi
+
+          mkdir -p -- "${INPUT_ARTIFACT_DIR}"
+          IFS=',' read -r -a targets <<< "${INPUT_BUILD_TARGETS}"
 
           for target in "${targets[@]}"; do
             goos="${target%%/*}"
@@ -87,34 +97,49 @@ jobs:
               ext=".exe"
             fi
 
-            out="${{ inputs.artifact_dir }}/${{ inputs.bin_name }}-${suffix}${ext}"
-            if [ -n "$ldflags" ]; then
+            out="${INPUT_ARTIFACT_DIR}/${INPUT_BIN_NAME}-${suffix}${ext}"
+            if [ -n "${INPUT_LDFLAGS}" ]; then
               env CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-                go build -o "$out" -ldflags "$ldflags" "${{ inputs.main_path }}"
+                go build -o "$out" -ldflags "${INPUT_LDFLAGS}" "${INPUT_MAIN_PATH}"
             else
               env CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-                go build -o "$out" "${{ inputs.main_path }}"
+                go build -o "$out" "${INPUT_MAIN_PATH}"
             fi
           done
 
-          ls -al "${{ inputs.artifact_dir }}"
+          ls -al -- "${INPUT_ARTIFACT_DIR}"
 
       - name: Collect binary links
         id: binaries
         shell: bash
+        env:
+          INPUT_BINARY_LINKS: ${{ inputs.binary_links }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_BUILD_TARGETS: ${{ inputs.build_targets }}
         run: |
           set -euo pipefail
-          binary_links="${{ inputs.binary_links }}"
-          if [ -n "$binary_links" ]; then
-            echo "links<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$binary_links" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output() {
+            local key="$1"
+            local value="$2"
+            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$value" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
+            {
+              printf '%s<<%s\n' "$key" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          if [ -n "${INPUT_BINARY_LINKS}" ]; then
+            write_multiline_output "links" "${INPUT_BINARY_LINKS}"
             exit 0
           fi
 
           links=()
-          bin="${{ inputs.bin_name }}"
-          IFS=',' read -r -a targets <<< "${{ inputs.build_targets }}"
+          bin="${INPUT_BIN_NAME}"
+          IFS=',' read -r -a targets <<< "${INPUT_BUILD_TARGETS}"
           for target in "${targets[@]}"; do
             goos="${target%%/*}"
             goarch="${target##*/}"
@@ -127,16 +152,32 @@ jobs:
             links+=("${label}|${filename}")
           done
 
-          echo "links<<EOF" >> "$GITHUB_OUTPUT"
-          printf "%s\n" "${links[@]}" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output "links" "$(printf "%s\n" "${links[@]}")"
 
       - name: Generate release notes
         id: notes
         if: ${{ inputs.generate_release_notes }}
         shell: bash
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
+          INPUT_BINARY_LINKS: ${{ steps.binaries.outputs.links }}
         run: |
           set -euo pipefail
+          write_multiline_output() {
+            local key="$1"
+            local value="$2"
+            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$value" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
+            {
+              printf '%s<<%s\n' "$key" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
           repo_dir="${GITHUB_WORKSPACE:-.}"
           cd "$repo_dir"
 
@@ -156,17 +197,17 @@ jobs:
             echo "* No changes listed." > "$notes_file"
           fi
 
-          release_tag="${{ inputs.release_tag }}"
+          release_tag="${INPUT_RELEASE_TAG}"
           if [ -z "$release_tag" ]; then
             release_tag="${GITHUB_REF_NAME:-}"
           fi
 
-          binary_base_url="${{ inputs.binary_base_url }}"
+          binary_base_url="${INPUT_BINARY_BASE_URL}"
           if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
             binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
           fi
 
-          binary_links="${{ steps.binaries.outputs.links }}"
+          binary_links="${INPUT_BINARY_LINKS}"
           if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
             {
               echo ""
@@ -191,12 +232,10 @@ jobs:
           fi
 
           notes_content="$(cat "$notes_file")"
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$notes_content" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output "notes" "$notes_content"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1 @ 2026-04-13
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}

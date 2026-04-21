@@ -183,14 +183,22 @@ jobs:
         if: ${{ inputs.wp_cli_scan && steps.detect_php_frameworks.outputs.is_wordpress == 'true' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          INPUT_WP_ROOT: ${{ inputs.wp_root }}
+          INPUT_WP_SITE_URL: ${{ inputs.wp_site_url }}
+          INPUT_WP_SITE_TITLE: ${{ inputs.wp_site_title }}
+          INPUT_WP_ADMIN_USER: ${{ inputs.wp_admin_user }}
+          INPUT_WP_ADMIN_PASSWORD: ${{ inputs.wp_admin_password }}
+          INPUT_WP_ADMIN_EMAIL: ${{ inputs.wp_admin_email }}
+          INPUT_WP_POSTS_COUNT: ${{ inputs.wp_posts_count }}
         run: |
           set -euo pipefail
-          wp_root="${{ inputs.wp_root }}"
+          wp_root="${INPUT_WP_ROOT}"
 
           curl -sSLo wp-cli.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
           php wp-cli.phar --info
 
-          mkdir -p "$wp_root"
+          mkdir -p -- "$wp_root"
 
           for _ in {1..30}; do
             if nc -z 127.0.0.1 3306; then
@@ -212,16 +220,16 @@ jobs:
           php wp-cli.phar db create --path="$wp_root" --allow-root
           php wp-cli.phar core install \
             --path="$wp_root" \
-            --url="${{ inputs.wp_site_url }}" \
-            --title="${{ inputs.wp_site_title }}" \
-            --admin_user="${{ inputs.wp_admin_user }}" \
-            --admin_password="${{ inputs.wp_admin_password }}" \
-            --admin_email="${{ inputs.wp_admin_email }}" \
+            --url="${INPUT_WP_SITE_URL}" \
+            --title="${INPUT_WP_SITE_TITLE}" \
+            --admin_user="${INPUT_WP_ADMIN_USER}" \
+            --admin_password="${INPUT_WP_ADMIN_PASSWORD}" \
+            --admin_email="${INPUT_WP_ADMIN_EMAIL}" \
             --skip-email \
             --allow-root
           php wp-cli.phar post generate \
             --path="$wp_root" \
-            --count="${{ inputs.wp_posts_count }}" \
+            --count="${INPUT_WP_POSTS_COUNT}" \
             --post_type=post \
             --allow-root
           php wp-cli.phar plugin list --path="$wp_root" --format=table --allow-root

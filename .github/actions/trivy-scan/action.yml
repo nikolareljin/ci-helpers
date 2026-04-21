@@ -37,7 +37,7 @@ runs:
   using: composite
   steps:
     - name: Run Trivy
-      uses: aquasecurity/trivy-action@master
+      uses: aquasecurity/trivy-action@264c9c5e188ea085e7377fd77abd17bfbd4e5926 # master @ 2026-04-13
       with:
         scan-type: fs
         scan-ref: ${{ inputs.scan_path }}
