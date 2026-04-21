@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-04-13 — 0.7.2
+
+### Changed
+- **Node.js runtime:** Upgraded `actions/setup-node` from `v4` to `v5` across all
+  Node-using workflows (`ci.yml`, `deploy.yml`, `pr-gate.yml`, `react-scan.yml`,
+  `release-build.yml`, `node-scan.yml`, `vue-scan.yml`). Default `node_version`
+  updated from `"20"` to `"22"` (Active LTS) in `node.yml`, `node-scan.yml`,
+  `react.yml`, `react-scan.yml`, `vue-scan.yml`, `cypress.yml`, and
+  `playwright.yml`. Node.js 20 GitHub Actions runtime is deprecated; forced
+  migration to Node.js 24 begins June 2, 2026.
+
+### Added
+- **`scripts/update_pinned_actions.sh`:** Local helper script that scans `.github/` for
+  SHA-pinned action refs annotated with `# <ref> @ <date>`, fetches the current HEAD SHA
+  from the GitHub API (with caching for repeated repo+ref queries), and updates stale pins
+  in place. Supports `--check` (dry-run / CI gate) and `--dir <path>` override. Run with
+  `gh` CLI authenticated.
+
+### Security
+- **Supply chain:** Pinned three floating `@master` action refs to reviewed commit SHAs:
+  `securego/gosec` in `go-scan.yml`, `aquasecurity/trivy-action` and `snyk/actions/docker` in `docker-scan.yml`.
+  Floating refs allow upstream changes to silently alter CI behaviour.
+- **Pinned** `softprops/action-gh-release@v1` to its SHA in `go-release.yml`.
+- **Expression injection (defence in depth):** Moved non-command workflow inputs
+  (`ldflags`, paths, names, WP-CLI args) from direct `${{ inputs.* }}` interpolation
+  in `run:` blocks to `env:` variables in `go-deploy.yml`, `go-release.yml`, and
+  `php-scan.yml`. Prevents shell-level injection if a caller ever passes user-controlled
+  content as a non-command input.
+- **SSH_OPTS quoting:** Changed `SSH_OPTS` in `go-deploy.yml` from an unquoted string
+  (used in `ssh $SSH_OPTS`) to a proper bash array (`SSH_OPTS=(...)`, `"${SSH_OPTS[@]}"`)
+  to prevent word-splitting on the key path.
+- **Explicit permissions:** Added `permissions: contents: read` to `gitleaks-check.yml`
+  and `release-tag-check.yml`; added `pull-requests: read` to `gitleaks-check.yml`.
+  These non-reusable workflows previously relied on the repo's `GITHUB_TOKEN` default.
+- **`version_bump.sh`:** Switched to `rg -F` for literal match discovery and Perl
+  literal replacements so version strings containing `/` and other special characters
+  are handled safely during in-place updates.
+- **`rust_release_build.sh`:** Added allowlist validation for the `--apt-packages`
+  argument before passing it to `apt-get install` to prevent command injection via
+  crafted package name strings.
+
 ## 2026-04-11
 
 ### Fixed

@@ -53,14 +53,16 @@ next_version="$(tr -d ' \t\r\n' < "${version_file}")"
 old_tag="${current_version}"
 new_tag="${next_version}"
 
-mapfile -t tag_files < <(rg -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
+mapfile -t tag_files < <(rg -F -l "@${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${tag_files[@]}"; do
-  sed -i "s/@${old_tag}/@${new_tag}/g" "${file}"
+  OLD_LITERAL="@${old_tag}" NEW_LITERAL="@${new_tag}" \
+    perl -0pi -e 's/\Q$ENV{OLD_LITERAL}\E/$ENV{NEW_LITERAL}/g' "${file}"
 done
 
-mapfile -t production_files < <(rg -l "Current production tag: ${old_tag}" --glob '!vendor/**' "${repo_root}")
+mapfile -t production_files < <(rg -F -l "Current production tag: ${old_tag}" --glob '!vendor/**' "${repo_root}")
 for file in "${production_files[@]}"; do
-  sed -i "s/Current production tag: ${old_tag}/Current production tag: ${new_tag}/g" "${file}"
+  OLD_LITERAL="Current production tag: ${old_tag}" NEW_LITERAL="Current production tag: ${new_tag}" \
+    perl -0pi -e 's/\Q$ENV{OLD_LITERAL}\E/$ENV{NEW_LITERAL}/g' "${file}"
 done
 
 log_info "Updated references for ${old_tag} -> ${new_tag}"
