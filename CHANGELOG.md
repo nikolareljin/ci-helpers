@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-05-14 — 0.7.3
+
+### Changed
+- **Node.js 24 opt-in:** Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` workflow-level
+  env to all workflows that invoke third-party actions still on Node 20 runtime
+  (`auto-tag-release.yml`, `gitleaks-scan.yml`, `release-rc-pr.yml`,
+  `release-tag-gate.yml`, `flutter-release.yml`, `go-release.yml`,
+  `rust-release.yml`, `release-build.yml`, `pr-gate.yml`, `ci.yml`).
+  Silences Node 20 deprecation warnings ahead of the forced migration on
+  June 2, 2026 (Node 20 removed from runners September 16, 2026).
+
 ## 2026-04-13 — 0.7.2
 
 ### Changed
