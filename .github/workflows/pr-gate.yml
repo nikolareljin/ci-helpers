@@ -69,6 +69,7 @@ on:
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   pr-gate:
     runs-on: ${{ inputs.runner }}

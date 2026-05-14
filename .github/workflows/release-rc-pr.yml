@@ -10,6 +10,7 @@ permissions:
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   open_pr:
     if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') }}
