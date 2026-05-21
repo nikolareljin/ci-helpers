@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Vendor script placeholder credentials (empty strings, not real secrets)"
+regexTarget = "line"
+regexes = [
+  '''db_password\s*=\s*""''',
+  '''db_user\s*=\s*""''',
+]
+paths = [
+  '''vendor/script-helpers/scripts/.*''',
+]
