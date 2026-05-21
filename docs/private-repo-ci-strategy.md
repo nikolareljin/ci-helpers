@@ -24,7 +24,7 @@ Layer 3  MAIN GATE  ci.yml      (full lint + test + build, post-merge) ~5min 1â€
 
 ```bash
 # If script-helpers is vendored as a submodule at scripts/script-helpers/
-bash scripts/setup-hooks.sh
+bash scripts/script-helpers/scripts/setup-hooks.sh
 
 # Or, if script-helpers is at a custom path
 git config core.hooksPath .githooks
