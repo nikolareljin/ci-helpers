@@ -46,20 +46,25 @@ Loader and modules
 - Modules live in `lib/*.sh` and are small, dependency-light files:
   - `logging.sh` — color constants and logging helpers (`print_info`, `log_info`, etc.).
   - `dialog.sh` — dialog sizing helpers and `get_value`.
-  - `os.sh` — OS detection (`get_os`, `getos`), clipboard helpers.
+  - `os.sh` — OS detection (`get_os`, `getos`, `is_wsl`) and conditional sudo helper.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
+- `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.
 - `traps.sh` — cleanup and signal traps.
 - `certs.sh` — self-signed cert creation and trust-store helpers.
 - `hosts.sh` — `/etc/hosts` helpers.
-  - `clipboard.sh` — `copy_to_clipboard`.
-  - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model
+- `clipboard.sh` — `copy_to_clipboard`.
+- `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`) and runtime helpers for local/docker (`ollama_runtime_*`).
+
+Notes for Ollama model indexing:
+- Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).
+- Installs `beautifulsoup4`/`requests` via `apt` when available; otherwise uses `pip` (requires `python3-pip`).
 
 Download dialog gauge
 ---------------------
@@ -163,6 +168,7 @@ Download behavior
     - `auto` (default): use dialog if available.
     - `true`/`1`: force dialog if available, otherwise fallback.
     - `false`/`0`/`never`: disable dialog and use plain `curl`/`wget`.
+  - `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG=0` suppresses dialog popup errors while preserving non-zero exit codes.
   - Falls back to plain `curl` or `wget` with no interactive gauge if dialog is unavailable or fails. When a dialog download fails, an error message is shown with details before falling back.
 
 Examples
@@ -214,5 +220,6 @@ Versioning and releases
 - Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
 - Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
 - GitHub Actions:
-  - Auto-tag: bumps `VERSION` based on conventional commits and creates a tag.
+  - Auto-tag (`.github/workflows/auto-tag.yml`): manually triggered via `workflow_dispatch` to bump `VERSION` from conventional commits and create a semver tag.
+  - Production pinning: when a semver tag is created by release automation from `main`, the same workflow run fast-forwards `production` to that tag commit.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.

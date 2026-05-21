@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_json.sh
+# DESCRIPTION: Example script for JSON helpers including formatting and escaping.
+# USAGE: ./example_json.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./example_json.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: JSON helpers
@@ -20,4 +26,3 @@ else
   ESCAPED=$(json_escape "Hello \"World\"\nNew line")
   echo "Escaped: $ESCAPED"
 fi
-

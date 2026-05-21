@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# SCRIPT: example_download.sh
+# DESCRIPTION: Example script that downloads a file with script-helpers progress support.
+# USAGE: ./example_download.sh [URL] [OUTPUT_PATH]
+# PARAMETERS:
+#   URL          Optional download URL (default: https://speed.hetzner.de/10MB.bin).
+#   OUTPUT_PATH  Optional output file path (default: /tmp/example-download.bin).
+# EXAMPLE: ./example_download.sh https://example.com/file.bin /tmp/file.bin
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Download a URL with a dialog gauge (auto-enabled in download_file)

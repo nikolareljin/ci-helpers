@@ -55,6 +55,9 @@ Environment variables
   - `auto` (default): use dialog gauge if `dialog` is installed.
   - `true`/`1`: force dialog if available.
   - `false`/`0`/`never`: disable dialog UI.
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — controls dialog download error popups:
+  - default `1`: show dialog on download failure.
+  - `0`/`false`/`never`: suppress popup and return non-zero to caller.
 - `PORT_DETECTION_ALLOW_SUDO` — allow sudo when probing ports (`ports` module). Default: `false`.
 - `FRONTEND_HOST`, `FRONTEND_PORT` — host/port for `browser::open_frontend_when_ready`.
 
@@ -226,13 +229,58 @@ For enhanced supply-chain security, pin images to a specific digest:
 ./scripts/ci_security.sh --gitleaks-digest sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
 
+Git hook setup and local test runners
+-------------------------------------
+
+Install the shared git hooks from your repository root. The command differs
+depending on whether you are working inside the script-helpers repo itself or
+in a consuming repo that vendors it as a submodule:
+
+```bash
+# Inside the script-helpers repo
+bash scripts/setup-hooks.sh
+
+# In a consuming repo that has script-helpers as a submodule under scripts/script-helpers
+bash scripts/script-helpers/scripts/setup-hooks.sh
+```
+
+The installer detects the correct hook directory automatically. It prefers
+`.githooks/` when both `pre-commit` and `pre-push` are present there, then
+falls back to the submodule path (`scripts/script-helpers/scripts/git-hooks`)
+or the local `scripts/git-hooks` directory. Shared hooks still defer to a
+matching repo-local `.githooks/pre-commit` or `.githooks/pre-push` when one
+is present (same-file recursion guard included).
+
+Run the language-specific local test scripts directly when you want the same
+entry points outside a hook. Use `--quick` for the fast test-only path. The
+Python runner installs `requirements.txt` when present; projects using only
+`pyproject.toml` should prepare their test environment before invoking it.
+
+The command prefix depends on context (same two-variant pattern as `setup-hooks.sh` above):
+
+```bash
+# Inside the script-helpers repo
+bash scripts/local_test_node.sh --quick
+bash scripts/local_test_python.sh --quick --dir backend
+bash scripts/local_test_go.sh --quick
+bash scripts/local_test_rust.sh --quick
+bash scripts/local_test_flutter.sh --quick --dir app
+
+# In a consuming repo (script-helpers as a submodule under scripts/script-helpers)
+bash scripts/script-helpers/scripts/local_test_node.sh --quick
+bash scripts/script-helpers/scripts/local_test_python.sh --quick --dir backend
+bash scripts/script-helpers/scripts/local_test_go.sh --quick
+bash scripts/script-helpers/scripts/local_test_rust.sh --quick
+bash scripts/script-helpers/scripts/local_test_flutter.sh --quick --dir app
+```
+
 Release branch checks
 ---------------------
 
 Use this script in local pre-commit hooks or CI pipelines to ensure `VERSION`
-matches `release/X.Y.Z[-rcN]` branch naming. Unlike the `ci_*.sh` scripts,
-`check_release_version.sh` does not have a `CI=true` guard and works in both
-environments:
+matches `release/[v]X.Y.Z[-rcN|-rc.N]` branch naming. Unlike the local-only
+`ci_{go,node,python,...}.sh` wrapper scripts that enforce a `CI=true` guard,
+`check_release_version.sh` works in both environments:
 
 ```bash
 ./scripts/check_release_version.sh --version-file VERSION --fetch-tags
@@ -255,7 +303,62 @@ bash "$SCRIPT_HELPERS_DIR/scripts/check_release_version.sh" --version-file VERSI
 
 Notes:
 - Set `SCRIPT_HELPERS_DIR` if your submodule lives elsewhere.
+
+Reusable workflow helper scripts
+--------------------------------
+
+These scripts are intended to be called from reusable GitHub Actions workflows
+or from local CI debugging sessions where you want the same shell entry points.
+Unlike the local-only `ci_{go,node,python,...}.sh` wrappers above, the
+`ci_gitleaks_report.sh`, `ci_pimcore_bundle_check.sh`, and
+`ci_wp_plugin_check.sh` helpers in this section are safe to call with `CI=true`.
+
+Check whether a release tag already exists for a release branch:
+
+```bash
+./scripts/check_release_tag.sh --branch release/0.12.2 --repo . --fetch-tags --print-version
+```
+
 - The check is a no-op on non-`release/*` branches.
+- `--fetch-tags` reads tags from the `origin` remote by default; pass `--remote`
+  when the repository uses a different remote name.
+
+Normalize and evaluate a Gitleaks SARIF report:
+
+```bash
+./scripts/ci_gitleaks_report.sh \
+  --output results.sarif \
+  --requested-output test/tmp/results.sarif \
+  --fail-on-findings true
+```
+
+Run the Pimcore bundle CI helper locally:
+
+Use a compose file from the consuming repository; `test/docker-compose.yml` below is a caller-side placeholder.
+
+```bash
+./scripts/ci_pimcore_bundle_check.sh \
+  --compose-file test/docker-compose.yml \
+  --bundle-src . \
+  --db-service db \
+  --php-service php \
+  --out-dir test/tmp
+```
+
+Run the WordPress plugin CI helper locally:
+
+Use a compose file from the consuming repository; `test/docker-compose.yml` below is a caller-side placeholder.
+
+```bash
+./scripts/ci_wp_plugin_check.sh \
+  --compose-file test/docker-compose.yml \
+  --plugin-slug my-plugin \
+  --plugin-src . \
+  --wpcli-service wpcli \
+  --wordpress-service wordpress \
+  --db-service db \
+  --out-dir test/tmp
+```
 
 Common snippets
 ---------------

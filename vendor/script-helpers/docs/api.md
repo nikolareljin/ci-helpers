@@ -12,6 +12,7 @@ This index lists all modules and their functions. See the linked module pages fo
 - dialog — ./modules/dialog.md
 - docker — ./modules/docker.md
 - json — ./modules/json.md
+- python — ./modules/python.md
 - ports — ./modules/ports.md
 - version — ./modules/version.md
 - browser — ./modules/browser.md

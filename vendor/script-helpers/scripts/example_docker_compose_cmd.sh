@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_docker_compose_cmd.sh
+# DESCRIPTION: Example script that detects and prints the available docker compose command.
+# USAGE: ./example_docker_compose_cmd.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./example_docker_compose_cmd.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Detect docker compose command
@@ -15,4 +21,3 @@ else
   print_error "Docker compose not available"
   exit 1
 fi
-

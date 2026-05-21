@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Logging and color helpers. Accepts both ANSI code constants and color name strings.
+# shellcheck disable=SC2034
 
 # ANSI color codes (both long and short names for compatibility)
 COLOR_RED="\033[31m";      RED="\033[0;31m"

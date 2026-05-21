@@ -206,10 +206,14 @@ These are available after vendoring `script-helpers` as a submodule under `scrip
 
 | Script | What it runs |
 |--------|-------------|
-| `scripts/local_test_node.sh` | `npm ci` → `npm test`; `--quick` skips install |
-| `scripts/local_test_python.sh` | pip install → `pytest`; `--quick` skips install |
-| `scripts/local_test_go.sh` | `go vet` → `go test ./...`; `--quick` skips vet |
-| `scripts/local_test_rust.sh` | `cargo check` → `cargo clippy` → `cargo test` |
-| `scripts/local_test_flutter.sh` | `flutter pub get` → `flutter analyze` → `flutter test` |
+| `scripts/script-helpers/scripts/local_test_node.sh` | `npm ci` → `npm test`; `--quick` skips install |
+| `scripts/script-helpers/scripts/local_test_python.sh` | pip install → `pytest`; `--quick` skips install |
+| `scripts/script-helpers/scripts/local_test_go.sh` | `go vet` → `go test ./...`; `--quick` skips vet |
+| `scripts/script-helpers/scripts/local_test_rust.sh` | `cargo check` → `cargo clippy` → `cargo test` |
+| `scripts/script-helpers/scripts/local_test_flutter.sh` | `flutter pub get` → `flutter analyze` → `flutter test` |
 
-The pre-push hook (also in script-helpers) auto-detects the stack and calls the appropriate runner, so tests run on every `git push` without any per-repo configuration.
+The pre-push hook (`scripts/script-helpers/scripts/git-hooks/pre-push`) auto-detects the stack and calls the appropriate runner, so tests run on every `git push` without any per-repo configuration. Enable it via:
+
+```bash
+bash scripts/script-helpers/scripts/setup-hooks.sh
+```

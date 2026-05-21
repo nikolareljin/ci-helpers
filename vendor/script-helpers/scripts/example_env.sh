@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_env.sh
+# DESCRIPTION: Example script that demonstrates environment helpers and validation.
+# USAGE: ./example_env.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: EXAMPLE_FOO=myvalue ./example_env.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Environment helpers
@@ -22,4 +28,3 @@ if ! require_env HOME PATH; then
   exit 1
 fi
 print_success "Required env vars are present"
-

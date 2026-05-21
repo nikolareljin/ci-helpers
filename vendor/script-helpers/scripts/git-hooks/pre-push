@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# pre-push hook — run language-appropriate tests before every push.
+# Install via: git config core.hooksPath scripts/git-hooks
+#              or: bash scripts/setup-hooks.sh
+#              or from a submodule: bash scripts/script-helpers/scripts/setup-hooks.sh
+#
+# Skip with: git push --no-verify  (discouraged; use only for docs-only pushes)
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+# Allow a repo-local pre-push hook to replace the shared hook when present.
+# -ef guard: skip delegation when the local hook is the same file as this script (avoids infinite recursion).
+if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
+  exec bash .githooks/pre-push "$@"
+fi
+
+# Resolve local_test_*.sh scripts directory; submodule path takes priority.
+_scripts_dir=""
+if [[ -d "$repo_root/scripts/script-helpers/scripts" ]]; then
+  _scripts_dir="$repo_root/scripts/script-helpers/scripts"
+elif [[ -d "$repo_root/scripts" ]]; then
+  _scripts_dir="$repo_root/scripts"
+fi
+
+_ran_tests=false
+
+# Inline Go runner used when local_test_go.sh is not available.
+run_go_tests_inline() {
+  local gomod module_dir
+  while IFS= read -r gomod; do
+    module_dir="$(dirname "$gomod")"
+    echo "[pre-push] go test ./... ($module_dir)"
+    (cd "$module_dir" && go test ./...)
+  done < <(
+    find . \
+      \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      -o -type f -name go.mod -print | sort
+  )
+}
+
+run_tests() {
+  # Node / npm workspaces — only return when tests actually ran; otherwise fall through.
+  if [[ -f package.json ]] && command -v npm &>/dev/null; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
+      echo "[pre-push] local_test_node.sh --quick"
+      bash "$_scripts_dir/local_test_node.sh" --quick
+      _ran_tests=true
+      return 0
+    elif command -v node &>/dev/null; then
+      local test_script
+      test_script="$(
+        node -pe '
+          var pkg = require("./package.json");
+          var test = (pkg.scripts && pkg.scripts.test) || "";
+          test === "echo \"Error: no test specified\" && exit 1" ? "" : test;
+        ' 2>/dev/null || echo ""
+      )"
+      if [[ -n "$test_script" ]]; then
+        echo "[pre-push] npm test"
+        npm test
+        _ran_tests=true
+        return 0
+      fi
+    fi
+    # package.json present but no runnable test command — fall through to other runners.
+  fi
+
+  # Python — only return when tests actually ran; otherwise fall through.
+  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
+      echo "[pre-push] local_test_python.sh --quick"
+      bash "$_scripts_dir/local_test_python.sh" --quick
+      _ran_tests=true
+      return 0
+    else
+      local python_bin=""
+      if [[ -x venv/bin/python ]]; then python_bin="venv/bin/python"
+      elif [[ -x .venv/bin/python ]]; then python_bin=".venv/bin/python"
+      elif command -v python3 &>/dev/null; then python_bin="python3"
+      elif command -v python &>/dev/null; then python_bin="python"; fi
+
+      if [[ -n "$python_bin" ]] && "$python_bin" -m pytest --version &>/dev/null; then
+        echo "[pre-push] $python_bin -m pytest"
+        "$python_bin" -m pytest --tb=short -q
+        _ran_tests=true
+        return 0
+      fi
+    fi
+    # Python files present but pytest not available — fall through to other runners.
+  fi
+
+  # Go — detect go.mod first so non-Go repos fall through to Rust/Flutter.
+  if command -v go &>/dev/null; then
+    local first_gomod
+    first_gomod="$(find . \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
+      -o -type f -name go.mod -print -quit)"
+    if [[ -n "$first_gomod" ]]; then
+      if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_go.sh" ]]; then
+        echo "[pre-push] local_test_go.sh --quick"
+        bash "$_scripts_dir/local_test_go.sh" --quick
+      else
+        run_go_tests_inline
+      fi
+      _ran_tests=true
+      return 0
+    fi
+  fi
+
+  # Rust
+  if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_rust.sh" ]]; then
+      echo "[pre-push] local_test_rust.sh --quick"
+      bash "$_scripts_dir/local_test_rust.sh" --quick
+    else
+      echo "[pre-push] cargo test"
+      cargo test
+    fi
+    _ran_tests=true
+    return 0
+  fi
+
+  # Flutter / Dart
+  if [[ -f pubspec.yaml ]] && command -v flutter &>/dev/null; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_flutter.sh" ]]; then
+      echo "[pre-push] local_test_flutter.sh --quick"
+      bash "$_scripts_dir/local_test_flutter.sh" --quick
+    else
+      echo "[pre-push] flutter test"
+      flutter test
+    fi
+    _ran_tests=true
+    return 0
+  fi
+
+  echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
+}
+
+run_tests
+if [[ "$_ran_tests" == "true" ]]; then
+  echo "[pre-push] All checks passed."
+fi

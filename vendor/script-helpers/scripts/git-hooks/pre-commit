@@ -1,19 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Change to repo root
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
 
-echo "[pre-commit] Linting docs coverage..."
-if bash scripts/lint_docs.sh; then
-  echo "[pre-commit] Docs OK"
-else
-  echo "[pre-commit] Documentation issues found. Aborting commit." >&2
+# Allow a repo-local pre-commit hook to replace the shared hook when present.
+# -ef guard: skip delegation when the local hook is the same file as this script (avoids infinite recursion).
+if [[ -f .githooks/pre-commit ]] && ! [[ .githooks/pre-commit -ef "$0" ]]; then
+  exec bash .githooks/pre-commit "$@"
+fi
+
+# Block accidental .env commits while allowing cleanup deletions.
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
+  echo "[pre-commit] ERROR: Staging a .env file. Remove it from the index first." >&2
+  echo "  git restore --staged <file>" >&2
   exit 1
 fi
 
-if ! bash scripts/check_release_version.sh --version-file VERSION; then
-  echo "[pre-commit] Release branch VERSION check failed." >&2
-  exit 1
+# Docs lint — skip gracefully if the script is absent (not all repos have it)
+if [[ -f scripts/lint_docs.sh ]]; then
+  echo "[pre-commit] Linting docs coverage..."
+  if bash scripts/lint_docs.sh; then
+    echo "[pre-commit] Docs OK"
+  else
+    echo "[pre-commit] Documentation issues found. Aborting commit." >&2
+    exit 1
+  fi
+fi
+
+# Release version check — only meaningful on release/* branches
+current_branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
+if [[ "$current_branch" == release/* ]]; then
+  _crv=""
+  if [[ -f scripts/script-helpers/scripts/check_release_version.sh ]]; then
+    _crv="scripts/script-helpers/scripts/check_release_version.sh"
+  elif [[ -f scripts/check_release_version.sh ]]; then
+    _crv="scripts/check_release_version.sh"
+  fi
+  if [[ -n "$_crv" ]] && ! bash "$_crv" --version-file VERSION; then
+    echo "[pre-commit] Release branch VERSION check failed." >&2
+    exit 1
+  fi
 fi

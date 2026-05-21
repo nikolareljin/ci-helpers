@@ -21,7 +21,7 @@ get_project_root() {
     script_dir="$(pwd)"
   fi
 
-  echo "$(dirname "$script_dir")"
+  dirname "$script_dir"
 }
 
 # Usage: load_env [env_file]; sources environment file if present.
@@ -83,7 +83,7 @@ init_include() {
   local project_root; project_root=$(get_project_root)
   if [[ "$(pwd)" != "$project_root" ]]; then
     log_debug "Changing to project root: $project_root"
-    cd "$project_root"
+    cd "$project_root" || return 1
   fi
   load_env
   log_debug "script-helpers initialized"

@@ -20,9 +20,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
       - name: Tag VERSION if updated
+        id: tag_release
         shell: bash
         run: |
           set -euo pipefail
+          echo "tag_created=false" >> "$GITHUB_OUTPUT"
+          echo "tag_name=" >> "$GITHUB_OUTPUT"
           if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
             if git diff --quiet HEAD~1 -- VERSION; then
               echo "VERSION unchanged; skipping tag."
@@ -40,3 +43,22 @@ jobs:
           fi
           git tag -a "$version" -m "Release $version"
           git push origin "$version"
+          echo "tag_created=true" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Move production to new tag
+        if: ${{ steps.tag_release.outputs.tag_created == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag_release.outputs.tag_name }}"
+          tag_commit="$(git rev-parse "${tag}^{}")"
+          git fetch origin production || true
+          if git rev-parse -q --verify origin/production >/dev/null; then
+            git checkout -B production origin/production
+            git merge --ff-only "$tag_commit"
+          else
+            git checkout -b production "$tag_commit"
+          fi
+          git push origin production
+          echo "production branch updated to tag ${tag}"
