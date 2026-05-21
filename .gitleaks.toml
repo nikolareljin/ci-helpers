@@ -1,8 +1,2 @@
 [extend]
 useDefault = true
-
-[[allowlists]]
-# ci_pimcore_bundle_check.sh uses db_password="" and db_user="" as empty
-# default placeholders, not real secrets. Scoped to the vendor sync commit.
-description = "Vendor sync dd5b789: ci_pimcore_bundle_check.sh empty placeholder credentials"
-commits = ["dd5b7893d7e1ead8a88c6d4a3664ae0daa01a702"]
