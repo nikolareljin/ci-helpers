@@ -41,6 +41,9 @@ on:
       rust_components:
         type: string
         default: ""
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: ""
@@ -154,6 +157,14 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php_version }}
+
+      - name: Install
+        if: ${{ inputs.install_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.install_command }}
 
       - name: Lint
         if: ${{ inputs.lint_command != '' }}

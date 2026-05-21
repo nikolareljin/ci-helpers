@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_dialog_input.sh
+# DESCRIPTION: Example script showing dialog input prompts via script-helpers.
+# USAGE: ./example_dialog_input.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./example_dialog_input.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Prompt user for input via dialog
@@ -11,4 +17,3 @@ shlib_import logging dialog
 
 name=$(get_value "Your Name" "Please enter your name:" "Anonymous") || exit 1
 print_success "Hello, $name!"
-

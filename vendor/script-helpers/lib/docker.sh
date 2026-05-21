@@ -28,8 +28,14 @@ run_docker_compose() { docker_compose "$@"; }
 # Compatibility: helpergpt style (takes a single combined command string)
 run_docker_compose_command() {
   local cmd; cmd=$(get_docker_compose_cmd) || return 1
-  # shellcheck disable=SC2086
-  $cmd $*
+  if [[ $# -eq 1 ]]; then
+    local -a split_args=()
+    read -r -a split_args <<< "$1"
+    # shellcheck disable=SC2086
+    $cmd "${split_args[@]}"
+  else
+    $cmd "$@"
+  fi
 }
 
 # Usage: check_docker; validates Docker CLI and daemon availability.
@@ -116,7 +122,7 @@ docker_status() {
   echo
   log_info "Compose services (from docker-compose.yml):"
 
-  local service ids since_list since glyph out
+  local service ids since_list since out
   while IFS= read -r service; do
     [[ -z "$service" ]] && continue
     # Container IDs for running instances of this service (empty if not running)

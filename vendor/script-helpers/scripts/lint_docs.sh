@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: lint_docs.sh
+# DESCRIPTION: Validate docs coverage and API index consistency for script-helpers modules.
+# USAGE: ./lint_docs.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./lint_docs.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
@@ -10,7 +16,7 @@ note()  { echo "[lint-docs] $*"; }
 error() { echo "[lint-docs][ERROR] $*" >&2; failures=$((failures+1)); }
 
 # Collect modules: lib/*.sh + helpers.sh (as module 'helpers')
-mapfile -t lib_files < <(ls -1 lib/*.sh 2>/dev/null | sort)
+mapfile -t lib_files < <(find lib -maxdepth 1 -type f -name '*.sh' | sort)
 lib_files=("helpers.sh" "${lib_files[@]}")
 
 missing_docs=()
@@ -85,4 +91,3 @@ else
   note "Found $failures documentation issues."
   exit 1
 fi
-

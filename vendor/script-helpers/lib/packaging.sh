@@ -108,7 +108,8 @@ pkg_classify_name() {
 # Usage: pkg_guess_version <repo_dir>
 # Attempts to infer version from VERSION file or git tags.
 pkg_guess_version() {
-  local repo_dir="${1:-.}" version_file="$repo_dir/VERSION"
+  local repo_dir="${1:-.}"
+  local version_file="$repo_dir/VERSION"
   if [[ -f "$version_file" ]]; then
     tr -d ' \t\r\n' < "$version_file"
     return 0

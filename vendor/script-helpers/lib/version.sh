@@ -127,7 +127,7 @@ version_bump() {
     prefix="${BASH_REMATCH[1]}"
     current_version="${BASH_REMATCH[2]}"
   fi
-  suffix="${current_version#${current_version%%-*}}"
+  suffix="${current_version#"${current_version%%-*}"}"
   normalized="${current_version%%-*}"
 
   local parsed

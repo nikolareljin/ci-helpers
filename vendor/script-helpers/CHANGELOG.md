@@ -8,6 +8,58 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/pin_production.sh` to fast-forward the production branch to a release tag.
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
+
+## [0.13.0] - 2026-05-21
+
+- Changed: `scripts/git-hooks/pre-commit` — hardened for universal use across all repos:
+  - Blocks accidental `.env` / `.env.*` file commits.
+  - Docs lint (`lint_docs.sh`) skipped gracefully when the script is absent.
+  - Release version check runs only on `release/*` branches (not on every commit).
+- Added: `scripts/git-hooks/pre-push` — language-aware test runner (Node/Python/Go/Rust/Flutter) with auto-detection. Runs before every push; skip with `--no-verify` only when justified.
+- Added: `scripts/setup-hooks.sh` — one-liner hook installer. Uses `.githooks/` when both shared hook entry points are overridden, otherwise falls back to `scripts/script-helpers/scripts/git-hooks/`, then `scripts/git-hooks/`.
+- Added: `scripts/local_test_node.sh` — install + test for Node/npm projects (`--quick`, `--workspace`).
+- Added: `scripts/local_test_python.sh` — venv-aware pytest runner that installs `requirements.txt` when present (`--quick`, `--dir`).
+- Added: `scripts/local_test_go.sh` — `go vet` + `go test` across all modules (`--quick`, `--module`).
+- Added: `scripts/local_test_rust.sh` — `cargo check` + `cargo clippy` + `cargo test` (`--quick`, `--manifest`).
+- Added: `scripts/local_test_flutter.sh` — `flutter analyze` + `flutter test` (`--quick`, `--dir`).
+
+## [0.12.2] - 2026-04-11
+
+- Added: `scripts/check_release_tag.sh` so reusable workflows can perform release-tag checks via shared shell logic.
+- Added: `scripts/ci_pimcore_bundle_check.sh` for reusable Pimcore bundle CI orchestration.
+- Added: `scripts/ci_wp_plugin_check.sh` for reusable WordPress plugin-check CI orchestration.
+- Added: `scripts/ci_gitleaks_report.sh` to normalize and evaluate Gitleaks SARIF output in reusable workflows.
+
+## [0.12.1] - 2026-03-20
+
+- Changed: Ollama model selection now uses a `dialog --menu` browser instead of the older radiolist/manual-entry flow.
+- Changed: Ollama model browsers now default to official un-namespaced library models, sorted alphabetically, with a reusable parsed menu cache valid for 30 minutes.
+- Changed: `ollama_dialog_select_size` now returns a distinct cancel status so callers can return to model selection instead of implicitly reusing an old size.
+- Fixed: Ollama selector cache generation can be reused safely across repeated opens within the same session and across launches while the cache is still fresh.
+- Fixed: Ollama selector cache refreshes now write atomically and ignore empty/stale cache files instead of reusing corrupted menu data.
+- Fixed: Ollama size-selection warnings now go to stderr so stdout-only callers do not corrupt captured values.
+- Added: dialog-based Ollama pull progress UI for runtime pulls, including model/layer/progress/speed/ETA parsing.
+- Fixed: Dialog pull progress now cleans up background pulls on cancel and bounds progress-log parsing to the recent tail of the log file.
+
+## [0.12.0] - 2026-02-13
+
+- Added: Ollama runtime helpers in `lib/ollama.sh` for local/docker execution (`ollama_runtime_*`) and shared model ref builder (`ollama_model_ref`).
+- Added: `is_wsl` helper in `lib/os.sh` for reusable WSL/WSL2 detection.
+- Added: `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` support in `lib/dialog.sh` to optionally suppress popup error dialogs from `dialog_download_file`.
+- Docs: Updated README and module docs for Ollama runtime helpers, WSL detection, and dialog error-popup controls.
+- Docs: Added missing `ollama_model_ref_safe` API entry in `docs/modules/ollama.md` to match exported helper aliases.
+
+## [0.11.1] - 2026-02-01
+
+- Changed: Ollama model index preparation now reuses an existing JSON when present and resolves Python 3 via `python3` or `python` (3.x). Adds apt-based installs for `python3-bs4`/`python3-requests` with a non-fatal `apt-get update` fallback.
+- Docs: Updated Ollama module docs and README to cover Python resolution and dependency handling.
+- Fixed: Skip `pip` requirement when `apt-get` can install Python deps.
+- Fixed: Fail fast if Python deps fail to install and verify deps after install.
+- Added: `python` module for resolving Python 3 and ensuring local virtualenvs.
+- Added: `OLLAMA_MODELS_REPO_REF` to pin the models repo before executing its scripts.
+- Fixed: pip installs for Ollama deps avoid `--user` when running as root.
+- Fixed: Validate Ollama model index JSON before falling back after a failed refresh.
+- Fixed: Validate venv Python executables before returning from `python_ensure_venv`.
 - Added: `--digest` parameter to `ci_flutter.sh` for supply-chain image pinning.
 - Added: `--gitleaks-digest` parameter to `ci_security.sh` for supply-chain image pinning.
 - Added: `lib/ci_defaults.sh` module — centralized Docker image version defaults for all CI scripts. No more `:latest` tags; all images use pinned versions. Overridable via CLI flags or environment variables.

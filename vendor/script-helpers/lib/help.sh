@@ -107,7 +107,7 @@ _help__render() {
 get_script_metadata() {
   local script_file="$1"
   local -n _meta="$2"
-  local line key current_field="" param_lines="" last_multiline_field=""
+  local line key current_field="" param_lines=""
   local in_header=true saw_header_key=false
   declare -A map=(
     [name]="^# SCRIPT:[[:space:]]*(.*)"
@@ -124,7 +124,7 @@ get_script_metadata() {
   )
   # Fields that can be multi-line
   local -A multiline_fields=([parameters]=1 [usage]=1 [example]=1 [exit_codes]=1)
-  for k in "${!map[@]}"; do _meta[$k]=""; done
+  for k in "${!map[@]}"; do _meta["$k"]=""; done
   while IFS= read -r line || [[ -n "$line" ]]; do
     if $in_header; then
       if [[ $line =~ ^#!/ ]]; then
@@ -147,11 +147,10 @@ get_script_metadata() {
         current_field=""
         saw_header_key=true
         if [[ -n "${multiline_fields[$key]:-}" ]]; then
-          _meta[$key]="${BASH_REMATCH[1]}"
+          _meta["$key"]="${BASH_REMATCH[1]}"
           current_field="$key"
-          last_multiline_field="$key"
         else
-          _meta[$key]="${BASH_REMATCH[1]}"
+          _meta["$key"]="${BASH_REMATCH[1]}"
         fi
         break
       fi
@@ -161,7 +160,7 @@ get_script_metadata() {
       if [[ -n "$current_field" ]]; then
         if [[ $line =~ ^#( |\t)(.*) ]]; then
           # Continuation line (starts with # and space/tab)
-          _meta[$current_field]+=$'\n'"${BASH_REMATCH[2]}"
+          _meta["$current_field"]+=$'\n'"${BASH_REMATCH[2]}"
         elif [[ $line =~ ^#[-]{3,}$ ]]; then
           # Separator ends header block
           current_field=""

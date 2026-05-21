@@ -59,8 +59,7 @@ select_multiple_distros() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  selected_distros=$(dialog --stdout --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}")
-  if [[ $? -ne 0 ]]; then
+  if ! selected_distros=$(dialog --stdout --title "Select Linux Distro" --checklist "Choose Linux distributions to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi
@@ -74,8 +73,7 @@ select_distro() {
   for d in "${!DISTROS[@]}"; do
     options+=("$d" "${DISTROS[$d]}")
   done
-  selected_distro=$(dialog --stdout --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}")
-  if [[ $? -ne 0 ]]; then
+  if ! selected_distro=$(dialog --stdout --title "Select Linux Distro" --menu "Choose a Linux distribution to download:" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${options[@]}"); then
     print_error "No distro selected. Exiting..."
     return 1
   fi
@@ -299,10 +297,13 @@ dialog_download_file() {
     else
       err_preview="No additional error output captured."
     fi
-    # Try to show a dialog message with error details
-    dialog --title "Download Error" \
-      --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
-      "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
+    # Try to show a dialog message with error details unless explicitly suppressed.
+    local show_error_dialog="${DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG:-1}"
+    if [[ "$show_error_dialog" != "0" && "$show_error_dialog" != "false" && "$show_error_dialog" != "never" ]]; then
+      dialog --title "Download Error" \
+        --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
+        "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
+    fi
     rm -f "$errfile"
     return $rc
   fi

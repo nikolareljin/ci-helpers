@@ -53,7 +53,7 @@ pkg_set_series() {
 # Usage: pkg_build_deb_artifacts <repo_dir> <prebuild_cmd> <build_cmd>
 pkg_build_deb_artifacts() {
   local repo_dir="$1" prebuild_cmd="$2" build_cmd="$3"
-  cd "$repo_dir"
+  cd "$repo_dir" || return 1
   pkg_run_prebuild "$prebuild_cmd"
   if [[ -n "$build_cmd" ]]; then
     _pkg_log_info "Running build: $build_cmd"
@@ -72,7 +72,7 @@ pkg_build_source_package() {
     return 2
   fi
   pkg_require_cmds debuild gpg || return 2
-  cd "$repo_dir"
+  cd "$repo_dir" || return 1
   pkg_run_prebuild "$prebuild_cmd"
   pkg_set_series "$series"
   if [[ -n "$build_cmd" ]]; then
@@ -87,7 +87,7 @@ pkg_build_source_package() {
 pkg_find_changes_file() {
   local repo_dir="$1"
   local changes_file
-  changes_file="$(ls "$repo_dir"/../*.changes | head -n 1 || true)"
+  changes_file="$(find "$repo_dir/.." -maxdepth 1 -type f -name '*.changes' | head -n 1 || true)"
   if [[ -z "$changes_file" ]]; then
     _pkg_log_error "No .changes file found."
     return 1

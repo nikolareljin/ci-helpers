@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_logging.sh
+# DESCRIPTION: Example script that demonstrates logging and structured log helpers.
+# USAGE: ./example_logging.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./example_logging.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Logging helpers
@@ -18,4 +24,3 @@ log_info "Structured info (log_info)"
 log_warn "Structured warn (log_warn)"
 log_error "Structured error (log_error)"
 DEBUG=true log_debug "Structured debug (log_debug)"
-

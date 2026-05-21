@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-21 — 0.8.0
+
+### Added
+- **`install_command` input for `pr-gate.yml`:** New optional input that runs a
+  dedicated Install step before Lint/Test/Build. Allows callers to install
+  dependencies once and reuse them across subsequent steps, eliminating
+  redundant `npm ci` / `pip install` calls that previously appeared in both
+  `lint_command` and `test_command`.
+- **`docs/private-repo-ci-strategy.md`:** Full 3-layer CI model documentation
+  (Local hooks → PR gate → Main gate) with per-stack workflow examples for
+  Node/TypeScript, Python, Go, Rust, Flutter, Java/Gradle, and PHP. Includes
+  a table of repos that need the duplicate-trigger fix and a reference to the
+  script-helpers local test scripts.
+
 ## 2026-05-14 — 0.7.3
 
 ### Changed

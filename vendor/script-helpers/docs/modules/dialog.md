@@ -33,16 +33,16 @@ Functions
     - tool — `auto` (default), `curl`, or `wget`.
   - Behavior:
     - Shows progress while downloading; handles unknown `Content-Length` with rolling progress and no ETA.
-    - On errors, shows a dialog box with exit code and error details.
+    - On errors, shows a dialog box with exit code and error details unless disabled by env.
   - Returns: 0 on success; non-zero on failure/cancel.
 
 Environment
 -----------
 
 - `DIALOG_WIDTH`, `DIALOG_HEIGHT` — set by `dialog_init`.
+- `DIALOG_DOWNLOAD_SHOW_ERROR_DIALOG` — set to `0`, `false`, or `never` to suppress dialog error popups in `dialog_download_file`.
 
 Dependencies
 ------------
 
 - `dialog`, `awk`, `stat` (GNU/BSD), and `curl` or `wget`.
-

@@ -39,6 +39,7 @@ Modules overview
 - docker — docker compose detection/wrapper, service wait, status inspection.
 - deps — install utilities and AI Runner tooling profile.
 - json — escape strings, extract fields, markdown-friendly formatting.
+- python — resolve Python 3 executables and ensure local virtualenvs.
 - ports — list port listeners, detect conflicts from env variables.
 - version — semantic version helpers for bumping and comparing.
 - browser — open URLs and wait+open a frontend when ready.

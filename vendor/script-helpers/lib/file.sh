@@ -39,6 +39,7 @@ download_file() {
       # Ensure dialog_download_file is available; try sourcing if missing
       if ! declare -F dialog_download_file >/dev/null 2>&1; then
         local _lib_dialog="${SCRIPT_HELPERS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/lib/dialog.sh"
+        # shellcheck disable=SC1090
         [[ -f "$_lib_dialog" ]] && source "$_lib_dialog"
       fi
       if declare -F dialog_download_file >/dev/null 2>&1; then

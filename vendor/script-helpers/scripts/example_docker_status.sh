@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# SCRIPT: example_docker_status.sh
+# DESCRIPTION: Example script that prints Docker runtime status using script-helpers.
+# USAGE: ./example_docker_status.sh
+# PARAMETERS: No required parameters.
+# EXAMPLE: ./example_docker_status.sh
+# ----------------------------------------------------
 set -euo pipefail
 
 # Demo: Show docker status and compose service checks
@@ -10,4 +16,3 @@ source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import logging docker
 
 docker_status
-

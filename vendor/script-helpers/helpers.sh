@@ -31,7 +31,9 @@ shlib_import() {
   local need_logging=true
   for name in "${requested[@]}"; do [[ "$name" == "logging" ]] && need_logging=false; done
   if $need_logging; then
-    file="$_SHLIB_LIB_DIR/logging.sh"; [[ -f "$file" ]] && source "$file"
+    file="$_SHLIB_LIB_DIR/logging.sh"
+    # shellcheck disable=SC1090
+    [[ -f "$file" ]] && source "$file"
   fi
   for name in "${requested[@]}"; do
     file="$_SHLIB_LIB_DIR/${name}.sh"

@@ -64,8 +64,19 @@ if ! $non_interactive; then
   current_model=$(resolve_env_value "model" "" "$env_file")
   current_size=$(resolve_env_value "size" "" "$env_file")
 
-  model=$(ollama_dialog_select_model "$JSON_FILE" "$current_model")
-  size=$(ollama_dialog_select_size "$JSON_FILE" "$model" "$current_size")
+  while true; do
+    model=$(ollama_dialog_select_model "$JSON_FILE" "$current_model") || exit $?
+    if size=$(ollama_dialog_select_size "$JSON_FILE" "$model" "$current_size"); then
+      break
+    else
+      size_rc=$?
+      if [[ $size_rc -eq 2 ]]; then
+        current_model="$model"
+        continue
+      fi
+      exit "$size_rc"
+    fi
+  done
   # Persist selections
   ollama_update_env "$env_file" model "$model"
   ollama_update_env "$env_file" size "$size"
@@ -93,4 +104,3 @@ if $run_after; then
 fi
 
 print_success "Completed. Model: ${model}:${size}"
-

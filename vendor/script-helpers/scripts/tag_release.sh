@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-version=$(cat VERSION | tr -d ' \t\n\r')
+version=$(tr -d ' \t\n\r' < VERSION)
 tag="${version}"
 
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then

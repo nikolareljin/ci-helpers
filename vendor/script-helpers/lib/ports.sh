@@ -190,6 +190,7 @@ check_required_ports_available() {
   if [[ ${#json_entries[@]} -gt 0 ]]; then
     local combined; combined=$(IFS=,; echo "${json_entries[*]}")
     REQUIRED_PORT_CONFLICTS_JSON="[${combined}]"
+    export REQUIRED_PORT_CONFLICTS_JSON
   fi
 
   [[ $conflict_found -eq 0 ]]

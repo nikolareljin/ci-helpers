@@ -17,6 +17,11 @@ get_os() {
 # Alias used in some projects
 getos() { get_os; }
 
+# Usage: is_wsl; returns success when running under WSL.
+is_wsl() {
+  grep -qi "microsoft" /proc/version 2>/dev/null || [[ -n "${WSL_DISTRO_NAME:-}" ]]
+}
+
 # Run with sudo optionally based on a boolean flag argument
 run_with_optional_sudo() {
   local use_sudo="$1"; shift

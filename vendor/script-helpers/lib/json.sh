@@ -30,7 +30,7 @@ format_response() {
 format_md_response() {
   local response="$1"
   if [[ "$response" == *"\`\`\`"* ]]; then
-    echo "$response" | sed "s/\`\`\`//g"
+    echo "${response//\`\`\`/}"
   else
     echo "$response"
   fi
