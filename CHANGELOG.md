@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-05-22 - 0.9.0
+## 2026-05-22 — 0.9.0
 
 ### Added
 - **`data-safety-scan` composite action:** Centralized JSON data scanning that

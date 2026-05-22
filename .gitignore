@@ -1,5 +1,7 @@
 # Vendor dependencies
 vendor/
+!vendor/.script-helpers-sha
+!vendor/.script-helpers-ref
 
 # IDE files
 .vscode/
