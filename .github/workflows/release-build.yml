@@ -234,7 +234,7 @@ jobs:
 
       - name: Create GitHub release (with files)
         if: ${{ inputs.artifact_paths != '' }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
@@ -246,7 +246,7 @@ jobs:
 
       - name: Create GitHub release (no files)
         if: ${{ inputs.artifact_paths == '' }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
