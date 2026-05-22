@@ -1,0 +1,15 @@
+name: Data Safety Scan
+description: Reject sensitive keys in JSON data files.
+inputs:
+  scan_path:
+    description: Directory to scan recursively for JSON files.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Scan JSON data files
+      shell: bash
+      env:
+        INPUT_SCAN_PATH: ${{ inputs.scan_path }}
+      run: |
+        bash "${{ github.action_path }}/data-safety-scan.sh" "$INPUT_SCAN_PATH"

@@ -9,7 +9,7 @@ Includes:
 - Reusable workflows for release builds (generic and Rust).
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
 - Composite actions for semver comparison, release tag checks, and release notes.
-- Composite actions for Trivy, Gitleaks, and WordPress plugin-check scans.
+- Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
 - Preset workflows for common stacks (Java, Kotlin, Rust, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.

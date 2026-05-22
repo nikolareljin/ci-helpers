@@ -1,0 +1,206 @@
+name: security-weekly
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sha-pin-audit:
+    name: SHA Pin Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+
+      - name: Check stale SHA pins
+        shell: bash
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  floating-ref-scan:
+    name: Floating Reference Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Detect unanchored action refs
+        shell: bash
+        run: bash scripts/check_floating_refs.sh
+
+  trivy-fs:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Trivy scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          scan_path: "."
+          severity: "CRITICAL,HIGH"
+          fail_on_findings: "false"
+          upload_sarif: "true"
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Gitleaks scan
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: "."
+          report_format: sarif
+          output: results.sarif
+          fail_on_findings: "true"
+          upload_artifact: "true"
+          artifact_name: gitleaks-report-weekly
+
+      - name: Upload SARIF to Security tab
+        if: ${{ always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+  vendor-drift:
+    name: Vendor Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check script-helpers drift
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha_lock="vendor/.script-helpers-sha"
+          ref_lock="vendor/.script-helpers-ref"
+
+          if [[ ! -f "$sha_lock" ]]; then
+            echo "::notice::$sha_lock not found. Run scripts/sync_script_helpers.sh to generate it. Skipping drift check."
+            exit 0
+          fi
+
+          pinned_sha=$(tr -d '[:space:]' < "$sha_lock")
+          echo "Vendored script-helpers SHA: $pinned_sha"
+
+          # Use the pinned ref if the sync was done against a specific ref;
+          # otherwise fall back to the upstream default branch.
+          if [[ -f "$ref_lock" && -n "$(cat "$ref_lock" | tr -d '[:space:]')" ]]; then
+            compare_ref=$(tr -d '[:space:]' < "$ref_lock")
+            echo "Comparing against pinned ref: $compare_ref"
+          else
+            compare_ref=$(gh api repos/nikolareljin/script-helpers --jq '.default_branch' 2>/dev/null || echo "")
+            if [[ -z "$compare_ref" ]]; then
+              echo "::warning::Could not determine upstream default branch."
+              exit 1
+            fi
+            echo "Comparing against default branch: $compare_ref"
+          fi
+
+          encoded_ref=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$compare_ref")
+          upstream_sha=$(gh api "repos/nikolareljin/script-helpers/commits/${encoded_ref}" --jq '.sha' 2>/dev/null || echo "")
+          if [[ -z "$upstream_sha" ]]; then
+            echo "::warning::Could not fetch upstream script-helpers ref '$compare_ref' via GitHub API."
+            exit 1
+          fi
+          echo "Upstream script-helpers SHA : $upstream_sha"
+
+          if [[ "$pinned_sha" != "$upstream_sha" ]]; then
+            echo "::warning::script-helpers is behind upstream. Run scripts/sync_script_helpers.sh to update."
+            echo "Vendored : $pinned_sha"
+            echo "Upstream : $upstream_sha"
+            exit 1
+          fi
+          echo "script-helpers is up to date."
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  issue-on-failure:
+    name: Report Failure
+    runs-on: ubuntu-latest
+    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift]
+    if: failure()
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA_PIN_RESULT: ${{ needs.sha-pin-audit.result }}
+          FLOATING_REF_RESULT: ${{ needs.floating-ref-scan.result }}
+          TRIVY_RESULT: ${{ needs.trivy-fs.result }}
+          GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
+          VENDOR_RESULT: ${{ needs.vendor-drift.result }}
+        run: |
+          set -euo pipefail
+
+          declare -a failed=()
+          [[ "$SHA_PIN_RESULT"      == "failure" ]] && failed+=("- ❌ SHA Pin Audit")
+          [[ "$FLOATING_REF_RESULT" == "failure" ]] && failed+=("- ❌ Floating Reference Scan")
+          [[ "$TRIVY_RESULT"        == "failure" ]] && failed+=("- ❌ Trivy Filesystem Scan")
+          [[ "$GITLEAKS_RESULT"     == "failure" ]] && failed+=("- ❌ Gitleaks Secret Scan")
+          [[ "$VENDOR_RESULT"       == "failure" ]] && failed+=("- ❌ Vendor Drift Check")
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          today=$(date -u +%Y-%m-%d)
+
+          body=$(printf '%s\n' \
+            "## ⚠️ Weekly Security Check Failed" \
+            "**Run:** [#${GITHUB_RUN_NUMBER}](${run_url})" \
+            "**Date:** ${today}" \
+            "" \
+            "### Failed Jobs" \
+            "${failed[@]}" \
+            "" \
+            "Review the run logs and resolve before the next release advances \`@production\`.")
+
+          existing=$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --label "security-weekly" \
+            --state open \
+            --json number \
+            --jq '.[0].number // ""' 2>/dev/null || echo "")
+
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --repo "${GITHUB_REPOSITORY}" --body "$body"
+            echo "::notice::Added comment to existing issue #${existing}"
+          else
+            gh label create "security-weekly" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --color "d93f0b" \
+              --description "Weekly security scan failure tracking" \
+              2>/dev/null || true
+            issue_url=$(gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "⚠️ Weekly Security Check Failed" \
+              --body "$body" \
+              --label "security-weekly")
+            echo "::notice::Created issue: ${issue_url}"
+          fi

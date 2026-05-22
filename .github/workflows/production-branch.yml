@@ -9,7 +9,39 @@ permissions:
   contents: write
 
 jobs:
+  security-gate:
+    name: Security Gate
+    if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+
+      - name: Check stale SHA pins
+        shell: bash
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect floating action refs
+        shell: bash
+        run: bash scripts/check_floating_refs.sh
+
   production:
+    needs: [security-gate]
     if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
     runs-on: ubuntu-latest
     steps:
