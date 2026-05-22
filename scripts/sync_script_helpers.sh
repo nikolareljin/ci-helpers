@@ -39,8 +39,9 @@ COMMIT_HASH=$(cd "$DEST_DIR" && git rev-parse HEAD)
 # Remove .git directory to avoid nested git repositories
 rm -rf "$DEST_DIR/.git"
 
-# Write SHA lockfile so vendor-drift checks can compare against upstream
+# Write SHA and ref lockfiles so vendor-drift checks can compare against upstream
 echo "$COMMIT_HASH" > "$ROOT_DIR/vendor/.script-helpers-sha"
+echo "${REF:-}" > "$ROOT_DIR/vendor/.script-helpers-ref"
 
 echo "Synced script-helpers from $REPO_URL"
 echo "Commit: $COMMIT_HASH"

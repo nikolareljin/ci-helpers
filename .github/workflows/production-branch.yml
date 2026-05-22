@@ -55,7 +55,7 @@ jobs:
             echo "$floating"
             exit 1
           fi
-          echo "All external action refs are SHA-pinned."
+          echo "No mutable channel refs (@master/@main/@latest/@stable) detected."
 
   production:
     needs: [security-gate]

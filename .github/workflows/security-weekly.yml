@@ -65,7 +65,7 @@ jobs:
             echo "Pin each to a commit SHA and annotate with: # <ref> @ <date>"
             exit 1
           fi
-          echo "All external action refs are SHA-pinned."
+          echo "No mutable channel refs (@master/@main/@latest/@stable) detected."
 
   trivy-fs:
     name: Trivy Filesystem Scan
@@ -120,22 +120,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          lockfile="vendor/.script-helpers-sha"
+          sha_lock="vendor/.script-helpers-sha"
+          ref_lock="vendor/.script-helpers-ref"
 
-          if [[ ! -f "$lockfile" ]]; then
-            echo "::warning::$lockfile not found. Run scripts/sync_script_helpers.sh to generate it."
+          if [[ ! -f "$sha_lock" ]]; then
+            echo "::warning::$sha_lock not found. Run scripts/sync_script_helpers.sh to generate it."
             exit 1
           fi
 
-          pinned_sha=$(tr -d '[:space:]' < "$lockfile")
+          pinned_sha=$(tr -d '[:space:]' < "$sha_lock")
           echo "Vendored script-helpers SHA: $pinned_sha"
 
-          upstream_sha=$(gh api repos/nikolareljin/script-helpers/commits/HEAD --jq '.sha' 2>/dev/null || echo "")
+          # Use the pinned ref if the sync was done against a specific ref;
+          # otherwise fall back to the upstream default branch.
+          if [[ -f "$ref_lock" && -n "$(cat "$ref_lock" | tr -d '[:space:]')" ]]; then
+            compare_ref=$(tr -d '[:space:]' < "$ref_lock")
+            echo "Comparing against pinned ref: $compare_ref"
+          else
+            compare_ref=$(gh api repos/nikolareljin/script-helpers --jq '.default_branch' 2>/dev/null || echo "")
+            if [[ -z "$compare_ref" ]]; then
+              echo "::warning::Could not determine upstream default branch."
+              exit 1
+            fi
+            echo "Comparing against default branch: $compare_ref"
+          fi
+
+          upstream_sha=$(gh api "repos/nikolareljin/script-helpers/commits/${compare_ref}" --jq '.sha' 2>/dev/null || echo "")
           if [[ -z "$upstream_sha" ]]; then
-            echo "::warning::Could not fetch upstream script-helpers HEAD via GitHub API."
+            echo "::warning::Could not fetch upstream script-helpers ref '$compare_ref' via GitHub API."
             exit 1
           fi
-          echo "Upstream script-helpers HEAD: $upstream_sha"
+          echo "Upstream script-helpers SHA : $upstream_sha"
 
           if [[ "$pinned_sha" != "$upstream_sha" ]]; then
             echo "::warning::script-helpers is behind upstream. Run scripts/sync_script_helpers.sh to update."
