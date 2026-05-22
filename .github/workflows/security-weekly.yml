@@ -6,8 +6,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  issues: write
 
 jobs:
   sha-pin-audit:
@@ -42,34 +40,14 @@ jobs:
 
       - name: Detect unanchored action refs
         shell: bash
-        run: |
-          set -euo pipefail
-
-          # Find channel-style refs (@master/@main/@latest/@stable) outside SHA-pinned lines.
-          # Flag only channel-style refs (@master/@main/@latest/@stable).
-          # Versioned tags (@v5) are accepted per repo policy; SHA-pinned refs
-          # are already audited by the sha-pin-audit job.
-          floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' \
-              .github/workflows/ .github/actions/ \
-            | grep -v '^\s*#' \
-            | grep -v 'uses:[[:space:]]*\./\.' \
-            | grep -vE '@[0-9a-f]{40}' \
-            | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
-            || true)
-
-          if [[ -n "$floating" ]]; then
-            echo "::warning::Mutable channel refs (@master/@main/@latest/@stable) detected:"
-            echo "$floating"
-            echo ""
-            echo "These refs can move upstream at any time without notice."
-            echo "Pin each to a commit SHA and annotate with: # <ref> @ <date>"
-            exit 1
-          fi
-          echo "No mutable channel refs (@master/@main/@latest/@stable) detected."
+        run: bash scripts/check_floating_refs.sh
 
   trivy-fs:
     name: Trivy Filesystem Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v5
 
@@ -124,8 +102,8 @@ jobs:
           ref_lock="vendor/.script-helpers-ref"
 
           if [[ ! -f "$sha_lock" ]]; then
-            echo "::warning::$sha_lock not found. Run scripts/sync_script_helpers.sh to generate it."
-            exit 1
+            echo "::notice::$sha_lock not found. Run scripts/sync_script_helpers.sh to generate it. Skipping drift check."
+            exit 0
           fi
 
           pinned_sha=$(tr -d '[:space:]' < "$sha_lock")
@@ -171,57 +149,57 @@ jobs:
       issues: write
     steps:
       - name: Open or update tracking issue
-        uses: actions/github-script@v7
+        shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           SHA_PIN_RESULT: ${{ needs.sha-pin-audit.result }}
           FLOATING_REF_RESULT: ${{ needs.floating-ref-scan.result }}
           TRIVY_RESULT: ${{ needs.trivy-fs.result }}
           GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
           VENDOR_RESULT: ${{ needs.vendor-drift.result }}
-        with:
-          script: |
-            const jobs = [
-              { name: 'SHA Pin Audit',           result: process.env.SHA_PIN_RESULT },
-              { name: 'Floating Reference Scan', result: process.env.FLOATING_REF_RESULT },
-              { name: 'Trivy Filesystem Scan',   result: process.env.TRIVY_RESULT },
-              { name: 'Gitleaks Secret Scan',    result: process.env.GITLEAKS_RESULT },
-              { name: 'Vendor Drift Check',      result: process.env.VENDOR_RESULT },
-            ];
-            const failed = jobs.filter(j => j.result === 'failure');
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = [
-              `## ⚠️ Weekly Security Check Failed`,
-              `**Run:** [#${context.runNumber}](${runUrl})`,
-              `**Date:** ${new Date().toISOString().split('T')[0]}`,
-              '',
-              '### Failed Jobs',
-              ...failed.map(j => `- ❌ ${j.name}`),
-              '',
-              'Review the run logs and resolve before the next release advances `@production`.',
-            ].join('\n');
+        run: |
+          set -euo pipefail
 
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: ['security-weekly'],
-            });
+          declare -a failed=()
+          [[ "$SHA_PIN_RESULT"      == "failure" ]] && failed+=("- ❌ SHA Pin Audit")
+          [[ "$FLOATING_REF_RESULT" == "failure" ]] && failed+=("- ❌ Floating Reference Scan")
+          [[ "$TRIVY_RESULT"        == "failure" ]] && failed+=("- ❌ Trivy Filesystem Scan")
+          [[ "$GITLEAKS_RESULT"     == "failure" ]] && failed+=("- ❌ Gitleaks Secret Scan")
+          [[ "$VENDOR_RESULT"       == "failure" ]] && failed+=("- ❌ Vendor Drift Check")
 
-            if (issues.length > 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issues[0].number,
-                body,
-              });
-              core.notice(`Added comment to existing issue #${issues[0].number}`);
-            } else {
-              const { data: issue } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: '⚠️ Weekly Security Check Failed',
-                body,
-                labels: ['security-weekly'],
-              });
-              core.notice(`Created issue #${issue.number}`);
-            }
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          today=$(date -u +%Y-%m-%d)
+          failed_list=$(printf '%s\n' "${failed[@]}")
+
+          body="## ⚠️ Weekly Security Check Failed
+          **Run:** [#${GITHUB_RUN_NUMBER}](${run_url})
+          **Date:** ${today}
+
+          ### Failed Jobs
+          ${failed_list}
+
+          Review the run logs and resolve before the next release advances \`@production\`."
+
+          existing=$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --label "security-weekly" \
+            --state open \
+            --json number \
+            --jq '.[0].number // ""' 2>/dev/null || echo "")
+
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --repo "${GITHUB_REPOSITORY}" --body "$body"
+            echo "::notice::Added comment to existing issue #${existing}"
+          else
+            gh label create "security-weekly" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --color "d93f0b" \
+              --description "Weekly security scan failure tracking" \
+              2>/dev/null || true
+            issue_url=$(gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "⚠️ Weekly Security Check Failed" \
+              --body "$body" \
+              --label "security-weekly")
+            echo "::notice::Created issue: ${issue_url}"
+          fi

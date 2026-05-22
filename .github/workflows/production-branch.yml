@@ -38,24 +38,7 @@ jobs:
 
       - name: Detect floating action refs
         shell: bash
-        run: |
-          set -euo pipefail
-          # Flag only channel-style refs (@master/@main/@latest/@stable).
-          # Versioned tags (@v5) are accepted per repo policy; SHA-pinned refs
-          # are already audited by the sha-pin-audit job.
-          floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' \
-              .github/workflows/ .github/actions/ \
-            | grep -v '^\s*#' \
-            | grep -v 'uses:[[:space:]]*\./\.' \
-            | grep -vE '@[0-9a-f]{40}' \
-            | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
-            || true)
-          if [[ -n "$floating" ]]; then
-            echo "::error::Mutable channel refs (@master/@main/@latest/@stable) block @production advancement:"
-            echo "$floating"
-            exit 1
-          fi
-          echo "No mutable channel refs (@master/@main/@latest/@stable) detected."
+        run: bash scripts/check_floating_refs.sh
 
   production:
     needs: [security-gate]
