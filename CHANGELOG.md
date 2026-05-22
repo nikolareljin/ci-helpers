@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-22 - 0.9.2
+
+### Changed
+- Refreshed stale pinned GitHub Action SHAs required by the production-tag
+  security gate.
+
 ## 2026-05-22 — 0.9.0
 
 ### Added
