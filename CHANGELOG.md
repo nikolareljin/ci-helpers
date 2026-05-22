@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-22 - 0.9.0
+
+### Added
+- **`data-safety-scan` composite action:** Centralized JSON data scanning that
+  rejects sensitive-key fields before application data is shipped.
+
 ## 2026-05-21 — 0.8.0
 
 ### Added

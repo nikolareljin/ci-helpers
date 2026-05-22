@@ -152,6 +152,30 @@ Example:
     upload_artifact: "true"
 ```
 
+## data-safety-scan
+
+Path: `.github/actions/data-safety-scan`
+
+Purpose: Reject sensitive-key fields in JSON data files before they ship with
+application data.
+
+Inputs:
+- `scan_path` (required): Directory to scan recursively for `*.json` files.
+
+Example:
+
+```yaml
+- uses: actions/checkout@v5
+- name: Data safety scan
+  uses: nikolareljin/ci-helpers/.github/actions/data-safety-scan@production
+  with:
+    scan_path: backend/app/data
+```
+
+The action reports each matching JSON file as a workflow error and fails when it
+finds any of these keys: `api_key`, `api_secret`, `password`, `passwd`, `token`,
+`secret`, `auth`, `cookie`, `session`, `credential`, or `private_key`.
+
 ## wp-plugin-check
 
 Path: `.github/actions/wp-plugin-check`

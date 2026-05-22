@@ -226,6 +226,25 @@ jobs:
           upload_sarif: "true"
 ```
 
+Data-safety composite action:
+
+```yaml
+name: Data Safety
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  data_safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Data safety scan
+        uses: nikolareljin/ci-helpers/.github/actions/data-safety-scan@production
+        with:
+          scan_path: backend/app/data
+```
+
 WordPress plugin-check composite action:
 
 ```yaml
