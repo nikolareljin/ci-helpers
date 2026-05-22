@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
-  | grep -v '^\s*#' \
+  | grep -vE '^[[:space:]]*#' \
   | grep -v 'uses:[[:space:]]*\./\.' \
   | grep -vE '@[0-9a-f]{40}' \
   | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
