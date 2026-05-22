@@ -27,7 +27,7 @@ done
 [[ -d "$dir" ]] || { echo "Error: directory '$dir' does not exist." >&2; exit 1; }
 
 floating=$(grep -rn --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
-  | grep -vE '^[[:space:]]*#' \
+  | grep -vE ':[0-9]+:[[:space:]]*#' \
   | grep -v 'uses:[[:space:]]*\./\.' \
   | grep -vE '@[0-9a-f]{40}' \
   | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
