@@ -16,13 +16,17 @@ set -euo pipefail
 dir=".github"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dir) dir="$2"; shift 2 ;;
+    --dir)
+      [[ $# -lt 2 || -z "${2:-}" ]] && { echo "Error: --dir requires a value." >&2; exit 1; }
+      dir="$2"; shift 2 ;;
     -h|--help) grep '^#[^!]' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
 
-floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
+[[ -d "$dir" ]] || { echo "Error: directory '$dir' does not exist." >&2; exit 1; }
+
+floating=$(grep -rn --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
   | grep -vE '^[[:space:]]*#' \
   | grep -v 'uses:[[:space:]]*\./\.' \
   | grep -vE '@[0-9a-f]{40}' \

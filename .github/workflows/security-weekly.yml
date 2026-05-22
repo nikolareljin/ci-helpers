@@ -123,7 +123,8 @@ jobs:
             echo "Comparing against default branch: $compare_ref"
           fi
 
-          upstream_sha=$(gh api "repos/nikolareljin/script-helpers/commits/${compare_ref}" --jq '.sha' 2>/dev/null || echo "")
+          encoded_ref=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$compare_ref")
+          upstream_sha=$(gh api "repos/nikolareljin/script-helpers/commits/${encoded_ref}" --jq '.sha' 2>/dev/null || echo "")
           if [[ -z "$upstream_sha" ]]; then
             echo "::warning::Could not fetch upstream script-helpers ref '$compare_ref' via GitHub API."
             exit 1
