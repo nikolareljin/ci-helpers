@@ -1,0 +1,211 @@
+name: security-weekly
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  sha-pin-audit:
+    name: SHA Pin Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+
+      - name: Check stale SHA pins
+        shell: bash
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  floating-ref-scan:
+    name: Floating Reference Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Detect unanchored action refs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Collect all `uses:` lines from workflows and composite actions,
+          # excluding: comment lines, local relative refs (./.github/...), and
+          # lines already pinned to a 40-char hex SHA.
+          floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' \
+              .github/workflows/ .github/actions/ \
+            | grep -v '^\s*#' \
+            | grep -v 'uses:[[:space:]]*\./\.' \
+            | grep -vE '@[0-9a-f]{40}' \
+            | grep '@' \
+            || true)
+
+          if [[ -n "$floating" ]]; then
+            echo "::warning::Floating (non-SHA-pinned) action refs detected:"
+            echo "$floating"
+            echo ""
+            echo "These refs can be moved by upstream without notice."
+            echo "Pin each to a commit SHA and annotate with: # <ref> @ <date>"
+            exit 1
+          fi
+          echo "All external action refs are SHA-pinned."
+
+  trivy-fs:
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Trivy scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          scan_path: "."
+          severity: "CRITICAL,HIGH"
+          fail_on_findings: "false"
+          upload_sarif: "true"
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Gitleaks scan
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: "."
+          report_format: sarif
+          output: results.sarif
+          fail_on_findings: "true"
+          upload_artifact: "true"
+          artifact_name: gitleaks-report-weekly
+
+      - name: Upload SARIF to Security tab
+        if: ${{ always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+  vendor-drift:
+    name: Vendor Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check script-helpers drift
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          lockfile="vendor/.script-helpers-sha"
+
+          if [[ ! -f "$lockfile" ]]; then
+            echo "::warning::$lockfile not found. Run scripts/sync_script_helpers.sh to generate it."
+            exit 1
+          fi
+
+          pinned_sha=$(tr -d '[:space:]' < "$lockfile")
+          echo "Vendored script-helpers SHA: $pinned_sha"
+
+          upstream_sha=$(gh api repos/nikolareljin/script-helpers/commits/HEAD --jq '.sha' 2>/dev/null || echo "")
+          if [[ -z "$upstream_sha" ]]; then
+            echo "::warning::Could not fetch upstream script-helpers HEAD via GitHub API."
+            exit 1
+          fi
+          echo "Upstream script-helpers HEAD: $upstream_sha"
+
+          if [[ "$pinned_sha" != "$upstream_sha" ]]; then
+            echo "::warning::script-helpers is behind upstream. Run scripts/sync_script_helpers.sh to update."
+            echo "Vendored : $pinned_sha"
+            echo "Upstream : $upstream_sha"
+            exit 1
+          fi
+          echo "script-helpers is up to date."
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  issue-on-failure:
+    name: Report Failure
+    runs-on: ubuntu-latest
+    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift]
+    if: failure()
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        uses: actions/github-script@v7
+        env:
+          SHA_PIN_RESULT: ${{ needs.sha-pin-audit.result }}
+          FLOATING_REF_RESULT: ${{ needs.floating-ref-scan.result }}
+          TRIVY_RESULT: ${{ needs.trivy-fs.result }}
+          GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
+          VENDOR_RESULT: ${{ needs.vendor-drift.result }}
+        with:
+          script: |
+            const jobs = [
+              { name: 'SHA Pin Audit',           result: process.env.SHA_PIN_RESULT },
+              { name: 'Floating Reference Scan', result: process.env.FLOATING_REF_RESULT },
+              { name: 'Trivy Filesystem Scan',   result: process.env.TRIVY_RESULT },
+              { name: 'Gitleaks Secret Scan',    result: process.env.GITLEAKS_RESULT },
+              { name: 'Vendor Drift Check',      result: process.env.VENDOR_RESULT },
+            ];
+            const failed = jobs.filter(j => j.result === 'failure');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `## ⚠️ Weekly Security Check Failed`,
+              `**Run:** [#${context.runNumber}](${runUrl})`,
+              `**Date:** ${new Date().toISOString().split('T')[0]}`,
+              '',
+              '### Failed Jobs',
+              ...failed.map(j => `- ❌ ${j.name}`),
+              '',
+              'Review the run logs and resolve before the next release advances `@production`.',
+            ].join('\n');
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: ['security-weekly'],
+            });
+
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body,
+              });
+              core.notice(`Added comment to existing issue #${issues[0].number}`);
+            } else {
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '⚠️ Weekly Security Check Failed',
+                body,
+                labels: ['security-weekly'],
+              });
+              core.notice(`Created issue #${issue.number}`);
+            }

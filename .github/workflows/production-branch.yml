@@ -9,7 +9,53 @@ permissions:
   contents: write
 
 jobs:
+  security-gate:
+    name: Security Gate
+    if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+
+      - name: Check stale SHA pins
+        shell: bash
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect floating action refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' \
+              .github/workflows/ .github/actions/ \
+            | grep -v '^\s*#' \
+            | grep -v 'uses:[[:space:]]*\./\.' \
+            | grep -vE '@[0-9a-f]{40}' \
+            | grep '@' \
+            || true)
+          if [[ -n "$floating" ]]; then
+            echo "::error::Floating (non-SHA-pinned) action refs block @production advancement:"
+            echo "$floating"
+            exit 1
+          fi
+          echo "All external action refs are SHA-pinned."
+
   production:
+    needs: [security-gate]
     if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
     runs-on: ubuntu-latest
     steps:
