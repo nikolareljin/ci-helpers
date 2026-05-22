@@ -17,7 +17,7 @@ dir=".github"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir) dir="$2"; shift 2 ;;
-    -h|--help) grep '^#' "$0" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help) grep '^#[^!]' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done

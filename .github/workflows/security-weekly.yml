@@ -169,16 +169,16 @@ jobs:
 
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           today=$(date -u +%Y-%m-%d)
-          failed_list=$(printf '%s\n' "${failed[@]}")
 
-          body="## ⚠️ Weekly Security Check Failed
-          **Run:** [#${GITHUB_RUN_NUMBER}](${run_url})
-          **Date:** ${today}
-
-          ### Failed Jobs
-          ${failed_list}
-
-          Review the run logs and resolve before the next release advances \`@production\`."
+          body=$(printf '%s\n' \
+            "## ⚠️ Weekly Security Check Failed" \
+            "**Run:** [#${GITHUB_RUN_NUMBER}](${run_url})" \
+            "**Date:** ${today}" \
+            "" \
+            "### Failed Jobs" \
+            "${failed[@]}" \
+            "" \
+            "Review the run logs and resolve before the next release advances \`@production\`.")
 
           existing=$(gh issue list \
             --repo "${GITHUB_REPOSITORY}" \
