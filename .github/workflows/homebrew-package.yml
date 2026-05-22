@@ -85,7 +85,7 @@ jobs:
   brew:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -227,7 +227,7 @@ jobs:
           ./vendor/script-helpers/scripts/gen_brew_formula.sh "${args[@]}"
 
       - name: Upload Homebrew artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ env.BREW_ARTIFACT_GLOB }}

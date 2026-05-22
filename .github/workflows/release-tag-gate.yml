@@ -26,14 +26,14 @@ jobs:
   gate:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Resolve branches
         id: branches
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const inputDefault = core.getInput("default_branch");
@@ -79,7 +79,7 @@ jobs:
 
       - name: Checkout script-helpers
         if: ${{ steps.gate.outputs.run_check == 'true' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: nikolareljin/script-helpers
           ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
