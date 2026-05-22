@@ -45,22 +45,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Collect all `uses:` lines from workflows and composite actions,
-          # excluding: comment lines, local relative refs (./.github/...), and
-          # lines already pinned to a 40-char hex SHA.
+          # Find channel-style refs (@master/@main/@latest/@stable) outside SHA-pinned lines.
+          # Flag only channel-style refs (@master/@main/@latest/@stable).
+          # Versioned tags (@v5) are accepted per repo policy; SHA-pinned refs
+          # are already audited by the sha-pin-audit job.
           floating=$(grep -rh --include="*.yml" --include="*.yaml" 'uses:' \
               .github/workflows/ .github/actions/ \
             | grep -v '^\s*#' \
             | grep -v 'uses:[[:space:]]*\./\.' \
             | grep -vE '@[0-9a-f]{40}' \
-            | grep '@' \
+            | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
             || true)
 
           if [[ -n "$floating" ]]; then
-            echo "::warning::Floating (non-SHA-pinned) action refs detected:"
+            echo "::warning::Mutable channel refs (@master/@main/@latest/@stable) detected:"
             echo "$floating"
             echo ""
-            echo "These refs can be moved by upstream without notice."
+            echo "These refs can move upstream at any time without notice."
             echo "Pin each to a commit SHA and annotate with: # <ref> @ <date>"
             exit 1
           fi
