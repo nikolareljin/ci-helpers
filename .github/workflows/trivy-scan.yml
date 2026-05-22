@@ -46,7 +46,7 @@ jobs:
   scan:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@f685ba721536b1ff19093eb4e1b1bf994c2bdbe2
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.output }}
