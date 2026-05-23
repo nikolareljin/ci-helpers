@@ -118,16 +118,14 @@ jobs:
                 const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
                 const message = String(commit.data.commit.message || '');
                 const subject = message.split(/\r?\n/, 1)[0] || '';
-                const match = subject.match(mergeMessagePattern);
-                if (match) {
-                  const prNumber = Number(match[1]);
-                  const fallbackVersion = match[2];
+
+                // Fallback 1: standard merge commit subject
+                const stdMatch = subject.match(mergeMessagePattern);
+                if (stdMatch) {
+                  const prNumber = Number(stdMatch[1]);
+                  const fallbackVersion = stdMatch[2];
                   try {
-                    const pr = await github.rest.pulls.get({
-                      owner,
-                      repo,
-                      pull_number: prNumber,
-                    });
+                    const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
                     const prData = pr.data;
                     const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
                     if (
@@ -145,6 +143,38 @@ jobs:
                   } catch (error) {
                     const detail = error instanceof Error ? error.message : String(error);
                     core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
+                  }
+                }
+
+                // Fallback 2: squash merge subject ends with "(#N)".
+                // Uses pulls.get directly (not the eventually-consistent association index)
+                // so merge_commit_sha is available immediately after the merge.
+                if (!version) {
+                  const squashMatch = subject.match(/\(#(\d+)\)$/);
+                  if (squashMatch) {
+                    const prNumber = Number(squashMatch[1]);
+                    try {
+                      const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                      const prData = pr.data;
+                      const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
+                      if (
+                        prData.merged_at &&
+                        prData.base?.ref === defaultBranch &&
+                        prData.merge_commit_sha === sha &&
+                        headMatch
+                      ) {
+                        version = headMatch[1];
+                        core.info(`Resolved release version ${version} from squash-merge fallback for PR #${prNumber}.`);
+                      } else if (prData.merged_at && prData.base?.ref === defaultBranch && headMatch) {
+                        core.warning(
+                          `PR #${prNumber} is a release/* squash-merge but merge_commit_sha does not match push SHA yet. ` +
+                          `Re-run this workflow to retry.`
+                        );
+                      }
+                    } catch (error) {
+                      const detail = error instanceof Error ? error.message : String(error);
+                      core.warning(`Squash-merge fallback: could not validate PR #${prNumber}: ${detail}`);
+                    }
                   }
                 }
               } catch (error) {
