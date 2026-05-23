@@ -643,7 +643,7 @@ jobs:
   winget-submit:
     needs: release
     if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
-    uses: ./.github/workflows/winget-submit.yml
+    uses: nikolareljin/ci-helpers/.github/workflows/winget-submit.yml@production
     with:
       package_id: ${{ inputs.winget_package_id }}
       version: ${{ inputs.version != '' && inputs.version || github.ref_name }}
