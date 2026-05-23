@@ -182,8 +182,9 @@ Path: `.github/actions/macos-sign`
 
 Purpose: Import an Apple p12 certificate into a temporary keychain and export
 all Tauri-required Apple environment variables to `GITHUB_ENV`. Call this
-action **before** `cargo tauri build` on a macOS runner. An `if: always()`
-cleanup step deletes the keychain regardless of build outcome.
+action **before** `cargo tauri build` on a macOS runner. Keychain cleanup is
+the **caller's responsibility** — add an `if: always()` cleanup step to your
+build job after the build (see Notes below).
 
 Inputs:
 
@@ -255,7 +256,7 @@ Inputs:
 | `tauri_signing_private_key_password` | no | `""` | Password for the updater key |
 | `certificate_base64` | `pfx` | — | Base64-encoded PFX |
 | `certificate_password` | `pfx` | — | PFX password |
-| `timestamp_server` | no | `http://timestamp.sectigo.com` | RFC 3161 timestamp URL |
+| `timestamp_server` | no | `https://timestamp.sectigo.com` | RFC 3161 timestamp URL |
 | `azure_tenant_id` | `azure` | — | Azure tenant ID |
 | `azure_client_id` | `azure` | — | Service principal client ID |
 | `azure_client_secret` | `azure` | — | Service principal secret |

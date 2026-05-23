@@ -54,7 +54,9 @@
   the keychain search list and `apple-tool:,apple:,codesign:` partition access, and
   exports all Apple env vars (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_ID`, `APPLE_PASSWORD`) to
-  `$GITHUB_ENV` for Tauri. Cleans up the keychain in an `if: always()` step.
+  `$GITHUB_ENV` for Tauri. Keychain cleanup is the caller's responsibility —
+  composite actions have no post-run hook; `tauri-release.yml` includes the
+  required `if: always()` cleanup step; custom callers must add their own.
 
 - **`actions/windows-sign`:** Composite action for Windows codesigning with three
   modes:
@@ -64,7 +66,8 @@
   - `pfx` (paid OV/EV): decodes a base64 PFX, imports it to `Cert:\CurrentUser\My`,
     extracts the thumbprint, and sets `TAURI_WINDOWS_SIGN_COMMAND` (signtool with
     RFC 3161 timestamp via Sectigo) and `WINDOWS_CERT_THUMBPRINT`. Signs MSI + EXE
-    with Authenticode. Removes the cert and temp file in an `if: always()` step.
+    with Authenticode. PFX/cert cleanup is the caller's responsibility (same
+    composite-action post-run limitation); `tauri-release.yml` includes the step.
   - `azure` (paid Azure Trusted Signing): exports Azure credentials to `$GITHUB_ENV`
     for consumption by `azure/trusted-signing-action` in a subsequent post-build
     step. Uses `azuresigntool` internally — not compatible with

@@ -624,6 +624,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::dist_repo is set but DIST_REPO_TOKEN secret is missing. Provide a PAT with write access to '${DIST_REPO}'." >&2
+            exit 1
+          fi
           # Ensure the release exists in the dist repo (idempotent — race-safe)
           if ! gh release view "${VERSION}" --repo "${DIST_REPO}" >/dev/null 2>&1; then
             gh release create "${VERSION}" --repo "${DIST_REPO}" \

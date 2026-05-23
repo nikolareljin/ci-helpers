@@ -13,7 +13,8 @@ description: >
     the thumbprint, and sets TAURI_WINDOWS_SIGN_COMMAND and
     WINDOWS_CERT_THUMBPRINT in GITHUB_ENV. Tauri reads TAURI_WINDOWS_SIGN_COMMAND
     and invokes signtool to sign the MSI and NSIS EXE with Authenticode.
-    Removes the certificate and temp file in an if:always() cleanup step.
+    PFX/cert cleanup is the CALLER's responsibility — add an if:always() step
+    to your build job after cargo tauri build (see docs/actions.md).
 
   azure (PAID — Azure Trusted Signing):
     Exports Azure Trusted Signing credentials to GITHUB_ENV. After the build,
@@ -48,7 +49,7 @@ inputs:
   timestamp_server:
     description: RFC 3161 timestamp server URL
     required: false
-    default: "http://timestamp.sectigo.com"
+    default: "https://timestamp.sectigo.com"
 
   # --- azure inputs ---
   azure_tenant_id:
