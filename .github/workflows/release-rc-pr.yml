@@ -2,6 +2,23 @@ name: Release RC PR
 
 on:
   create:
+  workflow_call:
+    inputs:
+      base_branch:
+        description: >
+          Branch the PR targets. Defaults to main — override with master or
+          any other branch name when your repo's default differs.
+          For the on:create trigger (ci-helpers internal), the actual default
+          branch is always read from the repository object in the event payload.
+        type: string
+        default: "main"
+    secrets:
+      GH_PAT:
+        description: >
+          PAT with pull_requests:write scope. Required if the repo has
+          "Allow GitHub Actions to create and approve pull requests" disabled.
+          Falls back to github.token when not set.
+        required: false
 
 permissions:
   contents: read
@@ -13,35 +30,48 @@ env:
 
 jobs:
   open_pr:
-    if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') }}
+    # on:create  — only act on release/* branches
+    # workflow_call — caller already filtered; always proceed
+    if: ${{ github.event_name == 'workflow_call' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/')) }}
     runs-on: ubuntu-latest
+    env:
+      HEAD_BRANCH: ${{ github.ref_name }}
+      # workflow_call: populated from the base_branch input (default main).
+      # on:create: empty string — script falls back to event payload.
+      BASE_BRANCH: ${{ inputs.base_branch }}
     steps:
       - name: Create PR to default branch
         uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9 @ 2026-05-23
         with:
-          # GH_PAT must be a PAT with repo scope (or pull_requests:write for fine-grained).
-          # Without it, the GITHUB_TOKEN is used — but this requires
-          # Settings → Actions → General → "Allow GitHub Actions to create and approve
-          # pull requests" to be enabled. A PAT bypasses that restriction entirely.
+          # Prefer GH_PAT when set — it bypasses the repo-level
+          # "Allow GitHub Actions to create and approve pull requests" gate.
+          # Falls back to github.token, which works when that gate is enabled
+          # under Settings → Actions → General.
           github-token: ${{ secrets.GH_PAT || github.token }}
           script: |
             const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const head = context.payload.ref;
+            const repo  = context.repo.repo;
+
+            // github.ref_name is always the branch/tag name for the triggering
+            // event, whether that's on:create or an inherited workflow_call context.
+            const head = process.env.HEAD_BRANCH;
+
             const pattern = /^release\/v?\d+\.\d+\.\d+(-rc\.?\d+)?$/;
             if (!pattern.test(head)) {
-              core.info(`Branch ${head} does not match release/[v]X.Y.Z, release/[v]X.Y.Z-rcN, or release/[v]X.Y.Z-rc.N; skipping.`);
+              core.info(`Branch ${head} does not match release/[v]X.Y.Z; skipping.`);
               return;
             }
-            // default_branch is in the create event payload — no API call needed
-            const base = context.payload.repository.default_branch;
+
+            // workflow_call: base_branch input (default "main") is in BASE_BRANCH.
+            // on:create:     BASE_BRANCH is empty; fall back to the event payload,
+            //                then hard-code "main" as last resort.
+            const base = process.env.BASE_BRANCH ||
+                         context.payload.repository?.default_branch ||
+                         'main';
 
             const existing = await github.rest.pulls.list({
-              owner,
-              repo,
-              state: 'open',
-              head: `${owner}:${head}`,
-              base,
+              owner, repo, state: 'open',
+              head: `${owner}:${head}`, base,
             });
 
             if (existing.data.length > 0) {
@@ -50,7 +80,7 @@ jobs:
             }
 
             const title = `Release: ${head}`;
-            const body = `Auto-created PR for release branch \`${head}\` into \`${base}\`.`;
+            const body  = `Auto-created PR for release branch \`${head}\` into \`${base}\`.`;
 
             await github.rest.pulls.create({ owner, repo, head, base, title, body });
             core.info(`Created PR ${head} -> ${base}`);

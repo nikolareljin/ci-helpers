@@ -176,6 +176,117 @@ The action reports each matching JSON file as a workflow error and fails when it
 finds any of these keys: `api_key`, `api_secret`, `password`, `passwd`, `token`,
 `secret`, `auth`, `cookie`, `session`, `credential`, or `private_key`.
 
+## macos-sign
+
+Path: `.github/actions/macos-sign`
+
+Purpose: Import an Apple p12 certificate into a temporary keychain and export
+all Tauri-required Apple environment variables to `GITHUB_ENV`. Call this
+action **before** `cargo tauri build` on a macOS runner. An `if: always()`
+cleanup step deletes the keychain regardless of build outcome.
+
+Inputs:
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `certificate_base64` | yes | — | Base64-encoded `.p12` Apple Developer certificate |
+| `certificate_password` | yes | — | Password for the `.p12` |
+| `signing_identity` | yes | — | `Developer ID Application: Name (TEAMID)` |
+| `team_id` | yes | — | 10-character Apple Team ID |
+| `apple_id` | no | `""` | Apple ID email for `notarytool` (leave empty to skip notarization setup) |
+| `app_password` | no | `""` | App-specific password for `notarytool` |
+| `keychain_name` | no | `ci-build.keychain-db` | Name of the temporary keychain |
+
+Environment variables written to `GITHUB_ENV`:
+`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_TEAM_ID`, and (when `apple_id` is set) `APPLE_ID` + `APPLE_PASSWORD`.
+
+Example (inside `tauri-release.yml` or any macOS build job):
+
+```yaml
+- name: Set up macOS signing
+  uses: nikolareljin/ci-helpers/.github/actions/macos-sign@production
+  with:
+    certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
+    certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+    signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+    team_id: ${{ secrets.APPLE_TEAM_ID }}
+    apple_id: ${{ secrets.APPLE_ID }}
+    app_password: ${{ secrets.APPLE_APP_PASSWORD }}
+
+- name: Build Tauri app
+  run: cargo tauri build --target universal-apple-darwin
+```
+
+Notes:
+- All secret inputs are masked with `::add-mask::` before any output.
+- Composite actions have no `post:` hook — keychain cleanup is an explicit
+  `if: always()` step and runs even when the build fails.
+- Tauri reads `APPLE_CERTIFICATE` and the other env vars automatically; no
+  additional `tauri.conf.json` configuration is required for signing.
+
+## windows-sign
+
+Path: `.github/actions/windows-sign`
+
+Purpose: Configure Windows code signing for Tauri builds. Supports three modes:
+
+| Mode | Cost | What it signs | How |
+|------|------|---------------|-----|
+| `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
+| `pfx` | Paid (OV/EV) | MSI + EXE Authenticode | Imports PFX to cert store, sets `TAURI_WINDOWS_SIGN_COMMAND` via `signtool` |
+| `azure` | Paid | MSI + EXE Authenticode | Exports Azure Trusted Signing credentials to `GITHUB_ENV` for post-build action |
+
+Inputs:
+
+| Input | Required for | Default | Description |
+|-------|-------------|---------|-------------|
+| `sign_mode` | all | — | `tauri_updater`, `pfx`, or `azure` |
+| `tauri_signing_private_key` | `tauri_updater` | — | Base64 or raw ED25519 private key |
+| `tauri_signing_private_key_password` | no | `""` | Password for the updater key |
+| `certificate_base64` | `pfx` | — | Base64-encoded PFX |
+| `certificate_password` | `pfx` | — | PFX password |
+| `timestamp_server` | no | `http://timestamp.sectigo.com` | RFC 3161 timestamp URL |
+| `azure_tenant_id` | `azure` | — | Azure tenant ID |
+| `azure_client_id` | `azure` | — | Service principal client ID |
+| `azure_client_secret` | `azure` | — | Service principal secret |
+| `azure_endpoint` | `azure` | — | Trusted Signing endpoint URL |
+| `azure_code_signing_account` | `azure` | — | Account name |
+| `azure_cert_profile` | `azure` | — | Certificate profile name |
+
+Example — free updater signing (most common):
+
+```yaml
+- name: Set up Windows signing
+  uses: nikolareljin/ci-helpers/.github/actions/windows-sign@production
+  with:
+    sign_mode: tauri_updater
+    tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+    tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+- name: Build Tauri app
+  run: cargo tauri build
+```
+
+Example — paid PFX Authenticode:
+
+```yaml
+- name: Set up Windows signing
+  uses: nikolareljin/ci-helpers/.github/actions/windows-sign@production
+  with:
+    sign_mode: pfx
+    certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
+    certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+```
+
+Notes:
+- All secret inputs are masked with `::add-mask::` before any output.
+- `pfx` mode: cleanup step (`if: always()`) removes the cert from the store
+  and deletes the temp PFX file.
+- `azure` mode: the actual signing happens via `azure/trusted-signing-action`
+  in a separate post-build step — this action only exports the credentials.
+- Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`
+
 ## wp-plugin-check
 
 Path: `.github/actions/wp-plugin-check`

@@ -1018,6 +1018,334 @@ jobs:
       upload_artifact: true
 ```
 
+## tauri-scan.yml
+
+Workflow: `.github/workflows/tauri-scan.yml`
+
+Purpose: Fast Tauri lint + check gate (no full build). Runs on `ubuntu-22.04`
+(required for Tauri v2 WebKit2GTK ABI compatibility — ubuntu-24.04 breaks it).
+
+Inputs:
+- `runner` (string, default `ubuntu-22.04`)
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `rust_toolchain` (string, default `stable`)
+- `rust_components` (string, default `rustfmt,clippy`)
+- `apt_packages` (string, default: full Tauri v2 WebKit2GTK deps)
+- `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
+- `check_command` (string, default `cargo check`)
+- `node_version` (string, default `""`)
+- `frontend_dir` (string, default `"."`)
+- `frontend_install_command` (string, default `npm ci`)
+
+Example:
+
+```yaml
+jobs:
+  tauri-scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/tauri-scan.yml@production
+    with:
+      node_version: "20"
+      frontend_dir: "src"
+```
+
+## tauri.yml
+
+Workflow: `.github/workflows/tauri.yml`
+
+Purpose: Standalone Tauri CI preset — installs Tauri system deps, runs tests
+and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
+Runs on `ubuntu-22.04`.
+
+Inputs: same as `tauri-scan.yml` plus:
+- `test_command` (string, default `cargo test`)
+- `build_command` (string, default `cargo build`)
+
+Example:
+
+```yaml
+jobs:
+  tauri-ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/tauri.yml@production
+    with:
+      node_version: "20"
+      test_command: "cargo test --workspace"
+```
+
+## tauri-release.yml
+
+Workflow: `.github/workflows/tauri-release.yml`
+
+Purpose: Cross-platform Tauri desktop release — builds on a 3-job matrix
+(`macos-latest`, `windows-latest`, `ubuntu-22.04`), signs/notarizes, uploads
+artifacts, publishes a GitHub release, and optionally submits to WinGet.
+
+Key design notes:
+- macOS builds a **universal binary** (`aarch64 + x86_64`); both rustup targets
+  must be added — `universal-apple-darwin` is a Tauri synthetic target, not a
+  native rustup triple.
+- Windows signing supports three modes: `none`, `tauri_updater` (free ED25519),
+  `pfx` (OV/EV Authenticode), `azure` (Azure Trusted Signing).
+- Uses the `macos-sign` and `windows-sign` composite actions from this repo.
+
+Inputs (selected):
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `version` | `""` | Patches `tauri.conf.json` + `Cargo.toml` |
+| `rust_toolchain` | `stable` | Rust toolchain |
+| `node_version` | `""` | Optional Node.js version |
+| `working_directory` | `"."` | Repo-relative project root |
+| `tauri_conf_path` | `src-tauri/tauri.conf.json` | Relative to working_directory |
+| `frontend_dir` | `"."` | Directory for frontend install/build |
+| `frontend_install_command` | `npm ci` | |
+| `frontend_build_command` | `npm run build` | |
+| `sign_macos` | `true` | Gate macOS codesigning |
+| `notarize_macos` | `true` | Gate notarization + staple |
+| `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
+| `upload_release` | `true` | Upload to GitHub Releases |
+| `release_tag` | `""` | Defaults to `GITHUB_REF_NAME` |
+| `dist_repo` | `""` | Cross-repo artifact push |
+| `winget_submit` | `false` | Enable WinGet submission job |
+| `winget_package_id` | `""` | e.g. `OrgName.AppName` |
+| `winget_installer_url` | `""` | Direct `.exe` URL |
+| `winget_installer_arch` | `x64` | Architecture tag |
+| `winget_installer_type` | `nullsoft` | `nullsoft`, `msi`, `wix` |
+
+Secrets:
+
+| Secret | When required |
+|--------|---------------|
+| `APPLE_CERTIFICATE` | `sign_macos: true` |
+| `APPLE_CERTIFICATE_PASSWORD` | `sign_macos: true` |
+| `APPLE_SIGNING_IDENTITY` | `sign_macos: true` |
+| `APPLE_TEAM_ID` | `sign_macos: true` |
+| `APPLE_ID` | `notarize_macos: true` |
+| `APPLE_APP_PASSWORD` | `notarize_macos: true` |
+| `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
+| `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | `windows_sign_mode: pfx` |
+| `AZURE_TENANT_ID` | `windows_sign_mode: azure` |
+| `AZURE_CLIENT_ID` | `windows_sign_mode: azure` |
+| `AZURE_CLIENT_SECRET` | `windows_sign_mode: azure` |
+| `AZURE_TRUSTED_SIGNING_ENDPOINT` | `windows_sign_mode: azure` |
+| `AZURE_CODE_SIGNING_ACCOUNT` | `windows_sign_mode: azure` |
+| `AZURE_CERT_PROFILE` | `windows_sign_mode: azure` |
+| `DIST_REPO_TOKEN` | `dist_repo` set |
+| `WINGET_PKGS_TOKEN` | `winget_submit: true` |
+
+Example (signed release with WinGet):
+
+```yaml
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/tauri-release.yml@production
+    with:
+      version: ${{ github.ref_name }}
+      node_version: "20"
+      sign_macos: true
+      notarize_macos: true
+      windows_sign_mode: tauri_updater
+      winget_submit: true
+      winget_package_id: "MyOrg.MyApp"
+      winget_installer_url: "https://github.com/myorg/myapp/releases/download/${{ github.ref_name }}/MyApp-setup.exe"
+    secrets:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINGET_PKGS_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
+```
+
+## winget-submit.yml
+
+Workflow: `.github/workflows/winget-submit.yml`
+
+Purpose: Submit a Windows Package Manager manifest to a fork of
+`microsoft/winget-pkgs`. Installs `wingetcreate` via dotnet, runs
+`wingetcreate update`, and submits the generated PR.
+
+Inputs:
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `package_id` | yes | — | e.g. `OrgName.AppName` |
+| `version` | yes | — | Package version string |
+| `installer_url` | yes | — | Direct URL to the installer binary |
+| `installer_arch` | no | `x64` | Architecture tag |
+| `installer_type` | no | `nullsoft` | `nullsoft`, `msi`, `wix` |
+| `release_notes_url` | no | `""` | Link added to the manifest |
+| `winget_fork_owner` | yes | — | GitHub user/org that owns the `winget-pkgs` fork |
+
+Secrets:
+- `WINGET_PKGS_TOKEN` (required) — PAT with `repo` scope on the `winget-pkgs` fork
+
+Example (standalone call):
+
+```yaml
+jobs:
+  winget:
+    uses: nikolareljin/ci-helpers/.github/workflows/winget-submit.yml@production
+    with:
+      package_id: "MyOrg.MyApp"
+      version: "1.2.3"
+      installer_url: "https://github.com/myorg/myapp/releases/download/1.2.3/MyApp-setup.exe"
+      winget_fork_owner: "myorg"
+    secrets:
+      WINGET_PKGS_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
+```
+
+## docker-multiarch.yml
+
+Workflow: `.github/workflows/docker-multiarch.yml`
+
+Purpose: Build and push a multi-architecture Docker image (`linux/amd64` +
+`linux/arm64` by default) using QEMU + buildx. Optionally runs a Trivy
+vulnerability scan on the pushed image.
+
+Inputs:
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `image_name` | yes | — | Full image name, e.g. `ghcr.io/org/app` |
+| `tag` | yes | — | Image tag |
+| `platforms` | no | `linux/amd64,linux/arm64` | Comma-separated platform list |
+| `dockerfile` | no | `Dockerfile` | Path to Dockerfile |
+| `context` | no | `"."` | Build context |
+| `build_args` | no | `""` | Newline-separated `KEY=VALUE` build args |
+| `push_latest` | no | `false` | Also tag and push `:latest` |
+| `registry` | no | `ghcr.io` | Container registry host |
+| `registry_username` | no | `${{ github.actor }}` | Registry login username |
+| `scan_after_build` | no | `true` | Run Trivy scan after push |
+| `trivy_severity` | no | `CRITICAL,HIGH` | Severities that trigger scan output |
+| `fail_on_scan_findings` | no | `false` | Fail the workflow on Trivy findings |
+
+Secrets:
+- `registry_token` (required) — registry password / token (e.g. `secrets.GITHUB_TOKEN` for GHCR)
+
+Outputs:
+- `image_digest` — SHA digest of the pushed manifest
+- `image_ref` — `image_name:tag`
+
+Example:
+
+```yaml
+jobs:
+  docker:
+    uses: nikolareljin/ci-helpers/.github/workflows/docker-multiarch.yml@production
+    with:
+      image_name: ghcr.io/${{ github.repository }}
+      tag: ${{ github.ref_name }}
+      push_latest: true
+      fail_on_scan_findings: true
+    secrets:
+      registry_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## manifest-version.yml
+
+Workflow: `.github/workflows/manifest-version.yml`
+
+Purpose: Extract the project version from a manifest file, create a lightweight
+git tag, and optionally dispatch downstream release workflows. Supports six
+manifest types out of the box.
+
+Inputs:
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `manifest_type` | `package_json` | `package_json`, `cargo`, `pubspec`, `pyproject`, `version_file`, `custom` |
+| `manifest_path` | auto | Path to manifest; each type has a sensible default |
+| `version_command` | `""` | Shell command that prints the version (used with `custom`) |
+| `dispatch_workflows` | `""` | Comma-separated workflow filenames to dispatch after tagging |
+| `dispatch_inputs_json` | `{}` | Extra JSON inputs passed to each dispatched workflow |
+| `publish_latest` | `true` | Forwarded as `publish_latest` to dispatched workflows |
+| `tag_prefix` | `""` | Prefix prepended to the version when creating the tag (e.g. `v`) |
+| `skip_if_tagged` | `true` | Skip tagging when the tag already exists |
+
+Outputs:
+- `version` — extracted version string (no prefix)
+- `tag` — git tag that was created
+- `skipped` — `true` when the tag already existed and `skip_if_tagged` was set
+
+Supported manifest types:
+
+| Type | Default path | Extraction method |
+|------|-------------|-------------------|
+| `package_json` | `package.json` | `node -p "require('./...').version"` |
+| `cargo` | `Cargo.toml` | `grep -m1 '^version'` under `[package]` |
+| `pubspec` | `pubspec.yaml` | `grep '^version:'`, strips `+build` suffix |
+| `pyproject` | `pyproject.toml` | `grep -m1 '^version'` (PEP 621 or Poetry) |
+| `version_file` | `VERSION` | entire file content, whitespace stripped |
+| `custom` | — | runs `version_command` and captures stdout |
+
+Example (tag from `package.json`, then dispatch a publish workflow):
+
+```yaml
+jobs:
+  version:
+    uses: nikolareljin/ci-helpers/.github/workflows/manifest-version.yml@production
+    with:
+      manifest_type: package_json
+      tag_prefix: "v"
+      dispatch_workflows: "publish.yml"
+      dispatch_inputs_json: '{"env":"prod"}'
+```
+
+Example (Cargo project, skip if already tagged):
+
+```yaml
+jobs:
+  version:
+    uses: nikolareljin/ci-helpers/.github/workflows/manifest-version.yml@production
+    with:
+      manifest_type: cargo
+      skip_if_tagged: true
+```
+
+## release-rc-pr.yml (reusable)
+
+Workflow: `.github/workflows/release-rc-pr.yml`
+
+Purpose: Open a PR from a release branch to the default branch. Can be used
+as a reusable `workflow_call` workflow — add a 10-line wrapper in your repo
+and get automatic release PRs on every `release/*` push.
+
+See [RELEASE_RC_PR.md](RELEASE_RC_PR.md) for the full setup guide, including
+required repository settings, `GH_PAT` secret instructions, and the historical
+failure analysis.
+
+Inputs (workflow_call):
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `base_branch` | `main` | Branch the PR targets. Override with `master` or any other branch name if your default branch differs. |
+
+Secrets (workflow_call):
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `GH_PAT` | no | PAT with `pull_requests:write`; falls back to `github.token` |
+
+Example (caller repo):
+
+```yaml
+# .github/workflows/release-pr.yml
+name: Open release PR
+on:
+  create:
+jobs:
+  open-pr:
+    if: ${{ github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/') }}
+    uses: nikolareljin/ci-helpers/.github/workflows/release-rc-pr.yml@production
+    secrets: inherit
+```
+
 ## Pinning versions
 
 You should pin to a tag or commit SHA:

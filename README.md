@@ -2,14 +2,20 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.6.5 (from VERSION).
+Current production tag: 0.10.0 (from VERSION).
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
-- Reusable workflows for release builds (generic and Rust).
+- Reusable workflows for release builds (generic, Rust, and Tauri desktop).
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
 - Composite actions for semver comparison, release tag checks, and release notes.
 - Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
+- Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign` — free ED25519, paid PFX, or Azure Trusted Signing).
+- Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (3-OS matrix with signing, notarization, and GitHub release).
+- `winget-submit.yml` for automated Windows Package Manager manifest submission.
+- `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
+- `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
+- `release-rc-pr.yml` as a reusable `workflow_call` workflow — add 10 lines to any repo to get automatic release PRs on `release/*` branch pushes.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
 - Preset workflows for common stacks (Java, Kotlin, Rust, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
