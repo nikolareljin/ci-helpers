@@ -57,7 +57,11 @@ jobs:
           fetch-tags: true
 
       - name: Gitleaks scan
-        uses: ./.github/actions/gitleaks-scan
+        # Must use full OWNER/REPO/path@ref — not a relative path.
+        # Reusable workflows called cross-repo resolve ./ against the caller's
+        # checkout, not ci-helpers.  The full reference lets GitHub fetch the
+        # action from this repo regardless of what the runner has checked out.
+        uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@production
         with:
           scan_path: ${{ inputs.scan_path }}
           report_format: ${{ inputs.report_format }}
