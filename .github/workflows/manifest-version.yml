@@ -130,7 +130,9 @@ jobs:
               ;;
             pyproject)
               # Support PEP 621 [project] and [tool.poetry]; scoped to the section.
-              version=$(TOML_PATH="${path}" python3 -c "import os,re,sys;c=open(os.environ['TOML_PATH']).read();m=re.search(r'^\[(?:project|tool\.poetry)\][^\[]*?^version\s*=\s*[\"\'](.*?)[\"\']',c,re.M|re.S);sys.exit(1) if not m else sys.stdout.write(m.group(1))")
+              # ^\s*version handles both indented and non-indented keys (some tools
+              # generate indented TOML even though the spec doesn't require it).
+              version=$(TOML_PATH="${path}" python3 -c "import os,re,sys;c=open(os.environ['TOML_PATH']).read();m=re.search(r'^\[(?:project|tool\.poetry)\][^\[]*?^\s*version\s*=\s*[\"\'](.*?)[\"\']',c,re.M|re.S);sys.exit(1) if not m else sys.stdout.write(m.group(1))")
               ;;
             version_file)
               version=$(tr -d '[:space:]' < "${path}")

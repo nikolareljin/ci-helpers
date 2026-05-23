@@ -10,7 +10,10 @@ inputs:
     default: sarif
     required: false
   output:
-    description: Output report file path.
+    description: >
+      Output report file path. Defaults to results.sarif for sarif format.
+      When using report_format=json, set this to a .json path (e.g. results.json)
+      to avoid a misleading file extension.
     default: results.sarif
     required: false
   gitleaks_version:
