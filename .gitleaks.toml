@@ -3,7 +3,10 @@ useDefault = true
 
 # Suppress false positives in vendored third-party scripts that are not
 # modifiable (git submodule). Empty string defaults are not real credentials.
-[[allowlist]]
+# NOTE: Use [allowlist] (a map/struct), NOT [[allowlist]] (array) — gitleaks
+# expects a single global allowlist struct; the double-bracket TOML syntax
+# produces a slice and causes a fatal config decode error at startup.
+[allowlist]
 description = "Empty password defaults in vendored script-helpers (not real credentials)"
 paths = [
   '''vendor/script-helpers/scripts/ci_pimcore_bundle_check\.sh'''
