@@ -146,7 +146,7 @@ jobs:
             exit 1
           fi
           # Anchored semver: X.Y.Z with optional pre-release or build metadata.
-          if ! echo "${version}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([-+][a-zA-Z0-9._-]+)?$'; then
+          if ! echo "${version}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$'; then
             echo "Extracted value '${version}' does not look like a version (X.Y.Z)" >&2
             exit 1
           fi

@@ -1330,7 +1330,7 @@ Secrets (workflow_call):
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `GH_PAT` | no | PAT with `pull_requests:write`; falls back to `github.token` |
+| `GH_PAT` | no | PAT with pull-request write access (classic: `repo` scope; fine-grained: Pull requests Read+write); falls back to `github.token` |
 
 Example (caller repo):
 

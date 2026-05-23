@@ -15,8 +15,10 @@ on:
     secrets:
       GH_PAT:
         description: >
-          PAT with pull_requests:write scope. Required if the repo has
+          PAT with pull-request write access. Required if the repo has
           "Allow GitHub Actions to create and approve pull requests" disabled.
+          Use a classic PAT with repo scope, or a fine-grained PAT with
+          Pull requests: Read and write permission.
           Falls back to github.token when not set.
         required: false
 

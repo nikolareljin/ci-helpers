@@ -642,7 +642,7 @@ jobs:
   # ── WinGet submission ──────────────────────────────────────────────────────
   winget-submit:
     needs: release
-    if: ${{ inputs.winget_submit && inputs.winget_package_id != '' }}
+    if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
     uses: ./.github/workflows/winget-submit.yml
     with:
       package_id: ${{ inputs.winget_package_id }}
