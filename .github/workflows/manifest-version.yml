@@ -140,7 +140,7 @@ jobs:
               ;;
           esac
 
-          version="${version// /}"
+          version=$(printf '%s' "${version}" | tr -d '[:space:]')
           if [ -z "${version}" ]; then
             echo "Could not extract version from ${MANIFEST_TYPE} (${path})" >&2
             exit 1
@@ -186,15 +186,21 @@ jobs:
         run: |
           set -euo pipefail
           if git rev-parse "refs/tags/${GIT_TAG}" >/dev/null 2>&1; then
+            # Another concurrent run already created the tag — skip dispatch too.
             echo "Tag ${GIT_TAG} already exists (concurrent run). Skipping."
+            echo "created=false" >> "${GITHUB_OUTPUT}"
           else
             git tag "${GIT_TAG}"
             git push origin "${GIT_TAG}"
             echo "Created and pushed tag: ${GIT_TAG}"
+            echo "created=true" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Dispatch release workflows
-        if: ${{ steps.compute.outputs.skipped != 'true' && inputs.dispatch_workflows != '' }}
+        # Gate on tag.created (not compute.skipped) to prevent double-dispatch
+        # when two concurrent runs both pass the pre-check before either creates
+        # the tag. Only the run that actually pushes the tag dispatches workflows.
+        if: ${{ steps.tag.outputs.created == 'true' && inputs.dispatch_workflows != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.extract.outputs.version }}
