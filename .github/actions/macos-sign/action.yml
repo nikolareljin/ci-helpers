@@ -1,0 +1,129 @@
+name: macos-sign
+description: >
+  Import an Apple p12 certificate into a temporary keychain and export all
+  Tauri-required Apple env vars to GITHUB_ENV. Call this action BEFORE
+  `cargo tauri build` on a macOS runner.
+
+  Keychain cleanup is the CALLER's responsibility — composite actions have no
+  post-run hook, so any cleanup step inside the action would run before the
+  build step and delete the keychain too early. Add an if:always() cleanup
+  step to your build job after cargo tauri build (see docs/actions.md).
+
+  Required Apple Developer secrets:
+    APPLE_CERTIFICATE           — base64-encoded .p12 certificate
+    APPLE_CERTIFICATE_PASSWORD  — p12 password
+    APPLE_SIGNING_IDENTITY      — "Developer ID Application: Name (TEAMID)"
+    APPLE_TEAM_ID               — 10-character Apple Team ID
+
+  Optional (notarization):
+    APPLE_ID        — Apple ID email used with notarytool
+    APPLE_APP_PASSWORD — app-specific password for notarytool
+
+inputs:
+  certificate_base64:
+    description: Base64-encoded .p12 Apple Developer certificate
+    required: true
+  certificate_password:
+    description: Password for the .p12 certificate
+    required: true
+  signing_identity:
+    description: 'Full signing identity, e.g. "Developer ID Application: Name (TEAMID)"'
+    required: true
+  team_id:
+    description: 10-character Apple Team ID
+    required: true
+  apple_id:
+    description: Apple ID email for notarytool (leave empty to skip notarization setup)
+    required: false
+    default: ""
+  app_password:
+    description: App-specific password for notarytool
+    required: false
+    default: ""
+  keychain_name:
+    description: Name of the temporary keychain created for this build
+    required: false
+    default: "ci-build.keychain-db"
+
+runs:
+  using: composite
+  steps:
+    - name: Import Apple certificate into temporary keychain
+      shell: bash
+      env:
+        CERT_B64: ${{ inputs.certificate_base64 }}
+        CERT_PW: ${{ inputs.certificate_password }}
+        SIGN_ID: ${{ inputs.signing_identity }}
+        TEAM_ID: ${{ inputs.team_id }}
+        APPLE_ID: ${{ inputs.apple_id }}
+        APP_PW: ${{ inputs.app_password }}
+        KEYCHAIN: ${{ inputs.keychain_name }}
+      run: |
+        set -euo pipefail
+        # Mask all secrets before any output
+        echo "::add-mask::${CERT_B64}"
+        echo "::add-mask::${CERT_PW}"
+        echo "::add-mask::${SIGN_ID}"
+        echo "::add-mask::${TEAM_ID}"
+        if [ -n "${APPLE_ID}" ]; then echo "::add-mask::${APPLE_ID}"; fi
+        if [ -n "${APP_PW}" ]; then echo "::add-mask::${APP_PW}"; fi
+
+        # Decode certificate to a temp file with strict permissions
+        CERT_FILE="$(mktemp /tmp/build-cert-XXXXXX.p12)"
+        chmod 600 "${CERT_FILE}"
+        printf '%s' "${CERT_B64}" | base64 -d > "${CERT_FILE}"
+
+        # Create a dedicated build keychain (avoids polluting login.keychain)
+        security create-keychain -p "" "${KEYCHAIN}"
+        security set-keychain-settings -lut 21600 "${KEYCHAIN}"
+        security unlock-keychain -p "" "${KEYCHAIN}"
+
+        # Import certificate
+        security import "${CERT_FILE}" \
+          -k "${KEYCHAIN}" \
+          -P "${CERT_PW}" \
+          -A -t cert -f pkcs12
+
+        # Expose keychain to codesign tool
+        security list-keychains -d user -s "${KEYCHAIN}" login.keychain-db
+        security set-key-partition-list \
+          -S "apple-tool:,apple:,codesign:" \
+          -s -k "" "${KEYCHAIN}"
+
+        # Clean up cert file — it's now in the keychain
+        rm -f "${CERT_FILE}"
+
+        # Strip CR/LF from all values before writing to GITHUB_ENV to prevent
+        # env-file injection (base64 certs may have wrapped newlines; passwords
+        # may have trailing CR from clipboard paste)
+        CERT_B64_CLEAN=$(printf '%s' "${CERT_B64}" | tr -d '\r\n')
+        CERT_PW_CLEAN=$(printf '%s' "${CERT_PW}" | tr -d '\r\n')
+        SIGN_ID_CLEAN=$(printf '%s' "${SIGN_ID}" | tr -d '\r\n')
+        TEAM_ID_CLEAN=$(printf '%s' "${TEAM_ID}" | tr -d '\r\n')
+
+        # Export all Tauri Apple env vars to GITHUB_ENV for subsequent steps
+        {
+          printf 'APPLE_CERTIFICATE=%s\n' "${CERT_B64_CLEAN}"
+          printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "${CERT_PW_CLEAN}"
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
+          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
+          if [ -n "${APPLE_ID}" ]; then
+            printf 'APPLE_ID=%s\n' "$(printf '%s' "${APPLE_ID}" | tr -d '\r\n')"
+            printf 'APPLE_PASSWORD=%s\n' "$(printf '%s' "${APP_PW}" | tr -d '\r\n')"
+          fi
+          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
+        } >> "${GITHUB_ENV}"
+
+    # Keychain cleanup is the CALLER's responsibility.
+    # Composite actions have no post-run hook — any step here would execute
+    # immediately after import, before the caller's build step, deleting the
+    # keychain before codesign can use it.
+    #
+    # Add this to your build job (after cargo tauri build):
+    #
+    #   - name: Cleanup macOS keychain
+    #     if: always()
+    #     shell: bash
+    #     run: security delete-keychain "${{ env.CI_MACOS_KEYCHAIN }}" 2>/dev/null || true
+    #
+    # tauri-release.yml already includes this cleanup step.
