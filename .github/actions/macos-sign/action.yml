@@ -85,7 +85,7 @@ runs:
           -A -t cert -f pkcs12
 
         # Expose keychain to codesign tool
-        security list-keychain -d user -s "${KEYCHAIN}" login.keychain-db
+        security list-keychains -d user -s "${KEYCHAIN}" login.keychain-db
         security set-key-partition-list \
           -S "apple-tool:,apple:,codesign:" \
           -s -k "" "${KEYCHAIN}"

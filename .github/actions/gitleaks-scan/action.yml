@@ -13,6 +13,12 @@ inputs:
     description: Output report file path.
     default: results.sarif
     required: false
+  gitleaks_version:
+    description: >
+      Gitleaks release tag to download (e.g. "v8.30.1"). Pin this explicitly
+      for reproducible scans and supply-chain safety.
+    default: "v8.30.1"
+    required: false
   config_path:
     description: Optional Gitleaks config file path.
     default: ""
@@ -42,9 +48,10 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
       run: |
         set -euo pipefail
-        tag=$(gh api repos/gitleaks/gitleaks/releases/latest --jq '.tag_name')
+        tag="${GITLEAKS_VERSION}"
         ver="${tag#v}"
         # Detect OS and arch for the correct release asset
         os=$(uname -s | tr '[:upper:]' '[:lower:]')

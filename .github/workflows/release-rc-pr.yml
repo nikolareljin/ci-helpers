@@ -38,8 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HEAD_BRANCH: ${{ github.ref_name }}
-      # workflow_call: populated from the base_branch input (default main).
-      # on:create: empty string — script falls back to event payload.
+      # workflow_call: inputs.base_branch carries the caller-supplied value (default "main").
+      # on:create: the inputs context does not exist; GitHub evaluates
+      #   ${{ inputs.base_branch }} as an empty string. This is intentional —
+      #   the script falls back to context.payload.repository.default_branch.
       BASE_BRANCH: ${{ inputs.base_branch }}
     steps:
       - name: Create PR to default branch
