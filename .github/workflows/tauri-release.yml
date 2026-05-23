@@ -510,7 +510,7 @@ jobs:
           # space-separated or newline-separated package lists.
           _pkgs="${APT_PKGS//$'\r'}"
           read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
-          sudo apt-get install -y -- "${pkgs[@]}"
+          [ ${#pkgs[@]} -gt 0 ] && sudo apt-get install -y -- "${pkgs[@]}" || true
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22

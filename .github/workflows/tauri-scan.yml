@@ -78,7 +78,7 @@ jobs:
           # space-separated or newline-separated package lists.
           _pkgs="${APT_PKGS//$'\r'}"
           read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
-          sudo apt-get install -y -- "${pkgs[@]}"
+          [ ${#pkgs[@]} -gt 0 ] && sudo apt-get install -y -- "${pkgs[@]}" || true
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
