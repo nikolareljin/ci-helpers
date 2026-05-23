@@ -194,7 +194,8 @@ jobs:
           const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
           conf.version = v;
           fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
-          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          const path = require('path');
+          const cargo_path = path.join(path.dirname(conf_path), 'Cargo.toml');
           if (fs.existsSync(cargo_path)) {
             const cargo = fs.readFileSync(cargo_path, 'utf8');
             fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
@@ -350,7 +351,8 @@ jobs:
           const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
           conf.version = v;
           fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
-          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          const path = require('path');
+          const cargo_path = path.join(path.dirname(conf_path), 'Cargo.toml');
           if (fs.existsSync(cargo_path)) {
             const cargo = fs.readFileSync(cargo_path, 'utf8');
             fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
@@ -492,7 +494,8 @@ jobs:
           const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
           conf.version = v;
           fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
-          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          const path = require('path');
+          const cargo_path = path.join(path.dirname(conf_path), 'Cargo.toml');
           if (fs.existsSync(cargo_path)) {
             const cargo = fs.readFileSync(cargo_path, 'utf8');
             fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
@@ -510,7 +513,9 @@ jobs:
           # space-separated or newline-separated package lists.
           _pkgs="${APT_PKGS//$'\r'}"
           read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
-          [ ${#pkgs[@]} -gt 0 ] && sudo apt-get install -y -- "${pkgs[@]}" || true
+          if [ ${#pkgs[@]} -gt 0 ]; then
+            sudo apt-get install -y -- "${pkgs[@]}"
+          fi
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
