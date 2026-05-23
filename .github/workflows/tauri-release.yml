@@ -431,7 +431,7 @@ jobs:
           files-folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
           files-folder-filter: exe,msi
           file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-rfc3161: https://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
       - name: Collect Windows installers

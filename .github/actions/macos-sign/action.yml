@@ -93,17 +93,25 @@ runs:
         # Clean up cert file — it's now in the keychain
         rm -f "${CERT_FILE}"
 
+        # Strip CR/LF from all values before writing to GITHUB_ENV to prevent
+        # env-file injection (base64 certs may have wrapped newlines; passwords
+        # may have trailing CR from clipboard paste)
+        CERT_B64_CLEAN=$(printf '%s' "${CERT_B64}" | tr -d '\r\n')
+        CERT_PW_CLEAN=$(printf '%s' "${CERT_PW}" | tr -d '\r\n')
+        SIGN_ID_CLEAN=$(printf '%s' "${SIGN_ID}" | tr -d '\r\n')
+        TEAM_ID_CLEAN=$(printf '%s' "${TEAM_ID}" | tr -d '\r\n')
+
         # Export all Tauri Apple env vars to GITHUB_ENV for subsequent steps
         {
-          echo "APPLE_CERTIFICATE=${CERT_B64}"
-          echo "APPLE_CERTIFICATE_PASSWORD=${CERT_PW}"
-          echo "APPLE_SIGNING_IDENTITY=${SIGN_ID}"
-          echo "APPLE_TEAM_ID=${TEAM_ID}"
+          printf 'APPLE_CERTIFICATE=%s\n' "${CERT_B64_CLEAN}"
+          printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "${CERT_PW_CLEAN}"
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
+          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
           if [ -n "${APPLE_ID}" ]; then
-            echo "APPLE_ID=${APPLE_ID}"
-            echo "APPLE_PASSWORD=${APP_PW}"
+            printf 'APPLE_ID=%s\n' "$(printf '%s' "${APPLE_ID}" | tr -d '\r\n')"
+            printf 'APPLE_PASSWORD=%s\n' "$(printf '%s' "${APP_PW}" | tr -d '\r\n')"
           fi
-          echo "CI_MACOS_KEYCHAIN=${KEYCHAIN}"
+          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
         } >> "${GITHUB_ENV}"
 
     # Keychain cleanup is the CALLER's responsibility.

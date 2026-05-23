@@ -102,9 +102,14 @@ runs:
           Write-Output "::add-mask::$($env:PRIV_KEY_PW)"
         }
 
+        # Strip CR/LF before writing to GITHUB_ENV to prevent env-file injection
+        # (base64 keys may have wrapped newlines; clipboard paste may add CR)
+        $cleanKey = $env:PRIV_KEY -replace '[\r\n]', ''
+        $cleanPw  = $env:PRIV_KEY_PW -replace '[\r\n]', ''
+
         # Export to GITHUB_ENV for subsequent steps
-        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$($env:PRIV_KEY)"
-        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$($env:PRIV_KEY_PW)"
+        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$cleanKey"
+        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$cleanPw"
 
     # ── pfx ───────────────────────────────────────────────────────────────────
     - name: Import PFX certificate (paid Authenticode)
@@ -147,12 +152,25 @@ runs:
         $thumb = $cert.Thumbprint
         Write-Output "::add-mask::$thumb"
 
+        # Sanitize timestamp URL: strip CR/LF and require HTTPS to prevent
+        # env-file injection and MITM timestamp forgery
+        $tsUrl = $env:TS_URL -replace '[\r\n]', ''
+        if ($tsUrl -notmatch '^https://') {
+          Write-Error "timestamp_server must start with https:// to prevent MITM tampering (got: $tsUrl)"
+          exit 1
+        }
+
         # Build TAURI_WINDOWS_SIGN_COMMAND — %1 is the file path placeholder Tauri uses
-        $signCmd = "signtool sign /sha1 $thumb /tr $($env:TS_URL) /td sha256 /fd sha256 %1"
+        $signCmd = "signtool sign /sha1 $thumb /tr $tsUrl /td sha256 /fd sha256 %1"
+
+        # Strip CR/LF from cert values before writing to GITHUB_ENV to prevent
+        # env-file injection (base64 PFX data may have wrapped newlines)
+        $cleanThumb = $thumb -replace '[\r\n]', ''
+        $cleanPfx   = $pfxPath -replace '[\r\n]', ''
 
         # Persist temp PFX path so cleanup step can remove it
-        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_PFX_PATH=$pfxPath"
-        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$thumb"
+        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_PFX_PATH=$cleanPfx"
+        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$cleanThumb"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGN_COMMAND=$signCmd"
 
     # PFX/cert cleanup is the CALLER's responsibility.
@@ -209,10 +227,19 @@ runs:
         Write-Output "::add-mask::$($env:AZ_CLIENT)"
         Write-Output "::add-mask::$($env:AZ_SECRET)"
 
+        # Strip CR/LF from all values before writing to GITHUB_ENV to prevent
+        # env-file injection (secrets may have trailing newlines from clipboard paste)
+        $cleanTenant   = $env:AZ_TENANT   -replace '[\r\n]', ''
+        $cleanClient   = $env:AZ_CLIENT   -replace '[\r\n]', ''
+        $cleanSecret   = $env:AZ_SECRET   -replace '[\r\n]', ''
+        $cleanEndpoint = $env:AZ_ENDPOINT -replace '[\r\n]', ''
+        $cleanAccount  = $env:AZ_ACCOUNT  -replace '[\r\n]', ''
+        $cleanProfile  = $env:AZ_PROFILE  -replace '[\r\n]', ''
+
         # Export to GITHUB_ENV — azure/trusted-signing-action reads these
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_TENANT_ID=$($env:AZ_TENANT)"
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_ID=$($env:AZ_CLIENT)"
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_SECRET=$($env:AZ_SECRET)"
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ENDPOINT=$($env:AZ_ENDPOINT)"
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ACCOUNT=$($env:AZ_ACCOUNT)"
-        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CERT_PROFILE_NAME=$($env:AZ_PROFILE)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_TENANT_ID=$cleanTenant"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_ID=$cleanClient"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_SECRET=$cleanSecret"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ENDPOINT=$cleanEndpoint"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ACCOUNT=$cleanAccount"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CERT_PROFILE_NAME=$cleanProfile"

@@ -53,18 +53,39 @@ runs:
         set -euo pipefail
         tag="${GITLEAKS_VERSION}"
         ver="${tag#v}"
-        # Detect OS and arch for the correct release asset
-        os=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+        # Map uname output to gitleaks release asset naming
+        raw_os=$(uname -s | tr '[:upper:]' '[:lower:]')
         arch=$(uname -m)
         case "${arch}" in x86_64) arch="x64" ;; aarch64|arm64) arch="arm64" ;; esac
-        archive="gitleaks_${ver}_${os}_${arch}.tar.gz"
+
+        case "${raw_os}" in
+          linux)              os="linux"   ; ext="tar.gz" ;;
+          darwin)             os="darwin"  ; ext="tar.gz" ;;
+          mingw*|msys*|cygwin*) os="windows" ; ext="zip"  ;;
+          *)
+            echo "::error::Unsupported runner OS '${raw_os}'. gitleaks-scan supports linux, darwin, and windows." >&2
+            exit 1
+            ;;
+        esac
+
+        archive="gitleaks_${ver}_${os}_${arch}.${ext}"
+        mkdir -p /tmp/gl-dl
         gh release download "${tag}" \
           --repo gitleaks/gitleaks \
           --pattern "${archive}" \
           --dir /tmp/gl-dl \
           --clobber
-        tar -xzf "/tmp/gl-dl/${archive}" -C /tmp gitleaks
-        chmod +x /tmp/gitleaks
+
+        if [ "${ext}" = "zip" ]; then
+          unzip -q "/tmp/gl-dl/${archive}" -d /tmp/gl-bin
+          GL_BIN="/tmp/gl-bin/gitleaks.exe"
+        else
+          tar -xzf "/tmp/gl-dl/${archive}" -C /tmp gitleaks
+          GL_BIN="/tmp/gitleaks"
+          chmod +x "${GL_BIN}"
+        fi
+        echo "GL_BIN=${GL_BIN}" >> "${GITHUB_ENV}"
 
     - name: Run gitleaks scan
       shell: bash
@@ -77,7 +98,7 @@ runs:
         set -euo pipefail
         args=(detect --source "${SCAN_PATH}" --report-format "${REPORT_FMT}" --report-path "${OUTPUT}" --exit-code 0)
         [ -n "${CONFIG_PATH}" ] && args+=(--config "${CONFIG_PATH}")
-        /tmp/gitleaks "${args[@]}"
+        "${GL_BIN}" "${args[@]}"
     - name: Evaluate findings
       shell: bash
       run: |
