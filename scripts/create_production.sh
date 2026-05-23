@@ -4,7 +4,7 @@
 # USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch]
 # PARAMETERS:
 #   -t, --tag <tag>         Required. Tag to point the production tag at.
-#   --name <name>           Tag name to update (default: production).
+#   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set.
 #   --remote <name>         Remote name to push to (default: origin).
 #   --repo <path>           Repository path (default: GITHUB_WORKSPACE or cwd).
 #   --fetch-tags            Fetch tags before updating the production tag.
