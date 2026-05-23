@@ -58,7 +58,7 @@ jobs:
 
             const pattern = /^release\/v?\d+\.\d+\.\d+(-rc\.?\d+)?$/;
             if (!pattern.test(head)) {
-              core.info(`Branch ${head} does not match release/[v]X.Y.Z; skipping.`);
+              core.info(`Branch ${head} does not match release/[v]X.Y.Z[-rcN|-rc.N]; skipping.`);
               return;
             }
 

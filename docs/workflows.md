@@ -1035,7 +1035,7 @@ Inputs:
 - `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
 - `check_command` (string, default `cargo check`)
 - `node_version` (string, default `""`)
-- `frontend_dir` (string, default `"."`)
+- `frontend_dir` (string, default `""` — skip frontend steps when empty)
 - `frontend_install_command` (string, default `npm ci`)
 
 Example:
@@ -1057,9 +1057,9 @@ Purpose: Standalone Tauri CI preset — installs Tauri system deps, runs tests
 and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
 Runs on `ubuntu-22.04`.
 
-Inputs: same as `tauri-scan.yml` plus:
-- `test_command` (string, default `cargo test`)
-- `build_command` (string, default `cargo build`)
+Inputs: same as `tauri-scan.yml` except `rust_components` defaults to `""` (no components), plus:
+- `test_command` (string, default `cargo test --verbose`)
+- `build_command` (string, default `cargo build --verbose`)
 
 Example:
 
@@ -1220,7 +1220,7 @@ Inputs:
 | `build_args` | no | `""` | Newline-separated `KEY=VALUE` build args |
 | `push_latest` | no | `false` | Also tag and push `:latest` |
 | `registry` | no | `ghcr.io` | Container registry host |
-| `registry_username` | no | `${{ github.actor }}` | Registry login username |
+| `registry_username` | no | `""` (falls back to `github.actor`) | Registry login username |
 | `scan_after_build` | no | `true` | Run Trivy scan after push |
 | `trivy_severity` | no | `CRITICAL,HIGH` | Severities that trigger scan output |
 | `fail_on_scan_findings` | no | `false` | Fail the workflow on Trivy findings |
@@ -1277,10 +1277,10 @@ Supported manifest types:
 
 | Type | Default path | Extraction method |
 |------|-------------|-------------------|
-| `package_json` | `package.json` | `node -p "require('./...').version"` |
-| `cargo` | `Cargo.toml` | `grep -m1 '^version'` under `[package]` |
+| `package_json` | `package.json` | `node` + `fs.readFileSync` + `JSON.parse` (path passed via env var, not interpolated) |
+| `cargo` | `Cargo.toml` | `awk` scoped to `[package]` section (avoids matching dependency versions) |
 | `pubspec` | `pubspec.yaml` | `grep '^version:'`, strips `+build` suffix |
-| `pyproject` | `pyproject.toml` | `grep -m1 '^version'` (PEP 621 or Poetry) |
+| `pyproject` | `pyproject.toml` | Python regex scoped to `[project]` or `[tool.poetry]` section |
 | `version_file` | `VERSION` | entire file content, whitespace stripped |
 | `custom` | — | runs `version_command` and captures stdout |
 

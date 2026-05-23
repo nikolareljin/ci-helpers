@@ -220,8 +220,17 @@ Example (inside `tauri-release.yml` or any macOS build job):
 
 Notes:
 - All secret inputs are masked with `::add-mask::` before any output.
-- Composite actions have no `post:` hook — keychain cleanup is an explicit
-  `if: always()` step and runs even when the build fails.
+- **Keychain cleanup is the caller's responsibility.** Composite actions have
+  no `post:` hook, so any cleanup step inside the action would run immediately
+  after import — before your build step — deleting the keychain too early.
+  Add this to your build job (after `cargo tauri build`):
+  ```yaml
+  - name: Cleanup macOS keychain
+    if: always()
+    shell: bash
+    run: security delete-keychain "${{ env.CI_MACOS_KEYCHAIN }}" 2>/dev/null || true
+  ```
+  `tauri-release.yml` already includes this step.
 - Tauri reads `APPLE_CERTIFICATE` and the other env vars automatically; no
   additional `tauri.conf.json` configuration is required for signing.
 
@@ -281,8 +290,21 @@ Example — paid PFX Authenticode:
 
 Notes:
 - All secret inputs are masked with `::add-mask::` before any output.
-- `pfx` mode: cleanup step (`if: always()`) removes the cert from the store
-  and deletes the temp PFX file.
+- **PFX cert cleanup is the caller's responsibility.** Composite actions have
+  no `post:` hook; cleanup inside the action would delete the cert before your
+  build step runs. Add this to your build job (after `cargo tauri build`):
+  ```yaml
+  - name: Cleanup Windows certificate
+    if: always()
+    shell: pwsh
+    env:
+      THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
+      PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
+    run: |
+      if ($env:THUMB) { Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -EA SilentlyContinue | Remove-Item -Force }
+      if ($env:PFX_PATH -and (Test-Path $env:PFX_PATH)) { Remove-Item $env:PFX_PATH -Force }
+  ```
+  `tauri-release.yml` already includes this step.
 - `azure` mode: the actual signing happens via `azure/trusted-signing-action`
   in a separate post-build step — this action only exports the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`

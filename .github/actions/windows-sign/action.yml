@@ -154,23 +154,24 @@ runs:
         Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$thumb"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGN_COMMAND=$signCmd"
 
-    - name: Cleanup PFX certificate
-      if: ${{ always() && inputs.sign_mode == 'pfx' }}
-      shell: pwsh
-      env:
-        THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
-        PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
-      run: |
-        Set-StrictMode -Version Latest
-        $ErrorActionPreference = "SilentlyContinue"
-
-        if (-not [string]::IsNullOrEmpty($env:THUMB)) {
-          $cert = Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -ErrorAction SilentlyContinue
-          if ($cert) { $cert | Remove-Item -Force }
-        }
-        if (-not [string]::IsNullOrEmpty($env:PFX_PATH) -and (Test-Path $env:PFX_PATH)) {
-          Remove-Item $env:PFX_PATH -Force
-        }
+    # PFX/cert cleanup is the CALLER's responsibility.
+    # Composite actions have no post-run hook — a cleanup step here would run
+    # immediately after import, removing the certificate from the store before
+    # the caller's build step can invoke signtool via TAURI_WINDOWS_SIGN_COMMAND.
+    #
+    # Add this to your build job (after cargo tauri build):
+    #
+    #   - name: Cleanup Windows certificate
+    #     if: always()
+    #     shell: pwsh
+    #     env:
+    #       THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
+    #       PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
+    #     run: |
+    #       if ($env:THUMB) { Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -EA SilentlyContinue | Remove-Item -Force }
+    #       if ($env:PFX_PATH -and (Test-Path $env:PFX_PATH)) { Remove-Item $env:PFX_PATH -Force }
+    #
+    # tauri-release.yml already includes this cleanup step.
 
     # ── azure ─────────────────────────────────────────────────────────────────
     - name: Configure Azure Trusted Signing credentials
@@ -187,9 +188,17 @@ runs:
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
 
-        foreach ($key in @("AZ_TENANT","AZ_CLIENT","AZ_SECRET","AZ_ENDPOINT","AZ_ACCOUNT","AZ_PROFILE")) {
+        $required = [ordered]@{
+          AZ_TENANT   = "azure_tenant_id"
+          AZ_CLIENT   = "azure_client_id"
+          AZ_SECRET   = "azure_client_secret"
+          AZ_ENDPOINT = "azure_endpoint"
+          AZ_ACCOUNT  = "azure_code_signing_account"
+          AZ_PROFILE  = "azure_cert_profile"
+        }
+        foreach ($key in $required.Keys) {
           if ([string]::IsNullOrEmpty([System.Environment]::GetEnvironmentVariable($key))) {
-            Write-Error "azure_$($key.ToLower().Replace('az_','')) is required for azure mode."
+            Write-Error "$($required[$key]) is required for azure mode."
             exit 1
           }
         }

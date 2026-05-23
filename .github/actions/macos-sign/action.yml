@@ -102,11 +102,16 @@ runs:
           echo "CI_MACOS_KEYCHAIN=${KEYCHAIN}"
         } >> "${GITHUB_ENV}"
 
-    - name: Cleanup Apple keychain
-      if: always()
-      shell: bash
-      env:
-        KEYCHAIN: ${{ inputs.keychain_name }}
-      run: |
-        set -euo pipefail
-        security delete-keychain "${KEYCHAIN}" 2>/dev/null || true
+    # Keychain cleanup is the CALLER's responsibility.
+    # Composite actions have no post-run hook — any step here would execute
+    # immediately after import, before the caller's build step, deleting the
+    # keychain before codesign can use it.
+    #
+    # Add this to your build job (after cargo tauri build):
+    #
+    #   - name: Cleanup macOS keychain
+    #     if: always()
+    #     shell: bash
+    #     run: security delete-keychain "${{ env.CI_MACOS_KEYCHAIN }}" 2>/dev/null || true
+    #
+    # tauri-release.yml already includes this cleanup step.

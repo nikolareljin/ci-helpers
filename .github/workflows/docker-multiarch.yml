@@ -35,9 +35,9 @@ on:
         type: string
         default: "ghcr.io"
       registry_username:
-        description: Registry login username
+        description: Registry login username (defaults to github.actor when empty)
         type: string
-        default: "${{ github.actor }}"
+        default: ""
       scan_after_build:
         description: Run Trivy vulnerability scan on the pushed image
         type: boolean
@@ -93,7 +93,7 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3 @ 2026-05-23
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ inputs.registry_username }}
+          username: ${{ inputs.registry_username || github.actor }}
           password: ${{ secrets.registry_token }}
 
       - name: Compute image tags

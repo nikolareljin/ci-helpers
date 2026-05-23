@@ -113,18 +113,24 @@ jobs:
 
           case "${MANIFEST_TYPE}" in
             package_json)
-              version=$(node -p "require('./${path}').version")
+              # Path passed via env var — never interpolated into the Node expression.
+              version=$(MANIFEST_PATH="${path}" node -e "
+              const fs = require('fs');
+              const data = JSON.parse(fs.readFileSync(process.env.MANIFEST_PATH, 'utf8'));
+              process.stdout.write(data.version);
+              ")
               ;;
             cargo)
-              version=$(grep -m1 '^version' "${path}" | cut -d'"' -f2)
+              # Scope search to [package] section to avoid matching dependency versions.
+              version=$(awk '/^\[package\]/{f=1} f && /^version[[:space:]]*=/{print; exit} /^\[/{if(!/^\[package\]/) f=0}' "${path}" | cut -d'"' -f2)
               ;;
             pubspec)
               # Strip build number suffix (e.g. 1.2.3+4 -> 1.2.3)
               version=$(grep '^version:' "${path}" | awk '{print $2}' | cut -d'+' -f1)
               ;;
             pyproject)
-              # Support PEP 621 [project] and [tool.poetry]
-              version=$(grep -m1 '^version' "${path}" | sed "s/.*['\"]\\(.*\\)['\"].*/\\1/")
+              # Support PEP 621 [project] and [tool.poetry]; scoped to the section.
+              version=$(TOML_PATH="${path}" python3 -c "import os,re,sys;c=open(os.environ['TOML_PATH']).read();m=re.search(r'^\[(?:project|tool\.poetry)\][^\[]*?^version\s*=\s*[\"\'](.*?)[\"\']',c,re.M|re.S);sys.exit(1) if not m else sys.stdout.write(m.group(1))")
               ;;
             version_file)
               version=$(tr -d '[:space:]' < "${path}")
@@ -139,8 +145,9 @@ jobs:
             echo "Could not extract version from ${MANIFEST_TYPE} (${path})" >&2
             exit 1
           fi
-          if ! echo "${version}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]'; then
-            echo "Extracted value '${version}' does not look like a version (X.Y.Z...)" >&2
+          # Anchored semver: X.Y.Z with optional pre-release or build metadata.
+          if ! echo "${version}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([-+][a-zA-Z0-9._-]+)?$'; then
+            echo "Extracted value '${version}' does not look like a version (X.Y.Z)" >&2
             exit 1
           fi
 
@@ -189,6 +196,7 @@ jobs:
       - name: Dispatch release workflows
         if: ${{ steps.compute.outputs.skipped != 'true' && inputs.dispatch_workflows != '' }}
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.extract.outputs.version }}
           GIT_TAG: ${{ steps.compute.outputs.tag }}
           WORKFLOWS: ${{ inputs.dispatch_workflows }}
