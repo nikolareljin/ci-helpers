@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-05-23 — 0.9.3
+
+### Fixed
+- **`auto-tag-release.yml` squash-merge detection:** Added a second commit-subject
+  fallback that extracts `(#N)` from squash-merge subjects and validates the PR
+  directly via `pulls.get`. The association-index path (`listPullRequestsAssociatedWithCommit`)
+  is eventually-consistent and could silently miss a release merge fired seconds after
+  the push; `pulls.get` is not subject to that delay. Re-runnable warning emitted
+  when `merge_commit_sha` mismatch is detected (delayed indexing edge case).
+- **`create_production.sh` branch drift:** Script now also force-pushes the
+  production BRANCH to the same commit as the production TAG after every release.
+  Previously only the tag was moved, leaving `refs/heads/production` stale and
+  causing GitHub Actions to resolve `@production` to the old branch commit instead
+  of the new tag commit. Pass `--no-branch` to opt out of the branch update.
+
 ## 2026-05-22 — 0.9.2
 
 ### Changed

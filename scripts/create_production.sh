@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SCRIPT: create_production.sh
-# DESCRIPTION: Point a production tag at a specific tag and push it to the remote.
-# USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags]
+# DESCRIPTION: Point the production tag AND branch at a specific version tag and push both.
+# USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch]
 # PARAMETERS:
 #   -t, --tag <tag>         Required. Tag to point the production tag at.
-#   --name <name>           Tag name to update (default: production).
+#   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set.
 #   --remote <name>         Remote name to push to (default: origin).
 #   --repo <path>           Repository path (default: GITHUB_WORKSPACE or cwd).
 #   --fetch-tags            Fetch tags before updating the production tag.
+#   --no-branch             Skip updating the production branch (tag-only update).
 #   -h, --help              Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -36,20 +37,29 @@ log_error_safe() {
   fi
 }
 
+log_warn_safe() {
+  if declare -F log_warn >/dev/null 2>&1; then
+    log_warn "$*"
+  else
+    echo "[WARN] $*" >&2
+  fi
+}
+
 tag=""
 prod_tag="production"
 remote="origin"
 repo_dir="${GITHUB_WORKSPACE:-$(pwd)}"
 fetch_tags=false
+update_branch=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -t|--tag) tag="$2"; shift 2;;
     --name|--tag-name) prod_tag="$2"; shift 2;;
-    --branch) prod_tag="$2"; shift 2;;
     --remote) remote="$2"; shift 2;;
     --repo) repo_dir="$2"; shift 2;;
     --fetch-tags) fetch_tags=true; shift;;
+    --no-branch) update_branch=false; shift;;
     -h|--help) usage; exit 0;;
     *) log_error_safe "Unknown argument: $1"; usage; exit 2;;
   esac
@@ -70,9 +80,23 @@ if ! git -C "$repo_dir" rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
   exit 1
 fi
 
+target_sha=$(git -C "$repo_dir" rev-parse "refs/tags/$tag^{}")
+
 log_info_safe "Updating ${prod_tag} tag to ${tag}"
 git -C "$repo_dir" tag -f "$prod_tag" "$tag"
 # `--force-with-lease` is reliable for branches, but Git rejects it for moving
 # an existing tag ref even after a fresh tag fetch. Use `--force` for tag alias updates.
 git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force
 log_info_safe "Production tag ${prod_tag} now points to ${tag}"
+
+if $update_branch; then
+  log_info_safe "Advancing ${prod_tag} branch to ${tag} (${target_sha:0:8})"
+  fetch_err=$(git -C "$repo_dir" fetch "$remote" "refs/heads/${prod_tag}:refs/remotes/${remote}/${prod_tag}" 2>&1) || {
+    case "$fetch_err" in
+      *"couldn't find remote ref"*) ;;
+      *) log_warn_safe "Failed to fetch ${prod_tag} branch: ${fetch_err}" ;;
+    esac
+  }
+  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
+  log_info_safe "Production branch ${prod_tag} now points to ${tag}"
+fi
