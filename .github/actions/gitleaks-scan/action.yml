@@ -108,13 +108,6 @@ runs:
         output="${{ inputs.output }}"
         fail_on_findings="${{ inputs.fail_on_findings }}"
 
-        if [[ "$report_format" != "sarif" ]]; then
-          report_format="sarif"
-        fi
-        if [[ ! -f "$output" && -f "results.sarif" ]]; then
-          output="results.sarif"
-        fi
-
         REPORT_FORMAT="$report_format" OUTPUT="$output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
         import json
         import os

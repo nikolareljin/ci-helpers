@@ -225,7 +225,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Frontend install
-        if: ${{ inputs.node_version != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
         env:
           INSTALL_CMD: ${{ inputs.frontend_install_command }}
         shell: bash
@@ -235,7 +235,7 @@ jobs:
           bash -c "$INSTALL_CMD"
 
       - name: Frontend build
-        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' && inputs.frontend_build_command != '' }}
         env:
           BUILD_CMD: ${{ inputs.frontend_build_command }}
         shell: bash
@@ -374,7 +374,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Frontend install
-        if: ${{ inputs.node_version != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
         env:
           INSTALL_CMD: ${{ inputs.frontend_install_command }}
         working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
@@ -383,7 +383,7 @@ jobs:
           bash -c "$INSTALL_CMD"
 
       - name: Frontend build
-        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' && inputs.frontend_build_command != '' }}
         env:
           BUILD_CMD: ${{ inputs.frontend_build_command }}
         working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
@@ -526,7 +526,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Frontend install
-        if: ${{ inputs.node_version != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
         env:
           INSTALL_CMD: ${{ inputs.frontend_install_command }}
         shell: bash
@@ -536,7 +536,7 @@ jobs:
           bash -c "$INSTALL_CMD"
 
       - name: Frontend build
-        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' && inputs.frontend_build_command != '' }}
         env:
           BUILD_CMD: ${{ inputs.frontend_build_command }}
         shell: bash

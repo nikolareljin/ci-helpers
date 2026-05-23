@@ -9,7 +9,8 @@
   runs `cargo fmt -- --check`, `cargo clippy -- -D warnings`, and `cargo check`
   (no full build — keeps the gate fast). Optional Node + frontend install for
   front-end type-checking. All commands routed through `env:` variables to prevent
-  shell injection from workflow inputs.
+  expression injection from workflow inputs (protects against crafted ref names
+  or other GitHub context values being interpolated directly into `run:` scripts).
 
 - **`tauri.yml`:** Standalone Tauri CI preset (does not wrap `ci.yml` — `ci.yml`
   has no `apt` step). Runs full `cargo test` + `cargo build` on ubuntu-22.04 with
