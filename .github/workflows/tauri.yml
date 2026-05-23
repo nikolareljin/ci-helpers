@@ -78,7 +78,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          read -r -a pkgs <<< "${APT_PKGS}"
+          # Normalize newlines/CRs to spaces so callers can pass either
+          # space-separated or newline-separated package lists.
+          _pkgs="${APT_PKGS//$'\r'}"
+          read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
           sudo apt-get install -y -- "${pkgs[@]}"
 
       - name: Setup Node
