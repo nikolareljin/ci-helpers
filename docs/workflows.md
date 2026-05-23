@@ -1099,7 +1099,7 @@ Inputs (selected):
 | `tauri_conf_path` | `src-tauri/tauri.conf.json` | Relative to working_directory |
 | `frontend_dir` | `"."` | Directory for frontend install/build |
 | `frontend_install_command` | `npm ci` | |
-| `frontend_build_command` | `npm run build` | |
+| `frontend_build_command` | `""` | Empty = skip explicit build step |
 | `sign_macos` | `true` | Gate macOS codesigning |
 | `notarize_macos` | `true` | Gate notarization + staple |
 | `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
