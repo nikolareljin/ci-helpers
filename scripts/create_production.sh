@@ -72,7 +72,7 @@ if ! git -C "$repo_dir" rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
   exit 1
 fi
 
-target_sha=$(git -C "$repo_dir" rev-parse "refs/tags/$tag")
+target_sha=$(git -C "$repo_dir" rev-parse "refs/tags/$tag^{}")
 
 log_info_safe "Updating ${prod_tag} tag to ${tag}"
 git -C "$repo_dir" tag -f "$prod_tag" "$tag"
@@ -83,6 +83,6 @@ log_info_safe "Production tag ${prod_tag} now points to ${tag}"
 
 if $update_branch; then
   log_info_safe "Advancing ${prod_tag} branch to ${tag} (${target_sha:0:8})"
-  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force
+  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
   log_info_safe "Production branch ${prod_tag} now points to ${tag}"
 fi
