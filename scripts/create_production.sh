@@ -37,6 +37,14 @@ log_error_safe() {
   fi
 }
 
+log_warn_safe() {
+  if declare -F log_warn >/dev/null 2>&1; then
+    log_warn "$*"
+  else
+    echo "[WARN] $*" >&2
+  fi
+}
+
 tag=""
 prod_tag="production"
 remote="origin"
@@ -86,7 +94,7 @@ if $update_branch; then
   fetch_err=$(git -C "$repo_dir" fetch "$remote" "refs/heads/${prod_tag}:refs/remotes/${remote}/${prod_tag}" 2>&1) || {
     case "$fetch_err" in
       *"couldn't find remote ref"*) ;;
-      *) echo "[WARN] Failed to fetch ${prod_tag} branch: ${fetch_err}" >&2 ;;
+      *) log_warn_safe "Failed to fetch ${prod_tag} branch: ${fetch_err}" ;;
     esac
   }
   git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
