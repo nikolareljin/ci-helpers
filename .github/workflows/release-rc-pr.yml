@@ -19,6 +19,11 @@ jobs:
       - name: Create PR to default branch
         uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9 @ 2026-05-23
         with:
+          # GH_PAT must be a PAT with repo scope (or pull_requests:write for fine-grained).
+          # Without it, the GITHUB_TOKEN is used — but this requires
+          # Settings → Actions → General → "Allow GitHub Actions to create and approve
+          # pull requests" to be enabled. A PAT bypasses that restriction entirely.
+          github-token: ${{ secrets.GH_PAT || github.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
