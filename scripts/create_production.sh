@@ -83,6 +83,7 @@ log_info_safe "Production tag ${prod_tag} now points to ${tag}"
 
 if $update_branch; then
   log_info_safe "Advancing ${prod_tag} branch to ${tag} (${target_sha:0:8})"
+  git -C "$repo_dir" fetch "$remote" "refs/heads/${prod_tag}:refs/remotes/${remote}/${prod_tag}" 2>/dev/null || true
   git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
   log_info_safe "Production branch ${prod_tag} now points to ${tag}"
 fi
