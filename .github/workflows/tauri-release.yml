@@ -173,7 +173,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6 @ 2026-05-23
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -329,7 +329,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6 @ 2026-05-23
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -471,7 +471,7 @@ jobs:
     # ubuntu-22.04 required for Tauri v2 WebKit ABI (libwebkit2gtk-4.1-dev)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6 @ 2026-05-23
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
