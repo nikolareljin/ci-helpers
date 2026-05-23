@@ -43,10 +43,11 @@ runs:
   steps:
     - name: Prepare report path
       shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
       run: |
         set -euo pipefail
-        output="${{ inputs.output }}"
-        mkdir -p "$(dirname "$output")"
+        mkdir -p "$(dirname "${OUTPUT}")"
     - name: Install gitleaks binary
       shell: bash
       env:
@@ -107,13 +108,13 @@ runs:
         "${GL_BIN}" "${args[@]}"
     - name: Evaluate findings
       shell: bash
+      env:
+        REPORT_FORMAT: ${{ inputs.report_format }}
+        OUTPUT: ${{ inputs.output }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
       run: |
         set -euo pipefail
-        report_format="${{ inputs.report_format }}"
-        output="${{ inputs.output }}"
-        fail_on_findings="${{ inputs.fail_on_findings }}"
-
-        REPORT_FORMAT="$report_format" OUTPUT="$output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
+        python3 - <<'PY'
         import json
         import os
         import sys
