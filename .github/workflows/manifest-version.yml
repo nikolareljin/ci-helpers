@@ -168,12 +168,14 @@ jobs:
 
           if git rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
             echo "Tag ${tag} already exists."
+            echo "tag_existed=true" >> "${GITHUB_OUTPUT}"
             if [ "${SKIP_IF_TAGGED}" = "true" ]; then
               echo "skipped=true" >> "${GITHUB_OUTPUT}"
             else
               echo "skipped=false" >> "${GITHUB_OUTPUT}"
             fi
           else
+            echo "tag_existed=false" >> "${GITHUB_OUTPUT}"
             echo "skipped=false" >> "${GITHUB_OUTPUT}"
           fi
 
@@ -197,10 +199,12 @@ jobs:
           fi
 
       - name: Dispatch release workflows
-        # Gate on tag.created (not compute.skipped) to prevent double-dispatch
-        # when two concurrent runs both pass the pre-check before either creates
-        # the tag. Only the run that actually pushes the tag dispatches workflows.
-        if: ${{ steps.tag.outputs.created == 'true' && inputs.dispatch_workflows != '' }}
+        # Dispatch when this run created the tag (new tag), OR when the tag
+        # already existed but skip_if_tagged is false (intentional re-dispatch).
+        # Gating on tag.created prevents double-dispatch in concurrent runs:
+        # only the run that actually pushed the tag fires; concurrent runs that
+        # lost the race hit tag_existed=true + created=false and stay silent.
+        if: ${{ inputs.dispatch_workflows != '' && (steps.tag.outputs.created == 'true' || (steps.compute.outputs.tag_existed == 'true' && inputs.skip_if_tagged == false)) }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.extract.outputs.version }}

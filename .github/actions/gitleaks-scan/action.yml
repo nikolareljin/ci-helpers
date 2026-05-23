@@ -50,8 +50,10 @@ runs:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
       run: |
         set -euo pipefail
-        tag="${GITLEAKS_VERSION}"
-        ver="${tag#v}"
+        # Normalize: strip any leading "v" then re-add it so both "v8.30.1"
+        # and "8.30.1" produce the correct release URL.
+        ver="${GITLEAKS_VERSION#v}"
+        tag="v${ver}"
 
         # Map uname output to gitleaks release asset naming
         raw_os=$(uname -s | tr '[:upper:]' '[:lower:]')

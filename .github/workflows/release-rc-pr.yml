@@ -39,10 +39,10 @@ jobs:
     env:
       HEAD_BRANCH: ${{ github.ref_name }}
       # workflow_call: inputs.base_branch carries the caller-supplied value (default "main").
-      # on:create: the inputs context does not exist; GitHub evaluates
-      #   ${{ inputs.base_branch }} as an empty string. This is intentional —
-      #   the script falls back to context.payload.repository.default_branch.
-      BASE_BRANCH: ${{ inputs.base_branch }}
+      # on:create: the inputs context is undefined; use the explicit guard so the
+      #   empty-string fallback is intentional rather than accidental.
+      #   The script then falls back to context.payload.repository.default_branch.
+      BASE_BRANCH: ${{ github.event_name == 'workflow_call' && inputs.base_branch || '' }}
     steps:
       - name: Create PR to default branch
         uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9 @ 2026-05-23
