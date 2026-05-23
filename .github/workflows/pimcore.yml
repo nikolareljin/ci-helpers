@@ -75,7 +75,7 @@ on:
 
 jobs:
   pimcore-bundle:
-    uses: ./.github/workflows/pimcore-bundle-check.yml
+    uses: nikolareljin/ci-helpers/.github/workflows/pimcore-bundle-check.yml@production
     with:
       runner: ${{ inputs.runner }}
       compose_file: ${{ inputs.compose_file }}

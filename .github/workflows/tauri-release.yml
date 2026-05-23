@@ -253,7 +253,7 @@ jobs:
 
       - name: Configure macOS codesigning
         if: ${{ inputs.sign_macos }}
-        uses: ./.github/actions/macos-sign
+        uses: nikolareljin/ci-helpers/.github/actions/macos-sign@production
         with:
           certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
           certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -400,7 +400,7 @@ jobs:
 
       - name: Configure Windows signing
         if: ${{ inputs.windows_sign_mode != 'none' }}
-        uses: ./.github/actions/windows-sign
+        uses: nikolareljin/ci-helpers/.github/actions/windows-sign@production
         with:
           sign_mode: ${{ inputs.windows_sign_mode }}
           tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -651,7 +651,7 @@ jobs:
   winget-submit:
     needs: release
     if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
-    uses: ./.github/workflows/winget-submit.yml
+    uses: nikolareljin/ci-helpers/.github/workflows/winget-submit.yml@production
     with:
       package_id: ${{ inputs.winget_package_id }}
       version: ${{ inputs.version != '' && inputs.version || github.ref_name }}
