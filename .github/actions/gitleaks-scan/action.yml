@@ -47,7 +47,6 @@ runs:
     - name: Install gitleaks binary
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
       run: |
         set -euo pipefail
@@ -60,9 +59,9 @@ runs:
         case "${arch}" in x86_64) arch="x64" ;; aarch64|arm64) arch="arm64" ;; esac
 
         case "${raw_os}" in
-          linux)              os="linux"   ; ext="tar.gz" ;;
-          darwin)             os="darwin"  ; ext="tar.gz" ;;
-          mingw*|msys*|cygwin*) os="windows" ; ext="zip"  ;;
+          linux)                os="linux"   ; ext="tar.gz" ;;
+          darwin)               os="darwin"  ; ext="tar.gz" ;;
+          mingw*|msys*|cygwin*) os="windows" ; ext="zip"    ;;
           *)
             echo "::error::Unsupported runner OS '${raw_os}'. gitleaks-scan supports linux, darwin, and windows." >&2
             exit 1
@@ -71,11 +70,13 @@ runs:
 
         archive="gitleaks_${ver}_${os}_${arch}.${ext}"
         mkdir -p /tmp/gl-dl
-        gh release download "${tag}" \
-          --repo gitleaks/gitleaks \
-          --pattern "${archive}" \
-          --dir /tmp/gl-dl \
-          --clobber
+
+        # Direct download from GitHub Releases — no API auth needed for public repos.
+        # Using curl avoids the 401 that gh-cli triggers when github.token is scoped
+        # to a different repo than the one being downloaded from.
+        curl -fsSL \
+          "https://github.com/gitleaks/gitleaks/releases/download/${tag}/${archive}" \
+          -o "/tmp/gl-dl/${archive}"
 
         if [ "${ext}" = "zip" ]; then
           unzip -q "/tmp/gl-dl/${archive}" -d /tmp/gl-bin

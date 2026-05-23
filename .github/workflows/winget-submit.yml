@@ -53,7 +53,10 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
-          dotnet tool install --global Microsoft.WingetCreator
+          # dotnet tool update installs the tool when absent and upgrades it when
+          # present — idempotent on .NET 6+ (Windows runners ship .NET 8+).
+          # dotnet tool install would fail on re-run/self-hosted if already installed.
+          dotnet tool update --global Microsoft.WingetCreator
           # Add dotnet tools to PATH for subsequent steps
           "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
