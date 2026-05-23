@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create PR to default branch
-        uses: actions/github-script@v9
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9 @ 2026-05-23
         with:
           script: |
             const owner = context.repo.owner;
@@ -28,8 +28,8 @@ jobs:
               core.info(`Branch ${head} does not match release/[v]X.Y.Z, release/[v]X.Y.Z-rcN, or release/[v]X.Y.Z-rc.N; skipping.`);
               return;
             }
-            const repoInfo = await github.rest.repos.get({ owner, repo });
-            const base = repoInfo.data.default_branch;
+            // default_branch is in the create event payload — no API call needed
+            const base = context.payload.repository.default_branch;
 
             const existing = await github.rest.pulls.list({
               owner,
