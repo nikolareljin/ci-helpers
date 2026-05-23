@@ -1,0 +1,208 @@
+name: windows-sign
+description: >
+  Configure Windows code signing for Tauri builds. Supports three modes:
+
+  tauri_updater (FREE):
+    Sets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in
+    GITHUB_ENV. Signs .sig updater bundles only (ED25519). Does NOT sign the
+    MSI/EXE binary — no SmartScreen clearance. Generate a keypair with:
+      cargo tauri signer generate -w ~/.tauri/myapp.key
+
+  pfx (PAID — OV or EV certificate from a CA):
+    Decodes a base64 PFX, imports it to the current-user cert store, extracts
+    the thumbprint, and sets TAURI_WINDOWS_SIGN_COMMAND and
+    WINDOWS_CERT_THUMBPRINT in GITHUB_ENV. Tauri reads TAURI_WINDOWS_SIGN_COMMAND
+    and invokes signtool to sign the MSI and NSIS EXE with Authenticode.
+    Removes the certificate and temp file in an if:always() cleanup step.
+
+  azure (PAID — Azure Trusted Signing):
+    Exports Azure Trusted Signing credentials to GITHUB_ENV. After the build,
+    the calling workflow must invoke azure/trusted-signing-action to sign the
+    MSI/EXE with azuresigntool. This mode does NOT set TAURI_WINDOWS_SIGN_COMMAND
+    because Azure signing happens post-build via a separate action step.
+
+inputs:
+  sign_mode:
+    description: "Signing mode: tauri_updater, pfx, or azure"
+    required: true
+
+  # --- tauri_updater inputs ---
+  tauri_signing_private_key:
+    description: ED25519 private key for Tauri updater signing (base64 or raw)
+    required: false
+    default: ""
+  tauri_signing_private_key_password:
+    description: Password for the Tauri updater signing key (leave empty if none)
+    required: false
+    default: ""
+
+  # --- pfx inputs ---
+  certificate_base64:
+    description: Base64-encoded PFX certificate file
+    required: false
+    default: ""
+  certificate_password:
+    description: Password for the PFX certificate
+    required: false
+    default: ""
+  timestamp_server:
+    description: RFC 3161 timestamp server URL
+    required: false
+    default: "http://timestamp.sectigo.com"
+
+  # --- azure inputs ---
+  azure_tenant_id:
+    description: Azure AD tenant ID
+    required: false
+    default: ""
+  azure_client_id:
+    description: Azure service principal client ID
+    required: false
+    default: ""
+  azure_client_secret:
+    description: Azure service principal client secret
+    required: false
+    default: ""
+  azure_endpoint:
+    description: Azure Trusted Signing endpoint URL (e.g. https://eus.codesigning.azure.net/)
+    required: false
+    default: ""
+  azure_code_signing_account:
+    description: Azure Trusted Signing account name
+    required: false
+    default: ""
+  azure_cert_profile:
+    description: Azure Trusted Signing certificate profile name
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # ── tauri_updater ─────────────────────────────────────────────────────────
+    - name: Configure Tauri updater signing (free ED25519)
+      if: ${{ inputs.sign_mode == 'tauri_updater' }}
+      shell: pwsh
+      env:
+        PRIV_KEY: ${{ inputs.tauri_signing_private_key }}
+        PRIV_KEY_PW: ${{ inputs.tauri_signing_private_key_password }}
+      run: |
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = "Stop"
+
+        if ([string]::IsNullOrEmpty($env:PRIV_KEY)) {
+          Write-Error "tauri_signing_private_key is required for tauri_updater mode."
+          exit 1
+        }
+
+        # Mask secrets before any output
+        Write-Output "::add-mask::$($env:PRIV_KEY)"
+        if (-not [string]::IsNullOrEmpty($env:PRIV_KEY_PW)) {
+          Write-Output "::add-mask::$($env:PRIV_KEY_PW)"
+        }
+
+        # Export to GITHUB_ENV for subsequent steps
+        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$($env:PRIV_KEY)"
+        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$($env:PRIV_KEY_PW)"
+
+    # ── pfx ───────────────────────────────────────────────────────────────────
+    - name: Import PFX certificate (paid Authenticode)
+      if: ${{ inputs.sign_mode == 'pfx' }}
+      shell: pwsh
+      env:
+        CERT_B64: ${{ inputs.certificate_base64 }}
+        CERT_PW: ${{ inputs.certificate_password }}
+        TS_URL: ${{ inputs.timestamp_server }}
+      run: |
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = "Stop"
+
+        if ([string]::IsNullOrEmpty($env:CERT_B64)) {
+          Write-Error "certificate_base64 is required for pfx mode."
+          exit 1
+        }
+
+        # Mask secrets
+        Write-Output "::add-mask::$($env:CERT_B64)"
+        Write-Output "::add-mask::$($env:CERT_PW)"
+
+        # Decode PFX to a temp file with restricted permissions
+        $pfxPath = Join-Path $env:TEMP "build-$(New-Guid).pfx"
+        [System.Convert]::FromBase64String($env:CERT_B64) | Set-Content $pfxPath -Encoding Byte
+        $acl = Get-Acl $pfxPath
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+          [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+          "FullControl", "Allow"
+        )
+        $acl.SetAccessRule($rule)
+        Set-Acl $pfxPath $acl
+
+        # Import into current-user cert store
+        $securePw = ConvertTo-SecureString $env:CERT_PW -AsPlainText -Force
+        $cert = Import-PfxCertificate -FilePath $pfxPath `
+          -CertStoreLocation Cert:\CurrentUser\My `
+          -Password $securePw
+        $thumb = $cert.Thumbprint
+        Write-Output "::add-mask::$thumb"
+
+        # Build TAURI_WINDOWS_SIGN_COMMAND — %1 is the file path placeholder Tauri uses
+        $signCmd = "signtool sign /sha1 $thumb /tr $($env:TS_URL) /td sha256 /fd sha256 %1"
+
+        # Persist temp PFX path so cleanup step can remove it
+        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_PFX_PATH=$pfxPath"
+        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$thumb"
+        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGN_COMMAND=$signCmd"
+
+    - name: Cleanup PFX certificate
+      if: ${{ always() && inputs.sign_mode == 'pfx' }}
+      shell: pwsh
+      env:
+        THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
+        PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
+      run: |
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = "SilentlyContinue"
+
+        if (-not [string]::IsNullOrEmpty($env:THUMB)) {
+          $cert = Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -ErrorAction SilentlyContinue
+          if ($cert) { $cert | Remove-Item -Force }
+        }
+        if (-not [string]::IsNullOrEmpty($env:PFX_PATH) -and (Test-Path $env:PFX_PATH)) {
+          Remove-Item $env:PFX_PATH -Force
+        }
+
+    # ── azure ─────────────────────────────────────────────────────────────────
+    - name: Configure Azure Trusted Signing credentials
+      if: ${{ inputs.sign_mode == 'azure' }}
+      shell: pwsh
+      env:
+        AZ_TENANT: ${{ inputs.azure_tenant_id }}
+        AZ_CLIENT: ${{ inputs.azure_client_id }}
+        AZ_SECRET: ${{ inputs.azure_client_secret }}
+        AZ_ENDPOINT: ${{ inputs.azure_endpoint }}
+        AZ_ACCOUNT: ${{ inputs.azure_code_signing_account }}
+        AZ_PROFILE: ${{ inputs.azure_cert_profile }}
+      run: |
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = "Stop"
+
+        foreach ($key in @("AZ_TENANT","AZ_CLIENT","AZ_SECRET","AZ_ENDPOINT","AZ_ACCOUNT","AZ_PROFILE")) {
+          if ([string]::IsNullOrEmpty([System.Environment]::GetEnvironmentVariable($key))) {
+            Write-Error "azure_$($key.ToLower().Replace('az_','')) is required for azure mode."
+            exit 1
+          }
+        }
+
+        # Mask all secrets
+        Write-Output "::add-mask::$($env:AZ_TENANT)"
+        Write-Output "::add-mask::$($env:AZ_CLIENT)"
+        Write-Output "::add-mask::$($env:AZ_SECRET)"
+
+        # Export to GITHUB_ENV — azure/trusted-signing-action reads these
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_TENANT_ID=$($env:AZ_TENANT)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_ID=$($env:AZ_CLIENT)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_SECRET=$($env:AZ_SECRET)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ENDPOINT=$($env:AZ_ENDPOINT)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CODE_SIGNING_ACCOUNT=$($env:AZ_ACCOUNT)"
+        Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CERT_PROFILE_NAME=$($env:AZ_PROFILE)"

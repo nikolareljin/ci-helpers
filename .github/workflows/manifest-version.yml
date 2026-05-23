@@ -1,0 +1,227 @@
+name: manifest-version
+on:
+  workflow_call:
+    inputs:
+      manifest_type:
+        description: >
+          How to read the project version. Supported values:
+            package_json  — reads .version from a JSON file (default: package.json)
+            cargo         — reads version = "..." from [package] in Cargo.toml
+            pubspec       — reads version: from pubspec.yaml (strips +build suffix)
+            pyproject     — reads version = "..." from [project] or [tool.poetry] in pyproject.toml
+            version_file  — reads the entire file content as the version string
+            custom        — runs version_command and captures stdout
+        type: string
+        default: "package_json"
+      manifest_path:
+        description: >
+          Path to the manifest file (relative to repo root). Defaults per type:
+            package_json -> package.json
+            cargo        -> Cargo.toml
+            pubspec      -> pubspec.yaml
+            pyproject    -> pyproject.toml
+            version_file -> VERSION
+            custom       -> (unused, set version_command instead)
+        type: string
+        default: ""
+      version_command:
+        description: Shell command that prints the version to stdout (used when manifest_type=custom)
+        type: string
+        default: ""
+      dispatch_workflows:
+        description: Comma-separated list of workflow filenames to dispatch after tagging
+        type: string
+        default: ""
+      dispatch_inputs_json:
+        description: JSON object of extra inputs passed to each dispatched workflow (e.g. '{"env":"prod"}')
+        type: string
+        default: "{}"
+      publish_latest:
+        description: Passed as publish_latest input to each dispatched workflow
+        type: boolean
+        default: true
+      tag_prefix:
+        description: Prefix prepended to the version when creating the git tag (e.g. v)
+        type: string
+        default: ""
+      skip_if_tagged:
+        description: Skip tagging and dispatch if the computed tag already exists
+        type: boolean
+        default: true
+      runner:
+        type: string
+        default: ubuntu-latest
+      fetch_depth:
+        type: number
+        default: 0
+    outputs:
+      version:
+        description: Extracted version string (without prefix)
+        value: ${{ jobs.tag-and-dispatch.outputs.version }}
+      tag:
+        description: Git tag that was created (tag_prefix + version)
+        value: ${{ jobs.tag-and-dispatch.outputs.tag }}
+      skipped:
+        description: true when the tag already existed and skip_if_tagged was set
+        value: ${{ jobs.tag-and-dispatch.outputs.skipped }}
+
+permissions:
+  contents: write
+  actions: write
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  tag-and-dispatch:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+      skipped: ${{ steps.compute.outputs.skipped }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Extract version from manifest
+        id: extract
+        env:
+          MANIFEST_TYPE: ${{ inputs.manifest_type }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          VERSION_CMD: ${{ inputs.version_command }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Resolve default manifest path per type
+          path="${MANIFEST_PATH}"
+          case "${MANIFEST_TYPE}" in
+            package_json) [ -z "${path}" ] && path="package.json" ;;
+            cargo)        [ -z "${path}" ] && path="Cargo.toml" ;;
+            pubspec)      [ -z "${path}" ] && path="pubspec.yaml" ;;
+            pyproject)    [ -z "${path}" ] && path="pyproject.toml" ;;
+            version_file) [ -z "${path}" ] && path="VERSION" ;;
+            custom)       : ;;
+            *)
+              echo "Unknown manifest_type: ${MANIFEST_TYPE}" >&2
+              exit 1
+              ;;
+          esac
+
+          case "${MANIFEST_TYPE}" in
+            package_json)
+              version=$(node -p "require('./${path}').version")
+              ;;
+            cargo)
+              version=$(grep -m1 '^version' "${path}" | cut -d'"' -f2)
+              ;;
+            pubspec)
+              # Strip build number suffix (e.g. 1.2.3+4 -> 1.2.3)
+              version=$(grep '^version:' "${path}" | awk '{print $2}' | cut -d'+' -f1)
+              ;;
+            pyproject)
+              # Support PEP 621 [project] and [tool.poetry]
+              version=$(grep -m1 '^version' "${path}" | sed "s/.*['\"]\\(.*\\)['\"].*/\\1/")
+              ;;
+            version_file)
+              version=$(tr -d '[:space:]' < "${path}")
+              ;;
+            custom)
+              version=$(bash -c "$VERSION_CMD")
+              ;;
+          esac
+
+          version="${version// /}"
+          if [ -z "${version}" ]; then
+            echo "Could not extract version from ${MANIFEST_TYPE} (${path})" >&2
+            exit 1
+          fi
+          if ! echo "${version}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]'; then
+            echo "Extracted value '${version}' does not look like a version (X.Y.Z...)" >&2
+            exit 1
+          fi
+
+          echo "Extracted version: ${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Compute tag and check existence
+        id: compute
+        env:
+          VERSION: ${{ steps.extract.outputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          SKIP_IF_TAGGED: ${{ inputs.skip_if_tagged }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${TAG_PREFIX}${VERSION}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+          if git rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists."
+            if [ "${SKIP_IF_TAGGED}" = "true" ]; then
+              echo "skipped=true" >> "${GITHUB_OUTPUT}"
+            else
+              echo "skipped=false" >> "${GITHUB_OUTPUT}"
+            fi
+          else
+            echo "skipped=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create and push git tag
+        if: ${{ steps.compute.outputs.skipped != 'true' }}
+        id: tag
+        env:
+          GIT_TAG: ${{ steps.compute.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse "refs/tags/${GIT_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${GIT_TAG} already exists (concurrent run). Skipping."
+          else
+            git tag "${GIT_TAG}"
+            git push origin "${GIT_TAG}"
+            echo "Created and pushed tag: ${GIT_TAG}"
+          fi
+
+      - name: Dispatch release workflows
+        if: ${{ steps.compute.outputs.skipped != 'true' && inputs.dispatch_workflows != '' }}
+        env:
+          VERSION: ${{ steps.extract.outputs.version }}
+          GIT_TAG: ${{ steps.compute.outputs.tag }}
+          WORKFLOWS: ${{ inputs.dispatch_workflows }}
+          DISPATCH_INPUTS_JSON: ${{ inputs.dispatch_inputs_json }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Parse extra dispatch inputs from JSON and build -f key=value args
+          extra_args=()
+          if [ "${DISPATCH_INPUTS_JSON}" != "{}" ] && [ -n "${DISPATCH_INPUTS_JSON}" ]; then
+            printf '%s' "${DISPATCH_INPUTS_JSON}" > /tmp/dispatch_inputs.json
+            while IFS='=' read -r key val; do
+              extra_args+=("-f" "${key}=${val}")
+            done < <(python3 -c "
+          import json
+          with open('/tmp/dispatch_inputs.json') as f:
+              data = json.load(f)
+          for k, v in data.items():
+              print(f'{k}={v}')
+          ")
+            rm -f /tmp/dispatch_inputs.json
+          fi
+
+          IFS=',' read -r -a workflow_list <<< "${WORKFLOWS}"
+          for wf in "${workflow_list[@]}"; do
+            wf="${wf// /}"
+            [ -z "${wf}" ] && continue
+            echo "Dispatching ${wf} at ref ${GIT_TAG}..."
+            gh workflow run "${wf}" \
+              --ref "${GIT_TAG}" \
+              -f "version=${VERSION}" \
+              -f "publish_latest=${PUBLISH_LATEST}" \
+              "${extra_args[@]}"
+          done

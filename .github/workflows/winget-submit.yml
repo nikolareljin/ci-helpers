@@ -1,0 +1,97 @@
+name: winget-submit
+on:
+  workflow_call:
+    inputs:
+      package_id:
+        description: WinGet package identifier (e.g. OrgName.AppName)
+        type: string
+        required: true
+      version:
+        description: Package version string (e.g. 1.2.3)
+        type: string
+        required: true
+      installer_url:
+        description: Direct download URL for the installer (.exe or .msi)
+        type: string
+        required: true
+      installer_arch:
+        description: Installer architecture tag for wingetcreate (x64, x86, arm64)
+        type: string
+        default: "x64"
+      installer_type:
+        description: Installer type tag for wingetcreate (nullsoft, msi, wix, burn, inno)
+        type: string
+        default: "nullsoft"
+      release_notes_url:
+        description: URL pointing to release notes for this version (optional)
+        type: string
+        default: ""
+      winget_fork_owner:
+        description: GitHub user or org that owns the fork of microsoft/winget-pkgs
+        type: string
+        required: true
+    secrets:
+      WINGET_PKGS_TOKEN:
+        description: >
+          Fine-grained PAT with Contents read+write and Pull requests read+write
+          on the winget-pkgs fork. Create at:
+          GitHub Settings > Developer settings > Fine-grained personal access tokens
+        required: true
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  submit:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Install wingetcreate via .NET tool
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          dotnet tool install --global Microsoft.WingetCreator
+          # Add dotnet tools to PATH for subsequent steps
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Submit manifest update to winget-pkgs
+        # wingetcreate submits a PR to the caller's winget-pkgs fork, which then
+        # files a PR against microsoft/winget-pkgs. The URL format is:
+        #   <installer_url>|<arch>|<type>
+        # e.g. https://example.com/app-1.0.0-setup.exe|x64|nullsoft
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
+          PKG_ID: ${{ inputs.package_id }}
+          PKG_VER: ${{ inputs.version }}
+          INSTALLER_URL: ${{ inputs.installer_url }}
+          ARCH: ${{ inputs.installer_arch }}
+          INSTALLER_TYPE: ${{ inputs.installer_type }}
+          RELEASE_NOTES_URL: ${{ inputs.release_notes_url }}
+          FORK_OWNER: ${{ inputs.winget_fork_owner }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+
+          Write-Output "::add-mask::$($env:WINGET_TOKEN)"
+
+          # wingetcreate URL format: <url>|<arch>|<type>
+          $fullUrl = "$($env:INSTALLER_URL)|$($env:ARCH)|$($env:INSTALLER_TYPE)"
+
+          $submitArgs = @(
+            "update", $env:PKG_ID,
+            "--version", $env:PKG_VER,
+            "--urls", $fullUrl,
+            "--token", $env:WINGET_TOKEN,
+            "--fork-repo-owner", $env:FORK_OWNER,
+            "--submit"
+          )
+
+          if (-not [string]::IsNullOrEmpty($env:RELEASE_NOTES_URL)) {
+            $submitArgs += @("--release-notes-url", $env:RELEASE_NOTES_URL)
+          }
+
+          wingetcreate @submitArgs

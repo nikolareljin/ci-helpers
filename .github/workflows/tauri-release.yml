@@ -1,0 +1,649 @@
+name: tauri-release
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: >
+          Version string used to patch tauri.conf.json and Cargo.toml before
+          the build. Leave empty to skip version patching (manifests used as-is).
+        type: string
+        default: ""
+      rust_toolchain:
+        type: string
+        default: "stable"
+      node_version:
+        description: Node.js version for frontend build (empty = skip Node setup)
+        type: string
+        default: ""
+      working_directory:
+        description: Cargo workspace root (relative to repo root)
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      tauri_conf_path:
+        description: Path to tauri.conf.json relative to working_directory
+        type: string
+        default: "src-tauri/tauri.conf.json"
+      frontend_dir:
+        description: Frontend directory relative to working_directory (empty = skip)
+        type: string
+        default: "."
+      frontend_install_command:
+        type: string
+        default: "npm ci"
+      frontend_build_command:
+        description: Frontend build command (empty = skip explicit build step)
+        type: string
+        default: ""
+      apt_packages:
+        description: Space-separated system packages required by Tauri on Linux
+        type: string
+        default: >-
+          libwebkit2gtk-4.1-dev
+          libssl-dev
+          libayatana-appindicator3-dev
+          librsvg2-dev
+          libgtk-3-dev
+          build-essential
+          curl
+          wget
+          file
+          rpm
+      sign_macos:
+        description: Enable macOS codesigning (requires Apple certificate secrets)
+        type: boolean
+        default: true
+      notarize_macos:
+        description: Notarize and staple the macOS DMG (requires Apple ID secrets)
+        type: boolean
+        default: true
+      windows_sign_mode:
+        description: >
+          Windows signing mode:
+            none          — no signing (default)
+            tauri_updater — free ED25519 updater bundle signing (.sig files only)
+            pfx           — paid Authenticode via PFX certificate (MSI + EXE)
+            azure         — paid Azure Trusted Signing (MSI + EXE, post-build)
+        type: string
+        default: "none"
+      upload_release:
+        description: Create/update a GitHub Release and upload all installers
+        type: boolean
+        default: true
+      release_tag:
+        description: Tag to attach the release to (defaults to GITHUB_REF_NAME)
+        type: string
+        default: ""
+      release_name:
+        description: Release display name (defaults to "Release <tag>")
+        type: string
+        default: ""
+      dist_repo:
+        description: >
+          Optional cross-repo publish target (e.g. owner/repo). When set,
+          installers are uploaded using gh release upload --clobber (idempotent).
+        type: string
+        default: ""
+      winget_submit:
+        description: Submit a winget manifest update after release
+        type: boolean
+        default: false
+      winget_package_id:
+        description: WinGet package identifier (e.g. OrgName.AppName)
+        type: string
+        default: ""
+      winget_installer_url:
+        description: Direct URL to the NSIS .exe installer for winget manifest
+        type: string
+        default: ""
+      winget_installer_arch:
+        description: Architecture tag for wingetcreate
+        type: string
+        default: "x64"
+      winget_installer_type:
+        description: Installer type tag for wingetcreate (nullsoft, msi, wix)
+        type: string
+        default: "nullsoft"
+      winget_fork_owner:
+        description: GitHub user/org owning the fork of microsoft/winget-pkgs
+        type: string
+        default: ""
+      artifact_retention_days:
+        description: Days to retain inter-job build artifacts
+        type: number
+        default: 3
+    secrets:
+      APPLE_CERTIFICATE:
+        description: Base64-encoded Apple Developer p12 certificate
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        description: Password for the Apple p12 certificate
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        description: "Full signing identity (e.g. Developer ID Application: Name (TEAMID))"
+        required: false
+      APPLE_TEAM_ID:
+        description: 10-character Apple Team ID
+        required: false
+      APPLE_ID:
+        description: Apple ID email for notarytool
+        required: false
+      APPLE_APP_PASSWORD:
+        description: App-specific password for notarytool
+        required: false
+      WINDOWS_CERTIFICATE:
+        description: Base64-encoded PFX certificate for Authenticode signing
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        description: Password for the PFX certificate
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY:
+        description: ED25519 private key for Tauri updater bundle signing (free)
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        description: Password for the Tauri updater signing key
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
+      AZURE_TRUSTED_SIGNING_ENDPOINT:
+        required: false
+      AZURE_CODE_SIGNING_ACCOUNT:
+        required: false
+      AZURE_CERT_PROFILE:
+        required: false
+      DIST_REPO_TOKEN:
+        description: PAT with write access to dist_repo
+        required: false
+      WINGET_PKGS_TOKEN:
+        description: PAT for the microsoft/winget-pkgs fork
+        required: false
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── macOS ──────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Patch version in tauri.conf.json and Cargo.toml
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          TAURI_CONF: ${{ inputs.tauri_conf_path }}
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node << 'SCRIPT'
+          const fs = require('fs');
+          const v = process.env.VERSION;
+          const conf_path = `${process.env.WORK_DIR}/${process.env.TAURI_CONF}`;
+          const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
+          conf.version = v;
+          fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
+          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          if (fs.existsSync(cargo_path)) {
+            const cargo = fs.readFileSync(cargo_path, 'utf8');
+            fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
+          }
+          SCRIPT
+
+      - name: Setup Rust and universal targets
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Add macOS cross-compile targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Both targets required for --target universal-apple-darwin (Tauri v2 fat binary)
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 @ 2026-05-23
+        with:
+          workspaces: ${{ inputs.working_directory }}
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Frontend install
+        if: ${{ inputs.node_version != '' }}
+        env:
+          INSTALL_CMD: ${{ inputs.frontend_install_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$INSTALL_CMD"
+
+      - name: Frontend build
+        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        env:
+          BUILD_CMD: ${{ inputs.frontend_build_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$BUILD_CMD"
+
+      - name: Install Tauri CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install tauri-cli --version '^2.0' --locked
+
+      - name: Configure macOS codesigning
+        if: ${{ inputs.sign_macos }}
+        uses: ./.github/actions/macos-sign
+        with:
+          certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          team_id: ${{ secrets.APPLE_TEAM_ID }}
+          apple_id: ${{ secrets.APPLE_ID }}
+          app_password: ${{ secrets.APPLE_APP_PASSWORD }}
+
+      - name: Build Tauri app (universal macOS binary)
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          cargo tauri build --target universal-apple-darwin
+
+      - name: Notarize and staple DMG
+        if: ${{ inputs.sign_macos && inputs.notarize_macos }}
+        env:
+          APPLE_ID_EMAIL: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(find "${WORK_DIR}/src-tauri/target/universal-apple-darwin/release/bundle" \
+            -name '*.dmg' | head -1)
+          if [ -z "${dmg}" ]; then
+            echo "No DMG found for notarization." >&2
+            exit 1
+          fi
+          echo "Notarizing: ${dmg}"
+          xcrun notarytool submit "${dmg}" \
+            --apple-id "${APPLE_ID_EMAIL}" \
+            --password "${APPLE_APP_PW}" \
+            --team-id "${TEAM_ID}" \
+            --wait
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "${dmg}"
+          echo "Verifying..."
+          spctl --assess --type open --context context:primary-signature "${dmg}"
+
+      - name: Collect macOS installers
+        env:
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find "${WORK_DIR}/src-tauri/target/universal-apple-darwin/release/bundle" \
+            -type f \( -name '*.dmg' -o -name '*.app.tar.gz' \) \
+            -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        with:
+          name: tauri-macos-artifacts
+          path: out/
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Cleanup macOS keychain
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "ci-build.keychain-db" 2>/dev/null || true
+
+  # ── Windows ────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Patch version in tauri.conf.json and Cargo.toml
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          TAURI_CONF: ${{ inputs.tauri_conf_path }}
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node << 'SCRIPT'
+          const fs = require('fs');
+          const v = process.env.VERSION;
+          const conf_path = `${process.env.WORK_DIR}/${process.env.TAURI_CONF}`;
+          const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
+          conf.version = v;
+          fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
+          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          if (fs.existsSync(cargo_path)) {
+            const cargo = fs.readFileSync(cargo_path, 'utf8');
+            fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
+          }
+          SCRIPT
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 @ 2026-05-23
+        with:
+          workspaces: ${{ inputs.working_directory }}
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Frontend install
+        if: ${{ inputs.node_version != '' }}
+        env:
+          INSTALL_CMD: ${{ inputs.frontend_install_command }}
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$INSTALL_CMD"
+
+      - name: Frontend build
+        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        env:
+          BUILD_CMD: ${{ inputs.frontend_build_command }}
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$BUILD_CMD"
+
+      - name: Install Tauri CLI
+        run: |
+          set -euo pipefail
+          cargo install tauri-cli --version '^2.0' --locked
+
+      - name: Configure Windows signing
+        if: ${{ inputs.windows_sign_mode != 'none' }}
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: ${{ inputs.windows_sign_mode }}
+          tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
+          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+          azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          azure_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          azure_code_signing_account: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          azure_cert_profile: ${{ secrets.AZURE_CERT_PROFILE }}
+
+      - name: Build Tauri app (Windows)
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          cargo tauri build
+
+      - name: Sign with Azure Trusted Signing (post-build)
+        if: ${{ inputs.windows_sign_mode == 'azure' }}
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0 @ 2026-05-23
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.AZURE_CODE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ env.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.AZURE_CERT_PROFILE_NAME }}
+          files-folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
+          files-folder-filter: exe,msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Collect Windows installers
+        env:
+          WORK_DIR: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find "${WORK_DIR}/src-tauri/target/release/bundle" \
+            -type f \( -name '*.msi' -o -name '*-setup.exe' -o -name '*_x64-setup.exe' \) \
+            -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        with:
+          name: tauri-windows-artifacts
+          path: out/
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Cleanup Windows certificate
+        if: always()
+        shell: pwsh
+        env:
+          THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
+          PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
+        run: |
+          if (-not [string]::IsNullOrEmpty($env:THUMB)) {
+            Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -ErrorAction SilentlyContinue | Remove-Item -Force
+          }
+          if (-not [string]::IsNullOrEmpty($env:PFX_PATH) -and (Test-Path $env:PFX_PATH)) {
+            Remove-Item $env:PFX_PATH -Force
+          }
+
+  # ── Linux ──────────────────────────────────────────────────────────────────
+  build-linux:
+    # ubuntu-22.04 required for Tauri v2 WebKit ABI (libwebkit2gtk-4.1-dev)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Patch version in tauri.conf.json and Cargo.toml
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          TAURI_CONF: ${{ inputs.tauri_conf_path }}
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node << 'SCRIPT'
+          const fs = require('fs');
+          const v = process.env.VERSION;
+          const conf_path = `${process.env.WORK_DIR}/${process.env.TAURI_CONF}`;
+          const conf = JSON.parse(fs.readFileSync(conf_path, 'utf8'));
+          conf.version = v;
+          fs.writeFileSync(conf_path, JSON.stringify(conf, null, 2) + '\n');
+          const cargo_path = conf_path.replace('tauri.conf.json', 'Cargo.toml');
+          if (fs.existsSync(cargo_path)) {
+            const cargo = fs.readFileSync(cargo_path, 'utf8');
+            fs.writeFileSync(cargo_path, cargo.replace(/^version = "[^"]*"/m, `version = "${v}"`));
+          }
+          SCRIPT
+
+      - name: Install Tauri Linux system dependencies
+        env:
+          APT_PKGS: ${{ inputs.apt_packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          # shellcheck disable=SC2086
+          sudo apt-get install -y ${APT_PKGS}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 @ 2026-05-23
+        with:
+          workspaces: ${{ inputs.working_directory }}
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Frontend install
+        if: ${{ inputs.node_version != '' }}
+        env:
+          INSTALL_CMD: ${{ inputs.frontend_install_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$INSTALL_CMD"
+
+      - name: Frontend build
+        if: ${{ inputs.node_version != '' && inputs.frontend_build_command != '' }}
+        env:
+          BUILD_CMD: ${{ inputs.frontend_build_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$BUILD_CMD"
+
+      - name: Install Tauri CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install tauri-cli --version '^2.0' --locked
+
+      - name: Build Tauri app (Linux)
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          cargo tauri build
+
+      - name: Collect Linux installers
+        env:
+          WORK_DIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find "${WORK_DIR}/src-tauri/target/release/bundle" \
+            -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) \
+            -exec cp {} out/ \;
+          ls -la out/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        with:
+          name: tauri-linux-artifacts
+          path: out/
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+  # ── Release ────────────────────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    if: ${{ inputs.upload_release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4 @ 2026-05-23
+        with:
+          pattern: tauri-*-artifacts
+          merge-multiple: false
+
+      - name: List collected installers
+        shell: bash
+        run: find tauri-*-artifacts -type f | sort
+
+      - name: Resolve release tag
+        id: rel
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}
+          files: tauri-*-artifacts/*
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to distribution repo
+        if: ${{ inputs.dist_repo != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+          DIST_REPO: ${{ inputs.dist_repo }}
+          VERSION: ${{ steps.rel.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ensure the release exists in the dist repo (idempotent — race-safe)
+          if ! gh release view "${VERSION}" --repo "${DIST_REPO}" >/dev/null 2>&1; then
+            gh release create "${VERSION}" --repo "${DIST_REPO}" \
+              --title "Release ${VERSION}" \
+              --notes "Tauri installer bundles for ${VERSION}." \
+              || true
+          fi
+          # --clobber makes uploads idempotent across parallel jobs and reruns
+          gh release upload "${VERSION}" tauri-*-artifacts/* \
+            --repo "${DIST_REPO}" --clobber
+
+  # ── WinGet submission ──────────────────────────────────────────────────────
+  winget-submit:
+    needs: release
+    if: ${{ inputs.winget_submit && inputs.winget_package_id != '' }}
+    uses: ./.github/workflows/winget-submit.yml
+    with:
+      package_id: ${{ inputs.winget_package_id }}
+      version: ${{ inputs.version != '' && inputs.version || github.ref_name }}
+      installer_url: ${{ inputs.winget_installer_url }}
+      installer_arch: ${{ inputs.winget_installer_arch }}
+      installer_type: ${{ inputs.winget_installer_type }}
+      winget_fork_owner: ${{ inputs.winget_fork_owner }}
+    secrets:
+      WINGET_PKGS_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}

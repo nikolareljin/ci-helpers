@@ -1,5 +1,75 @@
 # Changelog
 
+## 2026-05-23 — 1.0.0
+
+### Added
+
+- **`tauri-scan.yml`:** Fast Tauri CI check for Linux (ubuntu-22.04). Installs
+  WebKit2GTK 4.1 system dependencies, sets up Rust via `dtolnay/rust-toolchain`,
+  runs `cargo fmt -- --check`, `cargo clippy -- -D warnings`, and `cargo check`
+  (no full build — keeps the gate fast). Optional Node + frontend install for
+  front-end type-checking. All commands routed through `env:` variables to prevent
+  shell injection from workflow inputs.
+
+- **`tauri.yml`:** Standalone Tauri CI preset (does not wrap `ci.yml` — `ci.yml`
+  has no `apt` step). Runs full `cargo test` + `cargo build` on ubuntu-22.04 with
+  WebKit2GTK dependencies. Optional Node setup and frontend build before Cargo steps.
+
+- **`tauri-release.yml`:** Cross-platform Tauri desktop release workflow. Builds on
+  a 3-job matrix: `macos-latest` (universal binary via `aarch64 + x86_64`, requires
+  both rustup targets), `windows-latest` (MSI + NSIS), `ubuntu-22.04` (AppImage +
+  deb + rpm). macOS job uses the new `actions/macos-sign` composite action for
+  keychain import and optional `xcrun notarytool submit --wait` + `xcrun stapler
+  staple` notarization. Windows job uses the new `actions/windows-sign` composite
+  action in one of three modes (see below). Release job downloads all artifacts and
+  uploads via `softprops/action-gh-release`. Optional dist-repo cross-publish and
+  WinGet submission job via `winget-submit.yml`.
+
+- **`winget-submit.yml`:** Standalone reusable workflow for submitting Windows
+  Package Manager manifests to a fork of `microsoft/winget-pkgs`. Installs
+  `wingetcreate` via `dotnet tool install --global Microsoft.WingetCreator` and runs
+  `wingetcreate update --submit`. URL format: `<installer_url>|<arch>|<type>`
+  (e.g. `...setup.exe|x64|nullsoft`). Inputs: `package_id`, `version`,
+  `installer_url`, `installer_arch`, `installer_type`, `release_notes_url`,
+  `winget_fork_owner`. Secret: `WINGET_PKGS_TOKEN`.
+
+- **`docker-multiarch.yml`:** Multi-architecture Docker buildx workflow (build +
+  push). Sets up QEMU and buildx, logs in to a configurable registry (default
+  `ghcr.io`), pushes versioned tag plus optional `:latest`. Optional post-build
+  Trivy image scan. Inputs: `image_name`, `tag`, `platforms`, `dockerfile`,
+  `context`, `build_args`, `push_latest`, `registry`, `registry_username`,
+  `scan_after_build`, `trivy_severity`, `fail_on_scan_findings`.
+  Secret: `registry_token`. Outputs: `image_digest`, `image_ref`.
+
+- **`manifest-version.yml`:** Generic manifest version reader, git tagger, and
+  workflow dispatcher. Extracts version from `package.json`, `Cargo.toml`,
+  `pubspec.yaml`, `pyproject.toml`, a plain `VERSION` file, or a custom shell
+  command. Validates semver format, optionally skips if tag already exists, creates
+  a lightweight git tag, and dispatches named workflows via `gh workflow run` with
+  support for extra inputs via `dispatch_inputs_json`. Outputs: `version`, `tag`,
+  `skipped`.
+
+- **`actions/macos-sign`:** Composite action for macOS codesigning setup. Imports
+  an Apple p12 certificate into a temporary keychain (`ci-build.keychain-db`), sets
+  the keychain search list and `apple-tool:,apple:,codesign:` partition access, and
+  exports all Apple env vars (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_ID`, `APPLE_PASSWORD`) to
+  `$GITHUB_ENV` for Tauri. Cleans up the keychain in an `if: always()` step.
+
+- **`actions/windows-sign`:** Composite action for Windows codesigning with three
+  modes:
+  - `tauri_updater` (free): exports `TAURI_SIGNING_PRIVATE_KEY` and
+    `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for Tauri's ED25519 updater bundle signing.
+    Signs `.sig` files only — does not sign the MSI/EXE binary.
+  - `pfx` (paid OV/EV): decodes a base64 PFX, imports it to `Cert:\CurrentUser\My`,
+    extracts the thumbprint, and sets `TAURI_WINDOWS_SIGN_COMMAND` (signtool with
+    RFC 3161 timestamp via Sectigo) and `WINDOWS_CERT_THUMBPRINT`. Signs MSI + EXE
+    with Authenticode. Removes the cert and temp file in an `if: always()` step.
+  - `azure` (paid Azure Trusted Signing): exports Azure credentials to `$GITHUB_ENV`
+    for consumption by `azure/trusted-signing-action` in a subsequent post-build
+    step. Uses `azuresigntool` internally — not compatible with
+    `TAURI_WINDOWS_SIGN_COMMAND`.
+
 ## 2026-05-23 — 0.9.3
 
 ### Fixed

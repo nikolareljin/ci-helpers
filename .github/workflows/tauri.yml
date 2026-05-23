@@ -1,0 +1,149 @@
+name: preset-tauri
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label — ubuntu-22.04 required for Tauri v2 WebKit ABI
+        type: string
+        default: ubuntu-22.04
+      working_directory:
+        description: Cargo workspace root (relative to repo root)
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      rust_toolchain:
+        type: string
+        default: "stable"
+      rust_components:
+        type: string
+        default: ""
+      apt_packages:
+        description: Space-separated system packages required by Tauri on Linux
+        type: string
+        default: >-
+          libwebkit2gtk-4.1-dev
+          libssl-dev
+          libayatana-appindicator3-dev
+          librsvg2-dev
+          libgtk-3-dev
+          build-essential
+          curl
+          wget
+          file
+      node_version:
+        description: Node.js version (empty = skip Node setup)
+        type: string
+        default: ""
+      frontend_dir:
+        description: Frontend directory relative to working_directory (empty = skip)
+        type: string
+        default: ""
+      frontend_install_command:
+        type: string
+        default: "npm ci"
+      frontend_build_command:
+        description: Frontend build command (empty = skip)
+        type: string
+        default: ""
+      lint_command:
+        description: Lint command (empty = skip)
+        type: string
+        default: ""
+      test_command:
+        type: string
+        default: "cargo test --verbose"
+      build_command:
+        type: string
+        default: "cargo build --verbose"
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  ci:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install Tauri Linux system dependencies
+        env:
+          APT_PKGS: ${{ inputs.apt_packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          # shellcheck disable=SC2086
+          sudo apt-get install -y ${APT_PKGS}
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          components: ${{ inputs.rust_components }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 @ 2026-05-23
+        with:
+          workspaces: ${{ inputs.working_directory }}
+
+      - name: Frontend install
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
+        env:
+          FRONTEND_INSTALL_CMD: ${{ inputs.frontend_install_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$FRONTEND_INSTALL_CMD"
+
+      - name: Frontend build
+        if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' && inputs.frontend_build_command != '' }}
+        env:
+          FRONTEND_BUILD_CMD: ${{ inputs.frontend_build_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
+        run: |
+          set -euo pipefail
+          bash -c "$FRONTEND_BUILD_CMD"
+
+      - name: Lint
+        if: ${{ inputs.lint_command != '' }}
+        env:
+          LINT_CMD: ${{ inputs.lint_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          bash -c "$LINT_CMD"
+
+      - name: Test
+        if: ${{ inputs.test_command != '' }}
+        env:
+          TEST_CMD: ${{ inputs.test_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          bash -c "$TEST_CMD"
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        env:
+          BUILD_CMD: ${{ inputs.build_command }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          bash -c "$BUILD_CMD"
