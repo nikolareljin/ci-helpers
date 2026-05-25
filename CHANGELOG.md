@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-05-25 — 0.10.3
+
+### Changed
+
+- **`docker-multiarch.yml`:** Bump `docker/setup-qemu-action` v3 → v4.0.0,
+  `docker/setup-buildx-action` v3 → v4.1.0, `docker/login-action` v3 → v4.2.0,
+  `docker/build-push-action` v6 → v7.2.0 (all SHA-pinned).
+- **`tauri-release.yml`:** Bump `azure/trusted-signing-action` v0 → v2.0.0 and
+  `actions/download-artifact` v4 → v8.0.1 (SHA-pinned).
+- **`go-release.yml`:** Bump `softprops/action-gh-release` v1 → v3 (SHA-pinned).
+
+## 2026-05-23 — 0.10.2
+
+### Fixed
+
+- **`reusable workflows`:** Replace all `./` relative action refs with full repo
+  paths to fix resolution in caller repositories (#52).
+- **`ci.yml` / misc:** Pin `actions/github-script` to SHA `3a2844b7` (v9) (#51).
+
+## 2026-05-23 — 0.10.1
+
+### Fixed
+
+- **`reusable workflows`:** Use full repo ref for gitleaks composite action call
+  inside reusable workflows (#50).
+
 ## 2026-05-23 — 0.10.0
 
 ### Added
