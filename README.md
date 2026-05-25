@@ -1,8 +1,14 @@
 # ci-helpers
 
+[![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
+[![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
+[![Production gate](https://github.com/nikolareljin/ci-helpers/actions/workflows/production-branch.yml/badge.svg)](https://github.com/nikolareljin/ci-helpers/actions/workflows/production-branch.yml)
+[![Security scan](https://github.com/nikolareljin/ci-helpers/actions/workflows/security-weekly.yml/badge.svg)](https://github.com/nikolareljin/ci-helpers/actions/workflows/security-weekly.yml)
+[![Used by 12+ repos](https://img.shields.io/badge/used%20by-12%2B%20repos-blue?style=flat-square&logo=github)](https://github.com/search?q=nikolareljin%2Fci-helpers+language%3Ayaml&type=code)
+
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: 0.10.0 (from VERSION).
+Current production tag: **0.10.3**.
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
