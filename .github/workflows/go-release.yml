@@ -239,7 +239,7 @@ jobs:
           write_multiline_output "notes" "$notes_content"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1 @ 2026-05-22
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-24
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
