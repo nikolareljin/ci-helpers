@@ -207,6 +207,7 @@ Additional notes:
 - When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
 - If `deploy_app_store` is true, the standalone iOS build step is skipped even when `build_ios` is enabled.
 - Android signing files are written to `${{ inputs.working_directory }}/android` and your `android/app/build.gradle` should load `key.properties` from the Android project root (e.g., `rootProject.file("key.properties")`).
+- **Signing secrets are required only when `deploy_google_play: true`.** When `build_android: true` without `deploy_google_play`, omitting signing secrets emits a warning and skips `key.properties` setup — the build uses the project's own signing config (e.g. debug signing). This allows CI/test builds without keystore credentials.
 
 Security notes:
 - The workflow masks secrets via `::add-mask::` before use.
