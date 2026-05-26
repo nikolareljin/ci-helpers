@@ -125,14 +125,26 @@ jobs:
 
       - name: Validate Android signing secrets
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        env:
+          DEPLOY_GOOGLE_PLAY: ${{ inputs.deploy_google_play }}
         run: |
           set -euo pipefail
-          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" ]]; then
-            if [[ "${{ inputs.deploy_google_play }}" == "true" ]]; then
+          signing_missing=false
+          [[ -z "${ANDROID_KEYSTORE_BASE64}" ]] && signing_missing=true
+          [[ -z "${ANDROID_KEYSTORE_PASSWORD}" ]] && signing_missing=true
+          [[ -z "${ANDROID_KEY_PASSWORD}" ]] && signing_missing=true
+          [[ -z "${ANDROID_KEY_ALIAS}" ]] && signing_missing=true
+          if [[ "${signing_missing}" == "true" ]]; then
+            if [[ "${DEPLOY_GOOGLE_PLAY}" == "true" ]]; then
               echo "Missing Android signing secrets. Provide android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias." >&2
               exit 1
             fi
-            echo "::warning::No Android signing secrets provided; build will use the project's default signing config."
+            # Distinguish between no secrets (expected for debug builds) and a partial set (likely misconfiguration).
+            if [[ -z "${ANDROID_KEYSTORE_BASE64}" && -z "${ANDROID_KEYSTORE_PASSWORD}" && -z "${ANDROID_KEY_PASSWORD}" && -z "${ANDROID_KEY_ALIAS}" ]]; then
+              echo "::warning::No Android signing secrets provided; build will use the project's default signing config."
+            else
+              echo "::warning::Incomplete Android signing secrets — only some of the four required secrets are set. Custom signing will be skipped and the project's default signing config will be used. To enable custom signing, provide all four: android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias."
+            fi
           fi
 
       - name: Validate Google Play credentials
@@ -159,10 +171,15 @@ jobs:
 
       - name: Configure Android signing
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        env:
+          DEPLOY_GOOGLE_PLAY: ${{ inputs.deploy_google_play }}
         run: |
           set -euo pipefail
-          if [[ -z "${ANDROID_KEYSTORE_BASE64}" ]]; then
-            echo "No signing secrets provided; skipping key.properties setup."
+          # Require all four secrets to be present before writing key.properties.
+          # A partial set would produce a broken config with empty values causing
+          # hard-to-diagnose Gradle failures; skip cleanly instead.
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" ]]; then
+            echo "Signing secrets absent or incomplete; skipping key.properties setup."
             exit 0
           fi
           set +x
@@ -183,6 +200,19 @@ jobs:
             "keyAlias=${ANDROID_KEY_ALIAS}" \
             > "${android_dir}/key.properties"
           chmod 600 "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
+          # For Google Play deployments, validate the keystore is usable before proceeding.
+          # This catches invalid/placeholder credentials early rather than failing deep in Gradle.
+          if [[ "${DEPLOY_GOOGLE_PLAY}" == "true" ]]; then
+            if ! keytool -list \
+                -keystore "${android_dir}/upload-keystore.jks" \
+                -storepass "${ANDROID_KEYSTORE_PASSWORD}" \
+                -alias "${ANDROID_KEY_ALIAS}" \
+                > /dev/null 2>&1; then
+              echo "Android keystore validation failed: verify that android_keystore_base64 is a valid JKS/PKCS12 keystore, android_keystore_password is correct, and the alias exists in the keystore." >&2
+              exit 1
+            fi
+            echo "Android keystore validated for Google Play deployment."
+          fi
           set -x
 
       - name: Note for Android signing config
