@@ -446,3 +446,12 @@ cd ci-helpers
 ```
 
 Use this when you want to update workflows, actions, or sync vendored helpers.
+
+
+---
+
+## Clone traffic
+
+![Clone traffic](https://raw.githubusercontent.com/nikolareljin/stats/main/charts/ci-helpers.svg)
+
+_Updated daily. Total and unique cloners over the last 14 days._
