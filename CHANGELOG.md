@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-26 — 0.10.4
+
+### Fixed
+
+- **`flutter-release.yml`:** Android signing secrets are no longer required when
+  `build_android: true` without `deploy_google_play: true`. Missing secrets now emit
+  a workflow warning and skip `key.properties` setup, allowing projects that use their
+  own default signing config (e.g. debug signing) to run CI builds without providing
+  keystore credentials. Signing secrets remain mandatory when `deploy_google_play: true`.
+
 ## 2026-05-25 — 0.10.3
 
 ### Changed

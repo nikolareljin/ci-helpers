@@ -128,8 +128,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" ]]; then
-            echo "Missing Android signing secrets. Provide android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias." >&2
-            exit 1
+            if [[ "${{ inputs.deploy_google_play }}" == "true" ]]; then
+              echo "Missing Android signing secrets. Provide android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias." >&2
+              exit 1
+            fi
+            echo "::warning::No Android signing secrets provided; build will use the project's default signing config."
           fi
 
       - name: Validate Google Play credentials
@@ -158,6 +161,10 @@ jobs:
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         run: |
           set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" ]]; then
+            echo "No signing secrets provided; skipping key.properties setup."
+            exit 0
+          fi
           set +x
           umask 077
           {
