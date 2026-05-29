@@ -460,7 +460,7 @@ Inputs:
 - `extra_packages` (string, default `""`)
 - `artifact_name` (string, default `"deb-packages"`)
 - `artifact_glob` (string, default `"../*.deb"`)
-- `upload_to_release` (string, default `"auto"`) — `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
+- `upload_to_release` (string, default `"auto"`) — must be `"auto"`, `"true"`, or `"false"` (any other value fails with a clear error). `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
 - `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
 
 Example (automatic release upload on tag push):

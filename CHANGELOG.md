@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-05-29 — 0.10.6
+
+### Fixed
+
+- **`deb-build.yml`:** `extra_packages` is now split into an array before being passed to `apt-get`, preventing shell metacharacter injection from crafted values.
+- **`deb-build.yml`:** `upload_to_release` input is now validated early; any value other than `auto`, `true`, or `false` fails with a clear error instead of silently publishing.
+- **`deb-build.yml`:** `release_tag` newlines/CR stripped before writing to `$GITHUB_OUTPUT` to prevent output injection.
+- **`deb-build.yml`:** SHA-pinned `softprops/action-gh-release` ref now includes the required `# v3 @ YYYY-MM-DD` annotation so `update_pinned_actions.sh` can track and refresh it.
+- **`rust-release-tarballs.yml`:** Both tag-resolve steps now strip newlines/CR from `release_tag` before writing to `$GITHUB_OUTPUT` (injection hardening) and now accept `vX.Y.Z` tags in addition to `X.Y.Z`.
+- **`rust-release-tarballs.yml`:** Homebrew formula `test` block now correctly produces `#{bin}/…` Ruby interpolation (was `\#{bin}/…` which rendered as a literal string and broke `brew test`).
+- **`rust-release-tarballs.yml`:** SHA-pinned `softprops/action-gh-release` refs now include the required `# v3 @ YYYY-MM-DD` annotation.
+- **`rust-release-tarballs.yml`:** `homepage` input description clarified — must be a GitHub repo URL; used as the base for release download URLs.
+
 ## 2026-05-29 — 0.10.5
 
 ### Added

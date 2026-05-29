@@ -17,7 +17,11 @@ on:
         type: string
         required: true
       homepage:
-        description: "Project homepage URL."
+        description: >
+          GitHub repository URL used as the formula homepage AND as the base
+          for release download URLs (e.g. https://github.com/owner/repo).
+          Must be a GitHub repo URL; non-GitHub URLs will produce incorrect
+          formula download links.
         type: string
         required: true
       license:
@@ -85,11 +89,13 @@ jobs:
           INPUT_TAG: ${{ inputs.release_tag }}
         run: |
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          if ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
             echo "::error::Resolved tag '${tag}' is not a version number. Provide release_tag input or push to a version tag."
             exit 1
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v6
         with:
@@ -143,7 +149,7 @@ jobs:
           echo "sha256=$sha256"   >> "$GITHUB_OUTPUT"
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ steps.package.outputs.tarball }}
@@ -178,11 +184,13 @@ jobs:
           INPUT_TAG: ${{ inputs.release_tag }}
         run: |
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          if ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
             echo "::error::Resolved tag '${tag}' is not a version number."
             exit 1
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Validate tap secret
         shell: bash
@@ -284,7 +292,7 @@ jobs:
             end
 
             test do
-              assert_match "{bin_name}", shell_output("\#{{bin}}/{bin_name} --help")
+              assert_match "{bin_name}", shell_output("#{{bin}}/{bin_name} --help")
             end
           end
           '''

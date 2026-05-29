@@ -71,7 +71,8 @@ jobs:
             dh-python \
             python3
           if [ -n "${EXTRA_PACKAGES:-}" ]; then
-            sudo apt-get install -y $EXTRA_PACKAGES
+            read -ra pkg_array <<< "$EXTRA_PACKAGES"
+            sudo apt-get install -y "${pkg_array[@]}"
           fi
 
       - name: Bootstrap script-helpers
@@ -117,9 +118,14 @@ jobs:
           UPLOAD_MODE: ${{ inputs.upload_to_release }}
         run: |
           set -euo pipefail
+          case "$UPLOAD_MODE" in
+            auto|true|false) ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'; got '${UPLOAD_MODE}'"; exit 1 ;;
+          esac
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          # Strip newlines to prevent GITHUB_OUTPUT injection via unvalidated input
+          # Strip newlines/CR to prevent GITHUB_OUTPUT injection via unvalidated input
           tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
           # "auto": only upload when the ref is a real tag push or release_tag was given
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
             if [[ -z "$INPUT_TAG" ]]; then
@@ -136,7 +142,7 @@ jobs:
 
       - name: Upload .deb to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
           files: ${{ inputs.artifact_glob }}
