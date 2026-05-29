@@ -72,7 +72,9 @@ jobs:
             python3
           if [ -n "${EXTRA_PACKAGES:-}" ]; then
             read -ra pkg_array <<< "$EXTRA_PACKAGES"
-            sudo apt-get install -y -- "${pkg_array[@]}"
+            if [ "${#pkg_array[@]}" -gt 0 ]; then
+              sudo apt-get install -y -- "${pkg_array[@]}"
+            fi
           fi
 
       - name: Bootstrap script-helpers
@@ -130,15 +132,15 @@ jobs:
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
             if [[ -z "$INPUT_TAG" ]]; then
               # No explicit release_tag: require both a refs/tags/* ref AND semver name
-              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-                echo "skip=true" >> "$GITHUB_OUTPUT"
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
                 exit 0
               fi
             fi
             # Explicit release_tag: user intent is clear; skip ref-type check
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+          printf 'skip=false\n'    >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Upload .deb to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'

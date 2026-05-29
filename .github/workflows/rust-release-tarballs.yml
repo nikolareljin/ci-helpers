@@ -20,6 +20,7 @@ on:
         description: >
           GitHub repository URL used as the formula homepage AND as the base
           for release download URLs (e.g. https://github.com/owner/repo).
+          Trailing slashes and .git suffixes are stripped automatically.
           Must be a GitHub repo URL; non-GitHub URLs will produce incorrect
           formula download links.
         type: string
@@ -264,6 +265,8 @@ jobs:
                   raise SystemExit(f"Invalid SHA256 for {name}: {sha}")
 
           repo = homepage.rstrip("/")
+          if repo.endswith(".git"):
+              repo = repo[:-4]
           formula = Path(f"tap/{tap_dir}/{bin_name}.rb")
           content = f'''class {formula_class} < Formula
             desc "{desc}"
