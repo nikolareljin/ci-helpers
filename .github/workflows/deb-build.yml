@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload .deb to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
           files: ${{ inputs.artifact_glob }}

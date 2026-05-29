@@ -1,0 +1,319 @@
+name: ci-helpers-rust-release-tarballs
+on:
+  workflow_call:
+    inputs:
+      bin_name:
+        description: "Binary name (e.g. vellum, image-view)."
+        type: string
+        required: true
+      formula_class:
+        description: >
+          Ruby class name for the Homebrew formula (e.g. ImageView).
+          Derived from bin_name if omitted (hyphens removed, each word capitalised).
+        type: string
+        default: ""
+      desc:
+        description: "Homebrew formula description."
+        type: string
+        required: true
+      homepage:
+        description: "Project homepage URL."
+        type: string
+        required: true
+      license:
+        description: "SPDX license identifier."
+        type: string
+        default: "MIT"
+      tap_repo:
+        description: "GitHub tap repository (e.g. nikolareljin/homebrew-tap)."
+        type: string
+        required: true
+      tap_dir:
+        description: "Subdirectory inside the tap that holds formula files."
+        type: string
+        default: "Formula"
+      tap_branch:
+        description: "Branch to push the updated formula to."
+        type: string
+        default: "main"
+      release_tag:
+        description: >
+          Tag to build tarballs for (e.g. 0.6.0). Leave empty to use the pushed tag.
+          Set explicitly when triggering via workflow_dispatch for a backfill run.
+        type: string
+        default: ""
+      rust_toolchain:
+        description: "Rust toolchain channel."
+        type: string
+        default: "stable"
+      macos_deployment_target:
+        description: "MACOSX_DEPLOYMENT_TARGET for the x86_64 macOS build."
+        type: string
+        default: "10.13"
+    secrets:
+      tap_token:
+        description: "GitHub PAT with contents:write on tap_repo."
+        required: true
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-tarballs:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+          - os: macos-14
+            platform: macos-x86_64
+            rust_target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            platform: linux-x86_64
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::Resolved tag '${tag}' is not a version number. Provide release_tag input or push to a version tag."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable @ 2026-05-22
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+
+      - name: Build release binary
+        id: build
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+          MACOS_DEPLOYMENT_TARGET: ${{ inputs.macos_deployment_target }}
+          BIN_NAME: ${{ inputs.bin_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${RUST_TARGET:-}" ]; then
+            export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
+            rustup target add "$RUST_TARGET"
+            cargo build --release --target "$RUST_TARGET"
+            bin_path="target/$RUST_TARGET/release/$BIN_NAME"
+          else
+            cargo build --release
+            bin_path="target/release/$BIN_NAME"
+          fi
+          [ -f "$bin_path" ] || { echo "::error::Binary not found at $bin_path"; exit 1; }
+          echo "bin_path=$bin_path" >> "$GITHUB_OUTPUT"
+
+      - name: Package tarball
+        id: package
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          BIN_NAME: ${{ inputs.bin_name }}
+          BIN_PATH: ${{ steps.build.outputs.bin_path }}
+        run: |
+          set -euo pipefail
+          tarball="${BIN_NAME}-${TAG}-${PLATFORM}.tar.gz"
+          bin_dir="$(dirname "$BIN_PATH")"
+          tar -czf "$tarball" -C "$bin_dir" "$BIN_NAME"
+          if command -v shasum >/dev/null 2>&1; then
+            sha256="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+          else
+            sha256="$(sha256sum "$tarball" | awk '{print $1}')"
+          fi
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256"   >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ steps.package.outputs.tarball }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write sha metadata
+        env:
+          SHA256: ${{ steps.package.outputs.sha256 }}
+          TARBALL: ${{ steps.package.outputs.tarball }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          printf "%s  %s\n" "$SHA256" "$TARBALL" > "sha256-${PLATFORM}.txt"
+
+      - name: Upload sha artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256-${{ matrix.platform }}
+          path: sha256-${{ matrix.platform }}.txt
+
+  bump-homebrew:
+    name: Bump Homebrew formula
+    needs: build-tarballs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::Resolved tag '${tag}' is not a version number."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tap secret
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.tap_token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "::error::tap_token secret is not set"
+            exit 1
+          fi
+
+      - name: Download sha artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sha256-*
+          merge-multiple: true
+
+      - name: Checkout tap repo
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.tap_token }}
+          TAP_REPO: ${{ inputs.tap_repo }}
+          TAP_BRANCH: ${{ inputs.tap_branch }}
+        run: |
+          set -euo pipefail
+          git clone --branch "$TAP_BRANCH" \
+            "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+
+      - name: Update formula
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          BIN_NAME: ${{ inputs.bin_name }}
+          FORMULA_CLASS: ${{ inputs.formula_class }}
+          DESC: ${{ inputs.desc }}
+          HOMEPAGE: ${{ inputs.homepage }}
+          LICENSE: ${{ inputs.license }}
+          TAP_DIR: ${{ inputs.tap_dir }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          sha_arm64="$(awk '{print $1}' sha256-macos-arm64.txt)"
+          sha_x86_64="$(awk '{print $1}' sha256-macos-x86_64.txt)"
+          sha_linux="$(awk '{print $1}'  sha256-linux-x86_64.txt)"
+
+          TAG="$TAG" VERSION="$version" \
+          SHA_ARM64="$sha_arm64" SHA_X86_64="$sha_x86_64" SHA_LINUX="$sha_linux" \
+          python3 - <<'PY'
+          import re, os
+          from pathlib import Path
+
+          tag       = os.environ["TAG"]
+          v         = os.environ["VERSION"]
+          arm64     = os.environ["SHA_ARM64"]
+          x86_64    = os.environ["SHA_X86_64"]
+          linux     = os.environ["SHA_LINUX"]
+          bin_name  = os.environ["BIN_NAME"]
+          desc      = os.environ["DESC"]
+          homepage  = os.environ["HOMEPAGE"]
+          license_  = os.environ["LICENSE"]
+          tap_dir   = os.environ["TAP_DIR"]
+
+          formula_class = os.environ.get("FORMULA_CLASS", "").strip()
+          if not formula_class:
+              formula_class = "".join(w.capitalize() for w in bin_name.replace("-", " ").split())
+
+          for sha, name in [(arm64, "arm64"), (x86_64, "x86_64"), (linux, "linux")]:
+              if not re.match(r'^[0-9a-f]{64}$', sha):
+                  raise SystemExit(f"Invalid SHA256 for {name}: {sha}")
+
+          repo = homepage.rstrip("/")
+          formula = Path(f"tap/{tap_dir}/{bin_name}.rb")
+          content = f'''class {formula_class} < Formula
+            desc "{desc}"
+            homepage "{homepage}"
+            version "{v}"
+            license "{license_}"
+            tag = "{tag}"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "{repo}/releases/download/#{{tag}}/{bin_name}-#{{tag}}-macos-arm64.tar.gz"
+                sha256 "{arm64}"
+              else
+                url "{repo}/releases/download/#{{tag}}/{bin_name}-#{{tag}}-macos-x86_64.tar.gz"
+                sha256 "{x86_64}"
+              end
+            end
+
+            on_linux do
+              url "{repo}/releases/download/#{{tag}}/{bin_name}-#{{tag}}-linux-x86_64.tar.gz"
+              sha256 "{linux}"
+            end
+
+            def install
+              bin.install "{bin_name}"
+            end
+
+            test do
+              assert_match "{bin_name}", shell_output("\#{{bin}}/{bin_name} --help")
+            end
+          end
+          '''
+          formula.write_text(content)
+          print(f"Formula written: {formula}")
+          PY
+
+      - name: Validate formula syntax
+        env:
+          BIN_NAME: ${{ inputs.bin_name }}
+          TAP_DIR: ${{ inputs.tap_dir }}
+        run: ruby -c "tap/${TAP_DIR}/${BIN_NAME}.rb"
+
+      - name: Commit and push
+        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          BIN_NAME: ${{ inputs.bin_name }}
+          TAP_DIR: ${{ inputs.tap_dir }}
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet "${TAP_DIR}/${BIN_NAME}.rb"; then
+            git add "${TAP_DIR}/${BIN_NAME}.rb"
+            git commit -m "Update ${BIN_NAME} to ${TAG}"
+            for i in 1 2 3; do
+              git push && break
+              [ "$i" -lt 3 ] && git pull --rebase && sleep 2
+            done
+          fi
