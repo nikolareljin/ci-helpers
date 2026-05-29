@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-05-29 — 0.10.5
+
+### Added
+
+- **`deb-build.yml`:** New `upload_to_release` input (`auto` / `true` / `false`, default: `auto`) — when `auto`, uploads the built `.deb` to the GitHub release whenever triggered by a version tag or when `release_tag` is provided.
+- **`deb-build.yml`:** New `release_tag` input for manual backfill via `workflow_dispatch` (e.g. re-running a release after a tag was created without triggering CI).
+
+### Fixed
+
+- **`deb-build.yml`:** `extra_packages`, `prebuild_command`, and `build_command` inputs are now passed via env vars in `run:` steps rather than inline `${{ }}` interpolation, eliminating potential shell injection risk.
+
 ## 2026-05-26 — 0.10.4
 
 ### Fixed

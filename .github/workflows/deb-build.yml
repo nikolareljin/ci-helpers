@@ -26,6 +26,27 @@ on:
       artifact_glob:
         type: string
         default: "../*.deb"
+      upload_to_release:
+        description: >
+          Upload the built .deb to the GitHub release. Set to "true" to always
+          upload, "false" to never upload, or "auto" (default) to upload only
+          when the workflow was triggered by a tag push or a release_tag input
+          is provided.
+        type: string
+        default: "auto"
+      release_tag:
+        description: >
+          Tag to attach the .deb to. Defaults to the pushed tag (GITHUB_REF_NAME).
+          Set explicitly when triggering via workflow_dispatch with a backfill tag.
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -38,6 +59,8 @@ jobs:
 
       - name: Install packaging prerequisites
         shell: bash
+        env:
+          EXTRA_PACKAGES: ${{ inputs.extra_packages }}
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -47,8 +70,8 @@ jobs:
             devscripts \
             dh-python \
             python3
-          if [ -n "${{ inputs.extra_packages }}" ]; then
-            sudo apt-get install -y ${{ inputs.extra_packages }}
+          if [ -n "${EXTRA_PACKAGES:-}" ]; then
+            sudo apt-get install -y $EXTRA_PACKAGES
           fi
 
       - name: Bootstrap script-helpers
@@ -69,15 +92,54 @@ jobs:
       - name: Build package
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          PREBUILD_CMD: ${{ inputs.prebuild_command }}
+          BUILD_CMD: ${{ inputs.build_command }}
         run: |
           set -euo pipefail
           ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
-            --repo "${{ inputs.working_directory }}" \
-            --prebuild "${{ inputs.prebuild_command }}" \
-            --build "${{ inputs.build_command }}"
+            --repo . \
+            --prebuild "$PREBUILD_CMD" \
+            --build "$BUILD_CMD"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.artifact_glob }}
+
+      - name: Resolve release tag
+        id: resolve
+        if: inputs.upload_to_release != 'false'
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          UPLOAD_MODE: ${{ inputs.upload_to_release }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          # Strip newlines to prevent GITHUB_OUTPUT injection via unvalidated input
+          tag="${tag//$'\n'/}"
+          # "auto": only upload when the ref is a real tag push or release_tag was given
+          if [[ "$UPLOAD_MODE" == "auto" ]]; then
+            if [[ -z "$INPUT_TAG" ]]; then
+              # No explicit release_tag: require both a refs/tags/* ref AND semver name
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            # Explicit release_tag: user intent is clear; skip ref-type check
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+
+      - name: Upload .deb to GitHub release
+        if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: ${{ steps.resolve.outputs.tag }}
+          files: ${{ inputs.artifact_glob }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
