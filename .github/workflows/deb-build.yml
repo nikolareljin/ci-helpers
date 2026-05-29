@@ -95,11 +95,10 @@ jobs:
         env:
           PREBUILD_CMD: ${{ inputs.prebuild_command }}
           BUILD_CMD: ${{ inputs.build_command }}
-          WORKING_DIR: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
           ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
-            --repo "$WORKING_DIR" \
+            --repo . \
             --prebuild "$PREBUILD_CMD" \
             --build "$BUILD_CMD"
 
@@ -119,12 +118,18 @@ jobs:
         run: |
           set -euo pipefail
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          # "auto": only upload when the ref is a tag or release_tag was given
+          # Strip newlines to prevent GITHUB_OUTPUT injection via unvalidated input
+          tag="${tag//$'\n'/}"
+          # "auto": only upload when the ref is a real tag push or release_tag was given
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
-            if ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
+            if [[ -z "$INPUT_TAG" ]]; then
+              # No explicit release_tag: require both a refs/tags/* ref AND semver name
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             fi
+            # Explicit release_tag: user intent is clear; skip ref-type check
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "tag=$tag"   >> "$GITHUB_OUTPUT"

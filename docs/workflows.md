@@ -449,7 +449,7 @@ jobs:
 
 Workflow: `.github/workflows/deb-build.yml`
 
-Purpose: Build Debian packages and upload artifacts.
+Purpose: Build Debian packages, upload artifacts, and optionally attach the `.deb` to a GitHub release.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -460,8 +460,10 @@ Inputs:
 - `extra_packages` (string, default `""`)
 - `artifact_name` (string, default `"deb-packages"`)
 - `artifact_glob` (string, default `"../*.deb"`)
+- `upload_to_release` (string, default `"auto"`) — `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
+- `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
 
-Example:
+Example (automatic release upload on tag push):
 
 ```yaml
 jobs:
@@ -470,6 +472,22 @@ jobs:
     with:
       working_directory: "."
       artifact_glob: "../*.deb"
+    permissions:
+      contents: write
+```
+
+Example (manual backfill to an existing release):
+
+```yaml
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      working_directory: "."
+      artifact_glob: "../*.deb"
+      release_tag: "1.2.3"
+    permissions:
+      contents: write
 ```
 
 ## php-scan.yml
