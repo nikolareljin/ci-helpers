@@ -91,7 +91,7 @@ jobs:
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
-          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Resolved tag '${tag}' is not a version number. Provide release_tag input or push to a version tag."
             exit 1
           fi
@@ -186,7 +186,7 @@ jobs:
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
-          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Resolved tag '${tag}' is not a version number."
             exit 1
           fi

@@ -72,7 +72,7 @@ jobs:
             python3
           if [ -n "${EXTRA_PACKAGES:-}" ]; then
             read -ra pkg_array <<< "$EXTRA_PACKAGES"
-            sudo apt-get install -y "${pkg_array[@]}"
+            sudo apt-get install -y -- "${pkg_array[@]}"
           fi
 
       - name: Bootstrap script-helpers
@@ -130,7 +130,7 @@ jobs:
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
             if [[ -z "$INPUT_TAG" ]]; then
               # No explicit release_tag: require both a refs/tags/* ref AND semver name
-              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! echo "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
                 echo "skip=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
