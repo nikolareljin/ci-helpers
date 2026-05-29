@@ -267,6 +267,7 @@ jobs:
           repo = homepage.rstrip("/")
           if repo.endswith(".git"):
               repo = repo[:-4]
+          homepage = repo
           formula = Path(f"tap/{tap_dir}/{bin_name}.rb")
           content = f'''class {formula_class} < Formula
             desc "{desc}"
