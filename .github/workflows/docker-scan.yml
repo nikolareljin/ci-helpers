@@ -66,7 +66,7 @@ jobs:
 
       - name: Snyk scan
         if: ${{ inputs.run_snyk }}
-        uses: snyk/actions/docker@9cf6ca713d71123d2d229cc3d7f145b96ea3c518 # master @ 2026-05-22
+        uses: snyk/actions/docker@8e119fbb6c251787721d34ba683ed48eba792766 # master @ 2026-05-22
         env:
           SNYK_TOKEN: ${{ secrets.snyk_token }}
         with:
