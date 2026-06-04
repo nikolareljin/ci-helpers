@@ -206,6 +206,7 @@ jobs:
           fi
 
       - name: Download sha artifacts
+        # NOTE: download-artifact@v8 runs on Node.js 24; self-hosted runners must be >= 2.327.1
         uses: actions/download-artifact@v8
         with:
           pattern: sha256-*
