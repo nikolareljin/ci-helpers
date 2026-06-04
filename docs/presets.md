@@ -16,7 +16,7 @@ command or version as needed.
 Workflow: `.github/workflows/node.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `lint_command`: `npm ci && npm run lint`
 - `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
@@ -28,7 +28,7 @@ jobs:
   node:
     uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 ## React
@@ -36,7 +36,7 @@ jobs:
 Workflow: `.github/workflows/react.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `lint_command`: `npm ci && npm run lint`
 - `test_command`: `npm ci && npm test -- --watchAll=false`
 - `build_command`: `npm run build`
@@ -48,7 +48,7 @@ jobs:
   react:
     uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 ## Python
@@ -56,7 +56,7 @@ jobs:
 Workflow: `.github/workflows/python.yml`
 
 Defaults:
-- `python_version`: `3.12`
+- `python_version`: `3.13`
 - `lint_command`: `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check .`
 - `test_command`: `python -m pip install pytest && python -m pytest`
 
@@ -67,7 +67,7 @@ jobs:
   python:
     uses: nikolareljin/ci-helpers/.github/workflows/python.yml@production
     with:
-      python_version: "3.12"
+      python_version: "3.13"
 ```
 
 ## PHP
@@ -75,7 +75,8 @@ jobs:
 Workflow: `.github/workflows/php.yml`
 
 Defaults:
-- `php_version`: `8.2`
+- `php_version`: `8.4`
+- `node_version`: `""` (empty — set to e.g. `"22"` to install Node.js; also set `build_command` to run npm/yarn steps)
 - `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
@@ -86,7 +87,7 @@ jobs:
   php:
     uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
     with:
-      php_version: "8.2"
+      php_version: "8.4"
 ```
 
 ## Go
@@ -94,7 +95,7 @@ jobs:
 Workflow: `.github/workflows/go.yml`
 
 Defaults:
-- `go_version`: `1.22`
+- `go_version`: `1.24`
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
@@ -106,7 +107,7 @@ jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
-      go_version: "1.22"
+      go_version: "1.24"
 ```
 
 ## Java
@@ -230,7 +231,7 @@ jobs:
 Workflow: `.github/workflows/playwright.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `e2e_command`: `yarn install --frozen-lockfile && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
 
 Notes:
@@ -245,7 +246,7 @@ jobs:
   playwright:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
@@ -254,7 +255,7 @@ jobs:
 Workflow: `.github/workflows/cypress.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `e2e_command`: `yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
 
 Notes:
@@ -269,7 +270,7 @@ jobs:
   cypress:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
 ```
 
@@ -283,7 +284,7 @@ jobs:
   node:
     uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       docker_command: "docker build -t myapp:ci ."
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```

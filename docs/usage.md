@@ -40,7 +40,7 @@ jobs:
   php_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@production
     with:
-      php_version: "8.2"
+      php_version: "8.4"
 ```
 
 Python scan (unit + Django when detected):
@@ -55,7 +55,7 @@ jobs:
   python_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/python-scan.yml@production
     with:
-      python_version: "3.12"
+      python_version: "3.13"
 ```
 
 Go scan (tests + gosec):
@@ -70,7 +70,7 @@ jobs:
   go_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@production
     with:
-      go_version: "1.22"
+      go_version: "1.24"
 ```
 
 Rust scan (tests + cargo-audit):
@@ -128,7 +128,7 @@ jobs:
   node_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 React scan (lint/test/build/audit):
@@ -143,7 +143,7 @@ jobs:
   react_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Vue scan (lint/test/build/audit):
@@ -158,7 +158,7 @@ jobs:
   vue_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Docker scan (Trivy + Snyk):
@@ -264,7 +264,7 @@ jobs:
           plugin_slug: my-plugin
           plugin_src_env: MY_PLUGIN_SRC
           plugin_src: "."
-          php_version: "8.2"
+          php_version: "8.4"
           phpunit_command: "vendor/bin/phpunit"
           phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
           fail_on_findings: "true"

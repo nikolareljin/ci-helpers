@@ -339,7 +339,7 @@ Example:
     plugin_slug: my-plugin
     plugin_src_env: MY_PLUGIN_SRC
     plugin_src: "."
-    php_version: "8.2"
+    php_version: "8.4"
     phpunit_command: "vendor/bin/phpunit"
     fail_on_findings: "true"
 ```

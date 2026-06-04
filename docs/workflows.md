@@ -68,7 +68,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
       build_command: "yarn build"
@@ -82,7 +82,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       docker_command: "docker build -t myapp:ci ."
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```
@@ -114,7 +114,7 @@ jobs:
   gate:
     uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
@@ -147,7 +147,7 @@ jobs:
   deploy:
     uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       deploy_command: "./scripts/deploy.sh"
 ```
 
@@ -499,7 +499,7 @@ Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo cont
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `php_version` (string, default `8.2`)
+- `php_version` (string, default `8.4`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
@@ -525,7 +525,7 @@ Purpose: Run Python lint, unit tests, and Django tests when a Django project is 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `python_version` (string, default `3.12`)
+- `python_version` (string, default `3.13`)
 - `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
@@ -548,7 +548,7 @@ Purpose: Run Go lint, tests, and gosec scanning.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
 - `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
@@ -637,7 +637,7 @@ Purpose: Run Node.js lint/test/audit and optional build.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test`)
@@ -661,7 +661,7 @@ Purpose: Run React lint/test/build with npm audit.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test -- --watchAll=false`)
@@ -685,7 +685,7 @@ Purpose: Run Vue lint/test/build with npm audit.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test`)
@@ -898,7 +898,7 @@ Inputs (selected):
 - `bin_name` (string, required)
 - `main_path` (string, default `"."`)
 - `artifact_dir` (string, default `artifacts`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
 - `release_tag`, `release_name`, `release_notes` (string, optional)
@@ -938,7 +938,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `bin_name` (string, required) — output binary name
 - `main_path` (string, default `"."`) — Go package path to build
 - `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
@@ -967,7 +967,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
     with:
       working_directory: server
-      go_version: "1.22"
+      go_version: "1.24"
       bin_name: my-service
       build_target: linux/amd64
       remote_path: /opt/my-service
@@ -1030,7 +1030,7 @@ jobs:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
       plugin_src: "."
-      php_version: "8.2"
+      php_version: "8.4"
       phpunit_command: "vendor/bin/phpunit"
       phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
       fail_on_findings: true
@@ -1064,7 +1064,7 @@ jobs:
   tauri-scan:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       frontend_dir: "src"
 ```
 
@@ -1087,7 +1087,7 @@ jobs:
   tauri-ci:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       test_command: "cargo test --workspace"
 ```
 
@@ -1162,7 +1162,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri-release.yml@production
     with:
       version: ${{ github.ref_name }}
-      node_version: "20"
+      node_version: "22"
       sign_macos: true
       notarize_macos: true
       windows_sign_mode: tauri_updater
@@ -1387,6 +1387,6 @@ package folder:
 ```yaml
 with:
   working_directory: "apps/web"
-  node_version: "20"
+  node_version: "22"
   test_command: "yarn test"
 ```

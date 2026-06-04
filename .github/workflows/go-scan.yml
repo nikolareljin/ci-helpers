@@ -13,7 +13,7 @@ on:
         default: 0
       go_version:
         type: string
-        default: "1.22"
+        default: "1.24"
       lint_command:
         type: string
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
@@ -56,6 +56,6 @@ jobs:
 
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        uses: securego/gosec@6351b0c6fcc7d75acb230a9be7f9047aada322ae # master @ 2026-04-13
+        uses: securego/gosec@92ed8df32846e85d4e81b0b62012567afddfdc95 # master @ 2026-06-04
         with:
           args: ${{ inputs.gosec_args }}

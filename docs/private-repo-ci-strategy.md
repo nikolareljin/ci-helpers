@@ -95,7 +95,7 @@ with:
 ```yaml
 # pr-gate.yml
 with:
-  python_version: "3.12"
+  python_version: "3.13"
   install_command: "pip install -e '.[dev]'"
   lint_command: "ruff check ."
   test_command: "pytest -q"
@@ -103,7 +103,7 @@ with:
 
 # ci.yml
 with:
-  python_version: "3.12"
+  python_version: "3.13"
   lint_command: "pip install -e '.[dev]' && ruff check . && mypy ."
   test_command: "pytest -q"
   build_command: "python -m build"
@@ -113,7 +113,7 @@ with:
 
 ```yaml
 with:
-  go_version: "1.22"
+  go_version: "1.24"
   lint_command: "go vet ./..."
   test_command: "go test ./..."
   build_command: ""
