@@ -128,7 +128,7 @@ jobs:
 
       - name: Trivy scan (post-push)
         if: ${{ inputs.scan_after_build }}
-        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master @ 2026-04-13
+        uses: aquasecurity/trivy-action@bfa4b33a029b9aa80ddb784b45574c30e072c59e # master @ 2026-06-04
         with:
           image-ref: ${{ steps.tags.outputs.primary }}
           format: table
