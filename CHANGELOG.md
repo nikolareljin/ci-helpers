@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-06-04 — 0.11.0
+
+### Added
+
+- **`php.yml`:** New `node_version` input (default `""`) — set to e.g. `"22"` to install Node.js for npm-based build steps alongside PHP.
+
+### Changed
+
+- **Runtime defaults bumped to current supported versions:**
+  - PHP: `8.2` → `8.4` (`php.yml`, `php-scan.yml`, `pimcore.yml`)
+  - Go: `1.22` → `1.24` (`go.yml`, `go-scan.yml`, `go-release.yml`, `go-deploy.yml`)
+  - Python: `3.12` → `3.13` (`python.yml`, `python-scan.yml`)
+  - Node.js: `20` → `22` (`node.yml`, `react.yml`, `node-scan.yml`, `react-scan.yml`, `vue-scan.yml`, `playwright.yml`, `cypress.yml`)
+- **Security tool SHA updates** (resolves dependabot PRs #69–#73):
+  - `aquasecurity/trivy-action`: `314ff8b` → `bfa4b33` (all reusable workflows + composite action)
+  - `snyk/actions/docker`: `9cf6ca7` → `8e119fb`
+  - `securego/gosec`: `6351b0c` → `92ed8df`
+  - `docker/setup-qemu-action`: `ce36039` (v4.0.0) → `06116385` (v4.1.0)
+  - `actions/upload-artifact`: v4 → v7
+  - `actions/download-artifact`: v4 → v8
+
 ## 2026-05-29 — 0.10.6
 
 ### Fixed

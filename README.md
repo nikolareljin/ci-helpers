@@ -146,7 +146,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      python_version: "3.12"
+      python_version: "3.13"
       test_command: "pip install -r requirements.txt && pytest"
       e2e_command: "python -m pytest tests/e2e"
 ```
@@ -202,7 +202,7 @@ jobs:
   python:
     uses: nikolareljin/ci-helpers/.github/workflows/python.yml@production
     with:
-      python_version: "3.12"
+      python_version: "3.13"
       lint_command: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check ."
       test_command: "python -m pip install pytest && python -m pytest"
 ```
@@ -214,7 +214,7 @@ jobs:
   php:
     uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
     with:
-      php_version: "8.2"
+      php_version: "8.4"
       lint_command: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
       test_command: "vendor/bin/phpunit"
 ```
@@ -226,7 +226,7 @@ jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
-      go_version: "1.22"
+      go_version: "1.24"
       test_command: "go test ./..."
       build_command: "go build ./..."
 ```
