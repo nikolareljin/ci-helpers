@@ -68,7 +68,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
       build_command: "yarn build"
@@ -82,7 +82,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       docker_command: "docker build -t myapp:ci ."
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```
@@ -114,7 +114,7 @@ jobs:
   gate:
     uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
@@ -147,7 +147,7 @@ jobs:
   deploy:
     uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       deploy_command: "./scripts/deploy.sh"
 ```
 
@@ -637,7 +637,7 @@ Purpose: Run Node.js lint/test/audit and optional build.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test`)
@@ -661,7 +661,7 @@ Purpose: Run React lint/test/build with npm audit.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test -- --watchAll=false`)
@@ -685,7 +685,7 @@ Purpose: Run Vue lint/test/build with npm audit.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `node_version` (string, default `20`)
+- `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
 - `test_command` (string, default `npm test`)
@@ -1064,7 +1064,7 @@ jobs:
   tauri-scan:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       frontend_dir: "src"
 ```
 
@@ -1087,7 +1087,7 @@ jobs:
   tauri-ci:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       test_command: "cargo test --workspace"
 ```
 
@@ -1162,7 +1162,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/tauri-release.yml@production
     with:
       version: ${{ github.ref_name }}
-      node_version: "20"
+      node_version: "22"
       sign_macos: true
       notarize_macos: true
       windows_sign_mode: tauri_updater
@@ -1387,6 +1387,6 @@ package folder:
 ```yaml
 with:
   working_directory: "apps/web"
-  node_version: "20"
+  node_version: "22"
   test_command: "yarn test"
 ```

@@ -53,7 +53,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 2) Commit and push. GitHub will run the workflow on PRs and main/master.
@@ -65,7 +65,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
 ```
 
@@ -125,7 +125,7 @@ jobs:
   gate:
     uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "npm ci && npm run lint"
       test_command: "npm test"
       build_command: "npm run build"
@@ -160,7 +160,7 @@ jobs:
   node:
     uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 React:
@@ -170,7 +170,7 @@ jobs:
   react:
     uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       test_command: "npm test -- --watchAll=false"
       e2e_command: "npm run e2e"
 ```
@@ -182,7 +182,7 @@ jobs:
   playwright:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Cypress:
@@ -192,7 +192,7 @@ jobs:
   cypress:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Python:
@@ -420,7 +420,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       lint_command: "npm ci && npm run lint"
       test_command: "npm test"
       build_command: "npm run build"

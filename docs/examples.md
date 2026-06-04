@@ -16,7 +16,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       working_directory: "apps/web"
-      node_version: "20"
+      node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
       build_command: "yarn build"
@@ -29,7 +29,7 @@ jobs:
   e2e:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
@@ -40,7 +40,7 @@ jobs:
   e2e:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       e2e_command: "yarn dlx start-server-and-test 'yarn dev:ci' http://localhost:3000 'npx cypress run'"
 ```
 
@@ -53,7 +53,7 @@ jobs:
   ci:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       docker_command: "docker build -t myapp:ci ."
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```
@@ -67,7 +67,7 @@ jobs:
     with:
       check_release_tag: true
       release_branch: ${{ github.head_ref }}
-      node_version: "20"
+      node_version: "22"
       test_command: "yarn test"
 ```
 
@@ -78,7 +78,7 @@ jobs:
   deploy:
     uses: nikolareljin/ci-helpers/.github/workflows/deploy.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
       deploy_command: "./scripts/deploy.sh"
 ```
 

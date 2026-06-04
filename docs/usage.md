@@ -128,7 +128,7 @@ jobs:
   node_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/node-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 React scan (lint/test/build/audit):
@@ -143,7 +143,7 @@ jobs:
   react_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/react-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Vue scan (lint/test/build/audit):
@@ -158,7 +158,7 @@ jobs:
   vue_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 Docker scan (Trivy + Snyk):
