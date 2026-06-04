@@ -171,7 +171,7 @@ jobs:
   php_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/php-scan.yml@production
     with:
-      php_version: "8.2"
+      php_version: "8.4"
 ```
 
 ## Docker scan (Trivy + Snyk)
@@ -279,7 +279,7 @@ jobs:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
       plugin_src: "."
-      php_version: "8.2"
+      php_version: "8.4"
       phpunit_command: "vendor/bin/phpunit"
       phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
       fail_on_findings: true

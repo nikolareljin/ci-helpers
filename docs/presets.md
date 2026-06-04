@@ -56,7 +56,7 @@ jobs:
 Workflow: `.github/workflows/python.yml`
 
 Defaults:
-- `python_version`: `3.12`
+- `python_version`: `3.13`
 - `lint_command`: `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check .`
 - `test_command`: `python -m pip install pytest && python -m pytest`
 
@@ -67,7 +67,7 @@ jobs:
   python:
     uses: nikolareljin/ci-helpers/.github/workflows/python.yml@production
     with:
-      python_version: "3.12"
+      python_version: "3.13"
 ```
 
 ## PHP
@@ -75,7 +75,8 @@ jobs:
 Workflow: `.github/workflows/php.yml`
 
 Defaults:
-- `php_version`: `8.2`
+- `php_version`: `8.4`
+- `node_version`: `""` (empty — set to e.g. `"22"` to enable a Node.js build step)
 - `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
@@ -86,7 +87,7 @@ jobs:
   php:
     uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
     with:
-      php_version: "8.2"
+      php_version: "8.4"
 ```
 
 ## Go
@@ -94,7 +95,7 @@ jobs:
 Workflow: `.github/workflows/go.yml`
 
 Defaults:
-- `go_version`: `1.22`
+- `go_version`: `1.24`
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
@@ -106,7 +107,7 @@ jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
-      go_version: "1.22"
+      go_version: "1.24"
 ```
 
 ## Java

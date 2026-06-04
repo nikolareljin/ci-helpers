@@ -499,7 +499,7 @@ Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo cont
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `php_version` (string, default `8.2`)
+- `php_version` (string, default `8.4`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
@@ -525,7 +525,7 @@ Purpose: Run Python lint, unit tests, and Django tests when a Django project is 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `python_version` (string, default `3.12`)
+- `python_version` (string, default `3.13`)
 - `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
@@ -548,7 +548,7 @@ Purpose: Run Go lint, tests, and gosec scanning.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
 - `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
@@ -898,7 +898,7 @@ Inputs (selected):
 - `bin_name` (string, required)
 - `main_path` (string, default `"."`)
 - `artifact_dir` (string, default `artifacts`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
 - `release_tag`, `release_name`, `release_notes` (string, optional)
@@ -938,7 +938,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `go_version` (string, default `1.22`)
+- `go_version` (string, default `1.24`)
 - `bin_name` (string, required) — output binary name
 - `main_path` (string, default `"."`) — Go package path to build
 - `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
@@ -967,7 +967,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
     with:
       working_directory: server
-      go_version: "1.22"
+      go_version: "1.24"
       bin_name: my-service
       build_target: linux/amd64
       remote_path: /opt/my-service
@@ -1030,7 +1030,7 @@ jobs:
       plugin_slug: my-plugin
       plugin_src_env: MY_PLUGIN_SRC
       plugin_src: "."
-      php_version: "8.2"
+      php_version: "8.4"
       phpunit_command: "vendor/bin/phpunit"
       phpcs_warning_command: "vendor/bin/phpcs -p -s --warning-severity=1 --error-severity=0 ."
       fail_on_findings: true
