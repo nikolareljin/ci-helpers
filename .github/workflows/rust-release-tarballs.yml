@@ -168,6 +168,7 @@ jobs:
           printf "%s  %s\n" "$SHA256" "$TARBALL" > "sha256-${PLATFORM}.txt"
 
       - name: Upload sha artifact
+        # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
         uses: actions/upload-artifact@v7
         with:
           name: sha256-${{ matrix.platform }}
