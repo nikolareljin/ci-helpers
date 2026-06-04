@@ -16,7 +16,7 @@ command or version as needed.
 Workflow: `.github/workflows/node.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `lint_command`: `npm ci && npm run lint`
 - `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
@@ -28,7 +28,7 @@ jobs:
   node:
     uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 ## React
@@ -36,7 +36,7 @@ jobs:
 Workflow: `.github/workflows/react.yml`
 
 Defaults:
-- `node_version`: `20`
+- `node_version`: `22`
 - `lint_command`: `npm ci && npm run lint`
 - `test_command`: `npm ci && npm test -- --watchAll=false`
 - `build_command`: `npm run build`
@@ -48,7 +48,7 @@ jobs:
   react:
     uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
-      node_version: "20"
+      node_version: "22"
 ```
 
 ## Python

@@ -10,7 +10,7 @@ name: pimcore
 # Full usage with overrides:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #   with:
-#     php_version: "8.2"
+#     php_version: "8.4"
 #     phpstan_command: "vendor/bin/phpstan analyse src --level=6"
 #     phpunit_coverage_command: "XDEBUG_MODE=coverage vendor/bin/phpunit"
 #     upload_artifact: true
