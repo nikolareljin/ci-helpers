@@ -44,7 +44,7 @@ on:
         default: test/tmp
       php_version:
         type: string
-        default: "8.1"
+        default: "8.4"
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"

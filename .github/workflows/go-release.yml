@@ -13,7 +13,7 @@ on:
         default: 0
       go_version:
         type: string
-        default: "1.22"
+        default: "1.24"
       bin_name:
         type: string
         required: true

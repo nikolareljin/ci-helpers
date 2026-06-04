@@ -168,7 +168,7 @@ jobs:
           printf "%s  %s\n" "$SHA256" "$TARBALL" > "sha256-${PLATFORM}.txt"
 
       - name: Upload sha artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sha256-${{ matrix.platform }}
           path: sha256-${{ matrix.platform }}.txt
@@ -205,7 +205,7 @@ jobs:
           fi
 
       - name: Download sha artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: sha256-*
           merge-multiple: true
