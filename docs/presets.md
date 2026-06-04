@@ -76,7 +76,7 @@ Workflow: `.github/workflows/php.yml`
 
 Defaults:
 - `php_version`: `8.4`
-- `node_version`: `""` (empty — set to e.g. `"22"` to enable a Node.js build step)
+- `node_version`: `""` (empty — set to e.g. `"22"` to install Node.js; also set `build_command` to run npm/yarn steps)
 - `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
