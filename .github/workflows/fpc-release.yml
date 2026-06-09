@@ -1,0 +1,289 @@
+name: ci-helpers-fpc-release
+on:
+  workflow_call:
+    inputs:
+      bin_name:
+        description: "Binary name without extension (e.g. pravkal6)."
+        type: string
+        required: true
+      build_command:
+        description: >
+          Shell command to build the binary. Runs on every platform after FPC is installed.
+          Defaults to 'bash build.sh'. The binary must exist in working_directory after
+          this command finishes.
+        type: string
+        default: "bash build.sh"
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      data_glob:
+        description: >
+          Shell glob (relative to working_directory) matching runtime data files to bundle
+          alongside the binary in each archive. Example: "data/_*.KAL data/_*.MOL".
+          Leave empty to bundle only the binary.
+        type: string
+        default: ""
+      extra_files:
+        description: >
+          Space-separated list of extra files (relative to working_directory) to include in
+          each archive. Typically documentation such as README.md and CHANGELOG.md.
+        type: string
+        default: "README.md CHANGELOG.md"
+      release_tag:
+        description: >
+          Tag to build for. Defaults to the pushed tag (GITHUB_REF_NAME). Set explicitly
+          when triggering via workflow_dispatch for a backfill run.
+        type: string
+        default: ""
+      upload_to_release:
+        description: >
+          "auto" (default) uploads only when triggered by a version tag push.
+          "true" always uploads. "false" never uploads (artifacts only).
+        type: string
+        default: "auto"
+      fpc_apt_package:
+        description: "apt package to install on Linux runners. Defaults to 'fpc'."
+        type: string
+        default: "fpc"
+      fpc_brew_formula:
+        description: "Homebrew formula to install on macOS runners. Defaults to 'fpc'."
+        type: string
+        default: "fpc"
+      fpc_choco_package:
+        description: "Chocolatey package to install on Windows runners. Defaults to 'fpc'."
+        type: string
+        default: "fpc"
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+            binary_suffix: ""
+            archive_ext: tar.gz
+          - os: macos-latest
+            label: macos-x86_64
+            binary_suffix: ""
+            archive_ext: tar.gz
+          - os: windows-latest
+            label: windows-x86_64
+            binary_suffix: .exe
+            archive_ext: zip
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Resolved tag '${tag}' is not a semver. Provide release_tag or push to a version tag."
+            exit 1
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install FPC (Linux)
+        if: runner.os == 'Linux'
+        env:
+          FPC_PKG: ${{ inputs.fpc_apt_package }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y "$FPC_PKG"
+
+      - name: Install FPC (macOS)
+        if: runner.os == 'macOS'
+        env:
+          FPC_FORMULA: ${{ inputs.fpc_brew_formula }}
+        run: brew install "$FPC_FORMULA"
+
+      - name: Install FPC (Windows)
+        if: runner.os == 'Windows'
+        env:
+          FPC_PKG: ${{ inputs.fpc_choco_package }}
+        shell: pwsh
+        run: choco install "$env:FPC_PKG" -y --no-progress
+
+      - name: Build
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_CMD: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          eval "$BUILD_CMD"
+
+      - name: Verify binary
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BIN_NAME:   ${{ inputs.bin_name }}
+          BIN_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          binary="${BIN_NAME}${BIN_SUFFIX}"
+          [ -f "$binary" ] || { echo "::error::Binary not found: $binary"; exit 1; }
+          echo "Binary size: $(wc -c < "$binary") bytes"
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
+        id: pkg_unix
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:         ${{ steps.tag.outputs.tag }}
+          BIN_NAME:    ${{ inputs.bin_name }}
+          LABEL:       ${{ matrix.label }}
+          DATA_GLOB:   ${{ inputs.data_glob }}
+          EXTRA_FILES: ${{ inputs.extra_files }}
+        run: |
+          set -euo pipefail
+          pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          mkdir -p "dist/${pkg}"
+          cp "${BIN_NAME}" "dist/${pkg}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              [ -f "$f" ] && cp "$f" "dist/${pkg}/" || true
+            done
+          fi
+          for ef in ${EXTRA_FILES:-}; do
+            [ -f "$ef" ] && cp "$ef" "dist/${pkg}/" || true
+          done
+          tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
+          printf 'asset=dist/%s.tar.gz\n' "$pkg" >> "$GITHUB_OUTPUT"
+          printf 'name=%s.tar.gz\n'        "$pkg" >> "$GITHUB_OUTPUT"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        id: pkg_win
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:         ${{ steps.tag.outputs.tag }}
+          BIN_NAME:    ${{ inputs.bin_name }}
+          LABEL:       ${{ matrix.label }}
+          DATA_GLOB:   ${{ inputs.data_glob }}
+          EXTRA_FILES: ${{ inputs.extra_files }}
+        run: |
+          set -euo pipefail
+          pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          mkdir -p "dist/${pkg}"
+          cp "${BIN_NAME}.exe" "dist/${pkg}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              [ -f "$f" ] && cp "$f" "dist/${pkg}/" || true
+            done
+          fi
+          for ef in ${EXTRA_FILES:-}; do
+            [ -f "$ef" ] && cp "$ef" "dist/${pkg}/" || true
+          done
+          powershell -Command "Compress-Archive -Path 'dist/${pkg}' -DestinationPath 'dist/${pkg}.zip'"
+          printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
+          printf 'name=%s.zip\n'       "$pkg" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve asset path
+        id: asset
+        shell: bash
+        env:
+          PKG_UNIX:  ${{ steps.pkg_unix.outputs.asset }}
+          PKG_WIN:   ${{ steps.pkg_win.outputs.asset }}
+          NAME_UNIX: ${{ steps.pkg_unix.outputs.name }}
+          NAME_WIN:  ${{ steps.pkg_win.outputs.name }}
+        run: |
+          set -euo pipefail
+          asset="${PKG_UNIX:-$PKG_WIN}"
+          name="${NAME_UNIX:-$NAME_WIN}"
+          printf 'asset=%s\n' "$asset" >> "$GITHUB_OUTPUT"
+          printf 'name=%s\n'  "$name"  >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256
+        id: sha
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          ASSET: ${{ steps.asset.outputs.asset }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          if command -v shasum >/dev/null 2>&1; then
+            sha256="$(shasum -a 256 "$ASSET" | awk '{print $1}')"
+          else
+            sha256="$(sha256sum "$ASSET" | awk '{print $1}')"
+          fi
+          echo "$sha256  $ASSET" > "sha256-${LABEL}.txt"
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package artifact
+        # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
+          if-no-files-found: error
+
+      - name: Upload SHA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sha256-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/sha256-${{ matrix.label }}.txt
+          if-no-files-found: error
+
+      - name: Resolve upload skip
+        id: resolve
+        if: inputs.upload_to_release != 'false'
+        shell: bash
+        env:
+          INPUT_TAG:    ${{ inputs.release_tag }}
+          UPLOAD_MODE:  ${{ inputs.upload_to_release }}
+          RESOLVED_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$UPLOAD_MODE" in
+            auto|true|false) ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'"; exit 1 ;;
+          esac
+          if [[ "$UPLOAD_MODE" == "auto" ]]; then
+            if [[ -z "$INPUT_TAG" ]]; then
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || \
+                 ! echo "$RESOLVED_TAG" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+          printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub release
+        if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-06-09 — 0.12.0
+
+### Added
+
+- **`fpc-release.yml`:** New reusable workflow for Free Pascal (FPC) projects. Builds a binary
+  natively on Linux (`ubuntu-latest`), macOS (`macos-latest`), and Windows (`windows-latest`)
+  using the platform FPC package manager (apt / Homebrew / Chocolatey), packages each into a
+  release archive (`.tar.gz` on Linux/macOS, `.zip` on Windows), and optionally uploads all
+  three to a GitHub release. Supports bundling runtime data files (`data_glob`) and extra docs
+  (`extra_files`) alongside the binary.
+
 ## 2026-06-04 — 0.11.0
 
 ### Added

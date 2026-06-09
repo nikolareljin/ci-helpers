@@ -445,6 +445,52 @@ jobs:
       tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 ```
 
+## fpc-release.yml
+
+Workflow: `.github/workflows/fpc-release.yml`
+
+Purpose: Build a Free Pascal (FPC) binary natively on Linux, macOS, and Windows, package each
+into a release archive (`.tar.gz` on Linux/macOS, `.zip` on Windows), and optionally upload
+all three to a GitHub release.
+
+Inputs:
+- `bin_name` (string, **required**) — binary name without extension (e.g. `pravkal6`)
+- `build_command` (string, default `"bash build.sh"`) — shell command to compile the binary;
+  runs on every platform after FPC is installed
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `data_glob` (string, default `""`) — shell glob of runtime data files to bundle with the
+  binary (e.g. `"data/_*.KAL data/_*.MOL"`)
+- `extra_files` (string, default `"README.md CHANGELOG.md"`) — extra files to include in each
+  archive
+- `release_tag` (string, default `""`) — tag to build; defaults to the pushed tag
+- `upload_to_release` (string, default `"auto"`) — `"auto"` uploads on version-tag pushes,
+  `"true"` always, `"false"` never
+- `fpc_apt_package` (string, default `"fpc"`) — apt package on Linux runners
+- `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
+- `fpc_choco_package` (string, default `"fpc"`) — Chocolatey package on Windows runners
+
+Archive naming: `{bin_name}-{tag}-{linux-x86_64|macos-x86_64|windows-x86_64}.{tar.gz|zip}`
+
+Example (trigger on version tag, publish all three archives to a GitHub release):
+
+```yaml
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/fpc-release.yml@production
+    with:
+      bin_name: pravkal6
+      data_glob: "data/_*.KAL data/_*.MOL"
+```
+
 ## deb-build.yml
 
 Workflow: `.github/workflows/deb-build.yml`
