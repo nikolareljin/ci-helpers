@@ -190,13 +190,13 @@ jobs:
           FPC_PKG: ${{ inputs.fpc_apt_package }}
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y "$FPC_PKG"
+          sudo apt-get install -y -- "$FPC_PKG"
 
       - name: Install FPC (macOS)
         if: runner.os == 'macOS'
         env:
           FPC_FORMULA: ${{ inputs.fpc_brew_formula }}
-        run: brew install "$FPC_FORMULA"
+        run: brew install -- "$FPC_FORMULA"
 
       - name: Install FPC (Windows)
         if: runner.os == 'Windows'
@@ -246,7 +246,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                cp "$f" "dist/${pkg}/"
+                cp -- "$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
             done
@@ -254,7 +254,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              cp "$ef" "dist/${pkg}/"
+              cp -- "$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
             fi
@@ -282,7 +282,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                cp "$f" "dist/${pkg}/"
+                cp -- "$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
             done
@@ -290,7 +290,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              cp "$ef" "dist/${pkg}/"
+              cp -- "$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
             fi
@@ -335,7 +335,7 @@ jobs:
           cp "${BIN_NAME}" pkg_staging/usr/share/"${BIN_NAME}"/
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp "$f" pkg_staging/usr/share/"${BIN_NAME}"/
+              [ -f "$f" ] && cp -- "$f" pkg_staging/usr/share/"${BIN_NAME}"/
             done
           fi
           printf '#!/bin/sh\nexec /usr/share/%s/%s "$@"\n' \
@@ -398,7 +398,7 @@ jobs:
 
                 # Icon: use provided PNG or generate a 64×64 placeholder
                 if [ -n "${ICON_PATH:-}" ] && [ -f "${ICON_PATH}" ]; then
-                  cp "${ICON_PATH}" AppDir/"${BIN_NAME}".png
+                  cp -- "${ICON_PATH}" AppDir/"${BIN_NAME}".png
                 else
                   python3 - << 'PYEOF'
           import os, struct, zlib
@@ -421,7 +421,7 @@ jobs:
                 if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
                   echo "::warning::appimagetool_sha256 is not set — the downloaded binary will not be verified. Set appimagetool_sha256 for reproducible, auditable AppImage builds."
                 fi
-                wget -q --timeout=60 "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
                   echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c - || {
                     echo "::error::appimagetool SHA256 mismatch — aborting AppImage build"
@@ -458,7 +458,7 @@ jobs:
           cp "${BIN_NAME}" "dmg_stage/${vol}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp "$f" "dmg_stage/${vol}/"
+              [ -f "$f" ] && cp -- "$f" "dmg_stage/${vol}/"
             done
           fi
           cat > "dmg_stage/${vol}/HOW_TO_RUN.txt" << EOF
