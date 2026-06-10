@@ -254,7 +254,7 @@ jobs:
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
             fi
           done
-          powershell -Command "Compress-Archive -Path 'dist/${pkg}' -DestinationPath 'dist/${pkg}.zip'"
+          (cd dist && powershell -Command "Compress-Archive -Path '${pkg}' -DestinationPath '${pkg}.zip'")
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
 
       # ── Linux packaging: DEB / RPM / AppImage ─────────────────────────────
