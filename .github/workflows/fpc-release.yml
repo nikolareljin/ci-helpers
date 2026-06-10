@@ -151,6 +151,27 @@ jobs:
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
+      - name: Validate bin_name
+        shell: bash
+        env:
+          BIN_NAME: ${{ inputs.bin_name }}
+        run: |
+          set -euo pipefail
+          name="${BIN_NAME}"
+          # Strip CR/LF to prevent GITHUB_OUTPUT injection
+          name="${name//$'\n'/}"
+          name="${name//$'\r'/}"
+          # Reject .exe suffix (platform suffix is added by the workflow itself)
+          if [[ "$name" == *.exe ]]; then
+            echo "::error::bin_name must not include a .exe suffix; the workflow adds it on Windows automatically."
+            exit 1
+          fi
+          # Allow only safe filename characters (letters, digits, hyphen, underscore, dot)
+          if ! echo "$name" | grep -qE '^[A-Za-z0-9._-]+$'; then
+            echo "::error::bin_name '${name}' contains invalid characters. Use only letters, digits, hyphen, underscore, or dot."
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ steps.tag.outputs.tag }}
@@ -315,6 +336,14 @@ jobs:
               "${BIN_NAME}" "${BIN_NAME}" \
               > pkg_staging/usr/bin/"${BIN_NAME}"
           chmod 0755 pkg_staging/usr/bin/"${BIN_NAME}"
+
+          # Fail fast: deb/rpm require description and maintainer metadata
+          if echo "${PACKAGES}" | tr ',' '\n' | grep -qE '^\s*(deb|rpm)\s*$'; then
+            if [ -z "${DESCRIPTION:-}" ] || [ -z "${MAINTAINER:-}" ]; then
+              echo "::error::package_description and package_maintainer are required when linux_packages includes deb or rpm."
+              exit 1
+            fi
+          fi
 
           IFS=',' read -ra PKGS <<< "${PACKAGES}"
           for fmt in "${PKGS[@]}"; do
