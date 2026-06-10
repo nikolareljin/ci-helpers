@@ -85,6 +85,20 @@ on:
           When omitted a minimal placeholder icon is generated automatically.
         type: string
         default: ""
+      appimagetool_url:
+        description: >
+          Download URL for appimagetool. Defaults to the rolling 'continuous' build.
+          Pin to a specific release URL (with a matching appimagetool_sha256) for
+          reproducible, auditable AppImage builds.
+        type: string
+        default: "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+      appimagetool_sha256:
+        description: >
+          Expected SHA256 hex digest of the downloaded appimagetool binary.
+          When set, the download is verified before use. Leave empty to skip
+          verification (default — suitable for the rolling 'continuous' build).
+        type: string
+        default: ""
 
       # ── macOS packaging ─────────────────────────────────────────────────────
       macos_dmg:
@@ -270,14 +284,16 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          TAG:         ${{ steps.tag.outputs.tag }}
-          BIN_NAME:    ${{ inputs.bin_name }}
-          PACKAGES:    ${{ inputs.linux_packages }}
-          DATA_GLOB:   ${{ inputs.data_glob }}
-          MAINTAINER:  ${{ inputs.package_maintainer }}
-          DESCRIPTION: ${{ inputs.package_description }}
-          PKG_URL:     ${{ inputs.package_url }}
-          ICON_PATH:   ${{ inputs.app_icon }}
+          TAG:                   ${{ steps.tag.outputs.tag }}
+          BIN_NAME:              ${{ inputs.bin_name }}
+          PACKAGES:              ${{ inputs.linux_packages }}
+          DATA_GLOB:             ${{ inputs.data_glob }}
+          MAINTAINER:            ${{ inputs.package_maintainer }}
+          DESCRIPTION:           ${{ inputs.package_description }}
+          PKG_URL:               ${{ inputs.package_url }}
+          ICON_PATH:             ${{ inputs.app_icon }}
+          APPIMAGETOOL_URL:      ${{ inputs.appimagetool_url }}
+          APPIMAGETOOL_SHA256:   ${{ inputs.appimagetool_sha256 }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -306,25 +322,21 @@ jobs:
             case "$fmt" in
 
               deb)
-                fpm -s dir -t deb \
-                    -n "${BIN_NAME}" -v "${version}" -a amd64 \
-                    ${DESCRIPTION:+--description "${DESCRIPTION}"} \
-                    ${MAINTAINER:+--maintainer "${MAINTAINER}"} \
-                    ${PKG_URL:+--url "${PKG_URL}"} \
-                    --package dist_extra/ \
-                    -C pkg_staging \
-                    usr
+                fpm_args=(-s dir -t deb -n "${BIN_NAME}" -v "${version}" -a amd64)
+                [ -n "${DESCRIPTION:-}" ] && fpm_args+=(--description "${DESCRIPTION}")
+                [ -n "${MAINTAINER:-}" ]  && fpm_args+=(--maintainer  "${MAINTAINER}")
+                [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
+                fpm_args+=(--package dist_extra/ -C pkg_staging usr)
+                fpm "${fpm_args[@]}"
                 ;;
 
               rpm)
-                fpm -s dir -t rpm \
-                    -n "${BIN_NAME}" -v "${version}" -a x86_64 \
-                    ${DESCRIPTION:+--description "${DESCRIPTION}"} \
-                    ${MAINTAINER:+--maintainer "${MAINTAINER}"} \
-                    ${PKG_URL:+--url "${PKG_URL}"} \
-                    --package dist_extra/ \
-                    -C pkg_staging \
-                    usr
+                fpm_args=(-s dir -t rpm -n "${BIN_NAME}" -v "${version}" -a x86_64)
+                [ -n "${DESCRIPTION:-}" ] && fpm_args+=(--description "${DESCRIPTION}")
+                [ -n "${MAINTAINER:-}" ]  && fpm_args+=(--maintainer  "${MAINTAINER}")
+                [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
+                fpm_args+=(--package dist_extra/ -C pkg_staging usr)
+                fpm "${fpm_args[@]}"
                 ;;
 
               appimage)
@@ -371,9 +383,13 @@ jobs:
 
                 # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
                 # avoid FUSE requirement on the CI runner.
-                wget -q --timeout=60 \
-                    "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
-                    -O /tmp/appimagetool
+                wget -q --timeout=60 "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
+                  echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c - || {
+                    echo "::error::appimagetool SHA256 mismatch — aborting AppImage build"
+                    exit 1
+                  }
+                fi
                 chmod +x /tmp/appimagetool
                 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
                     /tmp/appimagetool AppDir \
