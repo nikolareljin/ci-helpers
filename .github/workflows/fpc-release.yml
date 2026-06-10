@@ -158,9 +158,13 @@ jobs:
         run: |
           set -euo pipefail
           name="${BIN_NAME}"
-          # Strip CR/LF to prevent GITHUB_OUTPUT injection
-          name="${name//$'\n'/}"
-          name="${name//$'\r'/}"
+          # Reject CR/LF — stripping locally is insufficient because later steps
+          # expand ${{ inputs.bin_name }} directly, so a newline in the original
+          # value could still inject keys into GITHUB_OUTPUT.
+          if printf '%s' "$name" | grep -qP '\r|\n'; then
+            echo "::error::bin_name must not contain CR or LF characters."
+            exit 1
+          fi
           # Reject .exe suffix (platform suffix is added by the workflow itself)
           if [[ "$name" == *.exe ]]; then
             echo "::error::bin_name must not include a .exe suffix; the workflow adds it on Windows automatically."
