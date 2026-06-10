@@ -161,10 +161,12 @@ jobs:
           # Reject CR/LF — stripping locally is insufficient because later steps
           # expand ${{ inputs.bin_name }} directly, so a newline in the original
           # value could still inject keys into GITHUB_OUTPUT.
-          if printf '%s' "$name" | grep -qP '\r|\n'; then
-            echo "::error::bin_name must not contain CR or LF characters."
-            exit 1
-          fi
+          case "$name" in
+            *$'\n'*|*$'\r'*)
+              echo "::error::bin_name must not contain CR or LF characters."
+              exit 1
+              ;;
+          esac
           # Reject .exe suffix (platform suffix is added by the workflow itself)
           if [[ "$name" == *.exe ]]; then
             echo "::error::bin_name must not include a .exe suffix; the workflow adds it on Windows automatically."
@@ -342,7 +344,7 @@ jobs:
           chmod 0755 pkg_staging/usr/bin/"${BIN_NAME}"
 
           # Fail fast: deb/rpm require description and maintainer metadata
-          if echo "${PACKAGES}" | tr ',' '\n' | grep -qE '^\s*(deb|rpm)\s*$'; then
+          if echo "${PACKAGES}" | tr ',' '\n' | grep -qE '^[[:space:]]*(deb|rpm)[[:space:]]*$'; then
             if [ -z "${DESCRIPTION:-}" ] || [ -z "${MAINTAINER:-}" ]; then
               echo "::error::package_description and package_maintainer are required when linux_packages includes deb or rpm."
               exit 1
