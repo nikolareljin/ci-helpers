@@ -40,8 +40,9 @@ on:
         default: ""
       upload_to_release:
         description: >
-          "auto" (default) uploads only when triggered by a version tag push.
-          "true" always uploads. "false" never uploads (artifacts only).
+          "auto" (default) uploads when triggered by a version tag push or when
+          release_tag is provided explicitly. "true" always uploads.
+          "false" never uploads (artifacts only).
         type: string
         default: "auto"
       fpc_apt_package:
@@ -75,15 +76,12 @@ jobs:
           - os: ubuntu-latest
             label: linux-x86_64
             binary_suffix: ""
-            archive_ext: tar.gz
           - os: macos-latest
             label: macos-arm64
             binary_suffix: ""
-            archive_ext: tar.gz
           - os: windows-latest
             label: windows-x86_64
             binary_suffix: .exe
-            archive_ext: zip
 
     steps:
       - name: Resolve tag
@@ -185,7 +183,6 @@ jobs:
           done
           tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
           printf 'asset=dist/%s.tar.gz\n' "$pkg" >> "$GITHUB_OUTPUT"
-          printf 'name=%s.tar.gz\n'        "$pkg" >> "$GITHUB_OUTPUT"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -222,22 +219,17 @@ jobs:
           done
           powershell -Command "Compress-Archive -Path 'dist/${pkg}' -DestinationPath 'dist/${pkg}.zip'"
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
-          printf 'name=%s.zip\n'       "$pkg" >> "$GITHUB_OUTPUT"
 
       - name: Resolve asset path
         id: asset
         shell: bash
         env:
-          PKG_UNIX:  ${{ steps.pkg_unix.outputs.asset }}
-          PKG_WIN:   ${{ steps.pkg_win.outputs.asset }}
-          NAME_UNIX: ${{ steps.pkg_unix.outputs.name }}
-          NAME_WIN:  ${{ steps.pkg_win.outputs.name }}
+          PKG_UNIX: ${{ steps.pkg_unix.outputs.asset }}
+          PKG_WIN:  ${{ steps.pkg_win.outputs.asset }}
         run: |
           set -euo pipefail
           asset="${PKG_UNIX:-$PKG_WIN}"
-          name="${NAME_UNIX:-$NAME_WIN}"
           printf 'asset=%s\n' "$asset" >> "$GITHUB_OUTPUT"
-          printf 'name=%s\n'  "$name"  >> "$GITHUB_OUTPUT"
 
       - name: Compute SHA256
         id: sha

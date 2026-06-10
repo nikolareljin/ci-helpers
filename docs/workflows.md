@@ -464,8 +464,8 @@ Inputs:
 - `extra_files` (string, default `"README.md CHANGELOG.md"`) — extra files to include in each
   archive
 - `release_tag` (string, default `""`) — tag to build; defaults to the pushed tag
-- `upload_to_release` (string, default `"auto"`) — `"auto"` uploads on version-tag pushes,
-  `"true"` always, `"false"` never
+- `upload_to_release` (string, default `"auto"`) — `"auto"` uploads on version-tag pushes or
+  when `release_tag` is provided explicitly; `"true"` always, `"false"` never
 - `fpc_apt_package` (string, default `"fpc"`) — apt package on Linux runners
 - `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
 - `fpc_choco_package` (string, default `"fpc"`) — Chocolatey package on Windows runners
