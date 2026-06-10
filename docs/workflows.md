@@ -470,7 +470,7 @@ Inputs:
 - `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
 - `fpc_choco_package` (string, default `"fpc"`) — Chocolatey package on Windows runners
 
-Archive naming: `{bin_name}-{tag}-{linux-x86_64|macos-x86_64|windows-x86_64}.{tar.gz|zip}`
+Archive naming: `{bin_name}-{tag}-{linux-x86_64|macos-arm64|windows-x86_64}.{tar.gz|zip}`
 
 Example (trigger on version tag, publish all three archives to a GitHub release):
 
@@ -478,7 +478,7 @@ Example (trigger on version tag, publish all three archives to a GitHub release)
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: write

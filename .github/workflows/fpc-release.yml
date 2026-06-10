@@ -77,7 +77,7 @@ jobs:
             binary_suffix: ""
             archive_ext: tar.gz
           - os: macos-latest
-            label: macos-x86_64
+            label: macos-arm64
             binary_suffix: ""
             archive_ext: tar.gz
           - os: windows-latest
@@ -136,7 +136,7 @@ jobs:
           BUILD_CMD: ${{ inputs.build_command }}
         run: |
           set -euo pipefail
-          eval "$BUILD_CMD"
+          bash -c "$BUILD_CMD"
 
       - name: Verify binary
         shell: bash
@@ -167,12 +167,21 @@ jobs:
           mkdir -p "dist/${pkg}"
           cp "${BIN_NAME}" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
+            matched=0
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp "$f" "dist/${pkg}/" || true
+              if [ -f "$f" ]; then
+                cp "$f" "dist/${pkg}/"
+                matched=$((matched + 1))
+              fi
             done
+            [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
           fi
           for ef in ${EXTRA_FILES:-}; do
-            [ -f "$ef" ] && cp "$ef" "dist/${pkg}/" || true
+            if [ -f "$ef" ]; then
+              cp "$ef" "dist/${pkg}/"
+            else
+              echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
+            fi
           done
           tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
           printf 'asset=dist/%s.tar.gz\n' "$pkg" >> "$GITHUB_OUTPUT"
@@ -195,12 +204,21 @@ jobs:
           mkdir -p "dist/${pkg}"
           cp "${BIN_NAME}.exe" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
+            matched=0
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp "$f" "dist/${pkg}/" || true
+              if [ -f "$f" ]; then
+                cp "$f" "dist/${pkg}/"
+                matched=$((matched + 1))
+              fi
             done
+            [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
           fi
           for ef in ${EXTRA_FILES:-}; do
-            [ -f "$ef" ] && cp "$ef" "dist/${pkg}/" || true
+            if [ -f "$ef" ]; then
+              cp "$ef" "dist/${pkg}/"
+            else
+              echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
+            fi
           done
           powershell -Command "Compress-Archive -Path 'dist/${pkg}' -DestinationPath 'dist/${pkg}.zip'"
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
