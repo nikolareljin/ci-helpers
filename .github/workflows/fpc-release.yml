@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       bin_name:
-        description: "Binary name without extension (e.g. pravkal6)."
+        description: "Binary name without extension (e.g. pravkal)."
         type: string
         required: true
       build_command:
@@ -58,6 +58,40 @@ on:
         type: string
         default: "fpc"
 
+      # ── Linux packaging ─────────────────────────────────────────────────────
+      linux_packages:
+        description: >
+          Comma-separated list of Linux package formats to produce in addition to the
+          .tar.gz archive: deb, rpm, appimage.
+          Example: "deb,rpm,appimage".
+          Requires package_description and package_maintainer when deb or rpm is listed.
+        type: string
+        default: ""
+      package_maintainer:
+        description: "Maintainer field for DEB/RPM (e.g. 'Full Name <email@example.com>')."
+        type: string
+        default: ""
+      package_description:
+        description: "One-line package description for DEB/RPM/AppImage metadata."
+        type: string
+        default: ""
+      package_url:
+        description: "Homepage URL for DEB/RPM metadata."
+        type: string
+        default: ""
+      app_icon:
+        description: >
+          Path to a 64×64 PNG icon (relative to working_directory) for the AppImage.
+          When omitted a minimal placeholder icon is generated automatically.
+        type: string
+        default: ""
+
+      # ── macOS packaging ─────────────────────────────────────────────────────
+      macos_dmg:
+        description: "Build a .dmg disk image on each macOS runner. Default: false."
+        type: string
+        default: "false"
+
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -78,6 +112,9 @@ jobs:
             binary_suffix: ""
           - os: macos-latest
             label: macos-arm64
+            binary_suffix: ""
+          - os: macos-13
+            label: macos-x86_64
             binary_suffix: ""
           - os: windows-latest
             label: windows-x86_64
@@ -111,7 +148,7 @@ jobs:
         env:
           FPC_PKG: ${{ inputs.fpc_apt_package }}
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y "$FPC_PKG"
 
       - name: Install FPC (macOS)
@@ -220,6 +257,169 @@ jobs:
           powershell -Command "Compress-Archive -Path 'dist/${pkg}' -DestinationPath 'dist/${pkg}.zip'"
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
 
+      # ── Linux packaging: DEB / RPM / AppImage ─────────────────────────────
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        run: |
+          sudo apt-get install -y ruby ruby-dev build-essential rpm squashfs-tools wget
+          sudo gem install --no-document fpm
+
+      - name: Build Linux packages (deb / rpm / appimage)
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:         ${{ steps.tag.outputs.tag }}
+          BIN_NAME:    ${{ inputs.bin_name }}
+          PACKAGES:    ${{ inputs.linux_packages }}
+          DATA_GLOB:   ${{ inputs.data_glob }}
+          MAINTAINER:  ${{ inputs.package_maintainer }}
+          DESCRIPTION: ${{ inputs.package_description }}
+          PKG_URL:     ${{ inputs.package_url }}
+          ICON_PATH:   ${{ inputs.app_icon }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mkdir -p dist_extra
+
+          # ── Staging tree used by DEB and RPM ──────────────────────────────
+          # Binary + data files go under /usr/share/$BIN_NAME/.
+          # A thin wrapper in /usr/bin/ exec's the real binary so that
+          # ParamStr(0) resolves to the share dir where data files live.
+          mkdir -p pkg_staging/usr/share/"${BIN_NAME}"
+          mkdir -p pkg_staging/usr/bin
+          cp "${BIN_NAME}" pkg_staging/usr/share/"${BIN_NAME}"/
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              [ -f "$f" ] && cp "$f" pkg_staging/usr/share/"${BIN_NAME}"/
+            done
+          fi
+          printf '#!/bin/sh\nexec /usr/share/%s/%s "$@"\n' \
+              "${BIN_NAME}" "${BIN_NAME}" \
+              > pkg_staging/usr/bin/"${BIN_NAME}"
+          chmod 0755 pkg_staging/usr/bin/"${BIN_NAME}"
+
+          IFS=',' read -ra PKGS <<< "${PACKAGES}"
+          for fmt in "${PKGS[@]}"; do
+            fmt="$(printf '%s' "$fmt" | tr -d ' ')"
+            case "$fmt" in
+
+              deb)
+                fpm -s dir -t deb \
+                    -n "${BIN_NAME}" -v "${version}" -a amd64 \
+                    ${DESCRIPTION:+--description "${DESCRIPTION}"} \
+                    ${MAINTAINER:+--maintainer "${MAINTAINER}"} \
+                    ${PKG_URL:+--url "${PKG_URL}"} \
+                    --package dist_extra/ \
+                    -C pkg_staging \
+                    usr
+                ;;
+
+              rpm)
+                fpm -s dir -t rpm \
+                    -n "${BIN_NAME}" -v "${version}" -a x86_64 \
+                    ${DESCRIPTION:+--description "${DESCRIPTION}"} \
+                    ${MAINTAINER:+--maintainer "${MAINTAINER}"} \
+                    ${PKG_URL:+--url "${PKG_URL}"} \
+                    --package dist_extra/ \
+                    -C pkg_staging \
+                    usr
+                ;;
+
+              appimage)
+                mkdir -p AppDir/usr/share/"${BIN_NAME}"
+                cp -r pkg_staging/usr/share/"${BIN_NAME}"/. \
+                    AppDir/usr/share/"${BIN_NAME}"/
+
+                # AppRun: exec binary from its own directory so ParamStr(0)
+                # resolves to the share dir where the data files are bundled.
+                printf '#!/bin/sh\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$HERE/usr/share/%s/%s" "$@"\n' \
+                    "${BIN_NAME}" "${BIN_NAME}" > AppDir/AppRun
+                chmod 0755 AppDir/AppRun
+
+                # Desktop entry (Terminal=true for TUI apps)
+                cat > AppDir/"${BIN_NAME}".desktop << EOF
+          [Desktop Entry]
+          Name=${BIN_NAME}
+          Exec=${BIN_NAME}
+          Icon=${BIN_NAME}
+          Type=Application
+          Categories=Utility;
+          Terminal=true
+          EOF
+
+                # Icon: use provided PNG or generate a 64×64 placeholder
+                if [ -n "${ICON_PATH:-}" ] && [ -f "${ICON_PATH}" ]; then
+                  cp "${ICON_PATH}" AppDir/"${BIN_NAME}".png
+                else
+                  python3 - << 'PYEOF'
+          import os, struct, zlib
+          name = os.environ['BIN_NAME']
+          def make_png(w, h, rgb):
+              def chunk(t, d):
+                  return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+              row = b'\x00' + bytes(rgb) * w
+              return (b'\x89PNG\r\n\x1a\n'
+                      + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                      + chunk(b'IDAT', zlib.compress(row * h, 9))
+                      + chunk(b'IEND', b''))
+          with open(f'AppDir/{name}.png', 'wb') as fh:
+              fh.write(make_png(64, 64, [26, 58, 110]))
+          PYEOF
+                fi
+
+                # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
+                # avoid FUSE requirement on the CI runner.
+                wget -q --timeout=60 \
+                    "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
+                    -O /tmp/appimagetool
+                chmod +x /tmp/appimagetool
+                APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
+                    /tmp/appimagetool AppDir \
+                    "dist_extra/${BIN_NAME}-${TAG}-linux-x86_64.AppImage"
+                ;;
+
+              *)
+                echo "::warning::Unknown linux_packages entry '${fmt}' — skipped"
+                ;;
+            esac
+          done
+
+      # ── macOS DMG ──────────────────────────────────────────────────────────
+
+      - name: Build macOS DMG
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:       ${{ steps.tag.outputs.tag }}
+          BIN_NAME:  ${{ inputs.bin_name }}
+          DATA_GLOB: ${{ inputs.data_glob }}
+          LABEL:     ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          vol="${BIN_NAME}-${TAG}-${LABEL}"
+          mkdir -p "dmg_stage/${vol}"
+          cp "${BIN_NAME}" "dmg_stage/${vol}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              [ -f "$f" ] && cp "$f" "dmg_stage/${vol}/"
+            done
+          fi
+          cat > "dmg_stage/${vol}/HOW_TO_RUN.txt" << EOF
+          Open Terminal and run:
+            cd /Volumes/${vol}
+            ./${BIN_NAME}
+          EOF
+          hdiutil create \
+              -volname "${vol}" \
+              -srcfolder "dmg_stage/${vol}" \
+              -ov -format UDZO \
+              "dist/${vol}.dmg"
+
+      # ── Artifact uploads ───────────────────────────────────────────────────
+
       - name: Resolve asset path
         id: asset
         shell: bash
@@ -263,6 +463,24 @@ jobs:
           path: ${{ inputs.working_directory }}/sha256-${{ matrix.label }}.txt
           if-no-files-found: error
 
+      - name: Upload extra Linux packages as artifacts
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkgs-${{ matrix.label }}-extra
+          path: ${{ inputs.working_directory }}/dist_extra/
+          if-no-files-found: warn
+
+      - name: Upload macOS DMG as artifact
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-dmg-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
+          if-no-files-found: warn
+
+      # ── GitHub release uploads ─────────────────────────────────────────────
+
       - name: Resolve upload skip
         id: resolve
         if: inputs.upload_to_release != 'false'
@@ -294,6 +512,26 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload extra Linux packages to GitHub release
+        if: runner.os == 'Linux' && inputs.linux_packages != '' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/dist_extra/*
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS DMG to GitHub release
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
           update_existing: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

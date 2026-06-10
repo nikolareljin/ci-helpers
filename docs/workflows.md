@@ -449,12 +449,12 @@ jobs:
 
 Workflow: `.github/workflows/fpc-release.yml`
 
-Purpose: Build a Free Pascal (FPC) binary natively on Linux, macOS, and Windows, package each
-into a release archive (`.tar.gz` on Linux/macOS, `.zip` on Windows), and optionally upload
-all three to a GitHub release.
+Purpose: Build a Free Pascal (FPC) binary natively on Linux (x86_64), macOS (ARM64 + x86_64),
+and Windows (x86_64); package each into a release archive; optionally produce Linux packages
+(DEB, RPM, AppImage) and a macOS DMG; and upload everything to a GitHub release.
 
-Inputs:
-- `bin_name` (string, **required**) — binary name without extension (e.g. `pravkal6`)
+**Core inputs:**
+- `bin_name` (string, **required**) — binary name without extension (e.g. `pravkal`)
 - `build_command` (string, default `"bash build.sh"`) — shell command to compile the binary;
   runs on every platform after FPC is installed
 - `working_directory` (string, default `"."`)
@@ -470,16 +470,41 @@ Inputs:
 - `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
 - `fpc_choco_package` (string, default `"fpc"`) — Chocolatey package on Windows runners
 
-Archive naming: `{bin_name}-{tag}-{linux-x86_64|macos-arm64|windows-x86_64}.{tar.gz|zip}`
+**Linux packaging inputs** (optional; require `linux_packages` to be set):
+- `linux_packages` (string, default `""`) — comma-separated list of extra Linux package formats
+  to build: `deb`, `rpm`, `appimage`. Example: `"deb,rpm,appimage"`. Uses
+  [fpm](https://fpm.readthedocs.io/) for DEB/RPM and
+  [appimagetool](https://github.com/AppImage/appimagetool) for AppImage. The binary is
+  installed to `/usr/share/{bin_name}/` with a thin wrapper in `/usr/bin/` so that runtime data
+  files are always found relative to the binary.
+- `package_maintainer` (string, default `""`) — DEB/RPM `Maintainer` field
+- `package_description` (string, default `""`) — one-line description for DEB/RPM/AppImage
+- `package_url` (string, default `""`) — homepage URL for DEB/RPM metadata
+- `app_icon` (string, default `""`) — path to a 64×64 PNG icon (relative to
+  `working_directory`) for the AppImage; a placeholder is auto-generated when omitted
 
-Example (trigger on version tag, publish all three archives to a GitHub release):
+**macOS packaging inputs:**
+- `macos_dmg` (string, default `"false"`) — set to `"true"` to build a `.dmg` disk image on
+  each macOS runner (ARM64 + x86_64)
+
+**Output artifacts** (uploaded to CI and GitHub release):
+
+| Platform | Archive | Optional extras |
+|----------|---------|----------------|
+| Linux x86_64 | `.tar.gz` | `.deb`, `.rpm`, `.AppImage` |
+| macOS ARM64 | `.tar.gz` | `.dmg` |
+| macOS x86_64 | `.tar.gz` | `.dmg` |
+| Windows x86_64 | `.zip` | — |
+
+Archive naming: `{bin_name}-{tag}-{label}.{ext}`
+
+Example (all formats enabled):
 
 ```yaml
 on:
   push:
     tags:
-      - '[0-9]*.[0-9]*.[0-9]*'
-      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
@@ -488,8 +513,13 @@ jobs:
   release:
     uses: nikolareljin/ci-helpers/.github/workflows/fpc-release.yml@production
     with:
-      bin_name: pravkal6
+      bin_name: pravkal
       data_glob: "data/_*.KAL data/_*.MOL"
+      linux_packages: "deb,rpm,appimage"
+      macos_dmg: "true"
+      package_maintainer: "Full Name <email@example.com>"
+      package_description: "Short description of the application"
+      package_url: "https://github.com/owner/repo"
 ```
 
 ## deb-build.yml
