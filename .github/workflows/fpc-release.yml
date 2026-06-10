@@ -166,9 +166,9 @@ jobs:
             echo "::error::bin_name must not include a .exe suffix; the workflow adds it on Windows automatically."
             exit 1
           fi
-          # Allow only safe filename characters (letters, digits, hyphen, underscore, dot)
-          if ! echo "$name" | grep -qE '^[A-Za-z0-9._-]+$'; then
-            echo "::error::bin_name '${name}' contains invalid characters. Use only letters, digits, hyphen, underscore, or dot."
+          # Must start with a letter or digit, then only safe filename chars
+          if ! echo "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+            echo "::error::bin_name '${name}' is invalid. Must start with a letter or digit and contain only letters, digits, hyphen, underscore, or dot."
             exit 1
           fi
 
@@ -412,6 +412,9 @@ jobs:
 
                 # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
                 # avoid FUSE requirement on the CI runner.
+                if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
+                  echo "::warning::appimagetool_sha256 is not set — the downloaded binary will not be verified. Set appimagetool_sha256 for reproducible, auditable AppImage builds."
+                fi
                 wget -q --timeout=60 "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
                   echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c - || {

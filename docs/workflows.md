@@ -482,19 +482,29 @@ and Windows (x86_64); package each into a release archive; optionally produce Li
 - `package_url` (string, default `""`) — homepage URL for DEB/RPM metadata
 - `app_icon` (string, default `""`) — path to a 64×64 PNG icon (relative to
   `working_directory`) for the AppImage; a placeholder is auto-generated when omitted
+- `appimagetool_url` (string, default: rolling `continuous` build URL) — download URL for
+  `appimagetool`. Override with a pinned release URL together with `appimagetool_sha256` for
+  reproducible, auditable AppImage builds
+- `appimagetool_sha256` (string, default `""`) — expected SHA256 hex digest of the downloaded
+  `appimagetool` binary. When set, the download is verified before use. When empty, a
+  `::warning::` is emitted to flag the unverified download
 
 **macOS packaging inputs:**
 - `macos_dmg` (string, default `"false"`) — set to `"true"` to build a `.dmg` disk image on
   each macOS runner (ARM64 + x86_64)
 
-**Output artifacts** (uploaded to CI and GitHub release):
+**Output artifacts:**
 
-| Platform | Archive | Optional extras |
-|----------|---------|----------------|
-| Linux x86_64 | `.tar.gz` | `.deb`, `.rpm`, `.AppImage` |
-| macOS ARM64 | `.tar.gz` | `.dmg` |
-| macOS x86_64 | `.tar.gz` | `.dmg` |
-| Windows x86_64 | `.zip` | — |
+Archives and optional package extras are uploaded to both CI (workflow artifacts) and the
+GitHub release. Per-platform SHA256 checksum files (`sha256-{label}.txt`) are uploaded as
+CI workflow artifacts only — they are not attached to the GitHub release.
+
+| Platform | Archive (CI + release) | Optional extras (CI + release) | SHA256 file (CI only) |
+|----------|------------------------|--------------------------------|-----------------------|
+| Linux x86_64 | `.tar.gz` | `.deb`, `.rpm`, `.AppImage` | `sha256-linux-x86_64.txt` |
+| macOS ARM64 | `.tar.gz` | `.dmg` | `sha256-macos-arm64.txt` |
+| macOS x86_64 | `.tar.gz` | `.dmg` | `sha256-macos-x86_64.txt` |
+| Windows x86_64 | `.zip` | — | `sha256-windows-x86_64.txt` |
 
 Archive naming: `{bin_name}-{tag}-{label}.{ext}`
 
