@@ -368,6 +368,7 @@ jobs:
             fi
           fi
 
+          pkg_built=0
           IFS=',' read -ra PKGS <<< "${PACKAGES}"
           for fmt in "${PKGS[@]}"; do
             fmt="$(printf '%s' "$fmt" | tr -d ' ')"
@@ -381,6 +382,7 @@ jobs:
                 [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
                 fpm_args+=(--package dist_extra/ -C pkg_staging usr)
                 fpm "${fpm_args[@]}"
+                pkg_built=$((pkg_built + 1))
                 ;;
 
               rpm)
@@ -390,6 +392,7 @@ jobs:
                 [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
                 fpm_args+=(--package dist_extra/ -C pkg_staging usr)
                 fpm "${fpm_args[@]}"
+                pkg_built=$((pkg_built + 1))
                 ;;
 
               appimage)
@@ -468,6 +471,7 @@ jobs:
                 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
                     /tmp/appimagetool AppDir \
                     "dist_extra/${BIN_NAME}-${TAG}-linux-x86_64.AppImage"
+                pkg_built=$((pkg_built + 1))
                 ;;
 
               *)
@@ -476,6 +480,10 @@ jobs:
                 ;;
             esac
           done
+          if [ "$pkg_built" -eq 0 ]; then
+            echo "::error::linux_packages '${PACKAGES}' produced no packages — all entries were empty or whitespace."
+            exit 1
+          fi
 
       # ── macOS DMG ──────────────────────────────────────────────────────────
 
@@ -563,7 +571,7 @@ jobs:
         with:
           name: pkgs-${{ matrix.label }}-extra
           path: ${{ inputs.working_directory }}/dist_extra/
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload macOS DMG as artifact
         if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
@@ -571,7 +579,7 @@ jobs:
         with:
           name: pkg-dmg-${{ matrix.label }}
           path: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
-          if-no-files-found: warn
+          if-no-files-found: error
 
       # ── GitHub release uploads ─────────────────────────────────────────────
 
