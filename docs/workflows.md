@@ -451,7 +451,9 @@ Workflow: `.github/workflows/fpc-release.yml`
 
 Purpose: Build a Free Pascal (FPC) binary natively on Linux (x86_64), macOS (ARM64 + x86_64),
 and Windows (x86_64); package each into a release archive; optionally produce Linux packages
-(DEB, RPM, AppImage) and a macOS DMG; and upload everything to a GitHub release.
+(DEB, RPM, AppImage) and a macOS DMG; and optionally upload release archives to a GitHub
+release (controlled by `upload_to_release`). SHA256 checksum files are uploaded as CI
+artifacts only and are not attached to the release.
 
 **Core inputs:**
 - `bin_name` (string, **required**) — binary name without extension (e.g. `pravkal`)

@@ -392,7 +392,7 @@ jobs:
                   printf '[Desktop Entry]\n'
                   printf 'Name=%s\n' "${BIN_NAME}"
                   [ -n "${DESCRIPTION:-}" ] && printf 'Comment=%s\n' "${DESCRIPTION}"
-                  printf 'Exec=%s\n' "${BIN_NAME}"
+                  printf 'Exec=AppRun\n'
                   printf 'Icon=%s\n' "${BIN_NAME}"
                   printf 'Type=Application\n'
                   printf 'Categories=Utility;\n'
@@ -515,7 +515,7 @@ jobs:
           else
             sha256="$(sha256sum "$ASSET" | awk '{print $1}')"
           fi
-          echo "$sha256  $ASSET" > "sha256-${LABEL}.txt"
+          echo "$sha256  $(basename "$ASSET")" > "sha256-${LABEL}.txt"
           printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
 
       - name: Upload package artifact
