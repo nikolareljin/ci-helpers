@@ -268,16 +268,17 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          TAG:         ${{ steps.tag.outputs.tag }}
-          BIN_NAME:    ${{ inputs.bin_name }}
-          LABEL:       ${{ matrix.label }}
-          DATA_GLOB:   ${{ inputs.data_glob }}
+          TAG:        ${{ steps.tag.outputs.tag }}
+          BIN_NAME:   ${{ inputs.bin_name }}
+          BIN_SUFFIX: ${{ matrix.binary_suffix }}
+          LABEL:      ${{ matrix.label }}
+          DATA_GLOB:  ${{ inputs.data_glob }}
           EXTRA_FILES: ${{ inputs.extra_files }}
         run: |
           set -euo pipefail
           pkg="${BIN_NAME}-${TAG}-${LABEL}"
           mkdir -p "dist/${pkg}"
-          cp "${BIN_NAME}.exe" "dist/${pkg}/"
+          cp -- "${BIN_NAME}${BIN_SUFFIX}" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             matched=0
             for f in $DATA_GLOB; do
@@ -354,6 +355,7 @@ jobs:
           IFS=',' read -ra PKGS <<< "${PACKAGES}"
           for fmt in "${PKGS[@]}"; do
             fmt="$(printf '%s' "$fmt" | tr -d ' ')"
+            [ -z "$fmt" ] && continue
             case "$fmt" in
 
               deb)
