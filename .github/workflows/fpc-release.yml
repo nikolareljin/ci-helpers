@@ -246,7 +246,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                cp "$f" "dist/${pkg}/"
+                cp "./$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
             done
@@ -254,7 +254,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              cp "$ef" "dist/${pkg}/"
+              cp "./$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
             fi
@@ -474,7 +474,7 @@ jobs:
           cp "${BIN_NAME}" "dmg_stage/${vol}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp "$f" "dmg_stage/${vol}/"
+              [ -f "$f" ] && cp "./$f" "dmg_stage/${vol}/"
             done
           fi
           cat > "dmg_stage/${vol}/HOW_TO_RUN.txt" << EOF
