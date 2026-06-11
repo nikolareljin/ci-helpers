@@ -435,7 +435,8 @@ jobs:
                 ;;
 
               *)
-                echo "::warning::Unknown linux_packages entry '${fmt}' — skipped"
+                echo "::error::Unknown linux_packages entry '${fmt}'. Valid values: deb, rpm, appimage."
+                exit 1
                 ;;
             esac
           done
