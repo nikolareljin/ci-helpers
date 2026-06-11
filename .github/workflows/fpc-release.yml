@@ -421,15 +421,15 @@ jobs:
 
                 # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
                 # avoid FUSE requirement on the CI runner.
-                if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
-                  echo "::warning::appimagetool_sha256 is not set — the downloaded binary will not be verified. Set appimagetool_sha256 for reproducible, auditable AppImage builds."
-                fi
                 wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
-                  echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c - || {
-                    echo "::error::appimagetool SHA256 mismatch — aborting AppImage build"
+                  if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
+                    echo "::error::appimagetool SHA256 mismatch (expected ${APPIMAGETOOL_SHA256}, got ${actual_sha}) — aborting AppImage build"
                     exit 1
-                  }
+                  fi
+                else
+                  echo "::warning::appimagetool_sha256 is not set — running unverified binary. Actual SHA256: ${actual_sha}. Set appimagetool_sha256 to this value to pin the download."
                 fi
                 chmod +x /tmp/appimagetool
                 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
