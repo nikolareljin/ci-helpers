@@ -246,7 +246,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                cp -- "$f" "dist/${pkg}/"
+                cp "$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
             done
@@ -254,7 +254,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              cp -- "$ef" "dist/${pkg}/"
+              cp "$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
             fi
@@ -421,6 +421,18 @@ jobs:
 
                 # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
                 # avoid FUSE requirement on the CI runner.
+                # Require appimagetool_sha256 when a non-rolling URL is used;
+                # a custom/pinned URL without a digest silently runs an
+                # unverified arbitrary binary.
+                case "${APPIMAGETOOL_URL}" in
+                  */continuous/*) ;;
+                  *)
+                    if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
+                      echo "::error::appimagetool_url is set to a non-continuous URL but appimagetool_sha256 is not provided. Set appimagetool_sha256 to verify the download."
+                      exit 1
+                    fi
+                    ;;
+                esac
                 wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
@@ -462,7 +474,7 @@ jobs:
           cp "${BIN_NAME}" "dmg_stage/${vol}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
-              [ -f "$f" ] && cp -- "$f" "dmg_stage/${vol}/"
+              [ -f "$f" ] && cp "$f" "dmg_stage/${vol}/"
             done
           fi
           cat > "dmg_stage/${vol}/HOW_TO_RUN.txt" << EOF
