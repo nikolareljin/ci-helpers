@@ -386,15 +386,16 @@ jobs:
                 chmod 0755 AppDir/AppRun
 
                 # Desktop entry (Terminal=true for TUI apps)
-                cat > AppDir/"${BIN_NAME}".desktop << EOF
-          [Desktop Entry]
-          Name=${BIN_NAME}
-          Exec=${BIN_NAME}
-          Icon=${BIN_NAME}
-          Type=Application
-          Categories=Utility;
-          Terminal=true
-          EOF
+                {
+                  printf '[Desktop Entry]\n'
+                  printf 'Name=%s\n' "${BIN_NAME}"
+                  [ -n "${DESCRIPTION:-}" ] && printf 'Comment=%s\n' "${DESCRIPTION}"
+                  printf 'Exec=%s\n' "${BIN_NAME}"
+                  printf 'Icon=%s\n' "${BIN_NAME}"
+                  printf 'Type=Application\n'
+                  printf 'Categories=Utility;\n'
+                  printf 'Terminal=true\n'
+                } > AppDir/"${BIN_NAME}".desktop
 
                 # Icon: use provided PNG or generate a 64×64 placeholder
                 if [ -n "${ICON_PATH:-}" ] && [ -f "${ICON_PATH}" ]; then
