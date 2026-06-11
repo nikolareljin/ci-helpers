@@ -470,7 +470,7 @@ artifacts only and are not attached to the release.
   when `release_tag` is provided explicitly; `"true"` always, `"false"` never
 - `fpc_apt_package` (string, default `"fpc"`) — apt package on Linux runners
 - `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
-- `fpc_choco_package` (string, default `"fpc"`) — Chocolatey package on Windows runners
+- `fpc_choco_package` (string, default `"freepascal"`) — Chocolatey package on Windows runners
 
 **Linux packaging inputs** (optional; require `linux_packages` to be set):
 - `linux_packages` (string, default `""`) — comma-separated list of extra Linux package formats
@@ -501,11 +501,14 @@ artifacts only and are not attached to the release.
 
 **Output artifacts:**
 
-Archives and optional package extras are uploaded to both CI (workflow artifacts) and the
-GitHub release. Per-platform SHA256 checksum files (`sha256-{label}.txt`) are uploaded as
-CI workflow artifacts only — they are not attached to the GitHub release.
+Archives and optional package extras are uploaded to CI workflow artifacts on every run.
+Release upload is controlled by `upload_to_release`: in `"auto"` mode (default) archives are
+also uploaded to the GitHub release when triggered by a version-tag push or when `release_tag`
+is provided; `"true"` always uploads; `"false"` skips release upload entirely.
+Per-platform SHA256 checksum files (`sha256-{label}.txt`) are uploaded as CI workflow
+artifacts only — they are not attached to the GitHub release.
 
-| Platform | Archive (CI + release) | Optional extras (CI + release) | SHA256 file (CI only) |
+| Platform | Archive (CI always / release per `upload_to_release`) | Optional extras (CI always / release per `upload_to_release`) | SHA256 file (CI only) |
 |----------|------------------------|--------------------------------|-----------------------|
 | Linux x86_64 | `.tar.gz` | `.deb`, `.rpm`, `.AppImage` | `sha256-linux-x86_64.txt` |
 | macOS ARM64 | `.tar.gz` | `.dmg` | `sha256-macos-arm64.txt` |
@@ -520,7 +523,7 @@ Example (all formats enabled):
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: write

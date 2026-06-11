@@ -54,9 +54,9 @@ on:
         type: string
         default: "fpc"
       fpc_choco_package:
-        description: "Chocolatey package to install on Windows runners. Defaults to 'fpc'."
+        description: "Chocolatey package to install on Windows runners. Defaults to 'freepascal'."
         type: string
-        default: "fpc"
+        default: "freepascal"
 
       # ── Linux packaging ─────────────────────────────────────────────────────
       linux_packages:
@@ -249,7 +249,7 @@ jobs:
           set -euo pipefail
           pkg="${BIN_NAME}-${TAG}-${LABEL}"
           mkdir -p "dist/${pkg}"
-          cp "${BIN_NAME}" "dist/${pkg}/"
+          cp "./${BIN_NAME}" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             matched=0
             for f in $DATA_GLOB; do
