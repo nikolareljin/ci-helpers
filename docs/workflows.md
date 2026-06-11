@@ -489,7 +489,11 @@ artifacts only and are not attached to the release.
   reproducible, auditable AppImage builds
 - `appimagetool_sha256` (string, default `""`) — expected SHA256 hex digest of the downloaded
   `appimagetool` binary. When set, the download is verified before use. When empty, a
-  `::warning::` is emitted to flag the unverified download
+  `::warning::` is emitted to flag the unverified download (the actual SHA256 is printed so
+  callers can copy it to pin the build)
+- `appimagetool_verify` (string, default `"false"`) — set to `"true"` to require
+  `appimagetool_sha256` for any AppImage build. Recommended for production workflows where
+  supply-chain integrity matters; fails the build with a clear error if the digest is absent
 
 **macOS packaging inputs:**
 - `macos_dmg` (string, default `"false"`) — set to `"true"` to build a `.dmg` disk image on

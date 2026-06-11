@@ -99,6 +99,14 @@ on:
           verification (default — suitable for the rolling 'continuous' build).
         type: string
         default: ""
+      appimagetool_verify:
+        description: >
+          Set to "true" to require appimagetool_sha256 for any AppImage build,
+          regardless of the URL used. Recommended for production workflows where
+          supply-chain integrity matters. Defaults to "false" to preserve
+          backwards compatibility.
+        type: string
+        default: "false"
 
       # ── macOS packaging ─────────────────────────────────────────────────────
       macos_dmg:
@@ -322,6 +330,7 @@ jobs:
           ICON_PATH:             ${{ inputs.app_icon }}
           APPIMAGETOOL_URL:      ${{ inputs.appimagetool_url }}
           APPIMAGETOOL_SHA256:   ${{ inputs.appimagetool_sha256 }}
+          APPIMAGETOOL_VERIFY:   ${{ inputs.appimagetool_verify }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -421,18 +430,22 @@ jobs:
 
                 # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
                 # avoid FUSE requirement on the CI runner.
-                # Require appimagetool_sha256 when a non-rolling URL is used;
-                # a custom/pinned URL without a digest silently runs an
-                # unverified arbitrary binary.
-                case "${APPIMAGETOOL_URL}" in
-                  */continuous/*) ;;
-                  *)
-                    if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
+                # Enforce SHA256 when appimagetool_verify=true (opt-in) or when
+                # a non-rolling URL is used (custom pinned URL without digest
+                # would silently run an unverified arbitrary binary).
+                if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
+                  if [ "${APPIMAGETOOL_VERIFY:-false}" = "true" ]; then
+                    echo "::error::appimagetool_verify is true but appimagetool_sha256 is not set. Provide the SHA256 digest of the appimagetool binary."
+                    exit 1
+                  fi
+                  case "${APPIMAGETOOL_URL}" in
+                    */continuous/*) ;;
+                    *)
                       echo "::error::appimagetool_url is set to a non-continuous URL but appimagetool_sha256 is not provided. Set appimagetool_sha256 to verify the download."
                       exit 1
-                    fi
-                    ;;
-                esac
+                      ;;
+                  esac
+                fi
                 wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
