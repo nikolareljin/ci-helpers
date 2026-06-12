@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`auto-tag-release.yml`:** New `release_workflow` input (default `""`). When set to a workflow
+  filename (e.g. `"release.yml"`), the workflow is dispatched via `workflow_dispatch` after the
+  version tag is pushed, with `release_tag` set to the detected version. This bypasses the GitHub
+  restriction that prevents `GITHUB_TOKEN`-created tags from firing tag-push triggered workflows.
+  Callers must also grant `actions: write` permission. The workflow filename is validated against
+  a safe-characters regex before use.
+
 ## 2026-06-09 — 0.12.0
 
 ### Added
