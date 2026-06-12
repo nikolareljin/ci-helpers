@@ -32,11 +32,10 @@ on:
 
 permissions:
   contents: write
-  actions: write
-  # NOTE: Caller workflows must also grant pull-requests: read and (when
-  # release_workflow is set) actions: write; reusable workflows cannot
-  # elevate the GITHUB_TOKEN permissions of their callers.
   pull-requests: read
+  # NOTE: Caller workflows must also grant actions: write when release_workflow
+  # is set; reusable workflows cannot elevate the GITHUB_TOKEN permissions of
+  # their callers. actions: write is requested only by the dispatch job.
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -45,6 +44,11 @@ env:
 jobs:
   tag:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -224,25 +228,6 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
-      - name: Dispatch release workflow
-        if: ${{ steps.release.outputs.version != '' && inputs.release_workflow != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_WORKFLOW: ${{ inputs.release_workflow }}
-          VERSION: ${{ steps.release.outputs.version }}
-          REF: ${{ inputs.default_branch != '' && inputs.default_branch || github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          # Validate workflow name: only safe filename characters, must end in .yml or .yaml
-          if ! printf '%s' "$RELEASE_WORKFLOW" | grep -qE '^[A-Za-z0-9_.-]+\.ya?ml$'; then
-            echo "::error::release_workflow '${RELEASE_WORKFLOW}' is not a valid workflow filename."
-            exit 1
-          fi
-          branch="${REF:-main}"
-          echo "Dispatching ${RELEASE_WORKFLOW} for tag ${VERSION} on ${branch}"
-          gh workflow run "$RELEASE_WORKFLOW" --ref "$branch" -f "release_tag=${VERSION}"
-
       - name: Update production tag ref
         if: ${{ steps.release.outputs.version != '' && inputs.update_production_tag }}
         shell: bash
@@ -250,3 +235,26 @@ jobs:
           set -euo pipefail
           version="${{ steps.release.outputs.version }}"
           ./scripts/create_production.sh -t "$version" --fetch-tags
+
+  dispatch:
+    needs: tag
+    if: ${{ needs.tag.outputs.version != '' && inputs.release_workflow != '' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORKFLOW: ${{ inputs.release_workflow }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Validate workflow name: only safe filename characters, must end in .yml or .yaml
+          if ! printf '%s' "$RELEASE_WORKFLOW" | grep -qE '^[A-Za-z0-9_.-]+\.ya?ml$'; then
+            echo "::error::release_workflow '${RELEASE_WORKFLOW}' is not a valid workflow filename."
+            exit 1
+          fi
+          echo "Dispatching ${RELEASE_WORKFLOW} for tag ${VERSION} on ref ${VERSION}"
+          gh workflow run "$RELEASE_WORKFLOW" --ref "${VERSION}" -f "release_tag=${VERSION}"
