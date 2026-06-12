@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-06-12 — 0.13.0
+
+### Added
+
+- **`pnpm.yml`:** New `preset-pnpm` workflow for pnpm monorepos. Sets up pnpm via
+  `pnpm/action-setup@v4`, enables Node.js cache keyed on `pnpm-lock.yaml`, runs
+  `pnpm install --frozen-lockfile`, then lint/test/build/e2e/extra steps with
+  fully configurable commands. Inputs: `pnpm_version`, `node_version`, `lint_command`,
+  `test_command`, `build_command`, `e2e_command`, `extra_command`.
+
+- **`pnpm-scan.yml`:** Security scan variant for pnpm monorepos. Adds per-package
+  audit support via `audit_filters` (space-separated list of workspace package names)
+  and `audit_level` inputs. When `audit_filters` is set, audits each package
+  individually with `pnpm --filter`; otherwise runs a workspace-wide audit.
+  Audit inputs are passed through `env:` variables to prevent shell injection.
+
 ## 2026-06-12 — 0.12.1
 
 ### Added
