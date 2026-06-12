@@ -100,3 +100,21 @@ if $update_branch; then
   git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
   log_info_safe "Production branch ${prod_tag} now points to ${tag}"
 fi
+
+# Verify both refs on remote now point to target_sha.
+# production is always a lightweight tag so ls-remote returns the commit SHA directly.
+remote_tag_sha=$(git -C "$repo_dir" ls-remote "$remote" "refs/tags/${prod_tag}" | awk '{print $1}')
+if [[ -z "$remote_tag_sha" || "$remote_tag_sha" != "$target_sha" ]]; then
+  log_error_safe "Verification failed: ${prod_tag} tag on remote is '${remote_tag_sha:0:8}', expected '${target_sha:0:8}'"
+  exit 1
+fi
+if $update_branch; then
+  remote_branch_sha=$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/${prod_tag}" | awk '{print $1}')
+  if [[ -z "$remote_branch_sha" || "$remote_branch_sha" != "$target_sha" ]]; then
+    log_error_safe "Verification failed: ${prod_tag} branch on remote is '${remote_branch_sha:0:8}', expected '${target_sha:0:8}'"
+    exit 1
+  fi
+  log_info_safe "Verified: ${prod_tag} tag and branch both point to ${target_sha:0:8}"
+else
+  log_info_safe "Verified: ${prod_tag} tag points to ${target_sha:0:8}"
+fi
