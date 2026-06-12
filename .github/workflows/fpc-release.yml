@@ -380,7 +380,7 @@ jobs:
           pkg_built=0
           IFS=',' read -ra PKGS <<< "${PACKAGES}"
           for fmt in "${PKGS[@]}"; do
-            fmt="$(printf '%s' "$fmt" | tr -d ' ')"
+            fmt="$(printf '%s' "$fmt" | tr -d '[:space:]')"
             [ -z "$fmt" ] && continue
             case "$fmt" in
 
