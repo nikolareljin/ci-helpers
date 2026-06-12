@@ -93,9 +93,10 @@ jobs:
               const status = typeof err === 'object' && err !== null && 'status' in err
                 ? Number(err.status)
                 : NaN;
-              const message = typeof err === 'object' && err !== null && typeof err.message === 'string'
-                ? err.message.toLowerCase()
+              const rawMessage = typeof err === 'object' && err !== null && typeof err.message === 'string'
+                ? err.message
                 : '';
+              const message = rawMessage.toLowerCase();
               // Allowlist of known permission/config 403s that are safe to soft-warn.
               // Anything else (abuse detection, SSO policy, unknown causes) fails hard.
               const permissionDeniedPatterns = [
@@ -108,6 +109,7 @@ jobs:
               if (isPermissionDenied) {
                 core.warning(
                   `Could not create PR for ${head} -> ${base} (403 Forbidden).\n` +
+                  `API error: ${rawMessage}\n` +
                   `Possible causes and remediations:\n` +
                   `  1. Repo setting disabled: enable "Allow GitHub Actions to create and approve pull requests"\n` +
                   `     under Settings → Actions → General.\n` +
