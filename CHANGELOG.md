@@ -11,6 +11,14 @@
   Callers must also grant `actions: write` permission. The workflow filename is validated against
   a safe-characters regex before use.
 
+### Changed
+
+- **`create_production.sh`:** Post-push verification now hard-fails when either the `production`
+  tag or branch on the remote is missing or points to a different commit than expected. Previously
+  the script would exit on push failure (via `set -euo pipefail`) but did not explicitly confirm
+  that both remote refs converged to the same SHA. Annotated release tags are handled correctly
+  via the peeled `^{}` entry from `git ls-remote`.
+
 ## 2026-06-09 — 0.12.0
 
 ### Added

@@ -247,6 +247,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_WORKFLOW: ${{ inputs.release_workflow }}
           VERSION: ${{ needs.tag.outputs.version }}
         run: |
