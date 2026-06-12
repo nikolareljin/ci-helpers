@@ -102,14 +102,23 @@ if $update_branch; then
 fi
 
 # Verify both refs on remote now point to target_sha.
-# production is always a lightweight tag so ls-remote returns the commit SHA directly.
-remote_tag_sha=$(git -C "$repo_dir" ls-remote "$remote" "refs/tags/${prod_tag}" | awk '{print $1}')
+# Annotated tags: ls-remote returns both the tag-object SHA and a peeled ^{} commit SHA;
+# lightweight tags return only the commit SHA. Prefer the peeled entry when present.
+if ! remote_tag_out=$(git -C "$repo_dir" ls-remote "$remote" "refs/tags/${prod_tag}" "refs/tags/${prod_tag}^{}"); then
+  log_error_safe "Failed to query remote ${remote} for tag ${prod_tag}"
+  exit 1
+fi
+remote_tag_sha=$(printf '%s\n' "$remote_tag_out" | awk '/\^\{\}$/{print $1}')
+[[ -z "$remote_tag_sha" ]] && remote_tag_sha=$(printf '%s\n' "$remote_tag_out" | awk 'NR==1{print $1}')
 if [[ -z "$remote_tag_sha" || "$remote_tag_sha" != "$target_sha" ]]; then
   log_error_safe "Verification failed: ${prod_tag} tag on remote is '${remote_tag_sha:0:8}', expected '${target_sha:0:8}'"
   exit 1
 fi
 if $update_branch; then
-  remote_branch_sha=$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/${prod_tag}" | awk '{print $1}')
+  if ! remote_branch_sha=$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/${prod_tag}" | awk '{print $1}'); then
+    log_error_safe "Failed to query remote ${remote} for branch ${prod_tag}"
+    exit 1
+  fi
   if [[ -z "$remote_branch_sha" || "$remote_branch_sha" != "$target_sha" ]]; then
     log_error_safe "Verification failed: ${prod_tag} branch on remote is '${remote_branch_sha:0:8}', expected '${target_sha:0:8}'"
     exit 1
