@@ -13,3 +13,5 @@ permissions:
 jobs:
   tag:
     uses: ./.github/workflows/auto-tag-release.yml
+    with:
+      release_workflow: create-github-release.yml

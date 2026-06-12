@@ -1,0 +1,82 @@
+name: create-github-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version tag to release (e.g. 0.12.1)"
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Version tag to release (e.g. 0.12.1)"
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.release_tag }}
+
+      - name: Extract CHANGELOG notes
+        id: notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          body=""
+          if [[ -f CHANGELOG.md ]]; then
+            # Escape dots for awk regex so "0.12.1" matches literally, not "0X12Y1"
+            escaped=$(printf '%s' "$RELEASE_TAG" | sed 's/[.]/\\./g')
+            body=$(awk -v ver="$escaped" '
+              /^## / {
+                if (found) exit
+                if (match($0, "— v?" ver "([[:space:]]|$)")) found = 1
+                next
+              }
+              found { lines[++n] = $0 }
+              END {
+                first = 0; last = 0
+                for (i = 1; i <= n; i++) {
+                  if (lines[i] ~ /[^[:space:]]/) {
+                    if (!first) first = i
+                    last = i
+                  }
+                }
+                for (i = first; i <= last; i++) print lines[i]
+              }
+            ' CHANGELOG.md)
+          fi
+          if [[ -n "$body" ]]; then
+            {
+              printf 'body<<__CHANGELOG_EOF__\n'
+              printf '%s\n' "$body"
+              printf '__CHANGELOG_EOF__\n'
+            } >> "$GITHUB_OUTPUT"
+          else
+            # No CHANGELOG section found; fall back to GitHub auto-generated notes
+            printf 'body=\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: ${{ steps.notes.outputs.body == '' }}
+          update_existing: true
