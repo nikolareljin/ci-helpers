@@ -90,7 +90,12 @@ jobs:
               await github.rest.pulls.create({ owner, repo, head, base, title, body });
               core.info(`Created PR ${head} -> ${base}`);
             } catch (err) {
-              if (err.status === 403) {
+              const status = err?.status;
+              const message = typeof err?.message === 'string' ? err.message : '';
+              // Soft-warn only for the known "Actions not permitted to create PRs" 403.
+              // Other 403s (abuse detection, secondary rate limits) should still fail hard.
+              const isPermissionDenied = status === 403 && !message.includes('secondary rate limit') && !message.includes('abuse');
+              if (isPermissionDenied) {
                 core.warning(
                   `Could not create PR for ${head} -> ${base} (403 Forbidden).\n` +
                   `Possible causes and remediations:\n` +
