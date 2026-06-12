@@ -293,7 +293,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                case "$f" in *\\*|/*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
@@ -302,7 +302,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              case "$ef" in /*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
+              case "$ef" in *\\*|/*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
               cp -- "$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
