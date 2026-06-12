@@ -86,5 +86,18 @@ jobs:
             const title = `Release: ${head}`;
             const body  = `Auto-created PR for release branch \`${head}\` into \`${base}\`.`;
 
-            await github.rest.pulls.create({ owner, repo, head, base, title, body });
-            core.info(`Created PR ${head} -> ${base}`);
+            try {
+              await github.rest.pulls.create({ owner, repo, head, base, title, body });
+              core.info(`Created PR ${head} -> ${base}`);
+            } catch (err) {
+              if (err.status === 403) {
+                core.warning(
+                  `Could not create PR: GitHub Actions is not permitted to create pull requests in this repository.\n` +
+                  `To fix: enable "Allow GitHub Actions to create and approve pull requests" under Settings → Actions → General, ` +
+                  `or set the GH_PAT secret to a PAT with pull-requests:write access.\n` +
+                  `Create the PR manually: ${head} -> ${base}`
+                );
+                return;
+              }
+              throw err;
+            }
