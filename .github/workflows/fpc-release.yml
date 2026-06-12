@@ -248,11 +248,13 @@ jobs:
         run: |
           set -euo pipefail
           pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          rm -rf "dist/${pkg}"
           mkdir -p "dist/${pkg}"
           cp "./${BIN_NAME}" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             matched=0
             for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
               if [ -f "$f" ]; then
                 case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "./$f" "dist/${pkg}/"
@@ -262,6 +264,7 @@ jobs:
             [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
           fi
           for ef in ${EXTRA_FILES:-}; do
+            if [ -L "$ef" ]; then echo "::error::extra_files entry '$ef' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
             if [ -f "$ef" ]; then
               case "$ef" in /*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
               cp -- "./$ef" "dist/${pkg}/"
@@ -287,6 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          rm -rf "dist/${pkg}"
           mkdir -p "dist/${pkg}"
           cp -- "${BIN_NAME}${BIN_SUFFIX}" "dist/${pkg}/"
           if [ -n "${DATA_GLOB:-}" ]; then
@@ -349,6 +353,7 @@ jobs:
           cp "${BIN_NAME}" pkg_staging/usr/share/"${BIN_NAME}"/
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in package staging" ; exit 1 ; fi
               if [ -f "$f" ]; then
                 case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "$f" pkg_staging/usr/share/"${BIN_NAME}"/
@@ -503,6 +508,7 @@ jobs:
           cp "${BIN_NAME}" "dmg_stage/${vol}/"
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in DMG staging" ; exit 1 ; fi
               if [ -f "$f" ]; then
                 case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "./$f" "dmg_stage/${vol}/"
