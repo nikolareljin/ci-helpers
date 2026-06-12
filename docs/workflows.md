@@ -524,6 +524,7 @@ on:
   push:
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: write
