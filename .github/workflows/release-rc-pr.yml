@@ -90,17 +90,21 @@ jobs:
               await github.rest.pulls.create({ owner, repo, head, base, title, body });
               core.info(`Created PR ${head} -> ${base}`);
             } catch (err) {
-              const status = err?.status;
-              const message = typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+              const status = typeof err === 'object' && err !== null && 'status' in err
+                ? Number(err.status)
+                : NaN;
+              const message = typeof err === 'object' && err !== null && typeof err.message === 'string'
+                ? err.message.toLowerCase()
+                : '';
               // Allowlist of known permission/config 403s that are safe to soft-warn.
               // Anything else (abuse detection, SSO policy, unknown causes) fails hard.
-              const PERMISSION_DENIED_PATTERNS = [
-                'not permitted to create',          // Actions setting disabled
+              const permissionDeniedPatterns = [
+                'not permitted to create',               // Actions setting disabled
                 'resource not accessible by integration', // token lacks pull-requests:write
-                'pull requests are disabled',        // PRs disabled on the repo
+                'pull requests are disabled',             // PRs disabled on the repo
               ];
               const isPermissionDenied = status === 403 &&
-                PERMISSION_DENIED_PATTERNS.some(p => message.includes(p));
+                permissionDeniedPatterns.some(p => message.includes(p));
               if (isPermissionDenied) {
                 core.warning(
                   `Could not create PR for ${head} -> ${base} (403 Forbidden).\n` +
