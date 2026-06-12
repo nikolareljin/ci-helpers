@@ -101,7 +101,7 @@ jobs:
               // Anything else (abuse detection, SSO policy, unknown causes) fails hard.
               const permissionDeniedPatterns = [
                 'not permitted to create',               // Actions setting disabled
-                'resource not accessible by integration', // token lacks pull-requests:write
+                'resource not accessible by integration', // token lacks pull-requests: write
                 'pull requests are disabled',             // PRs disabled on the repo
               ];
               const isPermissionDenied = status === 403 &&
@@ -113,7 +113,7 @@ jobs:
                   `Possible causes and remediations:\n` +
                   `  1. Repo setting disabled: enable "Allow GitHub Actions to create and approve pull requests"\n` +
                   `     under Settings → Actions → General.\n` +
-                  `  2. Caller token lacks pull-requests: write: ensure the calling workflow grants\n` +
+                  `  2. Caller token lacks pull-requests: write — ensure the calling workflow grants\n` +
                   `     permissions: pull-requests: write (for workflow_call).\n` +
                   `  3. No PAT configured: set the GH_PAT secret to a classic PAT with the repo scope,\n` +
                   `     or a fine-grained PAT with "Pull requests: Read and write" permission.\n` +
