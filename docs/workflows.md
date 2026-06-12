@@ -843,8 +843,10 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
+- `update_production_tag` (boolean, default `true`) — when `false`, skips the Bootstrap script-helpers and Update production tag steps. Set to `false` in repos that do not carry a floating `production` tag.
+- `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
-Example:
+Example (tag only, no production tag, no GitHub Release):
 
 ```yaml
 name: Auto Tag Release
@@ -859,7 +861,101 @@ permissions:
 jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      update_production_tag: false
 ```
+
+Example (tag + auto-create GitHub Release via dispatch):
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      update_production_tag: false
+      release_workflow: create-github-release.yml
+```
+
+See `create-github-release.yml` below for the local wrapper workflow that must exist in the calling repo.
+
+## create-github-release.yml
+
+Workflow: `.github/workflows/create-github-release.yml`
+
+Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Supports `update_existing: true` so the workflow is safe to re-run.
+
+Triggers:
+- `workflow_dispatch` with `release_tag` input — used by the `release_workflow` dispatch mechanism in `auto-tag-release.yml`.
+- `workflow_call` with `release_tag` input — for direct use from other workflows.
+
+Inputs:
+- `release_tag` (string, required) — version tag to release (e.g. `1.2.3`).
+
+**Using in external repos**
+
+Create a thin local wrapper at `.github/workflows/create-github-release.yml` in your repo:
+
+```yaml
+name: create-github-release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version tag to release (e.g. 1.2.3)"
+        type: string
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ inputs.release_tag }}
+```
+
+Then wire your auto-tag caller to dispatch it:
+
+```yaml
+# .github/workflows/auto-tag-release-push.yml
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      update_production_tag: false
+      release_workflow: create-github-release.yml
+```
+
+The local wrapper is required because `gh workflow run` dispatches workflows in the current repo, not in ci-helpers. Repos that push tags via a PAT (not `GITHUB_TOKEN`) can use `on: push: tags:` and call `workflow_call` directly instead.
+
+**CHANGELOG format**
+
+Notes are extracted from `CHANGELOG.md` when a line matches `## <date> — <version>`:
+
+```markdown
+## 2026-06-12 — 1.2.3
+
+### Added
+- New feature X
+
+### Fixed
+- Bug in Y
+```
+
+Any other format, or no `CHANGELOG.md`, triggers GitHub auto-generated release notes.
 
 ## release-tag-gate.yml
 
