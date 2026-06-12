@@ -102,9 +102,10 @@ on:
       appimagetool_verify:
         description: >
           Set to "true" to require appimagetool_sha256 for any AppImage build,
-          regardless of the URL used. Recommended for production workflows where
-          supply-chain integrity matters. Defaults to "false" to preserve
-          backwards compatibility.
+          regardless of the URL used. Recommended for production/release workflows
+          where supply-chain integrity matters. When "false" (the default), the
+          actual SHA256 of the downloaded binary is printed as a warning so callers
+          can copy it into appimagetool_sha256 to pin future builds.
         type: string
         default: "false"
 
@@ -322,6 +323,7 @@ jobs:
       - name: Install Linux packaging tools
         if: runner.os == 'Linux' && inputs.linux_packages != ''
         run: |
+          sudo apt-get update
           sudo apt-get install -y ruby ruby-dev build-essential rpm squashfs-tools wget
           sudo gem install --no-document fpm
 
@@ -474,7 +476,7 @@ jobs:
                     exit 1
                   fi
                 else
-                  echo "::warning::appimagetool_sha256 is not set — running unverified binary. Actual SHA256: ${actual_sha}. Set appimagetool_sha256 to this value to pin the download."
+                  echo "::warning::appimagetool_sha256 is not set — running unverified binary (supply-chain risk). Actual SHA256: ${actual_sha}. Set appimagetool_sha256 to this value and appimagetool_verify=true to enforce verification in future builds."
                 fi
                 chmod +x /tmp/appimagetool
                 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
