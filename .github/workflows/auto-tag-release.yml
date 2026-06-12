@@ -254,6 +254,10 @@ jobs:
           VERSION: ${{ needs.tag.outputs.version }}
         run: |
           set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::error::gh CLI not found. Install it on your runner: https://cli.github.com/"
+            exit 1
+          fi
           # Validate workflow name: only safe filename characters, must end in .yml or .yaml
           if ! printf '%s' "$RELEASE_WORKFLOW" | grep -qE '^[A-Za-z0-9_.-]+\.ya?ml$'; then
             echo "::error::release_workflow '${RELEASE_WORKFLOW}' is not a valid workflow filename."

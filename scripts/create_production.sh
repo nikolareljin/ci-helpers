@@ -108,7 +108,7 @@ if ! remote_tag_out=$(git -C "$repo_dir" ls-remote "$remote" "refs/tags/${prod_t
   log_error_safe "Failed to query remote ${remote} for tag ${prod_tag}"
   exit 1
 fi
-remote_tag_sha=$(printf '%s\n' "$remote_tag_out" | awk '/\^\{\}$/{print $1}')
+remote_tag_sha=$(printf '%s\n' "$remote_tag_out" | awk '/\^\{\}$/{print $1; exit}')
 [[ -z "$remote_tag_sha" ]] && remote_tag_sha=$(printf '%s\n' "$remote_tag_out" | awk 'NR==1{print $1}')
 if [[ -z "$remote_tag_sha" || "$remote_tag_sha" != "$target_sha" ]]; then
   log_error_safe "Verification failed: ${prod_tag} tag on remote is '${remote_tag_sha:0:8}', expected '${target_sha:0:8}'"
