@@ -296,6 +296,7 @@ jobs:
           if [ -n "${DATA_GLOB:-}" ]; then
             matched=0
             for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
               if [ -f "$f" ]; then
                 case "$f" in *\\*|/*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "$f" "dist/${pkg}/"
@@ -305,6 +306,7 @@ jobs:
             [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
           fi
           for ef in ${EXTRA_FILES:-}; do
+            if [ -L "$ef" ]; then echo "::error::extra_files entry '$ef' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
             if [ -f "$ef" ]; then
               case "$ef" in *\\*|/*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
               cp -- "$ef" "dist/${pkg}/"
@@ -381,7 +383,9 @@ jobs:
             case "$fmt" in
 
               deb)
-                fpm_args=(-s dir -t deb -n "${BIN_NAME}" -v "${version}" -a amd64)
+                deb_name="${BIN_NAME,,}"   # Debian names must be lowercase
+                deb_name="${deb_name//_/-}" # underscores not allowed in deb names
+                fpm_args=(-s dir -t deb -n "${deb_name}" -v "${version}" -a amd64)
                 [ -n "${DESCRIPTION:-}" ] && fpm_args+=(--description "${DESCRIPTION}")
                 [ -n "${MAINTAINER:-}" ]  && fpm_args+=(--maintainer  "${MAINTAINER}")
                 [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
