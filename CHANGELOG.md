@@ -11,6 +11,13 @@
   Callers must also grant `actions: write` permission. The workflow filename is validated against
   a safe-characters regex before use.
 
+### Fixed
+
+- **`auto-tag-release.yml`:** Restored `actions: write` to the workflow-level `permissions:` block.
+  GitHub requires job-level permissions to be a strict subset of the workflow-level block; omitting
+  `actions: write` from the top-level while the `dispatch` job requested it at job-level caused a
+  `startup_failure` on every invocation of the workflow.
+
 ### Changed
 
 - **`create_production.sh`:** Post-push verification now hard-fails when either the `production`

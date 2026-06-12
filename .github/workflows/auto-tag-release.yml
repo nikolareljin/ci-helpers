@@ -33,11 +33,14 @@ on:
 permissions:
   contents: write
   pull-requests: read
-  # NOTE: Caller workflows must also grant pull-requests: read (required for
-  # PR-based version detection) and actions: write when release_workflow is set
-  # (required to dispatch the release workflow). Reusable workflows cannot
+  # actions: write must appear here so the dispatch job can request it at the
+  # job level (GitHub requires job-level permissions ⊆ workflow-level permissions).
+  # The tag job's explicit permissions block excludes it, so it only applies to
+  # the dispatch job.
+  # NOTE: Callers must also grant pull-requests: read (PR-based version detection)
+  # and actions: write when release_workflow is set. Reusable workflows cannot
   # elevate the GITHUB_TOKEN permissions of their callers.
-  # actions: write is requested only by the dispatch job.
+  actions: write
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
