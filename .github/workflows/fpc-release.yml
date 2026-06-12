@@ -204,7 +204,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           FPC_FORMULA: ${{ inputs.fpc_brew_formula }}
-        run: brew install -- "$FPC_FORMULA"
+        run: brew install "$FPC_FORMULA"
 
       - name: Install FPC (Windows)
         if: runner.os == 'Windows'
@@ -254,7 +254,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                case "$f" in /*|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "./$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
@@ -263,7 +263,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              case "$ef" in /*|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
+              case "$ef" in /*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
               cp -- "./$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
@@ -293,7 +293,7 @@ jobs:
             matched=0
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                case "$f" in /*|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "$f" "dist/${pkg}/"
                 matched=$((matched + 1))
               fi
@@ -302,7 +302,7 @@ jobs:
           fi
           for ef in ${EXTRA_FILES:-}; do
             if [ -f "$ef" ]; then
-              case "$ef" in /*|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
+              case "$ef" in /*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
               cp -- "$ef" "dist/${pkg}/"
             else
               echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
@@ -350,7 +350,7 @@ jobs:
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                case "$f" in /*|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "$f" pkg_staging/usr/share/"${BIN_NAME}"/
               fi
             done
@@ -420,7 +420,7 @@ jobs:
 
                 # Icon: use provided PNG or generate a 64×64 placeholder
                 if [ -n "${ICON_PATH:-}" ] && [ -f "${ICON_PATH}" ]; then
-                  case "${ICON_PATH}" in /*|../*|*/../*|*/..) echo "::error::app_icon '${ICON_PATH}' is outside working_directory" ; exit 1 ;; esac
+                  case "${ICON_PATH}" in /*|..|../*|*/../*|*/..) echo "::error::app_icon '${ICON_PATH}' is outside working_directory" ; exit 1 ;; esac
                   cp -- "${ICON_PATH}" AppDir/"${BIN_NAME}".png
                 else
                   python3 - << 'PYEOF'
@@ -504,7 +504,7 @@ jobs:
           if [ -n "${DATA_GLOB:-}" ]; then
             for f in $DATA_GLOB; do
               if [ -f "$f" ]; then
-                case "$f" in /*|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
                 cp -- "./$f" "dmg_stage/${vol}/"
               fi
             done
@@ -595,7 +595,7 @@ jobs:
           set -euo pipefail
           case "$UPLOAD_MODE" in
             auto|true|false) ;;
-            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'"; exit 1 ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false' (got '${UPLOAD_MODE}')"; exit 1 ;;
           esac
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
             if [[ -z "$INPUT_TAG" ]]; then
