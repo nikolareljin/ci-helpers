@@ -19,12 +19,25 @@ on:
           need version tagging).
         type: boolean
         default: true
+      release_workflow:
+        description: >
+          Workflow file name (e.g. "release.yml") to dispatch via workflow_dispatch
+          after the version tag is pushed. When set, the workflow is triggered with
+          a release_tag input equal to the detected version, bypassing the GitHub
+          restriction that prevents GITHUB_TOKEN-created tags from firing tag-push
+          triggered workflows. Leave empty (default) to skip auto-dispatch.
+          NOTE: callers must also grant actions: write permission.
+        type: string
+        default: ""
 
 permissions:
   contents: write
-  # NOTE: Caller workflows must also grant `pull-requests: read`; reusable
-  # workflows cannot elevate the GITHUB_TOKEN permissions of their callers.
   pull-requests: read
+  # NOTE: Caller workflows must also grant pull-requests: read (required for
+  # PR-based version detection) and actions: write when release_workflow is set
+  # (required to dispatch the release workflow). Reusable workflows cannot
+  # elevate the GITHUB_TOKEN permissions of their callers.
+  # actions: write is requested only by the dispatch job.
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -33,6 +46,11 @@ env:
 jobs:
   tag:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -219,3 +237,31 @@ jobs:
           set -euo pipefail
           version="${{ steps.release.outputs.version }}"
           ./scripts/create_production.sh -t "$version" --fetch-tags
+
+  dispatch:
+    needs: tag
+    if: ${{ needs.tag.outputs.version != '' && inputs.release_workflow != '' }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_WORKFLOW: ${{ inputs.release_workflow }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::error::gh CLI not found. Install it on your runner: https://cli.github.com/"
+            exit 1
+          fi
+          # Validate workflow name: only safe filename characters, must end in .yml or .yaml
+          if ! printf '%s' "$RELEASE_WORKFLOW" | grep -qE '^[A-Za-z0-9_.-]+\.ya?ml$'; then
+            echo "::error::release_workflow '${RELEASE_WORKFLOW}' is not a valid workflow filename."
+            exit 1
+          fi
+          echo "Dispatching ${RELEASE_WORKFLOW} for tag ${VERSION} on ref ${VERSION}"
+          gh workflow run "$RELEASE_WORKFLOW" --ref "${VERSION}" -f "release_tag=${VERSION}"
