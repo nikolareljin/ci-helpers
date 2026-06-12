@@ -1,0 +1,651 @@
+name: ci-helpers-fpc-release
+on:
+  workflow_call:
+    inputs:
+      bin_name:
+        description: "Binary name without extension (e.g. pravkal)."
+        type: string
+        required: true
+      build_command:
+        description: >
+          Shell command to build the binary. Runs on every platform after FPC is installed.
+          Defaults to 'bash build.sh'. The binary must exist in working_directory after
+          this command finishes.
+        type: string
+        default: "bash build.sh"
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      data_glob:
+        description: >
+          Shell glob (relative to working_directory) matching runtime data files to bundle
+          alongside the binary in each archive. Example: "data/_*.KAL data/_*.MOL".
+          Leave empty to bundle only the binary.
+        type: string
+        default: ""
+      extra_files:
+        description: >
+          Space-separated list of extra files (relative to working_directory) to include in
+          each archive. Typically documentation such as README.md and CHANGELOG.md.
+        type: string
+        default: "README.md CHANGELOG.md"
+      release_tag:
+        description: >
+          Tag to build for. Defaults to the pushed tag (GITHUB_REF_NAME). Set explicitly
+          when triggering via workflow_dispatch for a backfill run.
+        type: string
+        default: ""
+      upload_to_release:
+        description: >
+          "auto" (default) uploads when triggered by a version tag push or when
+          release_tag is provided explicitly. "true" always uploads.
+          "false" never uploads (artifacts only).
+        type: string
+        default: "auto"
+      fpc_apt_package:
+        description: "apt package to install on Linux runners. Defaults to 'fpc'."
+        type: string
+        default: "fpc"
+      fpc_brew_formula:
+        description: "Homebrew formula to install on macOS runners. Defaults to 'fpc'."
+        type: string
+        default: "fpc"
+      fpc_choco_package:
+        description: "Chocolatey package to install on Windows runners. Defaults to 'freepascal'."
+        type: string
+        default: "freepascal"
+
+      # ── Linux packaging ─────────────────────────────────────────────────────
+      linux_packages:
+        description: >
+          Comma-separated list of Linux package formats to produce in addition to the
+          .tar.gz archive: deb, rpm, appimage.
+          Example: "deb,rpm,appimage".
+          Requires package_description and package_maintainer when deb or rpm is listed.
+        type: string
+        default: ""
+      package_maintainer:
+        description: "Maintainer field for DEB/RPM (e.g. 'Full Name <email@example.com>')."
+        type: string
+        default: ""
+      package_description:
+        description: "One-line package description for DEB/RPM/AppImage metadata."
+        type: string
+        default: ""
+      package_url:
+        description: "Homepage URL for DEB/RPM metadata."
+        type: string
+        default: ""
+      app_icon:
+        description: >
+          Path to a 64×64 PNG icon (relative to working_directory) for the AppImage.
+          When omitted a minimal placeholder icon is generated automatically.
+        type: string
+        default: ""
+      appimagetool_url:
+        description: >
+          Download URL for appimagetool. Defaults to the rolling 'continuous' build.
+          Pin to a specific release URL (with a matching appimagetool_sha256) for
+          reproducible, auditable AppImage builds.
+        type: string
+        default: "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+      appimagetool_sha256:
+        description: >
+          Expected SHA256 hex digest of the downloaded appimagetool binary.
+          When set, the download is verified before use. Leave empty to skip
+          verification (default — suitable for the rolling 'continuous' build).
+        type: string
+        default: ""
+      appimagetool_verify:
+        description: >
+          Set to "true" to require appimagetool_sha256 for any AppImage build,
+          regardless of the URL used. Recommended for production/release workflows
+          where supply-chain integrity matters. When "false" (the default), the
+          actual SHA256 of the downloaded binary is printed as a warning so callers
+          can copy it into appimagetool_sha256 to pin future builds.
+        type: string
+        default: "false"
+
+      # ── macOS packaging ─────────────────────────────────────────────────────
+      macos_dmg:
+        description: "Build a .dmg disk image on each macOS runner. Default: false."
+        type: string
+        default: "false"
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+            binary_suffix: ""
+          - os: macos-latest
+            label: macos-arm64
+            binary_suffix: ""
+          - os: macos-13
+            label: macos-x86_64
+            binary_suffix: ""
+          - os: windows-latest
+            label: windows-x86_64
+            binary_suffix: .exe
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          if ! echo "$tag" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Resolved tag '${tag}' is not a semver. Provide release_tag or push to a version tag."
+            exit 1
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Validate bin_name
+        shell: bash
+        env:
+          BIN_NAME: ${{ inputs.bin_name }}
+        run: |
+          set -euo pipefail
+          name="${BIN_NAME}"
+          # Reject CR/LF — stripping locally is insufficient because later steps
+          # expand ${{ inputs.bin_name }} directly, so a newline in the original
+          # value could still inject keys into GITHUB_OUTPUT.
+          case "$name" in
+            *$'\n'*|*$'\r'*)
+              echo "::error::bin_name must not contain CR or LF characters."
+              exit 1
+              ;;
+          esac
+          # Reject .exe suffix (platform suffix is added by the workflow itself)
+          if [[ "$name" == *.exe ]]; then
+            echo "::error::bin_name must not include a .exe suffix; the workflow adds it on Windows automatically."
+            exit 1
+          fi
+          # Must start with a letter or digit, then only safe filename chars
+          if ! echo "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+            echo "::error::bin_name '${name}' is invalid. Must start with a letter or digit and contain only letters, digits, hyphen, underscore, or dot."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Install FPC (Linux)
+        if: runner.os == 'Linux'
+        env:
+          FPC_PKG: ${{ inputs.fpc_apt_package }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -- "$FPC_PKG"
+
+      - name: Install FPC (macOS)
+        if: runner.os == 'macOS'
+        env:
+          FPC_FORMULA: ${{ inputs.fpc_brew_formula }}
+        run: brew install "$FPC_FORMULA"
+
+      - name: Install FPC (Windows)
+        if: runner.os == 'Windows'
+        env:
+          FPC_PKG: ${{ inputs.fpc_choco_package }}
+        shell: pwsh
+        run: choco install "$env:FPC_PKG" -y --no-progress
+
+      - name: Build
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BUILD_CMD: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          bash -c "$BUILD_CMD"
+
+      - name: Verify binary
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BIN_NAME:   ${{ inputs.bin_name }}
+          BIN_SUFFIX: ${{ matrix.binary_suffix }}
+        run: |
+          set -euo pipefail
+          binary="${BIN_NAME}${BIN_SUFFIX}"
+          [ -f "$binary" ] || { echo "::error::Binary not found: $binary"; exit 1; }
+          echo "Binary size: $(wc -c < "$binary") bytes"
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
+        id: pkg_unix
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:         ${{ steps.tag.outputs.tag }}
+          BIN_NAME:    ${{ inputs.bin_name }}
+          LABEL:       ${{ matrix.label }}
+          DATA_GLOB:   ${{ inputs.data_glob }}
+          EXTRA_FILES: ${{ inputs.extra_files }}
+        run: |
+          set -euo pipefail
+          pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          rm -rf "dist/${pkg}"
+          mkdir -p "dist/${pkg}"
+          cp "./${BIN_NAME}" "dist/${pkg}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            matched=0
+            for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
+              if [ -f "$f" ]; then
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                cp "./$f" "dist/${pkg}/"
+                matched=$((matched + 1))
+              fi
+            done
+            [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
+          fi
+          for ef in ${EXTRA_FILES:-}; do
+            if [ -L "$ef" ]; then echo "::error::extra_files entry '$ef' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
+            if [ -f "$ef" ]; then
+              case "$ef" in /*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
+              cp "./$ef" "dist/${pkg}/"
+            else
+              echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
+            fi
+          done
+          tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
+          printf 'asset=dist/%s.tar.gz\n' "$pkg" >> "$GITHUB_OUTPUT"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        id: pkg_win
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:        ${{ steps.tag.outputs.tag }}
+          BIN_NAME:   ${{ inputs.bin_name }}
+          BIN_SUFFIX: ${{ matrix.binary_suffix }}
+          LABEL:      ${{ matrix.label }}
+          DATA_GLOB:  ${{ inputs.data_glob }}
+          EXTRA_FILES: ${{ inputs.extra_files }}
+        run: |
+          set -euo pipefail
+          pkg="${BIN_NAME}-${TAG}-${LABEL}"
+          rm -rf "dist/${pkg}"
+          mkdir -p "dist/${pkg}"
+          cp -- "${BIN_NAME}${BIN_SUFFIX}" "dist/${pkg}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            matched=0
+            for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
+              if [ -f "$f" ]; then
+                case "$f" in *:*|*\\*|/*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                cp -- "$f" "dist/${pkg}/"
+                matched=$((matched + 1))
+              fi
+            done
+            [ "$matched" -eq 0 ] && echo "::warning::data_glob '${DATA_GLOB}' matched no files; archive may be incomplete"
+          fi
+          for ef in ${EXTRA_FILES:-}; do
+            if [ -L "$ef" ]; then echo "::error::extra_files entry '$ef' is a symlink; symlinks not allowed in release archives" ; exit 1 ; fi
+            if [ -f "$ef" ]; then
+              case "$ef" in *:*|*\\*|/*|..|../*|*/../*|*/..) echo "::error::extra_files entry '$ef' is outside working_directory" ; exit 1 ;; esac
+              cp -- "$ef" "dist/${pkg}/"
+            else
+              echo "::warning::extra_files entry '${ef}' not found; archive may be incomplete"
+            fi
+          done
+          (cd dist && powershell -Command "Compress-Archive -Path '${pkg}' -DestinationPath '${pkg}.zip'")
+          printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
+
+      # ── Linux packaging: DEB / RPM / AppImage ─────────────────────────────
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential rpm squashfs-tools wget
+          sudo gem install --no-document fpm
+
+      - name: Build Linux packages (deb / rpm / appimage)
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:                   ${{ steps.tag.outputs.tag }}
+          BIN_NAME:              ${{ inputs.bin_name }}
+          PACKAGES:              ${{ inputs.linux_packages }}
+          DATA_GLOB:             ${{ inputs.data_glob }}
+          MAINTAINER:            ${{ inputs.package_maintainer }}
+          DESCRIPTION:           ${{ inputs.package_description }}
+          PKG_URL:               ${{ inputs.package_url }}
+          ICON_PATH:             ${{ inputs.app_icon }}
+          APPIMAGETOOL_URL:      ${{ inputs.appimagetool_url }}
+          APPIMAGETOOL_SHA256:   ${{ inputs.appimagetool_sha256 }}
+          APPIMAGETOOL_VERIFY:   ${{ inputs.appimagetool_verify }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mkdir -p dist_extra
+
+          # ── Staging tree used by DEB and RPM ──────────────────────────────
+          # Binary + data files go under /usr/share/$BIN_NAME/.
+          # A thin wrapper in /usr/bin/ exec's the real binary so that
+          # ParamStr(0) resolves to the share dir where data files live.
+          mkdir -p pkg_staging/usr/share/"${BIN_NAME}"
+          mkdir -p pkg_staging/usr/bin
+          cp "${BIN_NAME}" pkg_staging/usr/share/"${BIN_NAME}"/
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in package staging" ; exit 1 ; fi
+              if [ -f "$f" ]; then
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                cp -- "$f" pkg_staging/usr/share/"${BIN_NAME}"/
+              fi
+            done
+          fi
+          printf '#!/bin/sh\nexec /usr/share/%s/%s "$@"\n' \
+              "${BIN_NAME}" "${BIN_NAME}" \
+              > pkg_staging/usr/bin/"${BIN_NAME}"
+          chmod 0755 pkg_staging/usr/bin/"${BIN_NAME}"
+
+          # Fail fast: deb/rpm require description and maintainer metadata
+          if echo "${PACKAGES}" | tr ',' '\n' | grep -qE '^[[:space:]]*(deb|rpm)[[:space:]]*$'; then
+            if [ -z "${DESCRIPTION:-}" ] || [ -z "${MAINTAINER:-}" ]; then
+              echo "::error::package_description and package_maintainer are required when linux_packages includes deb or rpm."
+              exit 1
+            fi
+          fi
+
+          pkg_built=0
+          IFS=',' read -ra PKGS <<< "${PACKAGES}"
+          for fmt in "${PKGS[@]}"; do
+            fmt="$(printf '%s' "$fmt" | tr -d '[:space:]')"
+            [ -z "$fmt" ] && continue
+            case "$fmt" in
+
+              deb)
+                deb_name="${BIN_NAME,,}"   # Debian names must be lowercase
+                deb_name="${deb_name//_/-}" # underscores not allowed in deb names
+                fpm_args=(-s dir -t deb -n "${deb_name}" -v "${version}" -a amd64)
+                [ -n "${DESCRIPTION:-}" ] && fpm_args+=(--description "${DESCRIPTION}")
+                [ -n "${MAINTAINER:-}" ]  && fpm_args+=(--maintainer  "${MAINTAINER}")
+                [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
+                fpm_args+=(--package dist_extra/ -C pkg_staging usr)
+                fpm "${fpm_args[@]}"
+                pkg_built=$((pkg_built + 1))
+                ;;
+
+              rpm)
+                fpm_args=(-s dir -t rpm -n "${BIN_NAME}" -v "${version}" -a x86_64)
+                [ -n "${DESCRIPTION:-}" ] && fpm_args+=(--description "${DESCRIPTION}")
+                [ -n "${MAINTAINER:-}" ]  && fpm_args+=(--maintainer  "${MAINTAINER}")
+                [ -n "${PKG_URL:-}" ]     && fpm_args+=(--url          "${PKG_URL}")
+                fpm_args+=(--package dist_extra/ -C pkg_staging usr)
+                fpm "${fpm_args[@]}"
+                pkg_built=$((pkg_built + 1))
+                ;;
+
+              appimage)
+                mkdir -p AppDir/usr/share/"${BIN_NAME}"
+                cp -r pkg_staging/usr/share/"${BIN_NAME}"/. \
+                    AppDir/usr/share/"${BIN_NAME}"/
+
+                # AppRun: exec binary from its own directory so ParamStr(0)
+                # resolves to the share dir where the data files are bundled.
+                printf '#!/bin/sh\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$HERE/usr/share/%s/%s" "$@"\n' \
+                    "${BIN_NAME}" "${BIN_NAME}" > AppDir/AppRun
+                chmod 0755 AppDir/AppRun
+
+                # Desktop entry (Terminal=true for TUI apps)
+                {
+                  printf '[Desktop Entry]\n'
+                  printf 'Name=%s\n' "${BIN_NAME}"
+                  [ -n "${DESCRIPTION:-}" ] && printf 'Comment=%s\n' "${DESCRIPTION}"
+                  printf 'Exec=AppRun\n'
+                  printf 'Icon=%s\n' "${BIN_NAME}"
+                  printf 'Type=Application\n'
+                  printf 'Categories=Utility;\n'
+                  printf 'Terminal=true\n'
+                } > AppDir/"${BIN_NAME}".desktop
+
+                # Icon: use provided PNG or generate a 64×64 placeholder
+                if [ -n "${ICON_PATH:-}" ] && [ -f "${ICON_PATH}" ]; then
+                  case "${ICON_PATH}" in /*|..|../*|*/../*|*/..) echo "::error::app_icon '${ICON_PATH}' is outside working_directory" ; exit 1 ;; esac
+                  cp -- "${ICON_PATH}" AppDir/"${BIN_NAME}".png
+                else
+                  python3 - << 'PYEOF'
+          import os, struct, zlib
+          name = os.environ['BIN_NAME']
+          def make_png(w, h, rgb):
+              def chunk(t, d):
+                  return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+              row = b'\x00' + bytes(rgb) * w
+              return (b'\x89PNG\r\n\x1a\n'
+                      + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                      + chunk(b'IDAT', zlib.compress(row * h, 9))
+                      + chunk(b'IEND', b''))
+          with open(f'AppDir/{name}.png', 'wb') as fh:
+              fh.write(make_png(64, 64, [26, 58, 110]))
+          PYEOF
+                fi
+
+                # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
+                # avoid FUSE requirement on the CI runner.
+                # Enforce SHA256 when appimagetool_verify=true (opt-in) or when
+                # a non-rolling URL is used (custom pinned URL without digest
+                # would silently run an unverified arbitrary binary).
+                if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
+                  if [ "${APPIMAGETOOL_VERIFY:-false}" = "true" ]; then
+                    echo "::error::appimagetool_verify is true but appimagetool_sha256 is not set. Provide the SHA256 digest of the appimagetool binary."
+                    exit 1
+                  fi
+                  case "${APPIMAGETOOL_URL}" in
+                    */continuous/*) ;;
+                    *)
+                      echo "::error::appimagetool_url is set to a non-continuous URL but appimagetool_sha256 is not provided. Set appimagetool_sha256 to verify the download."
+                      exit 1
+                      ;;
+                  esac
+                fi
+                wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
+                if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
+                  if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
+                    echo "::error::appimagetool SHA256 mismatch (expected ${APPIMAGETOOL_SHA256}, got ${actual_sha}) — aborting AppImage build"
+                    exit 1
+                  fi
+                else
+                  echo "::warning::appimagetool_sha256 is not set — running unverified binary (supply-chain risk). Actual SHA256: ${actual_sha}. Set appimagetool_sha256 to this value and appimagetool_verify=true to enforce verification in future builds."
+                fi
+                chmod +x /tmp/appimagetool
+                APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
+                    /tmp/appimagetool AppDir \
+                    "dist_extra/${BIN_NAME}-${TAG}-linux-x86_64.AppImage"
+                pkg_built=$((pkg_built + 1))
+                ;;
+
+              *)
+                echo "::error::Unknown linux_packages entry '${fmt}'. Valid values: deb, rpm, appimage."
+                exit 1
+                ;;
+            esac
+          done
+          if [ "$pkg_built" -eq 0 ]; then
+            echo "::error::linux_packages '${PACKAGES}' produced no packages — all entries were empty or whitespace."
+            exit 1
+          fi
+
+      # ── macOS DMG ──────────────────────────────────────────────────────────
+
+      - name: Build macOS DMG
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TAG:       ${{ steps.tag.outputs.tag }}
+          BIN_NAME:  ${{ inputs.bin_name }}
+          DATA_GLOB: ${{ inputs.data_glob }}
+          LABEL:     ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          vol="${BIN_NAME}-${TAG}-${LABEL}"
+          mkdir -p "dmg_stage/${vol}"
+          cp "${BIN_NAME}" "dmg_stage/${vol}/"
+          if [ -n "${DATA_GLOB:-}" ]; then
+            for f in $DATA_GLOB; do
+              if [ -L "$f" ]; then echo "::error::data_glob entry '$f' is a symlink; symlinks not allowed in DMG staging" ; exit 1 ; fi
+              if [ -f "$f" ]; then
+                case "$f" in /*|..|../*|*/../*|*/..) echo "::error::data_glob entry '$f' is outside working_directory" ; exit 1 ;; esac
+                cp "./$f" "dmg_stage/${vol}/"
+              fi
+            done
+          fi
+          cat > "dmg_stage/${vol}/HOW_TO_RUN.txt" << EOF
+          Open Terminal and run:
+            cd /Volumes/${vol}
+            ./${BIN_NAME}
+          EOF
+          hdiutil create \
+              -volname "${vol}" \
+              -srcfolder "dmg_stage/${vol}" \
+              -ov -format UDZO \
+              "dist/${vol}.dmg"
+
+      # ── Artifact uploads ───────────────────────────────────────────────────
+
+      - name: Resolve asset path
+        id: asset
+        shell: bash
+        env:
+          PKG_UNIX: ${{ steps.pkg_unix.outputs.asset }}
+          PKG_WIN:  ${{ steps.pkg_win.outputs.asset }}
+        run: |
+          set -euo pipefail
+          asset="${PKG_UNIX:-$PKG_WIN}"
+          printf 'asset=%s\n' "$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256
+        id: sha
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          ASSET: ${{ steps.asset.outputs.asset }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          set -euo pipefail
+          if command -v shasum >/dev/null 2>&1; then
+            sha256="$(shasum -a 256 "$ASSET" | awk '{print $1}')"
+          else
+            sha256="$(sha256sum "$ASSET" | awk '{print $1}')"
+          fi
+          echo "$sha256  $(basename "$ASSET")" > "sha256-${LABEL}.txt"
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package artifact
+        # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
+          if-no-files-found: error
+
+      - name: Upload SHA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sha256-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/sha256-${{ matrix.label }}.txt
+          if-no-files-found: error
+
+      - name: Upload extra Linux packages as artifacts
+        if: runner.os == 'Linux' && inputs.linux_packages != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkgs-${{ matrix.label }}-extra
+          path: ${{ inputs.working_directory }}/dist_extra/
+          if-no-files-found: error
+
+      - name: Upload macOS DMG as artifact
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-dmg-${{ matrix.label }}
+          path: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
+          if-no-files-found: error
+
+      # ── GitHub release uploads ─────────────────────────────────────────────
+
+      - name: Resolve upload skip
+        id: resolve
+        if: inputs.upload_to_release != 'false'
+        shell: bash
+        env:
+          INPUT_TAG:    ${{ inputs.release_tag }}
+          UPLOAD_MODE:  ${{ inputs.upload_to_release }}
+          RESOLVED_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$UPLOAD_MODE" in
+            auto|true|false) ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false' (got '${UPLOAD_MODE}')"; exit 1 ;;
+          esac
+          if [[ "$UPLOAD_MODE" == "auto" ]]; then
+            if [[ -z "$INPUT_TAG" ]]; then
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || \
+                 ! echo "$RESOLVED_TAG" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+          printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub release
+        if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload extra Linux packages to GitHub release
+        if: runner.os == 'Linux' && inputs.linux_packages != '' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/dist_extra/*
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS DMG to GitHub release
+        if: runner.os == 'macOS' && inputs.macos_dmg == 'true' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
+          update_existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

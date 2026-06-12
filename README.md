@@ -95,6 +95,7 @@ jobs:
 - `.github/workflows/release-rc-pr.yml`: repo-local workflow to open PRs on `release/*-rc*` branch creation
 - `.github/workflows/rust-release.yml`: reusable Rust multi-target release workflow
 - `.github/workflows/go-release.yml`: reusable Go multi-target release workflow
+- `.github/workflows/fpc-release.yml`: reusable Free Pascal (FPC) multi-platform release workflow (Linux/macOS/Windows)
 - `.github/workflows/go-deploy.yml`: reusable Go binary build + SSH/rsync deploy workflow
 - `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
 - `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)

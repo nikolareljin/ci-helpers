@@ -445,6 +445,103 @@ jobs:
       tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 ```
 
+## fpc-release.yml
+
+Workflow: `.github/workflows/fpc-release.yml`
+
+Purpose: Build a Free Pascal (FPC) binary natively on Linux (x86_64), macOS (ARM64 + x86_64),
+and Windows (x86_64); package each into a release archive; optionally produce Linux packages
+(DEB, RPM, AppImage) and a macOS DMG; and optionally upload release archives to a GitHub
+release (controlled by `upload_to_release`). SHA256 checksum files are uploaded as CI
+artifacts only and are not attached to the release.
+
+**Core inputs:**
+- `bin_name` (string, **required**) — binary name without extension (e.g. `pravkal`)
+- `build_command` (string, default `"bash build.sh"`) — shell command to compile the binary;
+  runs on every platform after FPC is installed
+- `working_directory` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `data_glob` (string, default `""`) — shell glob of runtime data files to bundle with the
+  binary (e.g. `"data/_*.KAL data/_*.MOL"`)
+- `extra_files` (string, default `"README.md CHANGELOG.md"`) — extra files to include in each
+  archive
+- `release_tag` (string, default `""`) — tag to build; defaults to the pushed tag
+- `upload_to_release` (string, default `"auto"`) — `"auto"` uploads on version-tag pushes or
+  when `release_tag` is provided explicitly; `"true"` always, `"false"` never
+- `fpc_apt_package` (string, default `"fpc"`) — apt package on Linux runners
+- `fpc_brew_formula` (string, default `"fpc"`) — Homebrew formula on macOS runners
+- `fpc_choco_package` (string, default `"freepascal"`) — Chocolatey package on Windows runners
+
+**Linux packaging inputs** (optional; require `linux_packages` to be set):
+- `linux_packages` (string, default `""`) — comma-separated list of extra Linux package formats
+  to build: `deb`, `rpm`, `appimage`. Example: `"deb,rpm,appimage"`. Uses
+  [fpm](https://fpm.readthedocs.io/) for DEB/RPM and
+  [appimagetool](https://github.com/AppImage/appimagetool) for AppImage. The binary is
+  installed to `/usr/share/{bin_name}/` with a thin wrapper in `/usr/bin/` so that runtime data
+  files are always found relative to the binary.
+- `package_maintainer` (string, default `""`) — DEB/RPM `Maintainer` field
+- `package_description` (string, default `""`) — one-line description for DEB/RPM/AppImage
+- `package_url` (string, default `""`) — homepage URL for DEB/RPM metadata
+- `app_icon` (string, default `""`) — path to a 64×64 PNG icon (relative to
+  `working_directory`) for the AppImage; a placeholder is auto-generated when omitted
+- `appimagetool_url` (string, default: rolling `continuous` build URL) — download URL for
+  `appimagetool`. Override with a pinned release URL together with `appimagetool_sha256` for
+  reproducible, auditable AppImage builds
+- `appimagetool_sha256` (string, default `""`) — expected SHA256 hex digest of the downloaded
+  `appimagetool` binary. When set, the download is verified before use. When empty, a
+  `::warning::` is emitted to flag the unverified download (the actual SHA256 is printed so
+  callers can copy it to pin the build)
+- `appimagetool_verify` (string, default `"false"`) — set to `"true"` to require
+  `appimagetool_sha256` for any AppImage build. Recommended for production workflows where
+  supply-chain integrity matters; fails the build with a clear error if the digest is absent
+
+**macOS packaging inputs:**
+- `macos_dmg` (string, default `"false"`) — set to `"true"` to build a `.dmg` disk image on
+  each macOS runner (ARM64 + x86_64)
+
+**Output artifacts:**
+
+Archives and optional package extras are uploaded to CI workflow artifacts on every run.
+Release upload is controlled by `upload_to_release`: in `"auto"` mode (default) archives are
+also uploaded to the GitHub release when triggered by a version-tag push or when `release_tag`
+is provided; `"true"` always uploads; `"false"` skips release upload entirely.
+Per-platform SHA256 checksum files (`sha256-{label}.txt`) are uploaded as CI workflow
+artifacts only — they are not attached to the GitHub release.
+
+| Platform | Archive (CI always / release per `upload_to_release`) | Optional extras (CI always / release per `upload_to_release`) | SHA256 file (CI only) |
+|----------|------------------------|--------------------------------|-----------------------|
+| Linux x86_64 | `.tar.gz` | `.deb`, `.rpm`, `.AppImage` | `sha256-linux-x86_64.txt` |
+| macOS ARM64 | `.tar.gz` | `.dmg` | `sha256-macos-arm64.txt` |
+| macOS x86_64 | `.tar.gz` | `.dmg` | `sha256-macos-x86_64.txt` |
+| Windows x86_64 | `.zip` | — | `sha256-windows-x86_64.txt` |
+
+Archive naming: `{bin_name}-{tag}-{label}.{ext}`
+
+Example (all formats enabled):
+
+```yaml
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/fpc-release.yml@production
+    with:
+      bin_name: pravkal
+      data_glob: "data/_*.KAL data/_*.MOL"
+      linux_packages: "deb,rpm,appimage"
+      macos_dmg: "true"
+      package_maintainer: "Full Name <email@example.com>"
+      package_description: "Short description of the application"
+      package_url: "https://github.com/owner/repo"
+```
+
 ## deb-build.yml
 
 Workflow: `.github/workflows/deb-build.yml`
