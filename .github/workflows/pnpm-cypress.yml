@@ -111,6 +111,14 @@ jobs:
           set -euo pipefail
           ${{ inputs.e2e_command }}
 
+      - name: Extra
+        if: ${{ inputs.extra_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.extra_command }}
+
       - name: Upload Cypress videos
         if: ${{ inputs.upload_cypress_artifacts && failure() }}
         uses: actions/upload-artifact@v4
@@ -132,14 +140,6 @@ jobs:
         uses: dorny/test-reporter@v2
         with:
           name: Tests
-          path: ${{ inputs.test_results_path }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           reporter: java-junit
           fail-on-error: false
-
-      - name: Extra
-        if: ${{ inputs.extra_command != '' }}
-        shell: bash
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-          ${{ inputs.extra_command }}

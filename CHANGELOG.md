@@ -5,8 +5,9 @@
 ### Added
 
 - **`pnpm-playwright.yml`:** New `preset-pnpm-playwright` workflow for pnpm monorepos
-  running Playwright E2E tests. Sets up pnpm + Node, runs lint/test/build, then installs
-  Playwright browsers and runs E2E via `start-server-and-test`. Uploads `playwright-report/`
+  running Playwright E2E tests. Sets up pnpm + Node, runs test/build (lint is optional —
+  skipped when `lint_command` is empty), then installs Playwright browsers and runs E2E via
+  `start-server-and-test`. Uploads `playwright-report/`
   as an artifact on every run (configurable via `upload_playwright_report` and
   `playwright_report_path`). Supports optional JUnit test result upload via
   `upload_test_results`/`test_results_path`.

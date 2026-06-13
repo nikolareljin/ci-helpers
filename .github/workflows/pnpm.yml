@@ -115,6 +115,6 @@ jobs:
         uses: dorny/test-reporter@v2
         with:
           name: Tests
-          path: ${{ inputs.test_results_path }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           reporter: java-junit
           fail-on-error: false
