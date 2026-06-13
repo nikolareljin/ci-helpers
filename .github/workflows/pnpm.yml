@@ -137,6 +137,7 @@ jobs:
           path: test-results
 
       - name: Publish test results
+        continue-on-error: true
         uses: dorny/test-reporter@v2
         with:
           name: Tests
