@@ -240,6 +240,7 @@ Defaults:
 Optional test result upload:
 - `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
 - `test_results_path`: `test-results/**/*.xml` — glob for JUnit files; configure your test runner to emit XML here
+- `artifact_suffix`: `""` — appended to the `junit-xml-pnpm` artifact name and the `Tests` check run; set to e.g. `-node20` when invoking this preset multiple times in a matrix to avoid name collisions
 
 Notes:
 - Works with Turborepo monorepos — `pnpm run test` can delegate to `turbo run test`.
@@ -274,11 +275,17 @@ Workflow: `.github/workflows/pnpm-playwright.yml`
 Defaults:
 - `node_version`: `22`
 - `pnpm_version`: `latest`
+- `lint_command`: `""` — lint is disabled by default; set to e.g. `pnpm run lint` to enable
 - `test_command`: `pnpm run test`
 - `build_command`: `pnpm run build`
 - `e2e_command`: `pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm run preview' http://localhost:4173 'pnpm exec playwright test'`
 - `upload_playwright_report`: `true` — uploads `playwright-report/` as an artifact on every run
 - `playwright_report_path`: `playwright-report/`
+
+Optional test result upload:
+- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `test_results_path`: `test-results/**/*.xml` — glob for Playwright JUnit output
+- `artifact_suffix`: `""` — appended to `playwright-report`, `junit-xml-playwright`, and the `Tests` check name; use in a matrix to avoid collisions
 
 Notes:
 - Use for pnpm monorepos. Playwright browsers are installed as part of `e2e_command`.
@@ -304,12 +311,18 @@ Workflow: `.github/workflows/pnpm-cypress.yml`
 Defaults:
 - `node_version`: `22`
 - `pnpm_version`: `latest`
+- `lint_command`: `""` — lint is disabled by default; set to e.g. `pnpm run lint` to enable
 - `test_command`: `pnpm run test`
 - `build_command`: `pnpm run build`
 - `e2e_command`: `pnpm exec cypress install && pnpm exec cypress run --component`
 - `upload_cypress_artifacts`: `true` — uploads videos and screenshots on failure
 - `cypress_videos_path`: `cypress/videos`
 - `cypress_screenshots_path`: `cypress/screenshots`
+
+Optional test result upload:
+- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `test_results_path`: `test-results/**/*.xml` — glob for Cypress JUnit output
+- `artifact_suffix`: `""` — appended to `cypress-videos`, `cypress-screenshots`, `junit-xml-cypress`, and the `Tests` check name; use in a matrix to avoid collisions
 
 Notes:
 - Default runs Cypress in **component test** mode (`--component`), which bundles and
