@@ -1,4 +1,4 @@
-name: preset-pnpm
+name: preset-pnpm-playwright
 on:
   workflow_call:
     inputs:
@@ -19,7 +19,7 @@ on:
         default: "latest"
       lint_command:
         type: string
-        default: "pnpm run lint"
+        default: ""
       test_command:
         type: string
         default: "pnpm run test"
@@ -28,7 +28,7 @@ on:
         default: "pnpm run build"
       e2e_command:
         type: string
-        default: ""
+        default: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm run preview' http://localhost:4173 'pnpm exec playwright test'"
       extra_command:
         type: string
         default: ""
@@ -38,6 +38,12 @@ on:
       test_results_path:
         type: string
         default: "test-results/**/*.xml"
+      upload_playwright_report:
+        type: boolean
+        default: true
+      playwright_report_path:
+        type: string
+        default: "playwright-report/"
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -94,7 +100,7 @@ jobs:
           set -euo pipefail
           ${{ inputs.build_command }}
 
-      - name: E2E
+      - name: Playwright E2E
         if: ${{ inputs.e2e_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -102,13 +108,13 @@ jobs:
           set -euo pipefail
           ${{ inputs.e2e_command }}
 
-      - name: Extra
-        if: ${{ inputs.extra_command != '' }}
-        shell: bash
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-          ${{ inputs.extra_command }}
+      - name: Upload Playwright report
+        if: ${{ inputs.upload_playwright_report && (success() || failure()) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: ${{ inputs.playwright_report_path }}
+          retention-days: 30
 
       - name: Upload test results
         if: ${{ inputs.upload_test_results && (success() || failure()) }}
@@ -118,3 +124,11 @@ jobs:
           path: ${{ inputs.test_results_path }}
           reporter: java-junit
           fail-on-error: false
+
+      - name: Extra
+        if: ${{ inputs.extra_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.extra_command }}

@@ -8,7 +8,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: **0.10.4**.
+Current production tag: **0.14.0**.
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
@@ -24,6 +24,7 @@ Includes:
 - `release-rc-pr.yml` as a reusable `workflow_call` workflow — add 10 lines to any repo to get automatic release PRs on `release/*` branch pushes.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
 - Preset workflows for common stacks (Java, Kotlin, Rust, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
+- pnpm presets: `pnpm.yml` (monorepo CI with optional JUnit test result upload), `pnpm-playwright.yml` (Playwright E2E), `pnpm-cypress.yml` (Cypress component/E2E).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
 ## Docs

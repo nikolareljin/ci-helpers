@@ -226,7 +226,110 @@ jobs:
       docker_command: "docker build -t myapp:ci ."
 ```
 
-## Playwright
+## pnpm
+
+Workflow: `.github/workflows/pnpm.yml`
+
+Defaults:
+- `node_version`: `22`
+- `pnpm_version`: `latest`
+- `lint_command`: `pnpm run lint`
+- `test_command`: `pnpm run test`
+- `build_command`: `pnpm run build`
+
+Optional test result upload:
+- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `test_results_path`: `test-results/**/*.xml` — glob for JUnit files; configure your test runner to emit XML here
+
+Notes:
+- Works with Turborepo monorepos — `pnpm run test` can delegate to `turbo run test`.
+- To enable test result annotations in GitHub Actions UI, set `upload_test_results: true`
+  and configure Vitest to emit JUnit: add `reporters: ['default', 'junit']` and
+  `outputFile: { junit: 'test-results/results.xml' }` to your `vitest.config.ts`.
+
+Example:
+
+```yaml
+jobs:
+  ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm.yml@production
+    with:
+      node_version: "22"
+      upload_test_results: true
+```
+
+## pnpm + Playwright
+
+Workflow: `.github/workflows/pnpm-playwright.yml`
+
+Defaults:
+- `node_version`: `22`
+- `pnpm_version`: `latest`
+- `test_command`: `pnpm run test`
+- `build_command`: `pnpm run build`
+- `e2e_command`: `pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm run preview' http://localhost:4173 'pnpm exec playwright test'`
+- `upload_playwright_report`: `true` — uploads `playwright-report/` as an artifact on every run
+- `playwright_report_path`: `playwright-report/`
+
+Notes:
+- Use for pnpm monorepos. Playwright browsers are installed as part of `e2e_command`.
+- Override `e2e_command` to change the preview server command or port.
+- For a Turborepo monorepo where the demo app is a workspace, use e.g.
+  `pnpm run preview` or `pnpm --filter demo preview`.
+
+Example:
+
+```yaml
+jobs:
+  e2e:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-playwright.yml@production
+    with:
+      node_version: "22"
+      e2e_command: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm --filter demo preview' http://localhost:4173 'pnpm exec playwright test'"
+```
+
+## pnpm + Cypress
+
+Workflow: `.github/workflows/pnpm-cypress.yml`
+
+Defaults:
+- `node_version`: `22`
+- `pnpm_version`: `latest`
+- `test_command`: `pnpm run test`
+- `build_command`: `pnpm run build`
+- `e2e_command`: `pnpm exec cypress install && pnpm exec cypress run --component`
+- `upload_cypress_artifacts`: `true` — uploads videos and screenshots on failure
+- `cypress_videos_path`: `cypress/videos`
+- `cypress_screenshots_path`: `cypress/screenshots`
+
+Notes:
+- Default runs Cypress in **component test** mode (`--component`), which bundles and
+  tests components directly — no running server needed. Override `e2e_command` to
+  switch to full E2E mode against a preview server.
+- For E2E mode: `pnpm exec cypress install && pnpm dlx start-server-and-test 'pnpm run preview' http://localhost:4173 'pnpm exec cypress run'`
+
+Example (component tests):
+
+```yaml
+jobs:
+  cypress:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-cypress.yml@production
+    with:
+      node_version: "22"
+```
+
+Example (E2E against preview server):
+
+```yaml
+jobs:
+  cypress:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-cypress.yml@production
+    with:
+      node_version: "22"
+      e2e_command: "pnpm exec cypress install && pnpm dlx start-server-and-test 'pnpm --filter demo preview' http://localhost:4173 'pnpm exec cypress run'"
+```
+
+## Playwright (yarn)
 
 Workflow: `.github/workflows/playwright.yml`
 
@@ -235,9 +338,7 @@ Defaults:
 - `e2e_command`: `yarn install --frozen-lockfile && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
 
 Notes:
-- The default uses Yarn and `start-server-and-test` to boot the app before
-  running the Playwright tests. Override `e2e_command` if your dev server
-  command or URL differs.
+- Uses Yarn. For pnpm monorepos use `pnpm-playwright.yml` instead.
 
 Example:
 
@@ -250,7 +351,7 @@ jobs:
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
-## Cypress
+## Cypress (yarn)
 
 Workflow: `.github/workflows/cypress.yml`
 
@@ -259,9 +360,7 @@ Defaults:
 - `e2e_command`: `yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
 
 Notes:
-- The default uses Yarn and `start-server-and-test` to boot the app before
-  running Cypress. Override `e2e_command` if your dev server command or URL
-  differs.
+- Uses Yarn. For pnpm monorepos use `pnpm-cypress.yml` instead.
 
 Example:
 
