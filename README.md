@@ -372,7 +372,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
-Auto-tag workflow:
+Auto-tag workflow (tag only):
 
 ```yaml
 name: Auto Tag Release
@@ -387,7 +387,55 @@ permissions:
 jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      update_production_tag: false
 ```
+
+Auto-tag + auto-create GitHub Release (recommended):
+
+1. Add a local wrapper at `.github/workflows/create-github-release.yml`:
+
+```yaml
+name: create-github-release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version tag to release (e.g. 1.2.3)"
+        type: string
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ inputs.release_tag }}
+```
+
+2. Pass `release_workflow` in the auto-tag caller:
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      release_workflow: create-github-release.yml
+      # update_production_tag: false  # set this if your repo does not use a floating production tag
+```
+
+After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
+
 - Update vendored `script-helpers` with:
   - `./scripts/sync_script_helpers.sh`
   - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
