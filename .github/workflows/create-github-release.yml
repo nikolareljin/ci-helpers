@@ -25,17 +25,33 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve tag
+        id: resolve_tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG}"
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          if ! printf '%s' "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z)"
+            exit 1
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ steps.resolve_tag.outputs.tag }}
 
       - name: Extract CHANGELOG notes
         id: notes
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ steps.resolve_tag.outputs.tag }}
         run: |
           set -euo pipefail
           body=""
@@ -57,7 +73,8 @@ jobs:
                     last = i
                   }
                 }
-                for (i = first; i <= last; i++) print lines[i]
+                if (first > 0)
+                  for (i = first; i <= last; i++) print lines[i]
               }
             ' CHANGELOG.md)
           fi
@@ -75,8 +92,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
         with:
-          tag_name: ${{ inputs.release_tag }}
-          name: ${{ inputs.release_tag }}
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          name: ${{ steps.resolve_tag.outputs.tag }}
           body: ${{ steps.notes.outputs.body }}
           generate_release_notes: ${{ steps.notes.outputs.body == '' }}
           update_existing: true
