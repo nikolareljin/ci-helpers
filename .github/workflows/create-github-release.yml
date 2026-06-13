@@ -89,11 +89,20 @@ jobs:
             printf 'body=\n' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (CHANGELOG notes)
+        if: steps.notes.outputs.body != ''
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
           body: ${{ steps.notes.outputs.body }}
-          generate_release_notes: ${{ steps.notes.outputs.body == '' }}
+          update_existing: true
+
+      - name: Create GitHub Release (auto-generated notes)
+        if: steps.notes.outputs.body == ''
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        with:
+          tag_name: ${{ steps.resolve_tag.outputs.tag }}
+          name: ${{ steps.resolve_tag.outputs.tag }}
+          generate_release_notes: true
           update_existing: true
