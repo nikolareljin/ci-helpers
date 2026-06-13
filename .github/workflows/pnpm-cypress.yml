@@ -122,7 +122,7 @@ jobs:
           ${{ inputs.extra_command }}
 
       - name: Upload Cypress videos
-        if: ${{ inputs.upload_cypress_artifacts && failure() }}
+        if: ${{ inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure() }}
         uses: actions/upload-artifact@v7
         with:
           name: cypress-videos
@@ -130,7 +130,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Cypress screenshots
-        if: ${{ inputs.upload_cypress_artifacts && failure() }}
+        if: ${{ inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure() }}
         uses: actions/upload-artifact@v7
         with:
           name: cypress-screenshots

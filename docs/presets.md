@@ -244,8 +244,17 @@ Optional test result upload:
 Notes:
 - Works with Turborepo monorepos — `pnpm run test` can delegate to `turbo run test`.
 - To enable test result annotations in GitHub Actions UI, set `upload_test_results: true`
-  and configure Vitest to emit JUnit: add `reporters: ['default', 'junit']` and
-  `outputFile: { junit: 'test-results/results.xml' }` to your `vitest.config.ts`.
+  and configure Vitest to emit JUnit XML:
+
+  ```ts
+  // vitest.config.ts
+  export default defineConfig({
+    test: {
+      reporters: ['default', 'junit'],
+      outputFile: { junit: 'test-results/results.xml' },
+    },
+  })
+  ```
 
 Example:
 

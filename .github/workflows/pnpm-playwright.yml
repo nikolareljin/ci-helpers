@@ -119,7 +119,7 @@ jobs:
           ${{ inputs.extra_command }}
 
       - name: Upload Playwright report
-        if: ${{ inputs.upload_playwright_report && (success() || failure()) }}
+        if: ${{ inputs.upload_playwright_report && inputs.e2e_command != '' && (success() || failure()) }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report
