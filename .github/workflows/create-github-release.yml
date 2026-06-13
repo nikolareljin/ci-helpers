@@ -35,8 +35,8 @@ jobs:
           tag="${INPUT_TAG}"
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
-          if ! printf '%s' "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z)"
+          if ! printf '%s' "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?$'; then
+            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z or X.Y.Z-rcN)"
             exit 1
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
