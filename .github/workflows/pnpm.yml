@@ -116,7 +116,7 @@ jobs:
         if: ${{ inputs.upload_test_results && (success() || failure()) }}
         uses: actions/upload-artifact@v7
         with:
-          name: junit-xml
+          name: junit-xml-pnpm
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           retention-days: 1
           if-no-files-found: warn
@@ -133,7 +133,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: junit-xml
+          name: junit-xml-pnpm
           path: test-results
 
       - name: Publish test results
