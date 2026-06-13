@@ -1,4 +1,4 @@
-name: preset-pnpm
+name: preset-pnpm-cypress
 on:
   workflow_call:
     inputs:
@@ -19,7 +19,7 @@ on:
         default: "latest"
       lint_command:
         type: string
-        default: "pnpm run lint"
+        default: ""
       test_command:
         type: string
         default: "pnpm run test"
@@ -28,7 +28,7 @@ on:
         default: "pnpm run build"
       e2e_command:
         type: string
-        default: ""
+        default: "pnpm exec cypress install && pnpm exec cypress run --component"
       extra_command:
         type: string
         default: ""
@@ -38,6 +38,15 @@ on:
       test_results_path:
         type: string
         default: "test-results/**/*.xml"
+      upload_cypress_artifacts:
+        type: boolean
+        default: true
+      cypress_videos_path:
+        type: string
+        default: "cypress/videos"
+      cypress_screenshots_path:
+        type: string
+        default: "cypress/screenshots"
       artifact_suffix:
         type: string
         default: ""
@@ -99,7 +108,7 @@ jobs:
           set -euo pipefail
           ${{ inputs.build_command }}
 
-      - name: E2E
+      - name: Cypress
         if: ${{ inputs.e2e_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -115,11 +124,27 @@ jobs:
           set -euo pipefail
           ${{ inputs.extra_command }}
 
+      - name: Upload Cypress videos
+        if: ${{ inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ format('cypress-videos{0}', inputs.artifact_suffix) }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.cypress_videos_path) || inputs.cypress_videos_path }}
+          retention-days: 7
+
+      - name: Upload Cypress screenshots
+        if: ${{ inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ format('cypress-screenshots{0}', inputs.artifact_suffix) }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.cypress_screenshots_path) || inputs.cypress_screenshots_path }}
+          retention-days: 7
+
       - name: Stage test results
         if: ${{ inputs.upload_test_results && (success() || failure()) }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
+          name: ${{ format('junit-xml-cypress{0}', inputs.artifact_suffix) }}
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           retention-days: 1
           if-no-files-found: warn
@@ -137,7 +162,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
+          name: ${{ format('junit-xml-cypress{0}', inputs.artifact_suffix) }}
           path: test-results
 
       - name: Publish test results

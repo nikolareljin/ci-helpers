@@ -1,4 +1,4 @@
-name: preset-pnpm
+name: preset-pnpm-playwright
 on:
   workflow_call:
     inputs:
@@ -19,7 +19,7 @@ on:
         default: "latest"
       lint_command:
         type: string
-        default: "pnpm run lint"
+        default: ""
       test_command:
         type: string
         default: "pnpm run test"
@@ -28,7 +28,7 @@ on:
         default: "pnpm run build"
       e2e_command:
         type: string
-        default: ""
+        default: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm run preview' http://localhost:4173 'pnpm exec playwright test'"
       extra_command:
         type: string
         default: ""
@@ -38,6 +38,12 @@ on:
       test_results_path:
         type: string
         default: "test-results/**/*.xml"
+      upload_playwright_report:
+        type: boolean
+        default: true
+      playwright_report_path:
+        type: string
+        default: "playwright-report/"
       artifact_suffix:
         type: string
         default: ""
@@ -99,7 +105,7 @@ jobs:
           set -euo pipefail
           ${{ inputs.build_command }}
 
-      - name: E2E
+      - name: Playwright E2E
         if: ${{ inputs.e2e_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -115,11 +121,19 @@ jobs:
           set -euo pipefail
           ${{ inputs.extra_command }}
 
+      - name: Upload Playwright report
+        if: ${{ inputs.upload_playwright_report && inputs.e2e_command != '' && (success() || failure()) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ format('playwright-report{0}', inputs.artifact_suffix) }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.playwright_report_path) || inputs.playwright_report_path }}
+          retention-days: 30
+
       - name: Stage test results
         if: ${{ inputs.upload_test_results && (success() || failure()) }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
+          name: ${{ format('junit-xml-playwright{0}', inputs.artifact_suffix) }}
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           retention-days: 1
           if-no-files-found: warn
@@ -137,7 +151,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
+          name: ${{ format('junit-xml-playwright{0}', inputs.artifact_suffix) }}
           path: test-results
 
       - name: Publish test results

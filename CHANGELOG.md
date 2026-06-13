@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-06-13 — 0.14.0
+
+### Added
+
+- **`pnpm-playwright.yml`:** New `preset-pnpm-playwright` workflow for pnpm monorepos
+  running Playwright E2E tests. Sets up pnpm + Node, runs test/build (lint is optional —
+  skipped when `lint_command` is empty), then installs Playwright browsers and runs E2E via
+  `start-server-and-test`. Uploads `playwright-report/`
+  as an artifact on every run (configurable via `upload_playwright_report` and
+  `playwright_report_path`). Supports optional JUnit test result upload via
+  `upload_test_results`/`test_results_path`.
+
+- **`pnpm-cypress.yml`:** New `preset-pnpm-cypress` workflow for pnpm monorepos running
+  Cypress tests. Defaults to component test mode (`cypress run --component`) — no running
+  server required. Override `e2e_command` for full E2E against a preview server. Uploads
+  Cypress videos and screenshots as artifacts on failure (configurable via
+  `upload_cypress_artifacts`). Supports optional JUnit test result upload.
+
+- **`pnpm.yml` — `upload_test_results` + `test_results_path` inputs:** Optional JUnit
+  test result reporting via `dorny/test-reporter`. Set `upload_test_results: true` and
+  configure your test runner to emit JUnit XML to `test-results/**/*.xml` (or override
+  `test_results_path`). Results appear as GitHub check annotations on PRs.
+
+- **`docs/presets.md`:** Added pnpm, pnpm-playwright, and pnpm-cypress sections.
+  Renamed existing Playwright and Cypress sections to clarify they are yarn-based,
+  with a cross-reference to the pnpm variants.
+
 ## 2026-06-12 — 0.13.0
 
 ### Added
