@@ -36,7 +36,7 @@ jobs:
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
           if ! printf '%s' "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?$'; then
-            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z or X.Y.Z-rcN)"
+            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z, X.Y.Z-rcN, or X.Y.Z-rc.N)"
             exit 1
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
@@ -61,7 +61,7 @@ jobs:
             body=$(awk -v ver="$escaped" '
               /^## / {
                 if (found) exit
-                if (match($0, "— v?" ver "([[:space:]]|$)")) found = 1
+                if (match($0, "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] — v?" ver "([[:space:]]|$)")) found = 1
                 next
               }
               found { lines[++n] = $0 }

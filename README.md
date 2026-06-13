@@ -434,7 +434,7 @@ jobs:
       release_workflow: create-github-release.yml
 ```
 
-After each `release/X.Y.Z` merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
+After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
 
 - Update vendored `script-helpers` with:
   - `./scripts/sync_script_helpers.sh`
