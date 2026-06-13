@@ -52,6 +52,8 @@ env:
 jobs:
   ci:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      checks: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -118,10 +120,10 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ inputs.upload_playwright_report && (success() || failure()) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
-          path: ${{ inputs.playwright_report_path }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.playwright_report_path) || inputs.playwright_report_path }}
           retention-days: 30
 
       - name: Upload test results
