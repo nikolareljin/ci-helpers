@@ -892,7 +892,7 @@ See `create-github-release.yml` below for the local wrapper workflow that must e
 
 Workflow: `.github/workflows/create-github-release.yml`
 
-Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Supports `update_existing: true` so the workflow is safe to re-run.
+Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Re-runs are safe: `softprops/action-gh-release` updates an existing release when the `tag_name` already has one.
 
 Triggers:
 - `workflow_dispatch` with `release_tag` input — used by the `release_workflow` dispatch mechanism in `auto-tag-release.yml`.

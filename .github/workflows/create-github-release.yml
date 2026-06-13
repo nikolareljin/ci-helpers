@@ -96,7 +96,6 @@ jobs:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
           body: ${{ steps.notes.outputs.body }}
-          update_existing: true
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.notes.outputs.body == ''
@@ -105,4 +104,3 @@ jobs:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
           generate_release_notes: true
-          update_existing: true
