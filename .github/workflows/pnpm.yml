@@ -38,6 +38,9 @@ on:
       test_results_path:
         type: string
         default: "test-results/**/*.xml"
+      artifact_suffix:
+        type: string
+        default: ""
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -116,7 +119,7 @@ jobs:
         if: ${{ inputs.upload_test_results && (success() || failure()) }}
         uses: actions/upload-artifact@v7
         with:
-          name: junit-xml-pnpm
+          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           retention-days: 1
           if-no-files-found: warn
@@ -128,12 +131,13 @@ jobs:
     permissions:
       contents: read
       checks: write
+      pull-requests: read
     steps:
       - name: Download test results
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: junit-xml-pnpm
+          name: ${{ format('junit-xml-pnpm{0}', inputs.artifact_suffix) }}
           path: test-results
 
       - name: Publish test results
