@@ -133,6 +133,7 @@ jobs:
           name: junit-xml
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.test_results_path) || inputs.test_results_path }}
           retention-days: 1
+          if-no-files-found: warn
 
   report:
     needs: ci
@@ -143,6 +144,7 @@ jobs:
       checks: write
     steps:
       - name: Download test results
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: junit-xml
