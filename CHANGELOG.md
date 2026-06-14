@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-14 — 0.14.1
+
+### Changed
+
+- **`vendor/script-helpers`:** Updated from 0.13.0 to 0.14.0
+  (`ba2ad9f`). Picks up the full PowerShell companion library (`ps/`) plus
+  numerous bug-fixes across `ps/lib/` modules (logging, env, file, traps,
+  ports, docker, help, certs, hosts) and the PS CI runner scripts.
+
+- **`scripts/sync_script_helpers.sh`:** Enhanced to auto-detect the latest
+  semver release tag via `git ls-remote` when no `--ref` is given; added
+  `--ref` and `--repo-url` CLI flags; switched to shallow clone + temp-dir
+  for speed and atomicity; added an "already up to date" short-circuit.
+
 ## 2026-06-13 — 0.14.0
 
 ### Added
