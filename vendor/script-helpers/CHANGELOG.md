@@ -9,6 +9,84 @@ This project uses Keep a Changelog style and aims to follow Semantic Versioning 
 - Added: `scripts/check_release_version.sh` to verify release versions before tagging or publishing.
 - Added: `--version` and `--image` parameters to all `ci_*.sh` scripts for Docker image tag and full image override.
 
+## [0.14.0] - 2026-06-12
+
+- Fixed: `ps/helpers.ps1` — `Import-ScriptHelpers` now always loads `logging` first unconditionally; previously it skipped the pre-load when `logging` appeared anywhere in the caller's list, leaving other modules without logging if they were listed before it.
+- Fixed: `ps/lib/help.ps1` — `get_script_metadata` and `_Help_Render` now guard against empty/null `$ScriptFile` (interactive use with no `SHLIB_CALLER_SCRIPT`) instead of throwing on `Test-Path` and `Path::GetFileName(null)`.
+- Fixed: `ps/lib/traps.ps1` — `enable_strict_mode` uses `Set-Variable -Scope 1` to write `ErrorActionPreference` into the immediate caller's scope rather than `$Global:`, so it no longer leaks strict mode into the wider PowerShell session.
+- Fixed: `ps/scripts/ci_go.ps1`, `ci_node.ps1`, `ci_python.ps1`, `ci_rust.ps1` — `-UseDocker` mode now calls `check_docker` before invoking Docker; previously a missing/stopped Docker daemon produced a generic "command not found" error instead of the structured diagnostic from the helper.
+- Fixed: `ps/lib/traps.ps1` — `setup_exit_trap` now unregisters and re-registers by `SourceIdentifier` instead of storing the `PSEventJob.Id` as a subscription ID; `PSEventJob.Id` is the job ID, not the subscription ID expected by `Unregister-Event -SubscriptionId`, so the previous code could leave duplicate exit handlers on repeated calls.
+- Fixed: `ps/lib/logging.ps1` — stderr path in `_Shlib_WriteColor` now guards ANSI codes with `[Console]::IsErrorRedirected`; previously `2>file` or `2>&1` captured raw escape codes even though the stdout path was already guarded.
+- Fixed: `ps/lib/logging.ps1` — `_Shlib_WriteColor` now checks `[Console]::IsOutputRedirected` before the ANSI flag; previously the redirect branch was unreachable when ANSI was enabled, so redirected streams (files, pipelines) received raw escape codes instead of plain text.
+- Fixed: `ps/lib/traps.ps1` — `setup_exit_trap` now passes the handler via `-MessageData` and reads it as `$event.MessageData` inside the action block; the previous approach stored the handler in a `$script:` variable that is invisible in the separate runspace used by event actions.
+- Fixed: `ps/lib/env.ps1` — `resolve_env_value` now mirrors the Bash API: takes a variable *name* and an optional default, returning the env var's value or the default when unset/empty. The internal `$VAR`/`${VAR}` expansion logic used by `load_env` is extracted into `expand_env_refs`.
+- Fixed: `ps/lib/version.ps1` — `version_bump` now throws explicitly when `BumpType` is empty and creates the parent directory of `VersionFile` when it does not exist.
+- Fixed: `ps/lib/os.ps1` — `run_with_optional_sudo` now throws on an empty `$Cmd`, and uses splatting (`@rest`) to forward arguments so the call works correctly for both native executables and PowerShell functions.
+- Fixed: `ps/lib/env.ps1` — `load_env` now uses `foreach`/`continue` instead of `ForEach-Object`/`return`; the old form exited the function on the first blank line or comment instead of skipping only that line.
+- Fixed: `ps/lib/packaging.ps1` — `pkg_load_metadata` same fix: `ForEach-Object { return }` was exiting the function early on blank/comment lines.
+- Fixed: `ps/lib/docker.ps1` — `check_docker` normalises each element of `docker info 2>&1` output to a string before joining, so ErrorRecord objects in mixed-type arrays do not produce a garbled error message in PS 5.1.
+- Fixed: `ps/lib/certs.ps1` — `generate_self_signed_cert` no longer exports a PFX by default. PFX export is now opt-in: pass `-PfxPassword <SecureString>` to write the private-key bundle; the public `.cer` is always written. Prevents accidental unprotected private-key files on disk.
+- Fixed: `ps/lib/traps.ps1` — `$_SHLIB_EXIT_SOURCE` now holds the literal string `'PowerShell.Exiting'` instead of `[PsEngineEvent]::Exiting`; the enum stringifies to `"Exiting"` which does not match the engine event's actual `SourceIdentifier`, so the exit handler would never fire (and could not be unregistered).
+- Fixed: `ps/lib/env.ps1` — `get_project_root` now checks the filesystem root itself for `.git` after the traversal loop exits; previously the root path was never evaluated, causing incorrect fallback to `$StartDir` on drive-root repos.
+- Fixed: `ps/lib/version.ps1` — `version_bump` success message now logs the original version string (including prefix/suffix like `v1.2.0-rc1`) instead of the stripped core after prefix/suffix mutation.
+- Fixed: `ps/lib/file.ps1` — `create_directory` now returns `$true` on success and `$false` on failure (via `try/catch` with `-ErrorAction Stop`); previously it returned `$null` on all paths, making success checks unreliable.
+- Fixed: `ps/lib/env.ps1` — `expand_env_refs` now expands unset `$VAR`/`${VAR}` references to empty string instead of leaving the literal placeholder, matching Bash `load_env` behaviour.
+- Removed: `ps/lib/file.ps1` — `ensure_dir` helper removed; it was undocumented, absent from the Bash `lib/file.sh` API, and fully covered by `create_directory`.
+- Fixed: `ps/lib/env.ps1` — `resolve_env_value` now mirrors the full Bash API with an optional third `$EnvFile` parameter; when the process env var is unset it falls back to reading the key from that file (default `.env`), matching the Bash `resolve_env_value(key, default, env_file)` signature.
+- Fixed: `ps/helpers.ps1` — `Import-ScriptHelpersAll` now loads `logging` first before iterating `Get-ChildItem` output; filesystem ordering is non-deterministic so the previous code could load other modules before `logging`, breaking any module that logs during import.
+- Fixed: `ps/lib/help.ps1` — `show_usage` now uses `Write-Output` instead of `Write-Host` so help text can be redirected or captured by callers.
+- Fixed: `ps/lib/file.ps1` — `download_file` now marks `$Url` as mandatory and wraps `Invoke-WebRequest` in `try/catch` returning `$true`/`$false`, consistent with `create_directory` and `verify_checksum`.
+- Fixed: `ps/lib/hosts.ps1` — `add_hosts_entry` now checks only active (non-comment) lines when testing whether an entry already exists; previously a commented-out domain (`# 127.0.0.1 example.com`) would falsely prevent adding a real entry. `remove_hosts_entry` likewise now preserves comment lines even when they mention the domain.
+- Fixed: `ps/lib/env.ps1` — `resolve_env_value` env-file fallback now uses the same parsing logic as `load_env` (handles `export` prefix, whitespace around `=`, and quote stripping) instead of a bare `StartsWith` that missed all those forms.
+- Fixed: `ps/lib/help.ps1` — `_Help_PrintInline` and `_Help_PrintBlock` now use `Write-Output` for the non-colored fallback path so all help output is redirectable, consistent with the earlier `show_usage` fix.
+- Fixed: `ps/lib/file.ps1` — `download_file` now pipes `Invoke-WebRequest` to `Out-Null` and suppresses the PS progress bar (`$ProgressPreference = 'SilentlyContinue'`) for the duration of the call; previously the response object leaked into the pipeline and the progress UI was noisier than the Bash equivalent.
+- Fixed: `ps/lib/dialog.ps1` — `dialog_download_file` now pipes `Invoke-WebRequest` to `Out-Null`; previously the response object was emitted to the pipeline, potentially interfering with callers.
+- Fixed: `ps/lib/ports.ps1` — `get_port_conflicts_json` wraps `$conflicts` in `@()` before `ConvertTo-Json` so a single-conflict result is always a JSON array `[{...}]` instead of a bare object `{...}`; without this PS unwraps a one-element array to a scalar.
+- Fixed: `ps/lib/file.ps1` — `verify_checksum` now guards against missing/unreadable files with an explicit `Test-Path` check and `try/catch` around `Get-FileHash`, returning `$false` with a structured error message instead of surfacing raw cmdlet exceptions.
+- Fixed: `ps/scripts/ci_rust.ps1` — in `-UseDocker` mode, `-Manifest` paths are now translated to container-relative `/work/<rel>` paths; passing an absolute Windows path or a path outside `-Workdir` now fails with a clear error rather than silently breaking cargo inside the container.
+
+- Added: PowerShell companion library (`ps/`) for native Windows support without WSL.
+  - `ps/helpers.ps1` — loader with `Import-ScriptHelpers` function (mirrors `helpers.sh` / `shlib_import`).
+  - 19 PowerShell modules in `ps/lib/` mirroring all core Bash lib modules:
+    `logging`, `os`, `env`, `file`, `deps`, `help`, `version`, `docker`, `ports`, `json`,
+    `browser`, `traps`, `python`, `clipboard`, `dialog`, `certs`, `hosts`, `ci_defaults`, `packaging`.
+  - `ps/scripts/ci_node.ps1`, `ci_python.ps1`, `ci_go.ps1`, `ci_rust.ps1` — CI runners that work natively on Windows (no Docker required); pass `-UseDocker` for Docker Desktop mode. `-UseDocker` honours `-Quick` and `-SkipTest` in Python CI.
+  - `ps/scripts/bump_version.ps1`, `tag_release.ps1` — version management for Windows.
+  - `ps/scripts/example_logging.ps1` — demonstration script.
+  - PS 5.1 (Windows built-in) and PS 7+ both supported.
+  - `deps.ps1` uses `winget` → `choco` → `scoop` for package installation.
+  - `ports.ps1` uses `Get-NetTCPConnection` replacing `lsof`/`ss`/`netstat`.
+  - `certs.ps1` uses Windows Certificate Store (`New-SelfSignedCertificate`, `Import-Certificate`).
+  - `hosts.ps1` targets `C:\Windows\System32\drivers\etc\hosts` (requires admin elevation).
+  - `dialog.ps1` uses `Read-Host`-based prompts (Windows has no ncurses `dialog` binary).
+- Fixed: `ps/helpers.ps1` — imported functions now survive into the caller's scope (`New-Module + Import-Module -Global`; previously dot-source inside a function discarded them on return).
+- Fixed: `ps/scripts/*.ps1` — `SCRIPT_HELPERS_DIR` auto-detection now resolves to the repo root correctly (scripts live two levels below root, not one).
+- Fixed: `ps/scripts/ci_node.ps1` — removed PS 7-only `??` null-coalescing operator; defaults to `node:22-alpine` when `CI_NODE_IMAGE` is unset.
+- Fixed: `ps/scripts/ci_rust.ps1` — replaced `Invoke-Expression` with splatted `cargo` args to prevent injection from paths with spaces.
+- Fixed: `ps/scripts/tag_release.ps1` — version regex now rejects trailing garbage while accepting pre-release suffixes (e.g. `1.2.3-rc1`).
+- Fixed: `ps/lib/docker.ps1` — `docker_compose` now correctly invokes `docker-compose` binary when the plugin form is unavailable; `2>/dev/null` replaced with `2>$null`; CRLF-safe output splitting.
+- Fixed: `ps/lib/os.ps1` — `run_with_optional_sudo` no longer passes a null arg when the command is a single token.
+- Fixed: `ps/lib/traps.ps1` — `setup_exit_trap` unregisters the previous subscription before registering a new one, preventing duplicate exit handlers.
+- Fixed: `ps/lib/file.ps1`, `ps/lib/dialog.ps1` — `-UseBasicParsing` gated to PS 5.1 only (removed deprecation warning on PS 7+).
+- Fixed: `ps/lib/python.ps1` — `py` launcher now always passes `-3` when detecting version and creating venvs.
+- Fixed: `ps/lib/deps.ps1`, `ps/lib/json.ps1` — replaced `command_exists` calls with `Get-Command` to remove hidden cross-module dependency.
+- Fixed: `ps/lib/hosts.ps1` — domain existence checks and removal now use word-boundary regex to avoid false matches on substrings.
+- Fixed: `ps/lib/help.ps1` — `show_usage` and `parse_common_args` now recognise `-h`/`--help`, `-v`/`--verbose`, `-d`/`--debug` aliases matching the Bash `help.sh` API; header-separator regex updated from `^#-{3,}` to `^#\s*-{3,}` to match the spaced `# ----` form used by all PS scripts.
+- Fixed: `ps/lib/env.ps1` — `load_env` now calls `resolve_env_value` so `FOO=$BAR` references in `.env` files are expanded (the function existed but was never wired up).
+- Fixed: `ps/lib/logging.ps1` — `log_info`/`log_warn`/`log_error`/`log_debug` now emit ANSI colour on stderr when the terminal supports it (`$_SHLIB_ANSI`); previously colour was silently dropped on the stderr path.
+- Fixed: `ps/lib/dialog.ps1` — `dialog_menu` marks `$Items` as `[Parameter(Mandatory)]` to fail fast instead of infinite-looping when omitted; `dialog_input` return uses `$(if …)` subexpression for PS 5.1 compatibility.
+- Fixed: `ps/lib/docker.ps1` — `get_docker_compose_cmd` now pre-checks Docker CLI existence before probing plugin availability.
+- Fixed: `ps/lib/packaging.ps1` — `to_camel_case` guards empty parts and single-char segments; `pkg_join_list` uses `-join` operator instead of `Join-String` (PS 5.1 compatible; `Join-String` requires PS 6.2+).
+- Fixed: `ps/lib/deps.ps1` — `winget install` uses query form (no `--id`) so generic names like `curl`, `git`, `jq` work without vendor-qualified IDs.
+- Fixed: `ps/lib/browser.ps1` — `check_port_open` calls `EndConnect()` after `WaitOne` to surface refused connections; `WaitOne` alone returns `$true` on any completion, including failure.
+- Fixed: `ps/lib/version.ps1` — `Set-Content` uses `-Encoding ascii` so the `VERSION` file stays Bash-readable (PS 5.1 default encoding is UTF-16 LE).
+- Fixed: `ps/lib/hosts.ps1` — `Add-Content` and `Set-Content` use `-Encoding ascii` to preserve the ANSI format required by the Windows hosts parser.
+- Fixed: `ps/scripts/ci_node.ps1`, `ci_python.ps1`, `ci_go.ps1`, `ci_rust.ps1` — Docker mode invokes executables directly (no `sh -c`) eliminating shell injection from user-controlled parameters.
+- Fixed: `ps/scripts/ci_node.ps1` — `*Cmd` parameters changed to `string[]` token arrays for correct handling of arguments containing spaces or quotes.
+- Fixed: `ps/scripts/ci_python.ps1` — `$TestCmd` changed to `string[]`; Docker pip install now skips when `requirements.txt` is absent, matching native mode behaviour.
+- Fixed: `ps/scripts/bump_version.ps1` — missing `BumpType` now exits with code 1 (usage error) instead of 0.
+- Added: `ps/lib/packaging.ps1` — `pkg_*` functions mirroring the Bash `packaging.sh` public API: `pkg_load_metadata`, `pkg_require_vars`, `pkg_trim`, `pkg_join_list`, `pkg_quote_list`, `pkg_render_lines`, `pkg_classify_name`, `pkg_guess_version`.
+
 ## [0.13.0] - 2026-05-21
 
 - Changed: `scripts/git-hooks/pre-commit` — hardened for universal use across all repos:

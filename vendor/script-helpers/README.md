@@ -3,6 +3,90 @@ script-helpers
 
 Reusable Bash helpers extracted from projects in this workspace. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
+Windows / PowerShell support
+-----------------------------
+
+`ps/helpers.ps1` is a parallel PowerShell companion library that mirrors all core Bash modules. It works natively on Windows without WSL or Git Bash.
+
+Quick start (PowerShell):
+
+```powershell
+# Add script-helpers as a submodule or copy it into your project.
+# Then in your .ps1 script:
+$env:SCRIPT_HELPERS_DIR = "$PSScriptRoot\script-helpers"  # or wherever you placed it
+. "$env:SCRIPT_HELPERS_DIR\ps\helpers.ps1"
+Import-ScriptHelpers logging env docker version
+
+print_info  "Hello from Windows!"
+log_info    "Project root: $(get_project_root)"
+load_env    ".env"
+require_env "MY_API_KEY"
+```
+
+PowerShell modules (mirrors each Bash lib/*.sh):
+
+| Module | Functions |
+|--------|-----------|
+| `logging.ps1`    | `print_info`, `print_error`, `print_success`, `print_warning`, `log_info`, `log_warn`, `log_error`, `log_debug`, `print_color` |
+| `os.ps1`         | `get_os`, `is_wsl`, `is_admin`, `run_with_optional_sudo` |
+| `env.ps1`        | `load_env`, `require_env`, `get_project_root`, `resolve_env_value` |
+| `file.ps1`       | `file_exists`, `directory_exists`, `create_directory`, `download_file`, `verify_checksum`, `command_exists` |
+| `deps.ps1`       | `install_package`, `install_dependencies`, `require_command` — uses `winget` > `choco` > `scoop` |
+| `version.ps1`    | `version_bump`, `version_compare` |
+| `docker.ps1`     | `get_docker_compose_cmd`, `docker_compose`, `check_docker`, `wait_for_service` |
+| `ports.ps1`      | `port_in_use`, `list_port_usage_details`, `get_port_conflicts_json` — uses `Get-NetTCPConnection` |
+| `json.ps1`       | `json_escape`, `format_json`, `json_get`, `jq_query` |
+| `browser.ps1`    | `open_url`, `wait_for_port`, `check_port_open` |
+| `traps.ps1`      | `setup_exit_trap`, `cleanup_on_exit`, `enable_strict_mode` |
+| `python.ps1`     | `python_resolve_3`, `python_ensure_venv`, `activate_venv`, `python_has_min_version` |
+| `clipboard.ps1`  | `copy_to_clipboard`, `get_from_clipboard` |
+| `dialog.ps1`     | `dialog_input`, `dialog_yesno`, `dialog_menu`, `dialog_password` — Read-Host based (no ncurses) |
+| `help.ps1`       | `display_help`, `print_help`, `show_help`, `get_script_metadata`, `parse_common_args` |
+| `certs.ps1`      | `generate_self_signed_cert`, `trust_cert` — Windows Certificate Store |
+| `hosts.ps1`      | `add_hosts_entry`, `remove_hosts_entry` — Windows hosts file (requires admin) |
+| `ci_defaults.ps1` | Docker image version pins (current stable; see module for divergence note vs Bash `ci_defaults.sh`) |
+| `packaging.ps1`  | `pkg_load_metadata`, `pkg_require_vars`, `pkg_trim`, `pkg_join_list`, `pkg_quote_list`, `pkg_render_lines`, `pkg_classify_name`, `pkg_guess_version` + PS helpers: `join_by`, `quote_args`, `load_packaging_metadata`, `get_package_version` |
+
+PowerShell CI scripts (`ps/scripts/`):
+
+```powershell
+# Run Node.js CI natively on Windows (no Docker required)
+.\ps\scripts\ci_node.ps1 -Workdir frontend -SkipBuild
+
+# Run Python CI natively
+.\ps\scripts\ci_python.ps1 -Workdir . -Quick
+
+# Python CI — quick mode also works in Docker
+.\ps\scripts\ci_python.ps1 -Workdir . -Quick -UseDocker
+.\ps\scripts\ci_python.ps1 -Workdir . -SkipTest -UseDocker
+
+# Go and Rust CI
+.\ps\scripts\ci_go.ps1 -Workdir .
+.\ps\scripts\ci_rust.ps1 -Workdir . -Quick
+
+# Bump version
+.\ps\scripts\bump_version.ps1 minor
+
+# Tag and push release
+.\ps\scripts\tag_release.ps1
+```
+
+All CI scripts also accept `-UseDocker` to run inside Docker Desktop (Linux containers) instead of natively.
+`-Quick` and `-SkipTest` flags are honoured in both native and Docker modes.
+`*Cmd` override parameters (e.g. `-TestCmd`) accept token arrays for commands with spaces or quotes: `-TestCmd "pytest","-k","my test"`.
+
+> **Note:** All `ci_*.ps1` scripts are for **local developer use only**. They exit immediately with an error when `CI=true` is set (as it would be in GitHub Actions or any standard CI environment), preventing accidental execution inside automated pipelines.
+
+Scripts auto-detect `SCRIPT_HELPERS_DIR` from `$PSScriptRoot`; you can override it by setting the env var before invoking the script.
+
+Notes:
+- PS 5.1 (Windows built-in) and PS 7+ are both supported. ANSI colour applies to both stdout (`print_*`) and stderr (`log_*`) on PS 7+ and on any terminal advertising ANSI support via `$env:TERM`.
+- `certs.ps1` and `hosts.ps1` require administrator elevation.
+- `dialog.ps1` uses `Read-Host` prompts instead of the Linux `dialog` ncurses widget.
+- `ollama.ps1` is not included; use the Ollama Windows installer directly.
+- Package installation via `deps.ps1` uses `winget` (Windows 11) → `choco` → `scoop`, in that order.
+- `hosts.ps1` matches domains as complete tokens; `example.com` will not match `myexample.com`.
+
 Quick start
 -----------
 
@@ -223,3 +307,12 @@ Versioning and releases
   - Auto-tag (`.github/workflows/auto-tag.yml`): manually triggered via `workflow_dispatch` to bump `VERSION` from conventional commits and create a semver tag.
   - Production pinning: when a semver tag is created by release automation from `main`, the same workflow run fast-forwards `production` to that tag commit.
   - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.
+
+
+---
+
+## Clone traffic
+
+![Clone traffic](https://raw.githubusercontent.com/nikolareljin/stats/main/charts/script-helpers.svg)
+
+_Updated daily. Total and unique cloners over the last 14 days._
