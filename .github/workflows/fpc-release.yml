@@ -212,7 +212,18 @@ jobs:
         env:
           FPC_PKG: ${{ inputs.fpc_choco_package }}
         shell: pwsh
-        run: choco install "$env:FPC_PKG" -y --no-progress
+        run: |
+          choco install "$env:FPC_PKG" -y --no-progress
+          # Chocolatey updates the Windows PATH but bash steps don't inherit it.
+          # Find fpc.exe and add its directory to GITHUB_PATH for subsequent steps.
+          $fpcExe = Get-ChildItem 'C:\fpc' -Recurse -Filter 'fpc.exe' -ErrorAction SilentlyContinue |
+                     Select-Object -First 1
+          if ($fpcExe) {
+            $fpcExe.DirectoryName | Add-Content -Path $env:GITHUB_PATH
+          } else {
+            Write-Error 'fpc.exe not found under C:\fpc after install'
+            exit 1
+          }
 
       - name: Build
         shell: bash
@@ -468,7 +479,7 @@ jobs:
                       ;;
                   esac
                 fi
-                wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                wget -q --timeout=60 --tries=3 --waitretry=5 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
                   if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
@@ -626,7 +637,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -636,7 +647,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist_extra/*
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -646,6 +657,6 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
