@@ -44,7 +44,7 @@ if [[ -z "$REF" ]]; then
     git ls-remote --tags --refs "$REPO_URL" \
       | awk '{print $2}' \
       | sed 's|refs/tags/||' \
-      | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+      | { grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
       | awk '{ k=$0; gsub(/^v/,"",k); n=split(k,a,"."); printf "%010d%010d%010d %s\n",a[1],a[2],a[3],$0 }' \
       | sort -k1,1 \
       | awk '{print $2}' \
