@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-06-15 — 0.14.4
+
+### Fixed
+
+- **`fpc-release.yml` — Windows `FPCDIR` not set:** `ppc386.exe` searches for `fpc.cfg`
+  relative to its own binary, but the choco install places `fpc.cfg` in `<root>\etc\` which
+  is not on that search path. The workflow now walks up from `fpc.exe`'s directory to locate
+  `etc\fpc.cfg` and exports `FPCDIR` to `GITHUB_ENV` so the `fpc` driver can find the config
+  and pass it (with unit search paths) to the sub-compiler. Without this, compilation fails
+  with `Fatal: Can't find unit crt`.
+
+- **`fpc-release.yml` — AppImage download `curl` fallback:** `wget` exits with code 4
+  (hard network/DNS failure) on some CI runners, and `--tries` does not retry on exit-code-4
+  errors. Added a `curl` fallback so a transient DNS failure on the runner does not abort the
+  AppImage build entirely.
+
 ## 2026-06-15 — 0.14.2
 
 ### Fixed
