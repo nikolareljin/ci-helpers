@@ -226,10 +226,8 @@ jobs:
             # Fallback: scan common install roots used by different FPC choco packages
             $roots = @('C:\fpc', 'C:\tools\freepascal', 'C:\ProgramData\chocolatey\lib')
             $fpcFile = $roots | ForEach-Object {
-              Get-ChildItem $_ -Recurse -Depth 6 -Filter 'fpc.exe' -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            } | Select-Object -First 1
+              Get-ChildItem $_ -Recurse -Depth 6 -Filter 'fpc.exe' -ErrorAction SilentlyContinue
+            } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($fpcFile) {
               $fpcFile.DirectoryName | Add-Content -Path $env:GITHUB_PATH
             } else {
