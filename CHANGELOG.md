@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-15 — 0.14.4
+
+### Fixed
+
+- **`fpc-release.yml` — AppImage download `wget -O` flag placement:** The output-file flag
+  `-O /tmp/appimagetool` was placed after `--`, causing `wget` to treat it as a second URL
+  to download (network failure) rather than as the output path. Moved `-O` before `--` so
+  `wget` correctly saves to `/tmp/appimagetool`.
+
+- **`security-weekly` — `aquasecurity/trivy-action` SHA stale:** Bumped the pinned SHA
+  from `bfa4b33a` (2026-06-04) to `476e4fdc` (2026-06-15) in all four locations:
+  `.github/actions/trivy-scan/action.yml`, `.github/workflows/docker-scan.yml`,
+  `.github/workflows/docker-multiarch.yml`, and `.github/workflows/trivy-scan.yml`.
+
 ## 2026-06-15 — 0.14.3
 
 ### Fixed
