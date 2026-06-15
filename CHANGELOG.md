@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-06-15 — 0.14.5
+
+### Fixed
+
+- **`fpc-release.yml` — Windows `FPCDIR` not set (Chocolatey ZIP install):** The Chocolatey
+  `freepascal` package ships a ZIP archive without `fpc.cfg`, so the previous walk-up that
+  searched for `etc\fpc.cfg` never succeeded. Changed the landmark to `lib\fpc` (always
+  present in the FPC install tree) and increased the depth limit from 3 to 5 levels. With
+  `FPCDIR` correctly set, the `fpc` driver resolves RTL unit paths and passes them to
+  `ppc386.exe`, fixing `Fatal: Can't find unit crt`.
+
 ## 2026-06-15 — 0.14.4
 
 ### Fixed
