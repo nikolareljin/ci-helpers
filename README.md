@@ -8,7 +8,7 @@
 
 Shared GitHub Actions workflows and Bash helpers for CI across multiple repos.
 
-Current production tag: **0.14.0**.
+Current production tag: **0.14.2**.
 
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.

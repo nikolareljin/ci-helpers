@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-06-15 — 0.14.2
+
+### Fixed
+
+- **`fpc-release.yml` — Windows PATH after choco:** Chocolatey installs FPC but the new
+  PATH is not inherited by subsequent bash steps. After `choco install freepascal` the
+  workflow now scans `C:\fpc` for `fpc.exe` and writes its directory to `GITHUB_PATH` so
+  the `Build` step can invoke the compiler.
+
+- **`fpc-release.yml` — AppImage download retry:** `wget` was failing with exit code 4
+  (network failure) on CI runners when downloading `appimagetool`. Added
+  `--tries=3 --waitretry=5` for resilience against transient network issues.
+
+- **`fpc-release.yml` — `overwrite_files`:** `softprops/action-gh-release` renamed the
+  `update_existing` input to `overwrite_files`. The old name was silently ignored, meaning
+  duplicate uploads to an existing release would fail. Updated all three upload steps.
+
+### Dependencies
+
+- `pnpm/action-setup`: v4 → v6 (`pnpm.yml`, `pnpm-cypress.yml`, `pnpm-scan.yml`, `pnpm-playwright.yml`)
+- `dorny/test-reporter`: v2 → v3 (`pnpm.yml`, `pnpm-cypress.yml`, `pnpm-playwright.yml`)
+
 ## 2026-06-13 — 0.14.0
 
 ### Added

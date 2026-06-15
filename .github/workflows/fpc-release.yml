@@ -212,7 +212,29 @@ jobs:
         env:
           FPC_PKG: ${{ inputs.fpc_choco_package }}
         shell: pwsh
-        run: choco install "$env:FPC_PKG" -y --no-progress
+        run: |
+          choco install "$env:FPC_PKG" -y --no-progress
+          # Chocolatey updates Machine PATH in the registry, but the current process
+          # doesn't inherit it. Add those entries without dropping runner tools.
+          $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $userPath   = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+          $env:PATH   = "$env:PATH;$machinePath;$userPath"
+          $fpcExe = Get-Command fpc -ErrorAction SilentlyContinue
+          if ($fpcExe) {
+            Split-Path $fpcExe.Source | Add-Content -Path $env:GITHUB_PATH
+          } else {
+            # Fallback: scan common install roots used by different FPC choco packages
+            $roots = @('C:\fpc', 'C:\tools\freepascal', 'C:\ProgramData\chocolatey\lib')
+            $fpcFile = $roots | ForEach-Object {
+              Get-ChildItem $_ -Recurse -Depth 6 -Filter 'fpc.exe' -ErrorAction SilentlyContinue
+            } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($fpcFile) {
+              $fpcFile.DirectoryName | Add-Content -Path $env:GITHUB_PATH
+            } else {
+              Write-Error 'fpc.exe not found in PATH or common install locations after choco install'
+              exit 1
+            }
+          }
 
       - name: Build
         shell: bash
@@ -468,7 +490,7 @@ jobs:
                       ;;
                   esac
                 fi
-                wget -q --timeout=60 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                wget -q --timeout=60 --tries=3 --waitretry=5 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
                   if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
@@ -626,7 +648,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -636,7 +658,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist_extra/*
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -646,6 +668,6 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

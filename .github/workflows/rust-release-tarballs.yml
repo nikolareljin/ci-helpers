@@ -154,7 +154,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ steps.package.outputs.tarball }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
