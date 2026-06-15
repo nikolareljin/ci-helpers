@@ -512,7 +512,7 @@ jobs:
                       ;;
                   esac
                 fi
-                wget -q --timeout=60 --tries=3 --waitretry=5 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool \
+                wget -q --timeout=60 --tries=3 --waitretry=5 -O /tmp/appimagetool -- "${APPIMAGETOOL_URL}" \
                   || curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
                          -o /tmp/appimagetool -- "${APPIMAGETOOL_URL}"
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
