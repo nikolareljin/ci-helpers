@@ -240,7 +240,7 @@ jobs:
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
           body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
           files: ${{ inputs.artifact_paths }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -251,6 +251,6 @@ jobs:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
           body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

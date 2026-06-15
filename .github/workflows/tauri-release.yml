@@ -619,7 +619,7 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}
           files: tauri-*-artifacts/*
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

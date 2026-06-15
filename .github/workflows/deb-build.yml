@@ -148,6 +148,6 @@ jobs:
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
           files: ${{ inputs.artifact_glob }}
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

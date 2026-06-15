@@ -245,6 +245,6 @@ jobs:
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
           body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
           files: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
-          update_existing: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
