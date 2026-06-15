@@ -109,11 +109,27 @@ jobs:
           pinned_sha=$(tr -d '[:space:]' < "$sha_lock")
           echo "Vendored script-helpers SHA: $pinned_sha"
 
-          # Use the pinned ref if the sync was done against a specific ref;
-          # otherwise fall back to the upstream default branch.
+          # Determine what to compare against:
+          #   explicit ref  → compare against that pinned tag/branch
+          #   "latest"      → auto-detected sync; re-resolve newest semver tag now
+          #   empty/missing → fall back to the upstream default branch
           if [[ -f "$ref_lock" && -n "$(cat "$ref_lock" | tr -d '[:space:]')" ]]; then
             compare_ref=$(tr -d '[:space:]' < "$ref_lock")
-            echo "Comparing against pinned ref: $compare_ref"
+            if [[ "$compare_ref" == "latest" ]]; then
+              compare_ref=$(gh api repos/nikolareljin/script-helpers/tags --jq '.[].name' 2>/dev/null \
+                | { grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
+                | awk '{ k=$0; gsub(/^v/,"",k); n=split(k,a,"."); printf "%010d%010d%010d %s\n",a[1],a[2],a[3],$0 }' \
+                | sort -k1,1 \
+                | awk '{print $2}' \
+                | tail -n1 || true)
+              if [[ -z "$compare_ref" ]]; then
+                echo "::warning::Could not resolve latest upstream script-helpers semver tag."
+                exit 1
+              fi
+              echo "Comparing against latest upstream tag: $compare_ref"
+            else
+              echo "Comparing against pinned ref: $compare_ref"
+            fi
           else
             compare_ref=$(gh api repos/nikolareljin/script-helpers --jq '.default_branch' 2>/dev/null || echo "")
             if [[ -z "$compare_ref" ]]; then

@@ -221,7 +221,7 @@ jobs:
           $env:PATH   = "$env:PATH;$machinePath;$userPath"
           $fpcExe = Get-Command fpc -ErrorAction SilentlyContinue
           if ($fpcExe) {
-            Split-Path $fpcExe.Source | Add-Content -Path $env:GITHUB_PATH
+            $fpcDir = Split-Path $fpcExe.Source
           } else {
             # Fallback: scan common install roots used by different FPC choco packages
             $roots = @('C:\fpc', 'C:\tools\freepascal', 'C:\ProgramData\chocolatey\lib')
@@ -229,11 +229,33 @@ jobs:
               Get-ChildItem $_ -Recurse -Depth 6 -Filter 'fpc.exe' -ErrorAction SilentlyContinue
             } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($fpcFile) {
-              $fpcFile.DirectoryName | Add-Content -Path $env:GITHUB_PATH
+              $fpcDir = $fpcFile.DirectoryName
             } else {
               Write-Error 'fpc.exe not found in PATH or common install locations after choco install'
               exit 1
             }
+          }
+          $fpcDir | Add-Content -Path $env:GITHUB_PATH
+          # Derive FPC installation root so ppc386.exe can find fpc.cfg.
+          # fpc.exe lives in <root>\bin\<arch>\ — walk up to locate etc\fpc.cfg.
+          # Export both FPCDIR (used by the fpc driver) and PPC_CONFIG_PATH
+          # (used directly by ppc386.exe to locate fpc.cfg on Windows).
+          $p = $fpcDir
+          $fpcCfgFound = $false
+          for ($i = 0; $i -lt 3; $i++) {
+            if (Test-Path (Join-Path $p 'etc\fpc.cfg')) {
+              "FPCDIR=$p"              | Add-Content -Path $env:GITHUB_ENV
+              "PPC_CONFIG_PATH=$p\etc" | Add-Content -Path $env:GITHUB_ENV
+              Write-Output "Set FPCDIR=$p  PPC_CONFIG_PATH=$p\etc"
+              $fpcCfgFound = $true
+              break
+            }
+            $parent = Split-Path $p -Parent
+            if (-not $parent -or $parent -eq $p) { break }
+            $p = $parent
+          }
+          if (-not $fpcCfgFound) {
+            Write-Warning "fpc.cfg not found within 3 directory levels of $fpcDir — FPCDIR and PPC_CONFIG_PATH not set; compilation may fail to locate RTL units."
           }
 
       - name: Build
@@ -490,7 +512,9 @@ jobs:
                       ;;
                   esac
                 fi
-                wget -q --timeout=60 --tries=3 --waitretry=5 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool
+                wget -q --timeout=60 --tries=3 --waitretry=5 -- "${APPIMAGETOOL_URL}" -O /tmp/appimagetool \
+                  || curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+                         -o /tmp/appimagetool -- "${APPIMAGETOOL_URL}"
                 actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
                 if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
                   if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
