@@ -23,12 +23,13 @@ usage() { display_help; }
 
 REPO_URL="${SCRIPT_HELPERS_REPO_URL:-git@github.com:nikolareljin/script-helpers.git}"
 REF="${SCRIPT_HELPERS_REF:-}"
+REF_WAS_EXPLICIT="${SCRIPT_HELPERS_REF:+1}"  # set when REF is provided via env
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ref)
       [[ -z "${2-}" || "${2-}" == --* ]] && { log_error "Missing value for --ref"; usage; exit 2; }
-      REF="$2"; shift 2 ;;
+      REF="$2"; REF_WAS_EXPLICIT=1; shift 2 ;;
     --repo-url)
       [[ -z "${2-}" || "${2-}" == --* ]] && { log_error "Missing value for --repo-url"; usage; exit 2; }
       REPO_URL="$2"; shift 2 ;;
@@ -67,7 +68,8 @@ fi
 
 # Clone to a temp dir so vendor is only replaced on success.
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+STAGE_DIR="${DEST_DIR}.new"
+trap 'rm -rf "$TMP_DIR" "$STAGE_DIR"' EXIT
 
 log_info "Cloning ${REPO_URL} @ ${REF} ..."
 # git clone --branch only accepts tag/branch names, not raw SHAs.
@@ -86,16 +88,25 @@ if [[ "$COMMIT_HASH" == "$current_sha" && -d "$DEST_DIR" ]]; then
   exit 0
 fi
 
-rm -rf "$DEST_DIR"
 mkdir -p "$ROOT_DIR/vendor"
-cp -r "$TMP_DIR/script-helpers" "$DEST_DIR"
-
-# Remove .git directory to avoid nested git repositories.
-rm -rf "$DEST_DIR/.git"
+# Stage into DEST_DIR.new first; only replace the live vendor dir after the
+# copy succeeds, so an interruption never leaves an empty vendor tree.
+rm -rf "$STAGE_DIR"
+cp -r "$TMP_DIR/script-helpers" "$STAGE_DIR"
+rm -rf "$STAGE_DIR/.git"
+rm -rf "$DEST_DIR"
+mv "$STAGE_DIR" "$DEST_DIR"
 
 # Write SHA and ref lockfiles so vendor-drift checks can compare against upstream.
+# For explicit-ref syncs record the pinned ref; for auto-detected "latest" syncs
+# record the literal "latest" so the drift check re-resolves the newest semver tag
+# on each run rather than pinning to a now-stale resolved tag.
 echo "$COMMIT_HASH" > "$ROOT_DIR/vendor/.script-helpers-sha"
-echo "$REF"         > "$ROOT_DIR/vendor/.script-helpers-ref"
+if [[ -n "${REF_WAS_EXPLICIT:-}" ]]; then
+  echo "$REF"    > "$ROOT_DIR/vendor/.script-helpers-ref"
+else
+  echo "latest"  > "$ROOT_DIR/vendor/.script-helpers-ref"
+fi
 
 log_info "Synced script-helpers from ${REPO_URL}"
 log_info "Ref: ${REF} — Commit: ${COMMIT_HASH}"
