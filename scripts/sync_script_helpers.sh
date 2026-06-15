@@ -45,7 +45,9 @@ if [[ -z "$REF" ]]; then
       | awk '{print $2}' \
       | sed 's|refs/tags/||' \
       | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
-      | sort -V \
+      | awk '{ k=$0; gsub(/^v/,"",k); n=split(k,a,"."); printf "%010d%010d%010d %s\n",a[1],a[2],a[3],$0 }' \
+      | sort -k1,1 \
+      | awk '{print $2}' \
       | tail -n1
   )"
   if [[ -z "$REF" ]]; then
@@ -69,8 +71,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 log_info "Cloning ${REPO_URL} @ ${REF} ..."
 # git clone --branch only accepts tag/branch names, not raw SHAs.
-# Detect a 40-hex-char SHA and fall back to a full clone + checkout.
-if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+# Detect any hex-only string (7–40 chars) as a SHA and use full clone + checkout.
+if [[ "$REF" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
   git clone --quiet "$REPO_URL" "$TMP_DIR/script-helpers"
   git -C "$TMP_DIR/script-helpers" checkout --quiet "$REF"
 else
@@ -79,7 +81,7 @@ fi
 
 COMMIT_HASH="$(git -C "$TMP_DIR/script-helpers" rev-parse HEAD)"
 
-if [[ "$COMMIT_HASH" == "$current_sha" ]]; then
+if [[ "$COMMIT_HASH" == "$current_sha" && -d "$DEST_DIR" ]]; then
   log_info "Already up to date at ${REF} (${COMMIT_HASH}). Nothing to do."
   exit 0
 fi
