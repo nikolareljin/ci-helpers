@@ -68,6 +68,7 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
           cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/pnpm-lock.yaml', inputs.working_directory) || 'pnpm-lock.yaml' }}
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
