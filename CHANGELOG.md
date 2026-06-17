@@ -7,12 +7,15 @@
 - **`pnpm-pages.yml` — reusable GitHub Pages deployment workflow for pnpm monorepos:**
   New `preset-pnpm-pages` reusable workflow (`workflow_call`) that builds a pnpm monorepo,
   optionally runs a Playwright-based capture script to generate screenshots and videos, runs
-  a static-site generator, and deploys the result to GitHub Pages. Inputs: `build_command`,
+  a static-site generator, and deploys the result to GitHub Pages. Inputs: `runner`,
+  `working_directory`, `fetch_depth`, `node_version`, `pnpm_version`, `build_command`,
   `capture_command`, `generate_command`, `pages_path`, `install_playwright`,
-  `playwright_browser`, `runner`, `node_version`, `pnpm_version`. The `playwright_browser`
-  input is passed via the `PW_BROWSER` environment variable rather than direct interpolation
-  to avoid shell injection. Jobs: `build` (checkout → pnpm → optional Playwright → generate →
-  upload artifact) and `deploy` (Pages deployment with `github-pages` environment).
+  `playwright_browser`. The `playwright_browser` input is validated against known browser
+  names (`chromium`, `firefox`, `webkit`, `chrome`, `msedge`) before install and passed via
+  `PW_BROWSER` to avoid shell injection. `pages: write` and `id-token: write` are scoped to
+  the `deploy` job only; the `build` job requires only `contents: read`. Jobs: `build`
+  (checkout → pnpm → optional Playwright → generate → upload artifact) and `deploy` (Pages
+  deployment with `github-pages` environment).
 
 ## 2026-06-15 — 0.14.5
 

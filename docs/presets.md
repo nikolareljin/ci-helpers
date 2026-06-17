@@ -315,7 +315,8 @@ GitHub Pages. Requires `pages: write` and `id-token: write` in the caller.
 Defaults:
 - `runner`: `ubuntu-latest`
 - `working_directory`: `.` — set to a subdirectory when the pnpm workspace root is not the repo root
-- `fetch_depth`: `0` — full history; set to `1` for shallow clones (avoids issues with tag-based tools)
+- `fetch_depth`: `0` — full history; this is the safe default for tag-based tooling (e.g. changeset
+  version, release scripts); set to `1` for faster shallow clones when no tag/history access is needed
 - `node_version`: `22`
 - `pnpm_version`: `latest`
 - `build_command`: `pnpm build` — runs before the capture and generate steps
