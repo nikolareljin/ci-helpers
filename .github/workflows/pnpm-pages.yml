@@ -39,8 +39,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
-      pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -56,24 +54,39 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
 
       - name: Build packages
         if: ${{ inputs.build_command != '' }}
-        run: ${{ inputs.build_command }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
 
       - name: Install Playwright browser
         if: ${{ inputs.install_playwright }}
         env:
           PW_BROWSER: ${{ inputs.playwright_browser }}
-        run: pnpm exec playwright install --with-deps "$PW_BROWSER"
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright install --with-deps "$PW_BROWSER"
 
       - name: Capture screenshots / videos
         if: ${{ inputs.capture_command != '' }}
-        run: ${{ inputs.capture_command }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.capture_command }}
 
       - name: Generate site
-        run: ${{ inputs.generate_command }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.generate_command }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -81,7 +94,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

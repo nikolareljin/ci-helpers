@@ -304,6 +304,75 @@ jobs:
       e2e_command: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm --filter demo preview' http://localhost:4173 'pnpm exec playwright test'"
 ```
 
+## pnpm + Pages
+
+Workflow: `.github/workflows/pnpm-pages.yml`
+
+Builds a pnpm monorepo, optionally runs a Playwright capture script to produce
+screenshots and videos, runs a static-site generator, and deploys the result to
+GitHub Pages. Requires `pages: write` and `id-token: write` in the caller.
+
+Defaults:
+- `node_version`: `22`
+- `pnpm_version`: `latest`
+- `build_command`: `pnpm build` — runs before the capture and generate steps
+- `capture_command`: `""` — optional; set to e.g. `node scripts/capture.mjs` to run a
+  Playwright-based capture script before site generation
+- `generate_command`: `node docs/generate.mjs` — generates the static site into `pages_path`
+- `pages_path`: `docs/site` — directory uploaded to Pages
+- `install_playwright`: `false` — set to `true` to install the Playwright browser before capture
+- `playwright_browser`: `chromium` — Playwright browser to install when `install_playwright` is `true`
+- `runner`: `ubuntu-latest`
+
+Notes:
+- `pages: write` and `id-token: write` are scoped to the `deploy` job only; the `build` job
+  only requires `contents: read`, so caller-supplied commands cannot exchange OIDC tokens.
+- The `playwright_browser` input is passed via `$PW_BROWSER` (not direct interpolation) to
+  avoid shell-injection risk.
+- All `run:` steps use `shell: bash` with `set -euo pipefail`, consistent with other pnpm presets.
+
+Required caller permissions:
+
+```yaml
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+```
+
+Example (with Playwright capture):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      build_command: "pnpm build"
+      capture_command: "node scripts/capture.mjs"
+      install_playwright: true
+      playwright_browser: "chromium"
+```
+
+Example (generate only, no capture):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      build_command: "pnpm build"
+      generate_command: "node docs/generate.mjs"
+      pages_path: "docs/site"
+```
+
 ## pnpm + Cypress
 
 Workflow: `.github/workflows/pnpm-cypress.yml`
