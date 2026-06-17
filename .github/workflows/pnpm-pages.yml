@@ -1,0 +1,93 @@
+name: preset-pnpm-pages
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      node_version:
+        type: string
+        default: "22"
+      pnpm_version:
+        type: string
+        default: "latest"
+      build_command:
+        type: string
+        default: "pnpm build"
+      capture_command:
+        type: string
+        default: ""
+      generate_command:
+        type: string
+        default: "node docs/generate.mjs"
+      pages_path:
+        type: string
+        default: "docs/site"
+      install_playwright:
+        type: boolean
+        default: false
+      playwright_browser:
+        type: string
+        default: "chromium"
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm_version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        if: ${{ inputs.build_command != '' }}
+        run: ${{ inputs.build_command }}
+
+      - name: Install Playwright browser
+        if: ${{ inputs.install_playwright }}
+        env:
+          PW_BROWSER: ${{ inputs.playwright_browser }}
+        run: pnpm exec playwright install --with-deps "$PW_BROWSER"
+
+      - name: Capture screenshots / videos
+        if: ${{ inputs.capture_command != '' }}
+        run: ${{ inputs.capture_command }}
+
+      - name: Generate site
+        run: ${{ inputs.generate_command }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ inputs.pages_path }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
