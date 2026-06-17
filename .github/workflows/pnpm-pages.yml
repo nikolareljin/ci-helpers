@@ -5,6 +5,12 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
       node_version:
         type: string
         default: "22"
@@ -41,6 +47,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -54,6 +63,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,13 +71,27 @@ jobs:
 
       - name: Build packages
         if: ${{ inputs.build_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
           set -euo pipefail
           ${{ inputs.build_command }}
 
+      - name: Validate Playwright browser
+        if: ${{ inputs.install_playwright }}
+        env:
+          PW_BROWSER: ${{ inputs.playwright_browser }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PW_BROWSER" in
+            chromium|firefox|webkit|chrome|msedge) ;;
+            *) echo "::error::Invalid playwright_browser: '$PW_BROWSER'. Must be one of: chromium, firefox, webkit, chrome, msedge"; exit 1 ;;
+          esac
+
       - name: Install Playwright browser
         if: ${{ inputs.install_playwright }}
+        working-directory: ${{ inputs.working_directory }}
         env:
           PW_BROWSER: ${{ inputs.playwright_browser }}
         shell: bash
@@ -77,12 +101,14 @@ jobs:
 
       - name: Capture screenshots / videos
         if: ${{ inputs.capture_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
           set -euo pipefail
           ${{ inputs.capture_command }}
 
       - name: Generate site
+        working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
           set -euo pipefail
@@ -90,7 +116,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ${{ inputs.pages_path }}
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
 
   deploy:
     needs: build

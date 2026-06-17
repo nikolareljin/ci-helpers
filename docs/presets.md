@@ -313,23 +313,29 @@ screenshots and videos, runs a static-site generator, and deploys the result to
 GitHub Pages. Requires `pages: write` and `id-token: write` in the caller.
 
 Defaults:
+- `runner`: `ubuntu-latest`
+- `working_directory`: `.` — set to a subdirectory when the pnpm workspace root is not the repo root
+- `fetch_depth`: `0` — full history; set to `1` for shallow clones (avoids issues with tag-based tools)
 - `node_version`: `22`
 - `pnpm_version`: `latest`
 - `build_command`: `pnpm build` — runs before the capture and generate steps
 - `capture_command`: `""` — optional; set to e.g. `node scripts/capture.mjs` to run a
   Playwright-based capture script before site generation
 - `generate_command`: `node docs/generate.mjs` — generates the static site into `pages_path`
-- `pages_path`: `docs/site` — directory uploaded to Pages
+- `pages_path`: `docs/site` — directory uploaded to Pages (relative to `working_directory`)
 - `install_playwright`: `false` — set to `true` to install the Playwright browser before capture
-- `playwright_browser`: `chromium` — Playwright browser to install when `install_playwright` is `true`
-- `runner`: `ubuntu-latest`
+- `playwright_browser`: `chromium` — must be one of: `chromium`, `firefox`, `webkit`, `chrome`, `msedge`;
+  validated before install so failures are deterministic
 
 Notes:
 - `pages: write` and `id-token: write` are scoped to the `deploy` job only; the `build` job
   only requires `contents: read`, so caller-supplied commands cannot exchange OIDC tokens.
+- `playwright_browser` is validated against known Playwright browser names before install; an
+  `::error::` annotation is emitted and the job fails immediately on an unknown value.
 - The `playwright_browser` input is passed via `$PW_BROWSER` (not direct interpolation) to
   avoid shell-injection risk.
 - All `run:` steps use `shell: bash` with `set -euo pipefail`, consistent with other pnpm presets.
+- `pages_path` is automatically prefixed with `working_directory` when not `.`.
 
 Required caller permissions:
 
