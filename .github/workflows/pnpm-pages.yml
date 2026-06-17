@@ -1,0 +1,140 @@
+name: preset-pnpm-pages
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      node_version:
+        type: string
+        default: "22"
+      pnpm_version:
+        type: string
+        default: "latest"
+      build_command:
+        type: string
+        default: "pnpm build"
+      capture_command:
+        type: string
+        default: ""
+      generate_command:
+        type: string
+        default: "node docs/generate.mjs"
+      pages_path:
+        type: string
+        default: "docs/site"
+      install_playwright:
+        type: boolean
+        default: false
+      playwright_browser:
+        type: string
+        default: "chromium"
+
+# Serialise Pages deployments — prevents an older run from overwriting a newer
+# one when two pushes arrive close together. cancel-in-progress: false lets the
+# current deployment finish before the next one starts.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm_version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/pnpm-lock.yaml', inputs.working_directory) || 'pnpm-lock.yaml' }}
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Build packages
+        if: ${{ inputs.build_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Validate Playwright browser
+        if: ${{ inputs.install_playwright }}
+        env:
+          PW_BROWSER: ${{ inputs.playwright_browser }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PW_BROWSER" in
+            chromium|firefox|webkit|chrome|msedge) ;;
+            *) echo "::error::Invalid playwright_browser: '$PW_BROWSER'. Must be one of: chromium, firefox, webkit, chrome, msedge"; exit 1 ;;
+          esac
+
+      - name: Install Playwright browser
+        if: ${{ inputs.install_playwright }}
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PW_BROWSER: ${{ inputs.playwright_browser }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec playwright install --with-deps "$PW_BROWSER"
+
+      - name: Capture screenshots / videos
+        if: ${{ inputs.capture_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.capture_command }}
+
+      - name: Generate site
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.generate_command }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
+
+  deploy:
+    needs: build
+    runs-on: ${{ inputs.runner }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
