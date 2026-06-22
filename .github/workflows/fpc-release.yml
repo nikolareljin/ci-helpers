@@ -278,8 +278,12 @@ jobs:
             $mkcfgCmd = Get-Command fpcmkcfg -ErrorAction SilentlyContinue
             $mkcfgPath = if ($mkcfgCmd) { $mkcfgCmd.Path } else { $null }
           }
-          if ($mkcfgPath -and (Test-Path $mkcfgPath) -and $fpcDirFound) {
-            $cfgPath = Join-Path $fpcDir 'fpc.cfg'
+          $cfgPath = Join-Path $fpcDir 'fpc.cfg'
+          if (Test-Path $cfgPath) {
+            # A caller using a different package (or a preinstalled FPC) may ship
+            # a customized fpc.cfg. Don't overwrite it; only generate when absent.
+            Write-Output "fpc.cfg already present at $cfgPath; leaving it untouched."
+          } elseif ($mkcfgPath -and (Test-Path $mkcfgPath) -and $fpcDirFound) {
             & $mkcfgPath -d "basepath=$p" -o "$cfgPath"
             if ($LASTEXITCODE -eq 0 -and (Test-Path $cfgPath)) {
               Write-Output "Generated fpc.cfg at $cfgPath (basepath=$p)"
