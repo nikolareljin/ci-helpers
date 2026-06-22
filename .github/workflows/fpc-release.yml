@@ -397,6 +397,9 @@ jobs:
             fi
           done
           (cd dist && powershell -Command "Compress-Archive -Path '${pkg}' -DestinationPath '${pkg}.zip'")
+          # Also publish the bare .exe alongside the zip: a clickable standalone
+          # binary for users who don't need the bundled data files.
+          cp -- "${BIN_NAME}${BIN_SUFFIX}" "dist/${pkg}.exe"
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
 
       # ── Linux packaging: DEB / RPM / AppImage ─────────────────────────────
@@ -729,6 +732,16 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows EXE to GitHub release
+        if: runner.os == 'Windows' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.exe
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
