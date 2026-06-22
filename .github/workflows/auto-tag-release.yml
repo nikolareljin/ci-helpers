@@ -35,7 +35,10 @@ on:
           Release version detected from the merged release/X.Y.Z PR (empty when
           the push was not a release/* merge). Exposed so callers can gate
           follow-up jobs — e.g. creating the GitHub Release or moving a
-          production branch — on `needs.<job>.outputs.version`.
+          production branch — on `needs.<caller-job-id>.outputs.version`, where
+          <caller-job-id> is the caller's own job that `uses:` this workflow
+          (not this workflow's internal `tag` job), e.g.
+          `needs.auto_tag.outputs.version`.
         value: ${{ jobs.tag.outputs.version }}
 
 permissions:

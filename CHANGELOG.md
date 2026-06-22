@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-06-22 — 0.14.7
+
+### Fixed
+
+- **`fpc-release.yml` — Windows `fpc.cfg` generation and Intel macOS coverage (#98):**
+  The Chocolatey `freepascal` package ships no `fpc.cfg`, so the `fpc` driver had no RTL
+  unit search paths and Windows builds aborted with `Fatal: Can't find unit crt`. After
+  resolving `FPCDIR`, the workflow now generates a default `fpc.cfg` with `fpcmkcfg`.
+  `fpcmkcfg.exe` is resolved from the discovered FPC directory first (then a PATH fallback
+  via the command's full `.Path`, never the possibly-empty `.Source`) so it is found even
+  when `fpc.exe` was located by the fallback scan rather than `Get-Command`. The config is
+  written only when no `fpc.cfg` already exists, so a customized config from a different
+  package or a preinstalled FPC is never overwritten. The unschedulable `macos-13` Intel
+  matrix entry is replaced with `macos-15-intel` (label `macos-x86_64`), the current
+  schedulable hosted Intel runner, keeping the documented `macos-x86_64` release asset
+  building instead of silently dropping it.
+
+- **`auto-tag-release.yml` — expose the detected release version as a `workflow_call` output (#99):**
+  Added a `version` output (`value: ${{ jobs.tag.outputs.version }}`) so callers can gate
+  follow-up jobs — creating a GitHub Release, moving a production branch — on
+  `needs.<caller-job-id>.outputs.version`. The output description clarifies that
+  `<caller-job-id>` is the caller's own job that `uses:` this workflow, not the internal
+  `tag` job.
+
 ## 2026-06-17 — 0.14.6
 
 ### Added
