@@ -192,7 +192,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.tag.outputs.tag }}
           fetch-depth: ${{ inputs.fetch_depth }}
@@ -244,14 +244,15 @@ jobs:
           # Derive FPC installation root (FPCDIR) so the fpc driver can locate
           # RTL units. The Chocolatey freepascal package ships a ZIP without
           # fpc.cfg, so we cannot use that file as a landmark. Instead we walk
-          # up from fpc.exe's directory until we find lib\fpc, which is always
-          # present in the install tree regardless of whether fpc.cfg exists.
+          # up from fpc.exe's directory until we find the RTL units root.
+          # The Windows package keeps RTL under <root>\units\<target>, while a
+          # Unix-style tree keeps it under lib\fpc — accept either landmark.
           $p = $fpcDir
           $fpcDirFound = $false
-          for ($i = 0; $i -lt 5; $i++) {
-            if (Test-Path (Join-Path $p 'lib\fpc')) {
+          for ($i = 0; $i -lt 6; $i++) {
+            if ((Test-Path (Join-Path $p 'units')) -or (Test-Path (Join-Path $p 'lib\fpc'))) {
               "FPCDIR=$p" | Add-Content -Path $env:GITHUB_ENV
-              Write-Output "Set FPCDIR=$p (found lib\fpc at depth $i)"
+              Write-Output "Set FPCDIR=$p (RTL landmark found at depth $i)"
               $fpcDirFound = $true
               break
             }
@@ -260,7 +261,7 @@ jobs:
             $p = $parent
           }
           if (-not $fpcDirFound) {
-            Write-Warning "lib\fpc not found within 5 directory levels of $fpcDir — FPCDIR not set; compilation may fail to locate RTL units."
+            Write-Warning "No FPC RTL landmark (units or lib\fpc) within 6 directory levels of $fpcDir — FPCDIR not set; compilation may fail to locate RTL units."
           }
           # The Chocolatey freepascal package ships no fpc.cfg, so the driver
           # has no RTL unit search paths and aborts with "Can't find unit crt"
@@ -396,7 +397,12 @@ jobs:
             fi
           done
           (cd dist && powershell -Command "Compress-Archive -Path '${pkg}' -DestinationPath '${pkg}.zip'")
+          # Also publish the bare .exe alongside the zip: a clickable standalone
+          # binary for users who don't need the bundled data files. Export its
+          # path so the upload step consumes it instead of re-deriving the name.
+          cp -- "${BIN_NAME}${BIN_SUFFIX}" "dist/${pkg}.exe"
           printf 'asset=dist/%s.zip\n' "$pkg" >> "$GITHUB_OUTPUT"
+          printf 'exe_asset=dist/%s.exe\n' "$pkg" >> "$GITHUB_OUTPUT"
 
       # ── Linux packaging: DEB / RPM / AppImage ─────────────────────────────
 
@@ -728,6 +734,16 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows EXE to GitHub release
+        if: runner.os == 'Windows' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: ${{ inputs.working_directory }}/${{ steps.pkg_win.outputs.exe_asset }}
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

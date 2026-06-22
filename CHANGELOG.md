@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-06-22 — 0.15.0
+
+### Added
+
+- **`fpc-release.yml` — publish the bare Windows `.exe` alongside the `.zip` (#102):**
+  The Windows packaging step now also copies the raw `<bin>.exe` to
+  `dist/<pkg>.exe` and uploads it as a separate release asset, so consumers
+  (PravKal and others) get **both** a clickable standalone `.exe` and the
+  `.zip` data bundle, instead of only the zipped exe + data.
+
+### Fixed
+
+- **`fpc-release.yml` — Windows build aborted with `Can't find unit crt` (#102):**
+  `FPCDIR` resolution walked up from `fpc.exe` looking only for a Unix-style
+  `lib\fpc` landmark, but the Chocolatey `freepascal` package keeps RTL units
+  under `<root>\units\<target>`. `FPCDIR` was therefore never set and the
+  `fpc.cfg` generation (guarded on it) was skipped, so the driver had no RTL
+  search paths. The walk now accepts a `units` directory **or** `lib\fpc` as
+  the landmark and widens the search from 5 to 6 directory levels, so `FPCDIR`
+  resolves on the Windows package and `fpcmkcfg` produces a working `fpc.cfg`.
+
+### Changed
+
+- **Dependency bumps (Dependabot, #103, #104):**
+  - `actions/checkout` `v6` → `v7` across all reusable workflows (and the
+    matching SHA pins refreshed).
+  - `actions/upload-pages-artifact` `v3` → `v5` and `actions/deploy-pages`
+    `v4` → `v5` in `pnpm-pages.yml`.
+  - `securego/gosec` pinned SHA advanced to
+    `6a008f60b8f7f3d7fae8f126984a9df5d4b7e0cf` in `go-scan.yml`.
+
 ## 2026-06-22 — 0.14.7
 
 ### Fixed
