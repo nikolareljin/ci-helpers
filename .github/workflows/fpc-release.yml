@@ -136,7 +136,12 @@ jobs:
           - os: macos-latest
             label: macos-arm64
             binary_suffix: ""
-          - os: macos-13
+          # Intel macOS uses macos-15-intel, the current schedulable hosted
+          # label. The retired macos-13 was dropped because its runner pool
+          # routinely failed to schedule, leaving the job queued until the 24h
+          # timeout and failing the whole release. macos-15-intel keeps the
+          # documented macos-x86_64 asset (see docs/workflows.md) building.
+          - os: macos-15-intel
             label: macos-x86_64
             binary_suffix: ""
           - os: windows-latest
@@ -256,6 +261,37 @@ jobs:
           }
           if (-not $fpcDirFound) {
             Write-Warning "lib\fpc not found within 5 directory levels of $fpcDir — FPCDIR not set; compilation may fail to locate RTL units."
+          }
+          # The Chocolatey freepascal package ships no fpc.cfg, so the driver
+          # has no RTL unit search paths and aborts with "Can't find unit crt"
+          # (or system, sysutils, …) even with FPCDIR set. Generate a default
+          # fpc.cfg from the install tree so ppcXXX can resolve RTL units.
+          # Placed next to fpc.exe, which is the first location the driver reads.
+          # Resolve fpcmkcfg.exe from $fpcDir first: when fpc.exe was located by
+          # the fallback scan (not Get-Command fpc), $fpcDir was only appended to
+          # GITHUB_PATH for later steps and is absent from this process's PATH,
+          # so Get-Command fpcmkcfg would miss the adjacent tool. Fall back to a
+          # PATH lookup and use the full .Path (not .Source, which can be empty
+          # for external executables) so we never invoke an empty command.
+          $mkcfgPath = Join-Path $fpcDir 'fpcmkcfg.exe'
+          if (-not (Test-Path $mkcfgPath)) {
+            $mkcfgCmd = Get-Command fpcmkcfg -ErrorAction SilentlyContinue
+            $mkcfgPath = if ($mkcfgCmd) { $mkcfgCmd.Path } else { $null }
+          }
+          $cfgPath = Join-Path $fpcDir 'fpc.cfg'
+          if (Test-Path $cfgPath) {
+            # A caller using a different package (or a preinstalled FPC) may ship
+            # a customized fpc.cfg. Don't overwrite it; only generate when absent.
+            Write-Output "fpc.cfg already present at $cfgPath; leaving it untouched."
+          } elseif ($mkcfgPath -and (Test-Path $mkcfgPath) -and $fpcDirFound) {
+            & $mkcfgPath -d "basepath=$p" -o "$cfgPath"
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $cfgPath)) {
+              Write-Output "Generated fpc.cfg at $cfgPath (basepath=$p)"
+            } else {
+              Write-Warning "fpcmkcfg exited $LASTEXITCODE; fpc.cfg may be missing — RTL unit resolution could fail."
+            }
+          } else {
+            Write-Warning "fpcmkcfg not found or FPCDIR unresolved; fpc.cfg not generated — RTL unit resolution may fail."
           }
 
       - name: Build
