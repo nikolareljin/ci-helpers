@@ -91,7 +91,7 @@ jobs:
 
       - name: Create GitHub Release (CHANGELOG notes)
         if: steps.notes.outputs.body != ''
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
@@ -99,7 +99,7 @@ jobs:
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.notes.outputs.body == ''
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
