@@ -53,7 +53,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -122,7 +122,7 @@ jobs:
           set -euo pipefail
           ${{ inputs.generate_command }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
 
@@ -137,4 +137,4 @@ jobs:
       id-token: write
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

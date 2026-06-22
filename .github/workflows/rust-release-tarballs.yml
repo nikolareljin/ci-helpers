@@ -98,7 +98,7 @@ jobs:
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.tag.outputs.tag }}
 

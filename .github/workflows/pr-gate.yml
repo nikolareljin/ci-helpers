@@ -77,14 +77,14 @@ jobs:
   pr-gate:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Checkout script-helpers
         if: ${{ inputs.check_release_tag }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: nikolareljin/script-helpers
           ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
