@@ -614,7 +614,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-05-23
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}

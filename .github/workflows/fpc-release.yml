@@ -704,7 +704,7 @@ jobs:
 
       - name: Upload to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
@@ -714,7 +714,7 @@ jobs:
 
       - name: Upload extra Linux packages to GitHub release
         if: runner.os == 'Linux' && inputs.linux_packages != '' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist_extra/*
@@ -724,7 +724,7 @@ jobs:
 
       - name: Upload macOS DMG to GitHub release
         if: runner.os == 'macOS' && inputs.macos_dmg == 'true' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3 @ 2026-04-12
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3 @ 2026-06-22
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
