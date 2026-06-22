@@ -136,9 +136,11 @@ jobs:
           - os: macos-latest
             label: macos-arm64
             binary_suffix: ""
-          - os: macos-13
-            label: macos-x86_64
-            binary_suffix: ""
+          # macos-13 (Intel) intentionally omitted: the hosted runner pool
+          # routinely fails to schedule it, leaving the job queued until the
+          # 24h job timeout and failing the whole release. Apple-Silicon
+          # (macos-latest/arm64) covers macOS; Intel Macs can run it via
+          # Rosetta or the linux build. Re-add if dedicated runners exist.
           - os: windows-latest
             label: windows-x86_64
             binary_suffix: .exe
@@ -256,6 +258,23 @@ jobs:
           }
           if (-not $fpcDirFound) {
             Write-Warning "lib\fpc not found within 5 directory levels of $fpcDir — FPCDIR not set; compilation may fail to locate RTL units."
+          }
+          # The Chocolatey freepascal package ships no fpc.cfg, so the driver
+          # has no RTL unit search paths and aborts with "Can't find unit crt"
+          # (or system, sysutils, …) even with FPCDIR set. Generate a default
+          # fpc.cfg from the install tree so ppcXXX can resolve RTL units.
+          # Placed next to fpc.exe, which is the first location the driver reads.
+          $mkcfg = Get-Command fpcmkcfg -ErrorAction SilentlyContinue
+          if ($mkcfg -and $fpcDirFound) {
+            $cfgPath = Join-Path $fpcDir 'fpc.cfg'
+            & $mkcfg.Source -d "basepath=$p" -o "$cfgPath"
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $cfgPath)) {
+              Write-Output "Generated fpc.cfg at $cfgPath (basepath=$p)"
+            } else {
+              Write-Warning "fpcmkcfg exited $LASTEXITCODE; fpc.cfg may be missing — RTL unit resolution could fail."
+            }
+          } else {
+            Write-Warning "fpcmkcfg not found or FPCDIR unresolved; fpc.cfg not generated — RTL unit resolution may fail."
           }
 
       - name: Build
