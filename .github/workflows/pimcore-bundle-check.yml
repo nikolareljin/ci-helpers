@@ -80,10 +80,10 @@ jobs:
   check:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Checkout script-helpers
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: nikolareljin/script-helpers
           ref: 3d70d24b4584997b5ef094b68a3f0d8494b3635c
