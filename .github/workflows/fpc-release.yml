@@ -136,11 +136,14 @@ jobs:
           - os: macos-latest
             label: macos-arm64
             binary_suffix: ""
-          # macos-13 (Intel) intentionally omitted: the hosted runner pool
-          # routinely fails to schedule it, leaving the job queued until the
-          # 24h job timeout and failing the whole release. Apple-Silicon
-          # (macos-latest/arm64) covers macOS; Intel Macs can run it via
-          # Rosetta or the linux build. Re-add if dedicated runners exist.
+          # Intel macOS uses macos-15-intel, the current schedulable hosted
+          # label. The retired macos-13 was dropped because its runner pool
+          # routinely failed to schedule, leaving the job queued until the 24h
+          # timeout and failing the whole release. macos-15-intel keeps the
+          # documented macos-x86_64 asset (see docs/workflows.md) building.
+          - os: macos-15-intel
+            label: macos-x86_64
+            binary_suffix: ""
           - os: windows-latest
             label: windows-x86_64
             binary_suffix: .exe
@@ -264,10 +267,20 @@ jobs:
           # (or system, sysutils, …) even with FPCDIR set. Generate a default
           # fpc.cfg from the install tree so ppcXXX can resolve RTL units.
           # Placed next to fpc.exe, which is the first location the driver reads.
-          $mkcfg = Get-Command fpcmkcfg -ErrorAction SilentlyContinue
-          if ($mkcfg -and $fpcDirFound) {
+          # Resolve fpcmkcfg.exe from $fpcDir first: when fpc.exe was located by
+          # the fallback scan (not Get-Command fpc), $fpcDir was only appended to
+          # GITHUB_PATH for later steps and is absent from this process's PATH,
+          # so Get-Command fpcmkcfg would miss the adjacent tool. Fall back to a
+          # PATH lookup and use the full .Path (not .Source, which can be empty
+          # for external executables) so we never invoke an empty command.
+          $mkcfgPath = Join-Path $fpcDir 'fpcmkcfg.exe'
+          if (-not (Test-Path $mkcfgPath)) {
+            $mkcfgCmd = Get-Command fpcmkcfg -ErrorAction SilentlyContinue
+            $mkcfgPath = if ($mkcfgCmd) { $mkcfgCmd.Path } else { $null }
+          }
+          if ($mkcfgPath -and (Test-Path $mkcfgPath) -and $fpcDirFound) {
             $cfgPath = Join-Path $fpcDir 'fpc.cfg'
-            & $mkcfg.Source -d "basepath=$p" -o "$cfgPath"
+            & $mkcfgPath -d "basepath=$p" -o "$cfgPath"
             if ($LASTEXITCODE -eq 0 -and (Test-Path $cfgPath)) {
               Write-Output "Generated fpc.cfg at $cfgPath (basepath=$p)"
             } else {
