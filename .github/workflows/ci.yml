@@ -106,7 +106,12 @@ jobs:
           DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
         run: |
           set -euo pipefail
-          run_args=(-d --name ci-db)
+          # Unique container name per run so concurrent jobs on self-hosted
+          # runners (which share a Docker daemon) never collide on a fixed name.
+          # Exported to GITHUB_ENV so the cleanup step can tear it down.
+          db_container="ci-db-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${RANDOM}"
+          echo "DB_CONTAINER=$db_container" >> "$GITHUB_ENV"
+          run_args=(-d --name "$db_container")
           # One KEY=VALUE per line → a -e flag each (blank lines ignored).
           while IFS= read -r line; do
             line="${line#"${line%%[![:space:]]*}"}"   # ltrim
@@ -114,21 +119,28 @@ jobs:
             [[ -z "$line" ]] && continue
             run_args+=(-e "$line")
           done <<< "$DB_ENV"
-          [[ -n "$DB_PORTS" ]] && run_args+=(-p "$DB_PORTS")
-          echo "Starting database container: $DB_IMAGE"
+          # db_ports is plural: one published mapping per line → a -p flag each,
+          # so callers can publish several ports (blank lines ignored).
+          while IFS= read -r port; do
+            port="${port#"${port%%[![:space:]]*}"}"   # ltrim
+            port="${port%"${port##*[![:space:]]}"}"    # rtrim
+            [[ -z "$port" ]] && continue
+            run_args+=(-p "$port")
+          done <<< "$DB_PORTS"
+          echo "Starting database container: $DB_IMAGE ($db_container)"
           docker run "${run_args[@]}" "$DB_IMAGE"
           if [[ -n "$DB_HEALTH_CMD" ]]; then
             echo "Waiting up to ${DB_WAIT_SECONDS}s for database readiness..."
             ready=0
             for i in $(seq 1 "$DB_WAIT_SECONDS"); do
-              if docker exec ci-db sh -c "$DB_HEALTH_CMD" >/dev/null 2>&1; then
+              if docker exec "$db_container" sh -c "$DB_HEALTH_CMD" >/dev/null 2>&1; then
                 echo "Database ready after ${i}s"; ready=1; break
               fi
               sleep 1
             done
             if [[ "$ready" -ne 1 ]]; then
               echo "Database not ready after ${DB_WAIT_SECONDS}s; recent logs:" >&2
-              docker logs --tail 50 ci-db || true
+              docker logs --tail 50 "$db_container" || true
               exit 1
             fi
           fi
@@ -237,3 +249,10 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.extra_command }}
+
+      # Tear the DB container down regardless of outcome so it never lingers on
+      # self-hosted runners. DB_CONTAINER is set by the start step above.
+      - name: Stop database service
+        if: ${{ always() && env.DB_CONTAINER != '' }}
+        shell: bash
+        run: docker rm -f "$DB_CONTAINER" >/dev/null 2>&1 || true

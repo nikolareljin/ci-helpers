@@ -82,18 +82,21 @@ jobs:
       node_version: ${{ inputs.node_version }}
       lint_command: ${{ inputs.lint_command }}
       build_command: ${{ inputs.build_command }}
-      # Prepare .env, key, point Laravel at the CI MySQL service, migrate, test.
+      # Prepare .env + key, then point Laravel at the CI MySQL service. The DB_*
+      # connection is exported as process environment rather than appended to
+      # .env: Laravel's Dotenv loader is immutable and keeps the FIRST value it
+      # sees, so appending duplicate keys after an existing .env.example entry is
+      # silently ignored. Real environment variables, by contrast, take
+      # precedence over .env, so both `migrate` and `test` reliably use them.
       test_command: |
         cp -n .env.example .env 2>/dev/null || true
         php artisan key:generate --force
-        {
-          echo "DB_CONNECTION=mysql"
-          echo "DB_HOST=127.0.0.1"
-          echo "DB_PORT=${{ inputs.db_port }}"
-          echo "DB_DATABASE=${{ inputs.db_database }}"
-          echo "DB_USERNAME=${{ inputs.db_username }}"
-          echo "DB_PASSWORD=${{ inputs.db_password }}"
-        } >> .env
+        export DB_CONNECTION=mysql
+        export DB_HOST=127.0.0.1
+        export DB_PORT='${{ inputs.db_port }}'
+        export DB_DATABASE='${{ inputs.db_database }}'
+        export DB_USERNAME='${{ inputs.db_username }}'
+        export DB_PASSWORD='${{ inputs.db_password }}'
         php artisan config:clear
         php artisan migrate --force
         ${{ inputs.test_command }}
@@ -104,5 +107,9 @@ jobs:
         MYSQL_USER=${{ inputs.db_username }}
         MYSQL_PASSWORD=${{ inputs.db_password }}
         MYSQL_ROOT_PASSWORD=${{ inputs.db_root_password }}
-      db_health_cmd: ${{ format('mysqladmin ping -h 127.0.0.1 -uroot -p{0} --silent', inputs.db_root_password) }}
+      # Reference the root password from the container's own environment rather
+      # than interpolating it into the probe string — avoids brittle shell
+      # quoting if the password contains special characters. The probe runs as
+      # `sh -c` inside the DB container, where $MYSQL_ROOT_PASSWORD is set.
+      db_health_cmd: 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
       db_wait_seconds: ${{ inputs.db_wait_seconds }}

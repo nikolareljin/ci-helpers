@@ -18,7 +18,7 @@
   previous DB-less behaviour, so this is backward compatible. Covers general
   PHP + MySQL/Postgres stacks without overloading the Pimcore preset.
 
-
+## 2026-06-22 — 0.15.0
 
 ### Added
 
