@@ -59,6 +59,25 @@ on:
       extra_command:
         type: string
         default: ""
+      # Optional database service. When db_image is set, the image is started
+      # via `docker run` before the command steps (services: blocks can't be
+      # conditional in a reusable job). Framework-agnostic: pick the image, the
+      # container env, the published ports, and a readiness probe.
+      db_image:
+        type: string
+        default: ""
+      db_env:
+        type: string
+        default: ""
+      db_ports:
+        type: string
+        default: ""
+      db_health_cmd:
+        type: string
+        default: ""
+      db_wait_seconds:
+        type: string
+        default: "60"
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -72,6 +91,47 @@ jobs:
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+
+      # Optional DB started early so it is warm by the time tests run. Inputs are
+      # caller-defined workflow config, but we still pass them via env (never
+      # interpolated into the script body) to keep the shell injection-safe.
+      - name: Start database service
+        if: ${{ inputs.db_image != '' }}
+        shell: bash
+        env:
+          DB_IMAGE: ${{ inputs.db_image }}
+          DB_ENV: ${{ inputs.db_env }}
+          DB_PORTS: ${{ inputs.db_ports }}
+          DB_HEALTH_CMD: ${{ inputs.db_health_cmd }}
+          DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
+        run: |
+          set -euo pipefail
+          run_args=(-d --name ci-db)
+          # One KEY=VALUE per line → a -e flag each (blank lines ignored).
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+            line="${line%"${line##*[![:space:]]}"}"    # rtrim
+            [[ -z "$line" ]] && continue
+            run_args+=(-e "$line")
+          done <<< "$DB_ENV"
+          [[ -n "$DB_PORTS" ]] && run_args+=(-p "$DB_PORTS")
+          echo "Starting database container: $DB_IMAGE"
+          docker run "${run_args[@]}" "$DB_IMAGE"
+          if [[ -n "$DB_HEALTH_CMD" ]]; then
+            echo "Waiting up to ${DB_WAIT_SECONDS}s for database readiness..."
+            ready=0
+            for i in $(seq 1 "$DB_WAIT_SECONDS"); do
+              if docker exec ci-db sh -c "$DB_HEALTH_CMD" >/dev/null 2>&1; then
+                echo "Database ready after ${i}s"; ready=1; break
+              fi
+              sleep 1
+            done
+            if [[ "$ready" -ne 1 ]]; then
+              echo "Database not ready after ${DB_WAIT_SECONDS}s; recent logs:" >&2
+              docker logs --tail 50 ci-db || true
+              exit 1
+            fi
+          fi
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}

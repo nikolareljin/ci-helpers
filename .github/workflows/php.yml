@@ -35,6 +35,23 @@ on:
       extra_command:
         type: string
         default: ""
+      # Optional database service for PHP + MySQL/Postgres test stacks. Leave
+      # db_image empty for a DB-less run. See ci.yml for the mechanism.
+      db_image:
+        type: string
+        default: ""
+      db_env:
+        type: string
+        default: ""
+      db_ports:
+        type: string
+        default: ""
+      db_health_cmd:
+        type: string
+        default: ""
+      db_wait_seconds:
+        type: string
+        default: "60"
 
 jobs:
   ci:
@@ -51,3 +68,8 @@ jobs:
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
+      db_image: ${{ inputs.db_image }}
+      db_env: ${{ inputs.db_env }}
+      db_ports: ${{ inputs.db_ports }}
+      db_health_cmd: ${{ inputs.db_health_cmd }}
+      db_wait_seconds: ${{ inputs.db_wait_seconds }}

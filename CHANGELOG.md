@@ -1,6 +1,24 @@
 # Changelog
 
-## 2026-06-22 — 0.15.0
+## 2026-06-27 — 0.16.0
+
+### Added
+
+- **`laravel.yml` — new reusable preset for Laravel apps:** builds assets, boots
+  a MySQL service, and runs Pint style + the `php artisan test` suite against it.
+  Discrete, friendly DB inputs (`db_database`, `db_username`, `db_password`,
+  `db_root_password`, `db_port`) are composed into the base DB mechanism for the
+  caller; `working_directory` supports apps living in a subdirectory. Use it with
+  `uses: nikolareljin/ci-helpers/.github/workflows/laravel.yml@production`.
+- **`ci.yml` / `php.yml` — optional, framework-agnostic database service:** new
+  `db_image`, `db_env`, `db_ports`, `db_health_cmd`, and `db_wait_seconds` inputs.
+  When `db_image` is set, the base job starts the container via `docker run`
+  before the command steps (GitHub `services:` blocks can't be conditional in a
+  reusable job) and waits on a readiness probe. Leaving `db_image` empty keeps the
+  previous DB-less behaviour, so this is backward compatible. Covers general
+  PHP + MySQL/Postgres stacks without overloading the Pimcore preset.
+
+
 
 ### Added
 
