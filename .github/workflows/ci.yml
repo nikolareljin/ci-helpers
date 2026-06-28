@@ -81,9 +81,10 @@ on:
         type: number
         default: 60
       # Extra environment for the subsequent command steps (lint/test/build/…),
-      # one KEY=VALUE per line. Each line is trimmed of surrounding whitespace,
-      # then written to $GITHUB_ENV without the shell re-quoting the value, so
-      # passwords/credentials with special characters are safe.
+      # one KEY=VALUE per line. Lines are written to $GITHUB_ENV without the
+      # shell re-quoting the value (so special characters are safe); only a
+      # trailing CR and leading indentation are stripped, and each line is
+      # validated as KEY=VALUE.
       extra_env:
         type: string
         default: ""
@@ -121,10 +122,13 @@ jobs:
           db_container="ci-db-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${RANDOM}"
           echo "DB_CONTAINER=$db_container" >> "$GITHUB_ENV"
           run_args=(-d --name "$db_container")
-          # One KEY=VALUE per line → a -e flag each (blank lines ignored).
+          # One KEY=VALUE per line → a -e flag each (blank lines ignored). Strip
+          # a trailing CR (Windows line endings) and leading indentation only —
+          # never the value's own whitespace, since spaces are valid inside a
+          # Docker env value (e.g. a password that ends in a space).
           while IFS= read -r line; do
-            line="${line#"${line%%[![:space:]]*}"}"   # ltrim
-            line="${line%"${line##*[![:space:]]}"}"    # rtrim
+            line="${line%$'\r'}"                       # strip trailing CR
+            line="${line#"${line%%[![:space:]]*}"}"    # strip leading indentation
             [[ -z "$line" ]] && continue
             run_args+=(-e "$line")
           done <<< "$DB_ENV"
@@ -155,10 +159,13 @@ jobs:
           fi
 
       # Make caller-supplied KEY=VALUE pairs available to the subsequent command
-      # steps. The blob arrives via env (never interpolated into the script);
-      # each line is trimmed of surrounding whitespace and written to
-      # $GITHUB_ENV, where the shell never re-quotes the value — so credentials
-      # containing quotes or other special characters pass through intact.
+      # steps. The blob arrives via env (never interpolated into the script) and
+      # each line is written to $GITHUB_ENV, where the shell never re-quotes the
+      # value — so credentials containing quotes or other special characters
+      # pass through intact. Only a trailing CR and leading indentation are
+      # stripped; the value's own whitespace is preserved. Each line is
+      # validated as KEY=VALUE so a malformed entry fails here with a clear
+      # message instead of GitHub's generic "Invalid format" error later.
       - name: Export extra env
         if: ${{ inputs.extra_env != '' }}
         shell: bash
@@ -167,9 +174,14 @@ jobs:
         run: |
           set -euo pipefail
           while IFS= read -r line; do
-            line="${line#"${line%%[![:space:]]*}"}"   # ltrim
-            line="${line%"${line##*[![:space:]]}"}"    # rtrim
+            line="${line%$'\r'}"                       # strip trailing CR
+            line="${line#"${line%%[![:space:]]*}"}"    # strip leading indentation
             [[ -z "$line" ]] && continue
+            key="${line%%=*}"
+            if [[ "$line" != *=* || ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+              echo "::error::extra_env line is not a valid KEY=VALUE entry: ${line}" >&2
+              exit 1
+            fi
             printf '%s\n' "$line" >> "$GITHUB_ENV"
           done <<< "$EXTRA_ENV"
 
