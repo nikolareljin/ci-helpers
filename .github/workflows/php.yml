@@ -50,8 +50,12 @@ on:
         type: string
         default: ""
       db_wait_seconds:
+        type: number
+        default: 60
+      # Extra KEY=VALUE environment passed through to the Test step (see ci.yml).
+      extra_env:
         type: string
-        default: "60"
+        default: ""
 
 jobs:
   ci:
@@ -73,3 +77,4 @@ jobs:
       db_ports: ${{ inputs.db_ports }}
       db_health_cmd: ${{ inputs.db_health_cmd }}
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
+      extra_env: ${{ inputs.extra_env }}

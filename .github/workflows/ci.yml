@@ -76,8 +76,14 @@ on:
         type: string
         default: ""
       db_wait_seconds:
+        type: number
+        default: 60
+      # Extra environment passed through to the Test step as one KEY=VALUE per
+      # line. Values are written verbatim to $GITHUB_ENV and never re-quoted by
+      # the shell, so passwords/credentials with special characters are safe.
+      extra_env:
         type: string
-        default: "60"
+        default: ""
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -144,6 +150,25 @@ jobs:
               exit 1
             fi
           fi
+
+      # Make caller-supplied KEY=VALUE pairs available to the Test step. The blob
+      # arrives via env (never interpolated into the script) and each line is
+      # written verbatim to $GITHUB_ENV, so the shell never re-quotes the values
+      # — credentials containing quotes or other special characters pass through
+      # unchanged.
+      - name: Export extra env
+        if: ${{ inputs.extra_env != '' }}
+        shell: bash
+        env:
+          EXTRA_ENV: ${{ inputs.extra_env }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+            line="${line%"${line##*[![:space:]]}"}"    # rtrim
+            [[ -z "$line" ]] && continue
+            printf '%s\n' "$line" >> "$GITHUB_ENV"
+          done <<< "$EXTRA_ENV"
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}

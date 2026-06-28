@@ -68,8 +68,8 @@ on:
         type: string
         default: "3306"
       db_wait_seconds:
-        type: string
-        default: "60"
+        type: number
+        default: 60
 
 jobs:
   laravel:
@@ -82,26 +82,35 @@ jobs:
       node_version: ${{ inputs.node_version }}
       lint_command: ${{ inputs.lint_command }}
       build_command: ${{ inputs.build_command }}
-      # Prepare .env + key, then point Laravel at the CI MySQL service. The DB_*
-      # connection is exported as process environment rather than appended to
-      # .env: Laravel's Dotenv loader is immutable and keeps the FIRST value it
-      # sees, so appending duplicate keys after an existing .env.example entry is
-      # silently ignored. Real environment variables, by contrast, take
-      # precedence over .env, so both `migrate` and `test` reliably use them.
+      # Prepare .env + key, then migrate/test. The DB_* connection comes from the
+      # process environment (set via extra_env below) rather than being appended
+      # to .env: Laravel's Dotenv loader is immutable and keeps the FIRST value
+      # it sees, so duplicate keys appended after an existing .env.example entry
+      # are silently ignored. Real environment variables take precedence over
+      # .env, so both `migrate` and `test` reliably use them. The copy only runs
+      # when .env.example exists and .env is absent, so real cp errors (missing
+      # source, permissions) surface instead of being swallowed.
       test_command: |
-        cp -n .env.example .env 2>/dev/null || true
+        if [ -f .env.example ] && [ ! -f .env ]; then
+          cp .env.example .env
+        fi
         php artisan key:generate --force
-        export DB_CONNECTION=mysql
-        export DB_HOST=127.0.0.1
-        export DB_PORT='${{ inputs.db_port }}'
-        export DB_DATABASE='${{ inputs.db_database }}'
-        export DB_USERNAME='${{ inputs.db_username }}'
-        export DB_PASSWORD='${{ inputs.db_password }}'
         php artisan config:clear
         php artisan migrate --force
         ${{ inputs.test_command }}
+      # DB connection passed as environment, not interpolated into the shell, so
+      # credentials with quotes or other special characters can't break quoting.
+      extra_env: |
+        DB_CONNECTION=mysql
+        DB_HOST=127.0.0.1
+        DB_PORT=${{ inputs.db_port }}
+        DB_DATABASE=${{ inputs.db_database }}
+        DB_USERNAME=${{ inputs.db_username }}
+        DB_PASSWORD=${{ inputs.db_password }}
       db_image: ${{ inputs.db_image }}
-      db_ports: ${{ format('{0}:3306', inputs.db_port) }}
+      # Bind the published port to loopback only: on self-hosted runners this
+      # keeps the DB off the network while DB_HOST=127.0.0.1 still reaches it.
+      db_ports: ${{ format('127.0.0.1:{0}:3306', inputs.db_port) }}
       db_env: |
         MYSQL_DATABASE=${{ inputs.db_database }}
         MYSQL_USER=${{ inputs.db_username }}
