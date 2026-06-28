@@ -52,7 +52,8 @@ on:
       db_wait_seconds:
         type: number
         default: 60
-      # Extra KEY=VALUE environment passed through to the Test step (see ci.yml).
+      # Extra KEY=VALUE environment exposed to the subsequent command steps
+      # (lint/test/build/…) via $GITHUB_ENV. See ci.yml.
       extra_env:
         type: string
         default: ""

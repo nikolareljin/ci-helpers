@@ -38,13 +38,15 @@ on:
       lint_command:
         type: string
         default: "composer install --no-interaction --prefer-dist && vendor/bin/pint --test"
-      # Asset build. Set to "" to skip for API-only apps.
+      # Asset build. Set to "" to skip for API-only apps; also set node_version
+      # to "" if you want to skip the Node setup step entirely.
       build_command:
         type: string
         default: "npm ci --include=optional && npm run build"
-      # Test suite. The DB connection is written to .env before running so both
-      # `migrate` and `test` use the CI MySQL service. phpunit.xml may still
-      # force its own DB_DATABASE (e.g. *_test) — set db_database to match.
+      # Test suite. The DB connection is exported as environment (see extra_env
+      # below) before running, so both `migrate` and `test` use the CI MySQL
+      # service. phpunit.xml may still force its own DB_DATABASE (e.g. *_test) —
+      # set db_database to match.
       test_command:
         type: string
         default: "php artisan test"

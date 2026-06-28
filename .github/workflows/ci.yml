@@ -62,7 +62,9 @@ on:
       # Optional database service. When db_image is set, the image is started
       # via `docker run` before the command steps (services: blocks can't be
       # conditional in a reusable job). Framework-agnostic: pick the image, the
-      # container env, the published ports, and a readiness probe.
+      # container env, the published ports, and a readiness probe. db_health_cmd
+      # runs *inside* the container (`docker exec <container> sh -c ...`), so
+      # probe a local socket/port (e.g. 127.0.0.1) — not a host URL.
       db_image:
         type: string
         default: ""
@@ -78,9 +80,10 @@ on:
       db_wait_seconds:
         type: number
         default: 60
-      # Extra environment passed through to the Test step as one KEY=VALUE per
-      # line. Values are written verbatim to $GITHUB_ENV and never re-quoted by
-      # the shell, so passwords/credentials with special characters are safe.
+      # Extra environment for the subsequent command steps (lint/test/build/…),
+      # one KEY=VALUE per line. Each line is trimmed of surrounding whitespace,
+      # then written to $GITHUB_ENV without the shell re-quoting the value, so
+      # passwords/credentials with special characters are safe.
       extra_env:
         type: string
         default: ""
@@ -151,11 +154,11 @@ jobs:
             fi
           fi
 
-      # Make caller-supplied KEY=VALUE pairs available to the Test step. The blob
-      # arrives via env (never interpolated into the script) and each line is
-      # written verbatim to $GITHUB_ENV, so the shell never re-quotes the values
-      # — credentials containing quotes or other special characters pass through
-      # unchanged.
+      # Make caller-supplied KEY=VALUE pairs available to the subsequent command
+      # steps. The blob arrives via env (never interpolated into the script);
+      # each line is trimmed of surrounding whitespace and written to
+      # $GITHUB_ENV, where the shell never re-quotes the value — so credentials
+      # containing quotes or other special characters pass through intact.
       - name: Export extra env
         if: ${{ inputs.extra_env != '' }}
         shell: bash
