@@ -156,8 +156,12 @@ jobs:
           docker run "${run_args[@]}" "$DB_IMAGE"
           if [[ -n "$DB_HEALTH_CMD" ]]; then
             echo "Waiting up to ${DB_WAIT_SECONDS}s for database readiness..."
+            if [[ ! "$DB_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
+              echo "::error::db_wait_seconds must be a non-negative integer" >&2
+              exit 1
+            fi
             ready=0
-            for i in $(seq 1 "$DB_WAIT_SECONDS"); do
+            for ((i=1; i<=DB_WAIT_SECONDS; i++)); do
               if docker exec "$db_container" sh -c "$DB_HEALTH_CMD" >/dev/null 2>&1; then
                 echo "Database ready after ${i}s"; ready=1; break
               fi
