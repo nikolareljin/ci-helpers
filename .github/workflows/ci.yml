@@ -125,11 +125,23 @@ jobs:
           # One KEY=VALUE per line → a -e flag each (blank lines ignored). Strip
           # a trailing CR (Windows line endings) and leading indentation only —
           # never the value's own whitespace, since spaces are valid inside a
-          # Docker env value (e.g. a password that ends in a space).
+          # Docker env value (e.g. a password that ends in a space). Each line
+          # must be KEY=VALUE: a bare key would make `docker run -e KEY` copy
+          # that variable from the runner environment into the container, which
+          # could leak runner secrets. Error messages stay redacted.
           while IFS= read -r line; do
             line="${line%$'\r'}"                       # strip trailing CR
             line="${line#"${line%%[![:space:]]*}"}"    # strip leading indentation
             [[ -z "$line" ]] && continue
+            if [[ "$line" != *=* ]]; then
+              echo "::error::db_env has a line without '=' (expected KEY=VALUE); value redacted" >&2
+              exit 1
+            fi
+            key="${line%%=*}"
+            if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+              echo "::error::db_env has an invalid key '${key}' (expected KEY=VALUE)" >&2
+              exit 1
+            fi
             run_args+=(-e "$line")
           done <<< "$DB_ENV"
           # db_ports is plural: one published mapping per line → a -p flag each,
@@ -177,9 +189,14 @@ jobs:
             line="${line%$'\r'}"                       # strip trailing CR
             line="${line#"${line%%[![:space:]]*}"}"    # strip leading indentation
             [[ -z "$line" ]] && continue
+            # Redacted errors: never echo the value, which may be a secret.
+            if [[ "$line" != *=* ]]; then
+              echo "::error::extra_env has a line without '=' (expected KEY=VALUE); value redacted" >&2
+              exit 1
+            fi
             key="${line%%=*}"
-            if [[ "$line" != *=* || ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-              echo "::error::extra_env line is not a valid KEY=VALUE entry: ${line}" >&2
+            if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+              echo "::error::extra_env has an invalid key '${key}' (expected KEY=VALUE)" >&2
               exit 1
             fi
             printf '%s\n' "$line" >> "$GITHUB_ENV"
