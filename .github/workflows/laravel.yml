@@ -1,0 +1,126 @@
+name: preset-laravel
+
+# Preset for Laravel apps. Builds assets, boots a MySQL service, runs Pint
+# style + the PHPUnit/artisan test suite against it.
+#
+# Minimal usage (app at repo root):
+#   uses: nikolareljin/ci-helpers/.github/workflows/laravel.yml@production
+#
+# Typical usage (app in a subdirectory, custom test DB):
+#   uses: nikolareljin/ci-helpers/.github/workflows/laravel.yml@production
+#   with:
+#     working_directory: "my-app"
+#     php_version: "8.4.1"
+#     db_database: "my_app_test"
+#
+# Built on php.yml -> ci.yml. The DB is started via ci.yml's optional db_image
+# mechanism; the discrete db_* inputs below are composed into that for you.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      php_version:
+        type: string
+        default: "8.4"
+      node_version:
+        type: string
+        default: "22"
+      # Pint style check by default; override to phpcs/phpstan/etc.
+      lint_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist && vendor/bin/pint --test"
+      # Asset build. Set to "" to skip for API-only apps; also set node_version
+      # to "" if you want to skip the Node setup step entirely.
+      build_command:
+        type: string
+        default: "npm ci --include=optional && npm run build"
+      # Test suite. The DB connection is exported as environment (see extra_env
+      # below) before running, so both `migrate` and `test` use the CI MySQL
+      # service. phpunit.xml may still force its own DB_DATABASE (e.g. *_test) —
+      # set db_database to match.
+      test_command:
+        type: string
+        default: "php artisan test"
+      # MySQL service (set db_image: "" to run without a database).
+      db_image:
+        type: string
+        default: "mysql:8.0"
+      db_database:
+        type: string
+        default: "laravel_test"
+      db_username:
+        type: string
+        default: "laravel"
+      db_password:
+        type: string
+        default: "secret"
+      db_root_password:
+        type: string
+        default: "root"
+      db_port:
+        type: string
+        default: "3306"
+      db_wait_seconds:
+        type: number
+        default: 60
+
+jobs:
+  laravel:
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      php_version: ${{ inputs.php_version }}
+      node_version: ${{ inputs.node_version }}
+      lint_command: ${{ inputs.lint_command }}
+      build_command: ${{ inputs.build_command }}
+      # Prepare .env + key, then migrate/test. The DB_* connection comes from the
+      # process environment (set via extra_env below) rather than being appended
+      # to .env: Laravel's Dotenv loader is immutable and keeps the FIRST value
+      # it sees, so duplicate keys appended after an existing .env.example entry
+      # are silently ignored. Real environment variables take precedence over
+      # .env, so both `migrate` and `test` reliably use them. The copy only runs
+      # when .env.example exists and .env is absent, so real cp errors (missing
+      # source, permissions) surface instead of being swallowed.
+      test_command: |
+        if [ -f .env.example ] && [ ! -f .env ]; then
+          cp .env.example .env
+        fi
+        php artisan key:generate --force
+        php artisan config:clear
+        php artisan migrate --force
+        ${{ inputs.test_command }}
+      # DB connection passed as environment, not interpolated into the shell, so
+      # credentials with quotes or other special characters can't break quoting.
+      extra_env: |
+        DB_CONNECTION=mysql
+        DB_HOST=127.0.0.1
+        DB_PORT=${{ inputs.db_port }}
+        DB_DATABASE=${{ inputs.db_database }}
+        DB_USERNAME=${{ inputs.db_username }}
+        DB_PASSWORD=${{ inputs.db_password }}
+      db_image: ${{ inputs.db_image }}
+      # Bind the published port to loopback only: on self-hosted runners this
+      # keeps the DB off the network while DB_HOST=127.0.0.1 still reaches it.
+      db_ports: ${{ format('127.0.0.1:{0}:3306', inputs.db_port) }}
+      db_env: |
+        MYSQL_DATABASE=${{ inputs.db_database }}
+        MYSQL_USER=${{ inputs.db_username }}
+        MYSQL_PASSWORD=${{ inputs.db_password }}
+        MYSQL_ROOT_PASSWORD=${{ inputs.db_root_password }}
+      # Reference the root password from the container's own environment rather
+      # than interpolating it into the probe string — avoids brittle shell
+      # quoting if the password contains special characters. The probe runs as
+      # `sh -c` inside the DB container, where $MYSQL_ROOT_PASSWORD is set.
+      db_health_cmd: 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
+      db_wait_seconds: ${{ inputs.db_wait_seconds }}
