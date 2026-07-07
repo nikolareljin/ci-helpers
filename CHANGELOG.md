@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-06 — 0.16.1
+
+### Changed
+
+- **Consolidated Dependabot GitHub Actions bumps (#108–#113):** advanced the
+  pinned SHAs for the Docker build stack and the security scanners, and — the
+  part Dependabot gets wrong — corrected the human-readable version/date
+  trailer on every pin so it matches the SHA it annotates:
+  - `docker/setup-qemu-action` → `v4.2.0` (`96fe6ef`)
+  - `docker/setup-buildx-action` → `v4.2.0` (`bb05f3f`)
+  - `docker/build-push-action` → `v7.3.0` (`53b7df9`)
+  - `docker/login-action` → `v4.4.0` (`af1e73f`)
+  - `securego/gosec` → `master` (`11023e5`)
+  - `aquasecurity/trivy-action` → `master` (`c07df6f`)
+- **Fixed a Dependabot pin blind spot:** the `trivy-action` SHA in the
+  `trivy-scan` **composite action** (`.github/actions/trivy-scan/action.yml`)
+  was left stale by PR #110 — Dependabot only scans `.github/workflows` (its
+  `directory: /` scope), not composite actions under `.github/actions`. Updated
+  it in lockstep so all four `trivy-action` references share one SHA.
+
 ## 2026-06-27 — 0.16.0
 
 ### Added
