@@ -208,7 +208,7 @@ jobs:
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -221,19 +221,19 @@ jobs:
 
       - name: Setup .NET
         if: ${{ inputs.dotnet_version != '' }}
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python_version }}
 
       - name: Setup Go
         if: ${{ inputs.go_version != '' }}
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go_version }}
 
