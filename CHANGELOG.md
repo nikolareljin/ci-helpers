@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-07-21 — 0.16.2
+
+### Changed
+
+- **Consolidated the two open Dependabot GitHub Actions PRs (#116, #117) into one
+  release and fixed the drift Dependabot leaves behind.** #116 bumped the runner
+  setup actions and #117 bumped `securego/gosec`; this release applies both and —
+  the part Dependabot gets wrong — corrects the human-readable version/date
+  trailer on every SHA pin so it matches the commit it annotates:
+  - `actions/setup-node` → `v7` (tag-pinned presets) and, in the Tauri workflows,
+    the SHA pin advanced to the `v7` tip (`820762786…`) with its trailer corrected
+    from a stale `# v6` to `# v7` — Dependabot moved the SHA to the `v7` tip in
+    `#116` but left the comment reading `v6`.
+  - `actions/setup-dotnet` → `v6`
+  - `actions/setup-python` → `v7`
+  - `actions/setup-go` → `v7`
+  - `securego/gosec` → `master` (`45b083a…`, current tip; supersedes the
+    day-older SHA proposed in `#117`)
+- **Refreshed every stale SHA pin in one pass via `scripts/update_pinned_actions.sh`,
+  fixing the red `security-weekly` workflow.** Its **SHA Pin Audit** job runs that
+  same script in `--check` mode and had been failing because pins for
+  `dtolnay/rust-toolchain` (`# stable`), `softprops/action-gh-release`, `gosec`,
+  and the Tauri `setup-node` had drifted from their annotated refs. All 26 stale
+  pins are re-anchored to their current upstream tips (audit: `47 up-to-date,
+  0 stale`), so the weekly gate goes green again.
+
 ## 2026-07-06 — 0.16.1
 
 ### Changed

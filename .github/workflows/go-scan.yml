@@ -34,7 +34,7 @@ jobs:
           fetch-tags: true
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go_version }}
 
@@ -56,6 +56,6 @@ jobs:
 
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        uses: securego/gosec@11023e51e1f46c4ea63315bdb7670f073442168f # master @ 2026-06-29
+        uses: securego/gosec@45b083a0cb42119d61b1e0e364d8c62c68f6f5cd # master @ 2026-07-21
         with:
           args: ${{ inputs.gosec_args }}
