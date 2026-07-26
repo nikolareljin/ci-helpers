@@ -108,11 +108,6 @@ jobs:
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
-      # fastlane match reads these to sync iOS certs/profiles from the private
-      # storage repo. Signing itself lives in the consumer's ios_release lane.
-      MATCH_GIT_URL: ${{ secrets.match_git_url }}
-      MATCH_PASSWORD: ${{ secrets.match_password }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -120,6 +115,10 @@ jobs:
 
       - name: Mask fastlane match secrets
         if: ${{ inputs.deploy_app_store }}
+        env:
+          MATCH_GIT_URL: ${{ secrets.match_git_url }}
+          MATCH_PASSWORD: ${{ secrets.match_password }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
         run: |
           set -euo pipefail
           set +x
@@ -324,6 +323,11 @@ jobs:
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.app_store_connect_key_id }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
+          # Scoped here (not job-level) so match credentials are only exposed to
+          # the iOS deploy step. fastlane match reads these to sync certs/profiles.
+          MATCH_GIT_URL: ${{ secrets.match_git_url }}
+          MATCH_PASSWORD: ${{ secrets.match_password }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" != "macOS" ]]; then
