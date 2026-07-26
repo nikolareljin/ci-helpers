@@ -118,6 +118,17 @@ jobs:
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
 
+      - name: Mask fastlane match secrets
+        if: ${{ inputs.deploy_app_store }}
+        run: |
+          set -euo pipefail
+          set +x
+          for secret_value in "${MATCH_GIT_URL}" "${MATCH_PASSWORD}" "${MATCH_GIT_BASIC_AUTHORIZATION}"; do
+            if [[ -n "${secret_value}" ]]; then
+              echo "::add-mask::${secret_value}"
+            fi
+          done
+
       - name: Setup Java
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         uses: actions/setup-java@v5
