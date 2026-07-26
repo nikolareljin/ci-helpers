@@ -6,8 +6,9 @@
 
 - **`flutter-release.yml`: fastlane `match` support for iOS signing.** New optional
   secrets `match_git_url`, `match_password`, and `match_git_basic_authorization` are
-  exposed as `MATCH_GIT_URL` / `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` on the
-  App Store deploy steps only (not job-wide), so a consumer's `ios_release` Fastlane lane
+  exposed as `MATCH_GIT_URL` / `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` only on the
+  macOS-gated App Store steps (secret masking + the Fastlane upload), never job-wide, so a
+  consumer's `ios_release` Fastlane lane
   can sync certificates and provisioning profiles from a private storage repo. This closes the
   gap where iOS deploys had no in-workflow signing path (Android already handled
   keystore signing in-workflow). All three secrets are optional and unset by default,

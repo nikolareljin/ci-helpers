@@ -319,7 +319,7 @@ jobs:
           fi
 
       - name: Deploy to App Store via Fastlane
-        if: ${{ inputs.deploy_app_store }}
+        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.app_store_connect_key_id }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
