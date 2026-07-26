@@ -114,7 +114,7 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
 
       - name: Mask fastlane match secrets
-        if: ${{ inputs.deploy_app_store }}
+        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
         env:
           MATCH_GIT_URL: ${{ secrets.match_git_url }}
           MATCH_PASSWORD: ${{ secrets.match_password }}
