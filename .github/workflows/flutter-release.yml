@@ -80,6 +80,12 @@ on:
         required: false
       app_store_connect_issuer_id:
         required: false
+      match_git_url:
+        required: false
+      match_password:
+        required: false
+      match_git_basic_authorization:
+        required: false
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -102,6 +108,11 @@ jobs:
       FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
+      # fastlane match reads these to sync iOS certs/profiles from the private
+      # storage repo. Signing itself lives in the consumer's ios_release lane.
+      MATCH_GIT_URL: ${{ secrets.match_git_url }}
+      MATCH_PASSWORD: ${{ secrets.match_password }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
     steps:
       - uses: actions/checkout@v7
         with:
