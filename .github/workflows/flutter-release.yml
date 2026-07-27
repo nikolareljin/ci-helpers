@@ -113,6 +113,12 @@ jobs:
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
 
+      - name: Validate App Store runner
+        if: ${{ inputs.deploy_app_store && runner.os != 'macOS' }}
+        run: |
+          echo "App Store uploads require a macOS runner." >&2
+          exit 1
+
       - name: Mask fastlane match secrets
         if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
         env:
@@ -340,10 +346,6 @@ jobs:
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
         run: |
           set -euo pipefail
-          if [[ "${{ runner.os }}" != "macOS" ]]; then
-            echo "App Store uploads require a macOS runner." >&2
-            exit 1
-          fi
           if [ -f Gemfile ]; then
             bundle exec fastlane ${{ inputs.fastlane_ios_lane }}
           else
