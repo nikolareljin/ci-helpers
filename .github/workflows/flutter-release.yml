@@ -122,9 +122,19 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          for secret_value in "${MATCH_GIT_URL}" "${MATCH_PASSWORD}" "${MATCH_GIT_BASIC_AUTHORIZATION}"; do
+          secrets_to_mask=(
+            "${MATCH_GIT_URL}"
+            "${MATCH_PASSWORD}"
+            "${MATCH_GIT_BASIC_AUTHORIZATION}"
+          )
+          for secret_value in "${secrets_to_mask[@]}"; do
             if [[ -n "${secret_value}" ]]; then
-              echo "::add-mask::${secret_value}"
+              # Workflow commands are line-oriented. Escape command-data control
+              # characters so multiline values stay within one mask command.
+              escaped_secret="${secret_value//'%'/'%25'}"
+              escaped_secret="${escaped_secret//$'\r'/'%0D'}"
+              escaped_secret="${escaped_secret//$'\n'/'%0A'}"
+              printf '::add-mask::%s\n' "${escaped_secret}"
             fi
           done
 

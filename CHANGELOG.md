@@ -11,8 +11,8 @@
   consumer's `ios_release` Fastlane lane
   can sync certificates and provisioning profiles from a private storage repo. This closes the
   gap where iOS deploys had no in-workflow signing path (Android already handled
-  keystore signing in-workflow). All three secrets are optional and unset by default,
-  so existing callers are unaffected.
+  keystore signing in-workflow). All three secrets are optional and resolve to empty
+  strings when omitted, so existing callers are unaffected.
 
 ### Fixed
 
