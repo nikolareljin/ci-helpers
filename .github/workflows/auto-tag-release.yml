@@ -70,8 +70,16 @@ env:
 
 jobs:
   # Tagging + production-tag move are delegated to the reusable, least-privilege
-  # auto-tag.yml so the logic lives in one place. Local `uses: ./` resolves to the
-  # same ref of ci-helpers as this file.
+  # auto-tag.yml so the logic lives in one place.
+  #
+  # The relative `uses: ./` is intentional and works for external (cross-repo)
+  # callers. Per the GitHub docs on reusing workflows: "If you use the second
+  # syntax option (without {owner}/{repo} and @{ref}) the called workflow is from
+  # the same commit as the caller workflow." Here the caller workflow is THIS file
+  # (auto-tag-release.yml in ci-helpers), so `./auto-tag.yml` always resolves to
+  # ci-helpers at the exact ref the consumer pinned — never the consumer's own repo.
+  # An absolute `nikolareljin/ci-helpers/...@ref` would be worse: `uses:` refs must
+  # be literals, so it could not track the consumer's pinned ref.
   tag:
     uses: ./.github/workflows/auto-tag.yml
     with:
