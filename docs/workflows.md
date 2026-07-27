@@ -830,11 +830,38 @@ jobs:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
+## auto-tag.yml
+
+Workflow: `.github/workflows/auto-tag.yml`
+
+Purpose: The tag-only, least-privilege version of the release automation. On a push to the default branch that is a merged `release/[v]X.Y.Z[-rc[.]N]` PR, it creates+pushes the version tag and (by default) moves the floating `production` tag. It does **not** dispatch a follow-up workflow.
+
+Permissions: needs only `contents: write` + `pull-requests: read`. **No `actions: write`** — prefer this workflow whenever you do not need the auto-dispatch feature.
+
+Inputs: `runner`, `fetch_depth`, `default_branch`, `update_production_tag` (same meaning as in `auto-tag-release.yml`). Output: `version`.
+
+```yaml
+name: Auto Tag
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
+```
+
 ## auto-tag-release.yml
 
 Workflow: `.github/workflows/auto-tag-release.yml`
 
-Purpose: Auto-tag releases when a `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N` PR is merged into the default branch.
+Purpose: Auto-tag releases when a `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N` PR is merged into the default branch, **plus** optionally dispatch a follow-up workflow. Tagging is delegated to `auto-tag.yml`; this workflow adds the dispatch job.
+
+**Permissions:** callers must grant `actions: write` **in addition to** `contents: write` + `pull-requests: read` — even if they never set `release_workflow`. GitHub validates a reusable workflow's declared permissions at startup regardless of the dispatch job's `if:` gate, so omitting `actions: write` fails the run with *"requesting 'actions: write', but is only allowed 'actions: none'"*. If you do not need auto-dispatch, use [`auto-tag.yml`](#auto-tagyml) instead.
 
 Notes:
 - Detects the repo default branch; falls back to `main` if missing.
@@ -851,10 +878,10 @@ Inputs:
 - `update_production_tag` (boolean, default `true`) — when `false`, skips the Bootstrap script-helpers and Update production tag steps. Set to `false` in repos that do not carry a floating `production` tag.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
-Example (tag only, no production tag, no GitHub Release):
+Example (tag only, no production tag, no GitHub Release) — use `auto-tag.yml`, which needs no `actions: write`:
 
 ```yaml
-name: Auto Tag Release
+name: Auto Tag
 on:
   push:
     branches: [ main, master ]
@@ -865,7 +892,7 @@ permissions:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
     with:
       update_production_tag: false
 ```

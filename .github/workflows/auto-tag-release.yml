@@ -1,4 +1,15 @@
 name: auto-tag-release
+
+# Release automation with auto-dispatch. On a push to the default branch that is
+# a merged `release/X.Y.Z` PR, this tags the version (via the reusable auto-tag.yml)
+# and — when `release_workflow` is set — dispatches a follow-up workflow.
+#
+# PERMISSIONS: callers of THIS workflow must grant `actions: write` (for the
+# dispatch job), even if they never set `release_workflow` — GitHub validates a
+# reusable workflow's declared permissions at startup regardless of job `if:`.
+# If you do NOT need auto-dispatch, call the lighter `auto-tag.yml` instead, which
+# needs only `contents: write` + `pull-requests: read`.
+
 on:
   workflow_call:
     inputs:
@@ -26,7 +37,8 @@ on:
           a release_tag input equal to the detected version, bypassing the GitHub
           restriction that prevents GITHUB_TOKEN-created tags from firing tag-push
           triggered workflows. Leave empty (default) to skip auto-dispatch.
-          NOTE: callers must also grant actions: write permission.
+          NOTE: this workflow always requires callers to grant actions: write (see
+          the header). If you never dispatch, prefer auto-tag.yml.
         type: string
         default: ""
     outputs:
@@ -44,13 +56,12 @@ on:
 permissions:
   contents: write
   pull-requests: read
-  # actions: write must appear here so the dispatch job can request it at the
-  # job level (GitHub requires job-level permissions ⊆ workflow-level permissions).
-  # The tag job's explicit permissions block excludes it, so it only applies to
-  # the dispatch job.
-  # NOTE: Callers must also grant pull-requests: read (PR-based version detection)
-  # and actions: write when release_workflow is set. Reusable workflows cannot
-  # elevate the GITHUB_TOKEN permissions of their callers.
+  # actions: write is declared here so the dispatch job can request it at the job
+  # level (GitHub requires job-level permissions ⊆ workflow-level permissions).
+  # Because GitHub validates a reusable workflow's declared permissions at startup
+  # regardless of a job's `if:` gate, EVERY caller of this workflow must grant
+  # actions: write — even callers that never set release_workflow. Callers that do
+  # not need auto-dispatch should use auto-tag.yml (no actions: write required).
   actions: write
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
@@ -58,199 +69,16 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Tagging + production-tag move are delegated to the reusable, least-privilege
+  # auto-tag.yml so the logic lives in one place. Local `uses: ./` resolves to the
+  # same ref of ci-helpers as this file.
   tag:
-    runs-on: ${{ inputs.runner }}
-    permissions:
-      contents: write
-      pull-requests: read
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: ${{ inputs.fetch_depth }}
-          fetch-tags: true
-
-      - name: Bootstrap script-helpers
-        if: ${{ inputs.update_production_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
-            exit 1
-          fi
-      - name: Detect release version
-        id: release
-        uses: actions/github-script@v9
-        env:
-          INPUT_DEFAULT_BRANCH: ${{ inputs.default_branch }}
-        with:
-          script: |
-            const sha = context.sha;
-            const refName = context.ref.replace('refs/heads/', '');
-            const { owner, repo } = context.repo;
-            const inputDefault = process.env.INPUT_DEFAULT_BRANCH || '';
-            const payloadDefault = context.payload?.repository?.default_branch || '';
-            const defaultBranch = inputDefault || payloadDefault || 'main';
-            const releaseHeadPattern = /^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
-            const mergeMessagePattern = /^Merge pull request #(\d+) from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
-
-            if (refName !== defaultBranch) {
-              core.info(`Push landed on ${refName}; default branch is ${defaultBranch}. Skipping.`);
-              core.setOutput('version', '');
-              return;
-            }
-
-            let version = '';
-            try {
-              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner,
-                repo,
-                commit_sha: sha,
-              });
-
-              const merged = prs.data.find(
-                (pr) =>
-                  pr.merged_at &&
-                  pr.base.ref === defaultBranch &&
-                  pr.merge_commit_sha === sha
-              );
-              if (merged) {
-                const match = String(merged.head.ref || '').match(releaseHeadPattern);
-                if (match) {
-                  version = match[1];
-                  core.info(`Resolved release version ${version} from PR #${merged.number}.`);
-                }
-              }
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              const status = typeof error === 'object' && error !== null && 'status' in error
-                ? Number(error.status)
-                : NaN;
-              const isPermissionOrMissing = status === 403 || status === 404;
-              const isTransient = status === 429 || status >= 500;
-              if (!isPermissionOrMissing && !isTransient) {
-                throw error;
-              }
-              core.warning(
-                `Unable to list pull requests associated with ${sha}. Falling back to merge-commit subject parsing, ` +
-                `but final PR-based validation in this workflow also requires pull-requests: read; without it, tagging will be skipped. ` +
-                `Details: ${message}`
-              );
-            }
-
-            if (!version) {
-              try {
-                const commit = await github.rest.repos.getCommit({ owner, repo, ref: sha });
-                const message = String(commit.data.commit.message || '');
-                const subject = message.split(/\r?\n/, 1)[0] || '';
-
-                // Fallback 1: standard merge commit subject
-                const stdMatch = subject.match(mergeMessagePattern);
-                if (stdMatch) {
-                  const prNumber = Number(stdMatch[1]);
-                  const fallbackVersion = stdMatch[2];
-                  try {
-                    const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                    const prData = pr.data;
-                    const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
-                    if (
-                      prData.merged_at &&
-                      prData.base?.ref === defaultBranch &&
-                      prData.merge_commit_sha === sha &&
-                      headMatch &&
-                      headMatch[1] === fallbackVersion
-                    ) {
-                      version = fallbackVersion;
-                      core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
-                    } else {
-                      core.warning(`Merge commit message referenced PR #${prNumber}, but it did not validate against ${sha}.`);
-                    }
-                  } catch (error) {
-                    const detail = error instanceof Error ? error.message : String(error);
-                    core.warning(`Merge commit message referenced PR #${prNumber}, but the PR could not be validated: ${detail}`);
-                  }
-                }
-
-                // Fallback 2: squash merge subject ends with "(#N)".
-                // Uses pulls.get directly (not the eventually-consistent association index)
-                // so merge_commit_sha is available immediately after the merge.
-                if (!version) {
-                  const squashMatch = subject.match(/\(#(\d+)\)$/);
-                  if (squashMatch) {
-                    const prNumber = Number(squashMatch[1]);
-                    try {
-                      const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                      const prData = pr.data;
-                      const headMatch = String(prData.head?.ref || '').match(releaseHeadPattern);
-                      if (
-                        prData.merged_at &&
-                        prData.base?.ref === defaultBranch &&
-                        prData.merge_commit_sha === sha &&
-                        headMatch
-                      ) {
-                        version = headMatch[1];
-                        core.info(`Resolved release version ${version} from squash-merge fallback for PR #${prNumber}.`);
-                      } else if (prData.merged_at && prData.base?.ref === defaultBranch && headMatch) {
-                        core.warning(
-                          `PR #${prNumber} is a release/* squash-merge but merge_commit_sha does not match push SHA yet. ` +
-                          `Re-run this workflow to retry.`
-                        );
-                      }
-                    } catch (error) {
-                      const detail = error instanceof Error ? error.message : String(error);
-                      core.warning(`Squash-merge fallback: could not validate PR #${prNumber}: ${detail}`);
-                    }
-                  }
-                }
-              } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                core.info(
-                  `Unable to fetch commit ${sha} or parse its message for release tagging fallback. ` +
-                  `Skipping merge-commit subject based version resolution. Details: ${detail}`
-                );
-              }
-            }
-
-            if (!version) {
-              core.info('No release/* merge detected for this push.');
-            }
-
-            core.setOutput('version', version);
-
-      - name: Check tag availability
-        if: ${{ steps.release.outputs.version != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
-          if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
-            echo "Tag $version already exists."
-            exit 1
-          fi
-
-      - name: Create and push tag
-        if: ${{ steps.release.outputs.version != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
-          git tag "$version"
-          git push origin "$version"
-
-      - name: Update production tag ref
-        if: ${{ steps.release.outputs.version != '' && inputs.update_production_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
-          ./scripts/create_production.sh -t "$version" --fetch-tags
+    uses: ./.github/workflows/auto-tag.yml
+    with:
+      runner: ${{ inputs.runner }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      default_branch: ${{ inputs.default_branch }}
+      update_production_tag: ${{ inputs.update_production_tag }}
 
   dispatch:
     needs: tag
