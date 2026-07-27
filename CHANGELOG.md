@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-26 — 0.17.0
+
+### Added
+
+- **`flutter-release.yml`: fastlane `match` support for iOS signing.** New optional
+  secrets `match_git_url`, `match_password`, and `match_git_basic_authorization` are
+  exposed as `MATCH_GIT_URL` / `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` only on the
+  macOS-gated App Store steps (secret masking + the Fastlane upload), never job-wide, so a
+  consumer's `ios_release` Fastlane lane
+  can sync certificates and provisioning profiles from a private storage repo. This closes the
+  gap where iOS deploys had no in-workflow signing path (Android already handled
+  keystore signing in-workflow). All three secrets are optional and resolve to empty
+  strings when omitted, so existing callers are unaffected.
+
+### Fixed
+
+- **README production-tag drift.** The README hard-coded `Current production tag: 0.14.2`,
+  which lagged `VERSION`. It now points to Releases / `VERSION` instead of naming a
+  version that goes stale on every release.
+
 ## 2026-07-21 — 0.16.2
 
 ### Changed

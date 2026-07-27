@@ -201,10 +201,15 @@ Secrets:
 - `app_store_connect_api_key_base64` (optional, for deploy)
 - `app_store_connect_key_id` (optional, for deploy)
 - `app_store_connect_issuer_id` (optional, for deploy)
+- `match_git_url` (optional, private fastlane `match` storage repository URL)
+- `match_password` (optional, password used to decrypt the fastlane `match` repository)
+- `match_git_basic_authorization` (optional, Base64-encoded Git Basic authorization credentials for fastlane `match`)
 
 Additional notes:
 - The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
 - When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
+- The optional `match_*` secrets are exposed to that lane as `MATCH_GIT_URL`, `MATCH_PASSWORD`, and `MATCH_GIT_BASIC_AUTHORIZATION` so it can sync signing certificates and provisioning profiles.
+- `fastlane match` installs certificates/profiles into the runner's keychain and provisioning-profile directories. On GitHub-hosted runners this is discarded when the ephemeral VM is torn down, but on **self-hosted macOS runners this state persists across runs** — have your iOS lane call `setup_ci` (creates a temporary keychain) and clean up afterwards to avoid leaking signing material between builds.
 - If `deploy_app_store` is true, the standalone iOS build step is skipped even when `build_ios` is enabled.
 - Android signing files are written to `${{ inputs.working_directory }}/android` and your `android/app/build.gradle` should load `key.properties` from the Android project root (e.g., `rootProject.file("key.properties")`).
 - **Signing secrets are required only when `deploy_google_play: true`.** When `build_android: true` without `deploy_google_play`, omitting signing secrets emits a warning and skips `key.properties` setup — the build uses the project's own signing config (e.g. debug signing). This allows CI/test builds without keystore credentials.

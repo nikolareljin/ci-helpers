@@ -3,7 +3,7 @@
 This directory contains detailed guidance for using and extending the reusable
 workflows and composite actions in this repository.
 
-Current production tag: 0.10.0 (from VERSION).
+Consumers pin workflows via the floating `@production` tag; see the repository [Releases](https://github.com/nikolareljin/ci-helpers/releases) for the current version (tracked in [`VERSION`](../VERSION)).
 
 Start here:
 - [Reusable workflows](workflows.md) — CI, PR gate, deploy, scan, release, Tauri, WinGet, Docker multi-arch, manifest versioning, and release-rc-pr.
