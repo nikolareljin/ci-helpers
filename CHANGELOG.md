@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-07-27 — 0.18.0
+
+### Added
+
+- **`auto-tag.yml` — a tag-only, least-privilege release workflow.** It does exactly
+  what `auto-tag-release.yml` does for tagging (detect the merged `release/X.Y.Z` PR,
+  create+push the tag, move the floating `production` tag) but omits the dispatch job,
+  so it needs only `contents: write` + `pull-requests: read` — **no `actions: write`**.
+  Consumers that do not use the `release_workflow` auto-dispatch feature should switch to
+  it to avoid granting `actions: write`.
+
+### Changed
+
+- **`auto-tag-release.yml` now delegates tagging to `auto-tag.yml`** (single source of
+  truth) and keeps only the dispatch job. Its `workflow_call` inputs and `version` output
+  are unchanged, so existing callers — including the six that set `release_workflow` — are
+  unaffected.
+
+### Security
+
+- **`docker-multiarch.yml`: bump `docker/login-action` v4.4.0 → v4.5.1** (SHA-pinned
+  `abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`). Folds in Dependabot PR #120 with a corrected
+  pin annotation so the SHA-pin audit stays consistent.
+
+### Fixed
+
+- **Docs/README no longer show the tag-only setup calling `auto-tag-release.yml` without
+  `actions: write`.** That example failed at startup with *"requesting 'actions: write',
+  but is only allowed 'actions: none'"* (the dispatch job's declared permission is
+  validated even though it never runs). Tag-only examples now use `auto-tag.yml`, and the
+  `auto-tag-release.yml` docs state plainly that all its callers must grant `actions: write`.
+
 ## 2026-07-26 — 0.17.0
 
 ### Added

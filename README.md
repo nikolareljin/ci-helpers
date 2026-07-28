@@ -88,7 +88,8 @@ jobs:
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
-- `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches
+- `.github/workflows/auto-tag.yml`: reusable tag-only workflow for release branches (least privilege — no `actions: write`)
+- `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches (adds an optional dispatch job; requires `actions: write`)
 - `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language
@@ -373,10 +374,10 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/release-tag-gate.yml@production
 ```
 
-Auto-tag workflow (tag only):
+Auto-tag workflow (tag only) — uses `auto-tag.yml`, which needs no `actions: write`:
 
 ```yaml
-name: Auto Tag Release
+name: Auto Tag
 on:
   push:
     branches: [ main, master ]
@@ -387,7 +388,7 @@ permissions:
 
 jobs:
   tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
     with:
       update_production_tag: false
 ```
