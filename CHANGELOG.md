@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-07-31 — 0.19.0
+
+### Added
+
+- **`timeout_minutes` input on `ci.yml`, `pr-gate.yml`, `release-build.yml`, `kotlin.yml`,
+  `java-gradle.yml` and `flutter-release.yml`.** Before this, `timeout-minutes` appeared
+  **nowhere** across the reusable workflows, so a hung job billed until GitHub's six-hour
+  cap. Defaults are 20 minutes for the CI and gate workflows, 30 for `release-build.yml`,
+  and 60 for `flutter-release.yml` — higher there because a cold Flutter plus fastlane
+  build is slow and because that workflow can run on a macOS runner at a 10x minute
+  multiplier, which is exactly where an unbounded hang is expensive. Every value is an
+  optional input, so callers that pass nothing keep working. `kotlin.yml` and
+  `java-gradle.yml` pass theirs through to `ci.yml`.
+- **`concurrency` with `cancel-in-progress: true` on `ci.yml` and `pr-gate.yml`.**
+  Previously `concurrency` appeared in exactly one workflow (`pnpm-pages.yml`) and was set
+  to `false`, so a rapid series of pushes each ran to completion. The group is keyed on the
+  caller workflow and ref, so two repos — or two branches of one repo — never cancel each
+  other.
+- `docs/presets.md`: an Android note on the Kotlin preset. The generic Gradle task names
+  run nothing useful in an Android project — `./gradlew test` executes no unit tests where
+  `testDebugUnitTest` does.
+
+### Changed
+
+- **`docs/private-repo-ci-strategy.md` rewritten around a release-only floor.** The
+  document already prescribed the right three-layer model and already identified nine
+  consuming repos running 2x CI per push; it was prose and nothing changed. It now leads
+  with Layer 0 — `./dev preflight` and a blocking pre-push hook from `script-helpers` — and
+  recommends that a single-maintainer private repo keep only tagging and release workflows
+  on the server, with the three-layer model documented as what to return to when a repo
+  gains a second contributor. Adds the macOS 10x and Windows 2x multipliers as explicit
+  rules, an Android (Gradle) section, and the `gh api` one-liner for measuring where a
+  repo's minutes actually go.
+
+### Security
+
+- `docs/private-repo-ci-strategy.md` no longer names specific consuming repositories. This
+  repository is public, and the table of repos needing the double-trigger fix disclosed the
+  names, stacks and CI weaknesses of private ones. Replaced with the commands to detect the
+  same condition in any repo.
+
 ## 2026-07-27 — 0.18.0
 
 ### Added

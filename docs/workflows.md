@@ -45,6 +45,9 @@ Inputs:
 - `docker_command` (string, default `""`)
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
+- `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
+
+This workflow declares a `concurrency` group keyed on the caller workflow and ref, with `cancel-in-progress: true`, so a superseding push cancels the run it replaces.
 
 Example (Flutter mobile CI):
 
@@ -139,6 +142,9 @@ Inputs:
 - `go_version` (string, default `""`)
 - `php_version` (string, default `""`)
 - `deploy_command` (string, required)
+- `timeout_minutes` (number, default `20`) — job timeout.
+
+This workflow declares a `concurrency` group keyed on the caller workflow and ref, with `cancel-in-progress: true`. On a `pull_request` trigger this is what stops a rapid series of pushes from each running to completion.
 
 Example:
 
@@ -1003,6 +1009,7 @@ Inputs:
 - `release_branch` (string, default `""`, uses PR head/ref)
 - `base_branch` (string, default `""`, uses PR base)
 - `default_branch` (string, default `""`, uses repo default)
+- `timeout_minutes` (number, default `60`) — job timeout. Sixty rather than twenty because a cold Flutter plus fastlane build is slow, and because this workflow can run on a macOS runner at a 10x minute multiplier, where an unbounded hang is expensive.
 
 Example:
 
@@ -1039,6 +1046,7 @@ Inputs (selected):
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line)
 - `binary_base_url` (string, default `""`)
+- `timeout_minutes` (number, default `30`) — job timeout. Thirty rather than twenty because a release build does more than a PR gate.
 
 Example:
 

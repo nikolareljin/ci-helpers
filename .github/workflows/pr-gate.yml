@@ -69,13 +69,25 @@ on:
         type: string
         default: ""
 
+      # A hung job otherwise bills until GitHub's six-hour default. Raise it for
+      # a genuinely long build rather than removing it.
+      timeout_minutes:
+        type: number
+        default: 20
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# A superseding push cancels the run it replaces. Grouped by caller workflow and
+# ref so two repos, or two branches of one repo, never cancel each other.
+concurrency:
+  group: ci-helpers-pr-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pr-gate:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - uses: actions/checkout@v7
         with:
