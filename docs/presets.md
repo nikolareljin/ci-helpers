@@ -184,7 +184,7 @@ them:
 
 On a private repo, consider running none of this on a server. See
 [private-repo-ci-strategy.md](private-repo-ci-strategy.md): `script-helpers`
-ships a local equivalent that autodetects the variant-qualified task names.
+ships a local Gradle runner that accepts explicit variant-qualified task names.
 
 ## Rust
 

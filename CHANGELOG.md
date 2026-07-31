@@ -27,7 +27,8 @@
 - **`docs/private-repo-ci-strategy.md` rewritten around a release-only floor.** The
   document already prescribed the right three-layer model and already identified nine
   consuming repos running 2x CI per push; it was prose and nothing changed. It now leads
-  with Layer 0 — `./dev preflight` and a blocking pre-push hook from `script-helpers` — and
+  with Layer 0 — stack-specific local CI commands and a blocking pre-push hook from
+  `script-helpers` — and
   recommends that a single-maintainer private repo keep only tagging and release workflows
   on the server, with the three-layer model documented as what to return to when a repo
   gains a second contributor. Adds the macOS 10x and Windows 2x multipliers as explicit
