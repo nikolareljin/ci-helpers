@@ -7,20 +7,21 @@ spending as few of them as possible without giving up the checks.
 
 ```
 Layer 0  LOCAL   pre-commit  (.env guard, version check)              < 1s    $0
-                 pre-push    → preflight --quick                      ~10–60s $0
-                 ./dev preflight  (lint, format, tests, build, scan)  minutes $0
+                 pre-push    → stack-specific quick tests             ~10–60s $0
+                 ci_*.sh     (lint, tests, build, scan)                minutes $0
 ```
 
-`script-helpers` ships `scripts/preflight.sh`: one command that runs everything
-a CI job would have run. It detects `(stack, directory)` pairs rather than a
-single stack at the repo root, so a repo with an app in `android/` and a host in
-`host/` gets both — the same coverage its two-job workflow gave it. Install it,
-along with the blocking pre-push hook, with:
+`script-helpers` ships stack-specific `ci_*.sh` commands for running the same
+classes of checks locally. It also includes a blocking pre-push hook that
+detects a supported stack at the repository root and runs its quick test
+command. Install the hooks with:
 
 ```bash
-bash scripts/script-helpers/scripts/install_dev_cli.sh
-./dev preflight
+bash scripts/script-helpers/scripts/setup-hooks.sh
 ```
+
+Run every applicable `ci_*.sh` command explicitly in multi-stack repositories;
+the hook does not discover nested projects or combine multiple stacks.
 
 Every `ci_*.sh` runner in `script-helpers` refuses to run when `CI=true`. They
 are deliberately local tools; the library was built for this model.
@@ -40,9 +41,10 @@ Pick a tier and stay in it. The right one depends on how many people push.
 | `release-tag-gate.yml` | `pull_request` from `release/*` | ~0.2 min |
 | `release.yml` | `push` of a version tag | per release, not per push |
 
-Everything else runs locally behind `./dev preflight`, gated by a **blocking**
-pre-push hook. With the PR gate gone that hook is the only gate left, so it must
-fail the push rather than warn; `git push --no-verify` stays as the escape hatch.
+Everything else runs locally through the applicable `ci_*.sh` commands, with
+quick tests gated by a **blocking** pre-push hook. With the PR gate gone that
+hook is the only automatic gate left, so it must fail the push rather than warn;
+`git push --no-verify` stays as the escape hatch.
 
 The trade is explicit: a local gate is a convention, not a control. It can be
 skipped, and nothing verifies a *contributor's* change before merge. That costs
@@ -57,7 +59,7 @@ few minutes of Actions per month.
 ### Three layers — two or more contributors
 
 ```
-Layer 0  LOCAL      pre-commit + pre-push → preflight             $0
+Layer 0  LOCAL      pre-commit + pre-push → quick tests           $0
 Layer 1  PR GATE    pr-gate.yml (install once → lint → test)      ~2–3 min, 1 job
 Layer 2  MAIN GATE  ci.yml (full lint + test + build, post-merge) ~5 min, 1–3 jobs
 ```
@@ -250,29 +252,16 @@ with:
   build_command: ""          # assembleDebug is post-merge work, not a PR gate
 ```
 
-On a release-only private repo, run none of the above on a server. The local
-equivalent, including the variant autodetection, is:
+On a release-only private repo, run these tasks locally with the vendored Gradle
+runner. Android task names must be supplied explicitly:
 
 ```bash
-./dev preflight              # or: bash scripts/script-helpers/scripts/local_test_gradle.sh
-```
-
-Building the APK, signing it, and installing it on a device are also local:
-
-```bash
-./dev build --release
-./dev deploy --device <serial>
-./dev screenshot             # for the README or a store listing
-```
-
-Signing a release artifact locally uses `script-helpers`' `android` module, which
-accepts the same base64-keystore secret shape the CI workflows use, so the two
-paths stay interchangeable:
-
-```bash
-shlib_import android
-android_sign "$(android_artifact . release aab)" \
-  --base64-env ANDROID_KEYSTORE_BASE64 --alias upload
+bash scripts/script-helpers/scripts/ci_gradle.sh \
+  --workdir android \
+  --build-task assembleDebug \
+  --test-task testDebugUnitTest \
+  --lint-task lintDebug \
+  --skip-detekt
 ```
 
 ### PHP
