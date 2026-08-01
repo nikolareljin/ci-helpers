@@ -11,16 +11,17 @@
   and 60 for `flutter-release.yml` — higher there because a cold Flutter plus fastlane
   build is slow and because that workflow can run on a macOS runner at a 10x minute
   multiplier, which is exactly where an unbounded hang is expensive. Every value is an
-  optional input, so callers that pass nothing keep working. `kotlin.yml` and
+  optional input with a default. Callers whose jobs fit that default need no change; longer
+  jobs must pass a higher `timeout_minutes`. `kotlin.yml` and
   `java-gradle.yml` pass theirs through to `ci.yml`.
 - **`concurrency` with `cancel-in-progress: true` on `ci.yml` and `pr-gate.yml`.**
   Previously `concurrency` appeared in exactly one workflow (`pnpm-pages.yml`) and was set
   to `false`, so a rapid series of pushes each ran to completion. The group is keyed on the
   caller workflow and ref so unrelated workflows and branches within a repository never
   cancel each other.
-- `docs/presets.md`: an Android note on the Kotlin preset. `./gradlew test` typically
-  aggregates unit tests across variants; `testDebugUnitTest` targets only the debug
-  variant when a narrower CI gate is preferred.
+- `docs/presets.md`: an Android note on the Kotlin preset. `./gradlew test` may be a
+  no-op or run broader variant tests depending on the project; `testDebugUnitTest` runs
+  debug unit tests explicitly.
 
 ### Changed
 

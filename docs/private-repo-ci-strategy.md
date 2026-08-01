@@ -100,7 +100,8 @@ document:
 
 Before this, `timeout-minutes` appeared **nowhere** across the reusable
 workflows: a hung job billed until GitHub's six-hour cap. Every value is an
-optional input, so callers that pass nothing keep working.
+optional input with a default. Callers whose jobs fit that default need no
+change; longer jobs must pass a higher `timeout_minutes`.
 
 ---
 
@@ -241,9 +242,9 @@ with:
 
 ### Android (Gradle)
 
-Android Gradle Plugin projects expose variant-qualified tasks. The generic
-`./gradlew test` task typically aggregates unit tests across variants; use
-`testDebugUnitTest` to target only the debug variant.
+Android Gradle Plugin projects expose variant-qualified tasks. Depending on the
+project, `./gradlew test` may be a no-op or run a broader set of variant tests
+than expected. Use `testDebugUnitTest` to run debug unit tests explicitly.
 
 ```yaml
 with:

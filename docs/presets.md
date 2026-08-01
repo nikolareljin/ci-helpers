@@ -171,9 +171,9 @@ jobs:
       java_version: "17"
 ```
 
-In an Android project, `./gradlew test` typically aggregates unit tests across
-variants. Override it with `testDebugUnitTest` when the CI gate should target
-only the debug variant:
+In an Android project, `./gradlew test` may be a no-op or run a broader set of
+variant tests than the gate needs. Use `testDebugUnitTest` when the CI gate must
+run the debug unit tests explicitly:
 
 ```yaml
     with:
