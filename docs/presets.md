@@ -171,9 +171,9 @@ jobs:
       java_version: "17"
 ```
 
-In an Android project the generic Gradle task names run nothing useful —
-`./gradlew test` executes no unit tests where `testDebugUnitTest` does. Override
-them:
+In an Android project, `./gradlew test` typically aggregates unit tests across
+variants. Override it with `testDebugUnitTest` when the CI gate should target
+only the debug variant:
 
 ```yaml
     with:

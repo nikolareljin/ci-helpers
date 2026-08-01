@@ -18,9 +18,9 @@
   to `false`, so a rapid series of pushes each ran to completion. The group is keyed on the
   caller workflow and ref so unrelated workflows and branches within a repository never
   cancel each other.
-- `docs/presets.md`: an Android note on the Kotlin preset. The generic Gradle task names
-  run nothing useful in an Android project — `./gradlew test` executes no unit tests where
-  `testDebugUnitTest` does.
+- `docs/presets.md`: an Android note on the Kotlin preset. `./gradlew test` typically
+  aggregates unit tests across variants; `testDebugUnitTest` targets only the debug
+  variant when a narrower CI gate is preferred.
 
 ### Changed
 

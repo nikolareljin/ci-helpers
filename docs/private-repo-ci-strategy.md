@@ -241,9 +241,9 @@ with:
 
 ### Android (Gradle)
 
-Android task names are variant-qualified, and the generic ones do not exist in an
-Android project — `./gradlew test` runs no unit tests where
-`testDebugUnitTest` does.
+Android Gradle Plugin projects expose variant-qualified tasks. The generic
+`./gradlew test` task typically aggregates unit tests across variants; use
+`testDebugUnitTest` to target only the debug variant.
 
 ```yaml
 with:

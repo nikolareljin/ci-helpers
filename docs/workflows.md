@@ -109,6 +109,10 @@ Inputs:
 - All CI inputs (same as `ci.yml`)
 - `check_release_tag` (boolean, default `false`)
 - `release_branch` (string, default `""`)
+- `timeout_minutes` (number, default `20`) — job timeout.
+
+This workflow uses a concurrency group keyed on the caller workflow and ref,
+with `cancel-in-progress: true`.
 
 Example (PR gate with release tag check + E2E):
 
@@ -142,9 +146,6 @@ Inputs:
 - `go_version` (string, default `""`)
 - `php_version` (string, default `""`)
 - `deploy_command` (string, required)
-- `timeout_minutes` (number, default `20`) — job timeout.
-
-This workflow declares a `concurrency` group keyed on the caller workflow and ref, with `cancel-in-progress: true`. On a `pull_request` trigger this is what stops a rapid series of pushes from each running to completion.
 
 Example:
 
@@ -197,6 +198,8 @@ Inputs:
 - `ios_artifact_name` (string, default `flutter-ios`)
 - `fastlane_android_lane` (string, default `android_release`)
 - `fastlane_ios_lane` (string, default `ios_release`)
+- `timeout_minutes` (number, default `60`) — job timeout; the higher default covers
+  cold Flutter and Fastlane builds, including expensive macOS runners.
 
 Secrets:
 - `android_keystore_base64` (optional)
@@ -1009,7 +1012,6 @@ Inputs:
 - `release_branch` (string, default `""`, uses PR head/ref)
 - `base_branch` (string, default `""`, uses PR base)
 - `default_branch` (string, default `""`, uses repo default)
-- `timeout_minutes` (number, default `60`) — job timeout. Sixty rather than twenty because a cold Flutter plus fastlane build is slow, and because this workflow can run on a macOS runner at a 10x minute multiplier, where an unbounded hang is expensive.
 
 Example:
 
