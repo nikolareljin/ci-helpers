@@ -63,6 +63,13 @@ on:
       fastlane_ios_lane:
         type: string
         default: ios_release
+      # A hung job otherwise bills until GitHub's six-hour default, and this one
+      # can run on a macOS runner at a 10x minute multiplier. Sixty minutes
+      # covers a cold Flutter + fastlane build; raise it for a genuinely longer
+      # one rather than removing it.
+      timeout_minutes:
+        type: number
+        default: 60
     secrets:
       android_keystore_base64:
         required: false
@@ -94,6 +101,7 @@ env:
 jobs:
   flutter_release:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     defaults:
       run:
         shell: bash

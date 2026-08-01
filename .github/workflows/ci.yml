@@ -88,14 +88,28 @@ on:
       extra_env:
         type: string
         default: ""
+      # A hung job otherwise bills until GitHub's six-hour default. Twenty
+      # minutes covers every stack preset in this repository; raise it for a
+      # genuinely long build rather than removing it.
+      timeout_minutes:
+        type: number
+        default: 20
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Superseding pushes cancel the run they replace. The caller workflow and ref
+# keep unrelated workflows and branches in this repository independent. See
+# docs/private-repo-ci-strategy.md.
+concurrency:
+  group: ci-helpers-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - uses: actions/checkout@v7
         with:

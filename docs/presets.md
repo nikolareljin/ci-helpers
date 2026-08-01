@@ -159,6 +159,7 @@ Defaults:
 - `lint_command`: `./gradlew lint`
 - `test_command`: `./gradlew test`
 - `build_command`: `./gradlew assembleDebug`
+- `timeout_minutes`: `20` (passed through to `ci.yml`)
 
 Example:
 
@@ -169,6 +170,21 @@ jobs:
     with:
       java_version: "17"
 ```
+
+In an Android project, `./gradlew test` may be a no-op or run a broader set of
+variant tests than the gate needs. Use `testDebugUnitTest` when the CI gate must
+run the debug unit tests explicitly:
+
+```yaml
+    with:
+      java_version: "17"
+      lint_command: "./gradlew lintDebug"
+      test_command: "./gradlew testDebugUnitTest"
+```
+
+On a private repo, consider running none of this on a server. See
+[private-repo-ci-strategy.md](private-repo-ci-strategy.md): `script-helpers`
+ships a local Gradle runner that accepts explicit variant-qualified task names.
 
 ## Rust
 

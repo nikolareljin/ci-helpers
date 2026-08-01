@@ -45,6 +45,9 @@ Inputs:
 - `docker_command` (string, default `""`)
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
+- `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
+
+This workflow declares a `concurrency` group keyed on the caller workflow and ref, with `cancel-in-progress: true`, so a superseding push cancels the run it replaces.
 
 Example (Flutter mobile CI):
 
@@ -106,6 +109,10 @@ Inputs:
 - All CI inputs (same as `ci.yml`)
 - `check_release_tag` (boolean, default `false`)
 - `release_branch` (string, default `""`)
+- `timeout_minutes` (number, default `20`) — job timeout.
+
+This workflow uses a concurrency group keyed on the caller workflow and ref,
+with `cancel-in-progress: true`.
 
 Example (PR gate with release tag check + E2E):
 
@@ -191,6 +198,8 @@ Inputs:
 - `ios_artifact_name` (string, default `flutter-ios`)
 - `fastlane_android_lane` (string, default `android_release`)
 - `fastlane_ios_lane` (string, default `ios_release`)
+- `timeout_minutes` (number, default `60`) — job timeout; the higher default covers
+  cold Flutter and Fastlane builds, including expensive macOS runners.
 
 Secrets:
 - `android_keystore_base64` (optional)
@@ -1039,6 +1048,7 @@ Inputs (selected):
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line)
 - `binary_base_url` (string, default `""`)
+- `timeout_minutes` (number, default `30`) — job timeout. Thirty rather than twenty because a release build does more than a PR gate.
 
 Example:
 

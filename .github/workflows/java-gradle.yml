@@ -32,6 +32,10 @@ on:
       extra_command:
         type: string
         default: ""
+      # A hung job otherwise bills until GitHub's six-hour default.
+      timeout_minutes:
+        type: number
+        default: 20
 
 jobs:
   ci:
@@ -47,3 +51,4 @@ jobs:
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
