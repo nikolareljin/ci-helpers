@@ -99,9 +99,9 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Superseding pushes cancel the run they replace. Grouped by caller workflow and
-# ref so two different repos, or two branches of one repo, never cancel each
-# other. See docs/private-repo-ci-strategy.md.
+# Superseding pushes cancel the run they replace. The caller workflow and ref
+# keep unrelated workflows and branches in this repository independent. See
+# docs/private-repo-ci-strategy.md.
 concurrency:
   group: ci-helpers-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

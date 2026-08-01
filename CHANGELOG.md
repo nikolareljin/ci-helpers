@@ -16,8 +16,8 @@
 - **`concurrency` with `cancel-in-progress: true` on `ci.yml` and `pr-gate.yml`.**
   Previously `concurrency` appeared in exactly one workflow (`pnpm-pages.yml`) and was set
   to `false`, so a rapid series of pushes each ran to completion. The group is keyed on the
-  caller workflow and ref, so two repos — or two branches of one repo — never cancel each
-  other.
+  caller workflow and ref so unrelated workflows and branches within a repository never
+  cancel each other.
 - `docs/presets.md`: an Android note on the Kotlin preset. The generic Gradle task names
   run nothing useful in an Android project — `./gradlew test` executes no unit tests where
   `testDebugUnitTest` does.

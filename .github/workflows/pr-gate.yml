@@ -78,8 +78,8 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# A superseding push cancels the run it replaces. Grouped by caller workflow and
-# ref so two repos, or two branches of one repo, never cancel each other.
+# A superseding push cancels the run it replaces. The caller workflow and ref
+# keep unrelated workflows and branches in this repository independent.
 concurrency:
   group: ci-helpers-pr-gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

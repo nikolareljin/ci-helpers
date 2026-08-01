@@ -14,7 +14,8 @@ Layer 0  LOCAL   pre-commit  (.env guard, version check)              < 1s    $0
 `script-helpers` ships stack-specific `ci_*.sh` commands for running the same
 classes of checks locally. It also includes a blocking pre-push hook that
 detects a supported stack at the repository root and runs its quick test
-command. Install the hooks with:
+command. If `script-helpers` is vendored at `scripts/script-helpers`, install
+the hooks with:
 
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh
