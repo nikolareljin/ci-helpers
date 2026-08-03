@@ -8,6 +8,14 @@ on:
       working_directory:
         type: string
         default: "."
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Distinguishes concurrent calls to this workflow that share a caller
+          workflow, ref and working directory -- matrix legs, most often.
+          Defaults to working_directory, which already separates the common
+          case of one job per component.
       fetch_depth:
         type: number
         default: 0
@@ -102,8 +110,19 @@ env:
 # Superseding pushes cancel the run they replace. The caller workflow and ref
 # keep unrelated workflows and branches in this repository independent. See
 # docs/private-repo-ci-strategy.md.
+# Superseding pushes cancel the run they replace. The caller workflow and ref
+# keep unrelated workflows and branches in this repository independent. See
+# docs/private-repo-ci-strategy.md.
+#
+# The working directory is part of the key because a caller may invoke this
+# workflow from several jobs at once -- backend and frontend, or one job per
+# module. Those jobs share github.workflow and github.ref, so keying on those
+# alone put them in one group and cancel-in-progress made whichever started
+# second destroy the first: 0 seconds, no steps, reported as "cancelled"
+# rather than failed. A repository doing that silently lost half its CI on
+# every push, and greyed-out runs raise no alarm.
 concurrency:
-  group: ci-helpers-ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-helpers-ci-${{ github.workflow }}-${{ inputs.concurrency_key || inputs.working_directory }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
