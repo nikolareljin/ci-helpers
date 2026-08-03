@@ -110,9 +110,6 @@ env:
 # Superseding pushes cancel the run they replace. The caller workflow and ref
 # keep unrelated workflows and branches in this repository independent. See
 # docs/private-repo-ci-strategy.md.
-# Superseding pushes cancel the run they replace. The caller workflow and ref
-# keep unrelated workflows and branches in this repository independent. See
-# docs/private-repo-ci-strategy.md.
 #
 # The working directory is part of the key because a caller may invoke this
 # workflow from several jobs at once -- backend and frontend, or one job per
