@@ -14,7 +14,12 @@ on:
         default: 0
       flutter_version:
         type: string
-        default: stable
+        # Empty, not "stable". This is forwarded to subosito/flutter-action as
+        # `flutter-version`, which expects a version number; a channel name
+        # there fails the job in seconds with "Unable to determine Flutter
+        # version for channel: stable version: stable". Use flutter_channel to
+        # pick a channel; set this only to pin an exact version.
+        default: ""
       flutter_channel:
         type: string
         default: stable
@@ -159,11 +164,22 @@ jobs:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
 
+      # Two steps, matching ci.yml and release-build.yml: a version pin and a
+      # channel are mutually exclusive for subosito/flutter-action. A caller
+      # that passes a channel name as flutter_version (which the old default of
+      # "stable" encouraged) is treated as "no pin" rather than failing.
       - name: Setup Flutter
+        if: ${{ inputs.flutter_version != '' && inputs.flutter_version != 'stable' && inputs.flutter_version != 'beta' && inputs.flutter_version != 'master' }}
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ inputs.flutter_version }}
-          channel: ${{ inputs.flutter_channel }}
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
+
+      - name: Setup Flutter (channel only)
+        if: ${{ inputs.flutter_version == '' || inputs.flutter_version == 'stable' || inputs.flutter_version == 'beta' || inputs.flutter_version == 'master' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
 
       - name: Flutter pub get
         run: flutter pub get

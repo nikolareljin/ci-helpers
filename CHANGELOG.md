@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-08-04 — 0.19.2
+
+### Fixed
+
+- **`flutter-release.yml` — a channel name was passed where a version belongs (found in `anchor`):**
+  `flutter_version` defaulted to `stable` and was forwarded verbatim to
+  `subosito/flutter-action` as `flutter-version`, which expects a version
+  number. Every caller relying on the default failed in seconds with:
+
+  ```
+  Unable to determine Flutter version for channel: stable version: stable
+  ```
+
+  The job died before checkout finished, so it read as an infrastructure
+  failure rather than a workflow defect. `ci.yml`, `pr-gate.yml` and
+  `release-build.yml` already defaulted to `""`; only this workflow did not,
+  which is why the problem stayed hidden.
+
+  The default is now `""`, and the Flutter setup is split into the same
+  version-or-channel pair those workflows already use. Callers that explicitly
+  pass a channel name as `flutter_version` — which the old default actively
+  encouraged — are now treated as "no version pin" instead of failing.
+
+  To pin an exact SDK, pass a version number: `flutter_version: "3.44.7"`.
+  To track a channel, leave `flutter_version` unset and use `flutter_channel`.
+
 ## 2026-08-03 — 0.19.1
 
 ### Fixed
