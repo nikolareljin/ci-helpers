@@ -8,6 +8,9 @@ on:
       working_directory:
         type: string
         default: "."
+      concurrency_key:
+        type: string
+        default: ""
       fetch_depth:
         type: number
         default: 0
@@ -43,6 +46,7 @@ jobs:
     with:
       runner: ${{ inputs.runner }}
       working_directory: ${{ inputs.working_directory }}
+      concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       java_version: ${{ inputs.java_version }}
       lint_command: ${{ inputs.lint_command }}

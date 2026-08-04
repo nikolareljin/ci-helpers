@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-08-03 — 0.19.1
+
+### Fixed
+
+- **`ci.yml` — parallel callers no longer cancel each other (#125):**
+  The concurrency group was `ci-helpers-ci-${{ github.workflow }}-${{ github.ref }}`.
+  A caller invoking this workflow from more than one job at once — backend and
+  frontend, or one job per module — put every such job in the *same* group,
+  and `cancel-in-progress: true` made whichever started second destroy the
+  first. The victim reported `cancelled` after 0 seconds with no steps, so it
+  read as an infrastructure hiccup rather than lost coverage, and cancelled
+  runs are grey rather than red so nothing alerted.
+
+  Introduced in 0.19.0 (ff0fd2d) and inherited by all thirteen presets that
+  delegate here: `csharp`, `cypress`, `docker`, `go`, `java`, `java-gradle`,
+  `kotlin`, `node`, `php`, `playwright`, `python`, `react`, `rust`. Observed
+  in document-tracker, whose `main` had no complete CI run for three days:
+  the `python` and `node` legs killed each other on every push.
+
+  The group now includes the working directory, which already distinguishes
+  the common case of one job per component and needs no change from callers.
+  A new optional `concurrency_key` input overrides it for callers whose jobs
+  share a directory — matrix legs, most often — and is forwarded by all
+  thirteen presets.
+
+- **`pr-gate.yml` — the same collision, found in review (#125):**
+  `pr-gate.yml` does not delegate to `ci.yml`; it carries its own
+  concurrency block, keyed the same wrong way. Four repositories in the
+  fleet call it twice from a single workflow file and were losing half
+  their gate on every pull request. Fixed identically, and it now accepts
+  `concurrency_key` too.
+
+### Changed
+
+- **`docker-multiarch.yml` — `docker/login-action` 4.5.1 → 4.6.0 (#124):**
+  Folded in from the Dependabot branch. Its version comment still read
+  `v4.5.1` after the SHA moved, which is the one thing a pinned-SHA comment
+  exists to tell you; corrected to `v4.6.0`.
+
 ## 2026-07-31 — 0.19.0
 
 ### Added

@@ -47,7 +47,21 @@ Inputs:
 - `extra_command` (string, default `""`)
 - `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
 
-This workflow declares a `concurrency` group keyed on the caller workflow and ref, with `cancel-in-progress: true`, so a superseding push cancels the run it replaces.
+This workflow declares a `concurrency` group keyed on the caller workflow, the
+**working directory**, and the ref, with `cancel-in-progress: true`, so a
+superseding push cancels the run it replaces.
+
+The working directory is in the key because a caller may invoke this workflow
+from several jobs at once — backend and frontend, or one job per module. Those
+jobs share `github.workflow` and `github.ref`, so keying on those alone put
+them in a single group and `cancel-in-progress` made whichever started second
+destroy the first. The victim reported `cancelled` after 0 seconds with no
+steps, which reads as an infrastructure hiccup rather than lost coverage.
+
+- `concurrency_key` (string, default `""`) — overrides the working directory in
+  that key. Set it when two concurrent calls genuinely share a directory, which
+  in practice means matrix legs. Leave it empty otherwise: one job per component
+  is already distinguished by its directory.
 
 Example (Flutter mobile CI):
 
@@ -111,8 +125,10 @@ Inputs:
 - `release_branch` (string, default `""`)
 - `timeout_minutes` (number, default `20`) — job timeout.
 
-This workflow uses a concurrency group keyed on the caller workflow and ref,
-with `cancel-in-progress: true`.
+This workflow uses a concurrency group keyed on the caller workflow, the
+working directory, and the ref, with `cancel-in-progress: true`. It accepts
+`concurrency_key` to override the directory component; see the `ci.yml` section
+above for when that is needed.
 
 Example (PR gate with release tag check + E2E):
 
