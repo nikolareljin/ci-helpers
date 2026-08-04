@@ -25,6 +25,13 @@
   share a directory — matrix legs, most often — and is forwarded by all
   thirteen presets.
 
+- **`pr-gate.yml` — the same collision, found in review (#125):**
+  `pr-gate.yml` does not delegate to `ci.yml`; it carries its own
+  concurrency block, keyed the same wrong way. Four repositories in the
+  fleet call it twice from a single workflow file and were losing half
+  their gate on every pull request. Fixed identically, and it now accepts
+  `concurrency_key` too.
+
 ### Changed
 
 - **`docker-multiarch.yml` — `docker/login-action` 4.5.1 → 4.6.0 (#124):**

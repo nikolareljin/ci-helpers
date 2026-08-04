@@ -8,6 +8,13 @@ on:
       working_directory:
         type: string
         default: "."
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Distinguishes concurrent calls that share a caller workflow, ref and
+          working directory -- matrix legs, most often. Defaults to
+          working_directory, which already separates one job per component.
       fetch_depth:
         type: number
         default: 0
@@ -80,8 +87,16 @@ env:
 
 # A superseding push cancels the run it replaces. The caller workflow and ref
 # keep unrelated workflows and branches in this repository independent.
+# Keyed on the working directory as well as the caller workflow and ref, for
+# the same reason ci.yml is: a repository may run this gate from several jobs
+# at once -- backend and frontend, or one job per package. Those jobs share
+# github.workflow and github.ref, so keying on those alone put them in one
+# group and cancel-in-progress made whichever started second destroy the
+# first, in 0 seconds with no steps. Four repositories in this fleet call this
+# workflow twice from a single file and were losing half their gate on every
+# pull request, reported as "cancelled" rather than failed.
 concurrency:
-  group: ci-helpers-pr-gate-${{ github.workflow }}-${{ github.ref }}
+  group: ci-helpers-pr-gate-${{ github.workflow }}-${{ inputs.concurrency_key || inputs.working_directory }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
