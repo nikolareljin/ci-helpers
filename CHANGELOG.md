@@ -21,7 +21,10 @@
   The default is now `""`, and the Flutter setup is split into the same
   version-or-channel pair those workflows already use. Callers that explicitly
   pass a channel name as `flutter_version` — which the old default actively
-  encouraged — are now treated as "no version pin" instead of failing.
+  encouraged — are now treated as "no version pin" instead of failing, and the
+  channel they named is honoured as the channel. The guard covers every Flutter
+  channel (`stable`, `beta`, `dev`, `master`, `main`) via a list, so it cannot
+  miss one.
 
   To pin an exact SDK, pass a version number: `flutter_version: "3.44.7"`.
   To track a channel, leave `flutter_version` unset and use `flutter_channel`.

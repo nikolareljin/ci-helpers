@@ -164,22 +164,29 @@ jobs:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
 
-      # Two steps, matching ci.yml and release-build.yml: a version pin and a
-      # channel are mutually exclusive for subosito/flutter-action. A caller
-      # that passes a channel name as flutter_version (which the old default of
-      # "stable" encouraged) is treated as "no pin" rather than failing.
+      # Two steps, matching ci.yml and release-build.yml. `flutter-version` takes
+      # a version number; a channel name there fails the action outright. The
+      # channel is passed in both branches -- the action accepts a version and a
+      # channel together, and uses the channel to resolve where that version
+      # comes from.
+      #
+      # The list covers every Flutter channel, so a caller who puts a channel
+      # name in flutter_version (which the old default of "stable" actively
+      # encouraged) is treated as "no version pin" instead of failing.
       - name: Setup Flutter
-        if: ${{ inputs.flutter_version != '' && inputs.flutter_version != 'stable' && inputs.flutter_version != 'beta' && inputs.flutter_version != 'master' }}
+        if: ${{ inputs.flutter_version != '' && !contains(fromJSON('["stable","beta","dev","master","main"]'), inputs.flutter_version) }}
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ inputs.flutter_version }}
           channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
 
       - name: Setup Flutter (channel only)
-        if: ${{ inputs.flutter_version == '' || inputs.flutter_version == 'stable' || inputs.flutter_version == 'beta' || inputs.flutter_version == 'master' }}
+        if: ${{ inputs.flutter_version == '' || contains(fromJSON('["stable","beta","dev","master","main"]'), inputs.flutter_version) }}
         uses: subosito/flutter-action@v2
         with:
-          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
+          # If a channel name arrived as flutter_version, honour it as the
+          # channel rather than discarding the caller's intent.
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || (inputs.flutter_version != '' && inputs.flutter_version) || 'stable' }}
 
       - name: Flutter pub get
         run: flutter pub get
