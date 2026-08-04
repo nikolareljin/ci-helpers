@@ -49,6 +49,6 @@ runs:
         exit-code: ${{ inputs.fail_on_findings == 'true' && '1' || '0' }}
     - name: Upload SARIF
       if: ${{ inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
       with:
         sarif_file: ${{ inputs.output }}

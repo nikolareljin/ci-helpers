@@ -2,6 +2,29 @@
 
 ## 2026-08-04 — 0.19.2
 
+### Security
+
+- **Every third-party action is pinned to a commit SHA (supply chain):**
+  42 workflow and action files referenced actions by moving tag —
+  `actions/checkout@v7`, `actions/setup-java@v5`, `dorny/test-reporter@v3`,
+  `github/codeql-action/upload-sarif@v4`, `subosito/flutter-action@v2`,
+  `shivammathur/setup-php@v2`, `ruby/setup-ruby@v1` and others. A tag is
+  mutable: whoever controls the upstream repository, or anyone who compromises
+  it, can move `@v7` to different code and every consumer picks it up on the
+  next run without a diff anywhere.
+
+  All 30 external references now pin a 40-character commit SHA with the
+  resolved version in a trailing comment, so upgrades are explicit and
+  reviewable:
+
+  ```yaml
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  ```
+
+  `nikolareljin/ci-helpers/...@production` references are deliberately left on
+  the floating tag: that is this repository's own release channel, and pinning
+  it would defeat how consumers receive updates.
+
 ### Fixed
 
 - **`flutter-release.yml` — a channel name was passed where a version belongs (found in `anchor`):**
