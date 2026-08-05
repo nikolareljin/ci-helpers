@@ -14,7 +14,12 @@ on:
         default: 0
       flutter_version:
         type: string
-        default: stable
+        # Empty, not "stable". This is forwarded to subosito/flutter-action as
+        # `flutter-version`, which expects a version number; a channel name
+        # there fails the job in seconds with "Unable to determine Flutter
+        # version for channel: stable version: stable". Use flutter_channel to
+        # pick a channel; set this only to pin an exact version.
+        default: ""
       flutter_channel:
         type: string
         default: stable
@@ -117,7 +122,7 @@ jobs:
       FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
       FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
 
@@ -154,16 +159,34 @@ jobs:
 
       - name: Setup Java
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
 
+      # Two steps, matching ci.yml and release-build.yml. `flutter-version` takes
+      # a version number; a channel name there fails the action outright. The
+      # channel is passed in both branches -- the action accepts a version and a
+      # channel together, and uses the channel to resolve where that version
+      # comes from.
+      #
+      # The list covers every Flutter channel, so a caller who puts a channel
+      # name in flutter_version (which the old default of "stable" actively
+      # encouraged) is treated as "no version pin" instead of failing.
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        if: ${{ inputs.flutter_version != '' && !contains(fromJSON('["stable","beta","dev","master","main"]'), inputs.flutter_version) }}
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ inputs.flutter_version }}
-          channel: ${{ inputs.flutter_channel }}
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
+
+      - name: Setup Flutter (channel only)
+        if: ${{ inputs.flutter_version == '' || contains(fromJSON('["stable","beta","dev","master","main"]'), inputs.flutter_version) }}
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          # If a channel name arrived as flutter_version, honour it as the
+          # channel rather than discarding the caller's intent.
+          channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || (inputs.flutter_version != '' && inputs.flutter_version) || 'stable' }}
 
       - name: Flutter pub get
         run: flutter pub get
@@ -291,7 +314,7 @@ jobs:
 
       - name: Setup Ruby
         if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: ${{ inputs.ruby_version }}
           bundler-cache: true
@@ -380,14 +403,14 @@ jobs:
 
       - name: Upload Android artifact
         if: ${{ inputs.upload_artifacts && inputs.build_android }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.android_artifact_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.android_artifact_path }}
 
       - name: Upload iOS artifact
         if: ${{ inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.ios_artifact_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.ios_artifact_path }}

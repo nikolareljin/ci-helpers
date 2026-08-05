@@ -88,58 +88,58 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node_version }}
 
       - name: Setup Java
         if: ${{ inputs.java_version != '' }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
 
       - name: Setup .NET
         if: ${{ inputs.dotnet_version != '' }}
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ inputs.python_version }}
 
       - name: Setup Go
         if: ${{ inputs.go_version != '' }}
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ inputs.go_version }}
 
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' }}
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ inputs.flutter_version }}
           channel: ${{ inputs.flutter_channel != '' && inputs.flutter_channel || 'stable' }}
 
       - name: Setup Flutter (channel only)
         if: ${{ inputs.flutter_version == '' && inputs.flutter_channel != '' }}
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: ${{ inputs.flutter_channel }}
 
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ inputs.php_version }}
 
@@ -169,7 +169,7 @@ jobs:
 
       - name: Upload workflow artifact
         if: ${{ inputs.upload_artifact && inputs.artifact_paths != '' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.artifact_paths }}
@@ -240,7 +240,7 @@ jobs:
 
       - name: Create GitHub release (with files)
         if: ${{ inputs.artifact_paths != '' }}
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
@@ -252,7 +252,7 @@ jobs:
 
       - name: Create GitHub release (no files)
         if: ${{ inputs.artifact_paths == '' }}
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}

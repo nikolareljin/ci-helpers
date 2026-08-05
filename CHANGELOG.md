@@ -1,5 +1,57 @@
 # Changelog
 
+## 2026-08-04 — 0.19.2
+
+### Security
+
+- **Every third-party action is pinned to a commit SHA (supply chain):**
+  42 workflow and action files referenced actions by moving tag —
+  `actions/checkout@v7`, `actions/setup-java@v5`, `dorny/test-reporter@v3`,
+  `github/codeql-action/upload-sarif@v4`, `subosito/flutter-action@v2`,
+  `shivammathur/setup-php@v2`, `ruby/setup-ruby@v1` and others. A tag is
+  mutable: whoever controls the upstream repository, or anyone who compromises
+  it, can move `@v7` to different code and every consumer picks it up on the
+  next run without a diff anywhere.
+
+  All 30 external references now pin a 40-character commit SHA with the
+  resolved version in a trailing comment, so upgrades are explicit and
+  reviewable:
+
+  ```yaml
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  ```
+
+  `nikolareljin/ci-helpers/...@production` references are deliberately left on
+  the floating tag: that is this repository's own release channel, and pinning
+  it would defeat how consumers receive updates.
+
+### Fixed
+
+- **`flutter-release.yml` — a channel name was passed where a version belongs (found in `anchor`):**
+  `flutter_version` defaulted to `stable` and was forwarded verbatim to
+  `subosito/flutter-action` as `flutter-version`, which expects a version
+  number. Every caller relying on the default failed in seconds with:
+
+  ```
+  Unable to determine Flutter version for channel: stable version: stable
+  ```
+
+  The job died before checkout finished, so it read as an infrastructure
+  failure rather than a workflow defect. `ci.yml`, `pr-gate.yml` and
+  `release-build.yml` already defaulted to `""`; only this workflow did not,
+  which is why the problem stayed hidden.
+
+  The default is now `""`, and the Flutter setup is split into the same
+  version-or-channel pair those workflows already use. Callers that explicitly
+  pass a channel name as `flutter_version` — which the old default actively
+  encouraged — are now treated as "no version pin" instead of failing, and the
+  channel they named is honoured as the channel. The guard covers every Flutter
+  channel (`stable`, `beta`, `dev`, `master`, `main`) via a list, so it cannot
+  miss one.
+
+  To pin an exact SDK, pass a version number: `flutter_version: "3.44.7"`.
+  To track a channel, leave `flutter_version` unset and use `flutter_channel`.
+
 ## 2026-08-03 — 0.19.1
 
 ### Fixed
