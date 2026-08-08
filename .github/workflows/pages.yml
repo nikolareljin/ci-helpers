@@ -260,6 +260,13 @@ jobs:
           BUILD_COMMAND: ${{ inputs.build_command }}
         run: |
           set -euo pipefail
+          if [ -e "${PAGES_PATH}" ] && [ ! -d "${PAGES_PATH}" ]; then
+            # Pointing at the generated index.html rather than the directory
+            # holding it is an easy typo, and "does not exist" would send you
+            # looking for the wrong problem entirely.
+            echo "::error::pages_path '${PAGES_PATH}' is a file, not a directory — point it at the directory that contains the site"
+            exit 1
+          fi
           if [ ! -d "${PAGES_PATH}" ]; then
             # Two different mistakes, so two different messages: a generator
             # that ran and wrote nowhere useful, or a deploy-only call pointed
