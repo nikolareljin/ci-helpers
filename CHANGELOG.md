@@ -2,6 +2,18 @@
 
 ## 2026-08-08 — 0.20.0
 
+### Fixed
+
+- **`release-tag-check.yml` ran on every branch and tag creation.** It carried a
+  `branches:` filter on the `create` event. GitHub does not support one there
+  and ignores it silently rather than rejecting it, so the filter did nothing
+  and the check started on every branch and tag created in a consuming
+  repository. The `create` trigger is kept — a branch made through the web UI or
+  the API fires `create` and no `push`, so dropping it would stop checking
+  exactly the release branches nobody made from a terminal — and is now filtered
+  in the job, where an expression works. The job also gained a
+  `timeout-minutes`.
+
 ### Added
 
 - **`pages.yml` — a stack-agnostic GitHub Pages preset.** Builds a static site
