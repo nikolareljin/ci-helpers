@@ -368,8 +368,8 @@ Defaults:
 - `deploy`: `true` — set `false` to build without publishing
 - `timeout_minutes`: `20`
 
-The build fails if `pages_path` is missing or empty by the time the site is
-uploaded — whether a generator ran and produced nothing, or a deploy-only call
+The build fails if `pages_path` is missing, or contains no files by the time
+the site is uploaded — a tree of empty directories is not a site — whether a generator ran and produced nothing, or a deploy-only call
 points at a directory that is not there. That check is why `build_command` does
 not need to be mandatory: an empty site cannot replace a working one on a green
 run either way. `require_entry_file` extends the same idea one step — a

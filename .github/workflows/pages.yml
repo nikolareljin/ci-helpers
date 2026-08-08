@@ -298,8 +298,11 @@ jobs:
           # beginning with "-" is read by find as a predicate, and `find --`
           # does not rescue it — GNU findutils still reports "unknown
           # predicate". `cd --` does handle it.
-          if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 -print -quit)" ]; then
-            echo "::error::${PAGES_PATH} is empty — refusing to deploy an empty site"
+          # -type f (or a symlink, which the upload action dereferences) rather
+          # than any entry: a tree of empty directories is not a site, and with
+          # require_entry_file off it would otherwise deploy nothing at all.
+          if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 \( -type f -o -type l \) -print -quit)" ]; then
+            echo "::error::${PAGES_PATH} contains no files — refusing to deploy an empty site"
             exit 1
           fi
           # A site with no entry document deploys happily and then serves 404

@@ -45,9 +45,10 @@
     `working_directory`. The value is normalised first, so `.`, `./`, `./.`,
     `.//` and `a/./b` are all judged as what they resolve to. Publishing the
     root of `working_directory` is allowed and warns.
-  - The build fails if `pages_path` is missing or empty afterwards, so a
+  - The build fails if `pages_path` is missing, or contains no files, so a
     generator that silently produces nothing cannot replace a working site with
-    an empty one.
+    an empty one. The check looks for a file rather than any entry, because a
+    tree of empty directories is not a site.
   - It also fails when there is no `index.html` or `index.htm` at the root of
     `pages_path`, because such a site deploys successfully and then serves 404
     at its own address. `require_entry_file: false` opts out.
