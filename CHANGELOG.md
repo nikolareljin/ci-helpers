@@ -41,9 +41,10 @@
   Two failure modes are handled deliberately, because both produce a green run
   that publishes nothing useful:
 
-  - `pages_path` must be a relative subdirectory. Empty, the checkout root
-    (`.`), an absolute path and any `..` segment are all refused — uploading the
-    root publishes `.git`, which puts the entire history behind a public URL.
+  - `pages_path` must be relative and must not climb above
+    `working_directory`. The value is normalised first, so `.`, `./`, `./.`,
+    `.//` and `a/./b` are all judged as what they resolve to. Publishing the
+    root of `working_directory` is allowed and warns.
   - The build fails if `pages_path` is missing or empty afterwards, so a
     generator that silently produces nothing cannot replace a working site with
     an empty one.

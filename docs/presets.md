@@ -360,10 +360,11 @@ Defaults:
   exists to hand the site to the deploy job; keeping build output longer stores
   content nobody reads
 - `pages_path`: `site` — directory uploaded to Pages, relative to
-  `working_directory`. It must be a relative subdirectory: the checkout root
-  (`.`) is refused because uploading it publishes `.git` — the whole history,
-  downloadable from the site — along with `.github`. Absolute paths and any
-  `..` segment are refused too
+  `working_directory`. Absolute paths and any `..` segment are refused. The
+  root of `working_directory` is allowed — a repository whose root is the site
+  is a normal Pages layout — but warns, because "everything here" is rarely
+  what someone means to publish. `upload-pages-artifact` excludes `.git`,
+  `.github` and dotfiles; it does not exclude source
 - `deploy`: `true` — set `false` to build without publishing
 - `timeout_minutes`: `20`
 

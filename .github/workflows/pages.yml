@@ -139,8 +139,8 @@ jobs:
           fetch-tags: true
 
       # build_command may legitimately be empty — a repository can publish a
-      # directory it already contains. An empty pages_path cannot: it would
-      # upload the whole checkout, including .git.
+      # directory it already contains. An empty pages_path cannot: there would
+      # be nothing to hand the upload action.
       - name: Validate inputs
         shell: bash
         env:
@@ -148,22 +148,38 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          case "${PAGES_PATH}" in
-            "")
-              echo "::error::pages_path must not be empty"; exit 1 ;;
-            "." | "./")
-              # Uploading the checkout root publishes .git — the entire history,
-              # downloadable from the site. Point at a subdirectory instead.
-              echo "::error::pages_path must not be the checkout root: that publishes .git and .github. Build or copy the site into a subdirectory"
-              exit 1 ;;
+          if [ -z "${PAGES_PATH}" ]; then
+            echo "::error::pages_path must not be empty"
+            exit 1
+          fi
+
+          # Normalise before judging, so ".", "./", "./.", ".//" and "a/./b" are
+          # all recognised for what they are. Done with shell parameter
+          # expansion and sed rather than realpath: pages_path need not exist
+          # yet at this point, and BSD realpath on a macOS runner does not
+          # support -m.
+          norm="${PAGES_PATH}"
+          while [ "${norm}" != "${norm%/}" ] && [ "${norm}" != "/" ]; do
+            norm="${norm%/}"
+          done
+          norm="$(printf '%s' "${norm}" | sed -e 's://*:/:g' -e 's:\(^\|/\)\./:\1:g' -e 's:/\.$::')"
+          [ -z "${norm}" ] && norm="."
+
+          case "${norm}" in
             /*)
               # working_directory/pages_path is what gets uploaded, so an
-              # absolute path produces a nonsense join and escapes the checkout.
+              # absolute path produces a nonsense join.
               echo "::error::pages_path must be relative to working_directory, not an absolute path"
               exit 1 ;;
             ".." | "../"* | *"/../"* | *"/..")
               echo "::error::pages_path must not climb above working_directory"
               exit 1 ;;
+            ".")
+              # Allowed, and legitimate for a repository whose root is the site.
+              # Worth saying out loud all the same, because "everything here"
+              # is rarely what someone means to publish. upload-pages-artifact
+              # excludes .git, .github and dotfiles; it does not exclude source.
+              echo "::warning::pages_path is the root of working_directory — every non-hidden file there will be published, source included. .git, .github and dotfiles are excluded by the upload action" ;;
           esac
           # Checked here rather than left to the first step that uses it: a
           # working-directory that does not exist fails several steps later with
