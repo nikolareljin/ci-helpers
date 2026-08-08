@@ -56,7 +56,7 @@ jobs:
           docker build -f "${{ inputs.dockerfile }}" -t "${{ inputs.image_name }}" "${{ inputs.context }}"
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master @ 2026-07-02
+        uses: aquasecurity/trivy-action@2736533278103862a861f4a35ebac3e97854d956 # master @ 2026-08-08
         with:
           image-ref: ${{ inputs.image_name }}
           format: table
@@ -66,7 +66,7 @@ jobs:
 
       - name: Snyk scan
         if: ${{ inputs.run_snyk }}
-        uses: snyk/actions/docker@8e119fbb6c251787721d34ba683ed48eba792766 # master @ 2026-06-04
+        uses: snyk/actions/docker@12140f4059e244892ae643824a95459a102120dd # master @ 2026-08-08
         env:
           SNYK_TOKEN: ${{ secrets.snyk_token }}
         with:

@@ -5,16 +5,35 @@
 ### Fixed
 
 - **`pages.yml` upgraded pip from PyPI on every run.** The requirements-file
-  install path ran `pip install --upgrade pip` before installing anything,
-  pulling whatever PyPI served at that moment into the job that builds and
-  uploads the published site. Every `uses:` in the preset is pinned to a SHA;
+  install path ran `python -m pip install --upgrade pip` before installing
+  anything, pulling whatever PyPI served at that moment into the job that builds
+  and uploads the published site. Every `uses:` in the preset is pinned to a SHA;
   this one line was the exception, and the only part of the workflow that could
-  behave differently between two runs of the same commit. `actions/setup-python`
-  already provides a current pip, so the line bought nothing it did not already
-  have. A caller who needs a specific pip can install it through
+  behave differently between two runs of the same commit. With `python_version`
+  set, `actions/setup-python` has already provided a current pip and the upgrade
+  bought nothing; without it, the upgrade was mutating the runner image's own
+  Python. A caller who needs a particular pip can install it through
   `install_command`, where the version is theirs to pin.
 
   No input changed and no caller needs to do anything.
+
+- **A `requirements_file` without a `python_version` installed into an
+  unspecified Python.** `Setup Python` only runs when `python_version` is set, so
+  that combination quietly used whichever interpreter the runner image ships — a
+  version nobody chose, and one that moves when the image does. It now says so
+  with a `::warning::`. Not a failure: it works today, and refusing it would
+  break callers already relying on it.
+
+### Changed
+
+- **Refreshed every floating-ref action pin.** The third-party actions tracked at
+  a moving ref — `dtolnay/rust-toolchain` (`stable`), `swatinem/rust-cache`
+  (`v2`), `aquasecurity/trivy-action` (`master`), `snyk/actions/docker`
+  (`master`), `securego/gosec` (`master`) — were pinned to SHAs between two and
+  five weeks old across 14 workflow and action files. All are advanced to the
+  current head of the ref each one names, and each new SHA was verified against
+  the upstream ref rather than taken on the updater's word. `scripts/update_pinned_actions.sh --check`
+  reports 47 up to date, 0 stale.
 
 ## 2026-08-08 — 0.20.0
 

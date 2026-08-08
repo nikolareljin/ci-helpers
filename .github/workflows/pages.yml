@@ -241,6 +241,7 @@ jobs:
         env:
           INSTALL_COMMAND: ${{ inputs.install_command }}
           REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
+          PYTHON_VERSION: ${{ inputs.python_version }}
         # eval, not `bash -c`, and deliberately so. A caller command is usually a
         # chain ("npm ci && npm run build"), and `bash -c` runs it in a fresh
         # shell that does not inherit `set -euo pipefail`: a failure in
@@ -250,18 +251,29 @@ jobs:
         #
         # The input is caller-defined workflow configuration — the same trust
         # level as the workflow file itself — not user or event data.
-        # No `pip install --upgrade pip` here. It fetched whatever PyPI served
-        # at that moment into the job that produces the published site — an
-        # unpinned dependency inside an otherwise SHA-pinned toolchain, and the
-        # one thing in this workflow that could change under us between two runs
-        # of the same commit. actions/setup-python already ships a current pip,
-        # so it bought nothing. A caller that genuinely needs a different pip can
-        # say so in install_command, where the version is theirs to pin.
+        #
+        # No `python -m pip install --upgrade pip` here. It fetched whatever PyPI
+        # served at that moment into the job that produces the published site — an
+        # unpinned dependency inside an otherwise SHA-pinned toolchain, and the one
+        # thing here that could behave differently between two runs of the same
+        # commit. With python_version set, actions/setup-python has already
+        # provided a current pip and the upgrade bought nothing; without it, the
+        # upgrade was mutating the runner image's own Python, which is worse. A
+        # caller who needs a particular pip can install it through install_command,
+        # where the version is theirs to pin.
         run: |
           set -euo pipefail
           if [ -n "${INSTALL_COMMAND}" ]; then
             eval "${INSTALL_COMMAND}"
           else
+            # Setup Python only runs when python_version is set, so a
+            # requirements_file on its own installs into whichever Python the
+            # runner image happens to ship — a version nobody chose, and one that
+            # moves when the image does. Warned about rather than refused: it
+            # works today, and failing would break callers already relying on it.
+            if [ -z "${PYTHON_VERSION}" ]; then
+              echo "::warning::requirements_file is set but python_version is not, so the runner image's own Python is used. Set python_version to pin the interpreter"
+            fi
             python -m pip install -r "${REQUIREMENTS_FILE}"
           fi
 
