@@ -362,11 +362,11 @@ so a generator that silently produces nothing cannot replace a working site with
 an empty one on a green run.
 
 **Do not set a `pages-*` concurrency group in the caller.** This preset's own
-group is `ci-helpers-pages-<key>`; a caller that adds a bare `pages-<ref>` group
-is not prevented from doing so, but a caller whose group collides with the
-called workflow's leaves the called jobs queued behind the run that started
-them. If you are migrating a hand-rolled Pages workflow, delete its
-`concurrency:` block — this preset already serialises deployments.
+group is `ci-helpers-pages-<key>`. A caller whose group name collides with the
+called workflow's own group leaves the called jobs queued behind the run that
+started them — the run waits for a slot it is itself holding. If you are
+migrating a hand-rolled Pages workflow, delete its `concurrency:` block; this
+preset already serialises deployments.
 
 Example (MkDocs — build on every pull request, publish only from `main`):
 

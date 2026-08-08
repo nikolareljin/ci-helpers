@@ -192,11 +192,16 @@ jobs:
             echo "::error::build_command finished but ${PAGES_PATH} does not exist"
             exit 1
           fi
-          if [ -z "$(find "${PAGES_PATH}" -mindepth 1 -print -quit)" ]; then
+          # cd into the directory rather than passing it to find. A pages_path
+          # beginning with "-" is read by find as a predicate, and `find --`
+          # does not rescue it — GNU findutils still reports "unknown
+          # predicate". `cd --` does handle it, and works for an absolute path
+          # too, which a "./" prefix would break.
+          if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 -print -quit)" ]; then
             echo "::error::${PAGES_PATH} is empty — refusing to deploy an empty site"
             exit 1
           fi
-          echo "site: $(find "${PAGES_PATH}" -type f | wc -l) files"
+          echo "site: $(cd -- "${PAGES_PATH}" && find . -type f | wc -l) files"
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: ${{ inputs.deploy }}
