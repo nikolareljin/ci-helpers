@@ -320,6 +320,156 @@ jobs:
       e2e_command: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm --filter demo preview' http://localhost:4173 'pnpm exec playwright test'"
 ```
 
+## Pages (any static site)
+
+Workflow: `.github/workflows/pages.yml`
+
+Builds a static site with whatever generator the repository uses and deploys it
+to GitHub Pages. Stack-agnostic: MkDocs, Sphinx, Hugo, Astro, or a plain
+`cp -r`. Use `pnpm-pages.yml` instead when you need pnpm-workspace installs or a
+Playwright capture step.
+
+Requires `pages: write` and `id-token: write` in the caller **even on runs where
+`deploy` is false** — GitHub validates a reusable workflow's declared
+permissions when the run starts, before any job-level `if:` is evaluated, so a
+caller granting less fails the whole run with `startup_failure`.
+
+Defaults:
+- `runner`: `ubuntu-latest`
+- `working_directory`: `.`
+- `concurrency_key`: `""` — defaults to `github.ref`. Every deployment to a ref
+  is serialised, because Pages hosts one site per repository and two racing
+  deploys decide the published content by whichever finishes last. Set this only
+  when two workflows genuinely publish different things
+- `fetch_depth`: `0` — full history, which generators reading git dates or tags
+  need (`mkdocs-git-revision-date`, Hugo `.Lastmod`); set `1` when nothing does
+- `python_version`: `""` — set to install Python before building
+- `node_version`: `""` — set to install Node before building
+- `requirements_file`: `""` — a pip requirements file relative to
+  `working_directory`; when set and `install_command` is empty it is installed
+  for you and used as the pip cache key
+- `install_command`: `""` — overrides the `requirements_file` install
+- `build_command`: `""` — the command that writes the site into `pages_path`.
+  Leave it empty to publish a directory already committed to the repository: a
+  plain HTML site needs no toolchain and no placeholder command
+- `require_entry_file`: `true` — fail when `pages_path` has no `index.html` or
+  `index.htm` at its root. A site without one deploys successfully and then
+  serves 404 at its own address. Set `false` when publishing assets that are
+  only ever linked to directly
+- `artifact_retention_days`: `1` — how long the Pages artifact is kept. It
+  exists to hand the site to the deploy job; keeping build output longer stores
+  content nobody reads
+- `pages_path`: `site` — directory uploaded to Pages, relative to
+  `working_directory`. Absolute paths and any `..` segment are refused. The
+  root of `working_directory` is allowed — a repository whose root is the site
+  is a normal Pages layout — but warns, because "everything here" is rarely
+  what someone means to publish. `upload-pages-artifact` excludes `.git`,
+  `.github` and dotfiles; it does not exclude source
+- `deploy`: `true` — set `false` to build without publishing
+- `timeout_minutes`: `20`
+
+The build fails if `pages_path` is missing, or contains no files by the time
+the site is uploaded — a tree of empty directories is not a site — whether a generator ran and produced nothing, or a deploy-only call
+points at a directory that is not there. That check is why `build_command` does
+not need to be mandatory: an empty site cannot replace a working one on a green
+run either way. `require_entry_file` extends the same idea one step — a
+directory full of files with no entry document publishes cleanly and then serves
+404 to every visitor.
+
+`working_directory` gets the same treatment: relative, no climbing out of the
+checkout, and it must exist. A path that does not exist otherwise fails several
+steps later with a message about whichever command happened to run first. Both
+inputs are caller-defined workflow configuration, at the same trust level as the
+workflow file — these guards catch a typo, not an attacker.
+
+`actions/configure-pages` runs before the build on deploying runs, so a
+generator that needs the site's own address can read it:
+
+| Variable | Example |
+|---|---|
+| `PAGES_BASE_URL` | `https://owner.github.io/repo` |
+| `PAGES_ORIGIN` | `https://owner.github.io` |
+| `PAGES_HOST` | `owner.github.io` |
+
+```yaml
+with:
+  build_command: "hugo --baseURL \"$PAGES_BASE_URL\""
+```
+
+They are empty when `deploy` is `false`: a repository validating its site on
+pull requests before ever enabling Pages should fail on its own site, not on the
+Pages API. The repository must have **Settings → Pages → Source: GitHub
+Actions** for a deploying run to succeed.
+
+**Do not set a `pages-*` concurrency group in the caller.** This preset's own
+group is `ci-helpers-pages-<key>`. A caller whose group name collides with the
+called workflow's own group leaves the called jobs queued behind the run that
+started them — the run waits for a slot it is itself holding. If you are
+migrating a hand-rolled Pages workflow, delete its `concurrency:` block; this
+preset already serialises deployments.
+
+Example (MkDocs — build on every pull request, publish only from `main`):
+
+```yaml
+name: Docs
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+  pull_request:
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      python_version: "3.12"
+      requirements_file: "requirements-docs.txt"
+      build_command: "mkdocs build --strict"
+      pages_path: "site"
+      deploy: ${{ github.event_name != 'pull_request' }}
+```
+
+Example (publish a directory already in the repository — no build, no toolchain):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      pages_path: "site"
+```
+
+Example (a Node generator):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      node_version: "22"
+      install_command: "npm ci"
+      build_command: "npm run build"
+      pages_path: "dist"
+```
+
 ## pnpm + Pages
 
 Workflow: `.github/workflows/pnpm-pages.yml`

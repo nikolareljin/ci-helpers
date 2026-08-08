@@ -1,5 +1,77 @@
 # Changelog
 
+## 2026-08-08 — 0.20.0
+
+### Fixed
+
+- **`release-tag-check.yml` ran on every branch and tag creation.** It carried a
+  `branches:` filter on the `create` event. GitHub does not support one there
+  and ignores it silently rather than rejecting it, so the filter did nothing
+  and the check started on every branch and tag created in a consuming
+  repository. The `create` trigger is kept — a branch made through the web UI or
+  the API fires `create` and no `push`, so dropping it would stop checking
+  exactly the release branches nobody made from a terminal — and is now filtered
+  in the job, where an expression works. The job also gained a
+  `timeout-minutes`.
+
+### Added
+
+- **`pages.yml` — a stack-agnostic GitHub Pages preset.** Builds a static site
+  with whatever generator a repository uses and deploys it: MkDocs, Sphinx,
+  Hugo, Astro, or a plain `cp -r`. Until now the only Pages publisher was
+  `pnpm-pages.yml`, which carries pnpm-workspace and Playwright capture
+  behaviour that does not generalise, so every non-pnpm repository hand-rolled
+  its own build-and-deploy pair.
+
+  Inputs: `python_version`, `node_version`, `requirements_file`,
+  `install_command`, `build_command`, `pages_path`, `deploy`,
+  `working_directory`, `concurrency_key`, `fetch_depth`, `runner`,
+  `require_entry_file`, `artifact_retention_days`, `timeout_minutes`.
+
+  `build_command` is optional: leaving it empty publishes a directory already
+  committed to the repository, so a plain HTML site needs no toolchain and no
+  placeholder command. Closes #127.
+
+  The concurrency group is namespaced `ci-helpers-pages-<key>`. A called
+  workflow's group is evaluated alongside the caller's, so a caller using the
+  obvious bare `pages-<ref>` name — which most hand-rolled Pages workflows
+  already do — would leave the called jobs queued behind the run that started
+  them.
+
+  Two failure modes are handled deliberately, because both produce a green run
+  that publishes nothing useful:
+
+  - `pages_path` must be relative and must not climb above
+    `working_directory`. The value is normalised first, so `.`, `./`, `./.`,
+    `.//` and `a/./b` are all judged as what they resolve to. Publishing the
+    root of `working_directory` is allowed and warns.
+  - The build fails if `pages_path` is missing, or contains no files, so a
+    generator that silently produces nothing cannot replace a working site with
+    an empty one. The check looks for a file rather than any entry, because a
+    tree of empty directories is not a site.
+  - It also fails when there is no `index.html` or `index.htm` at the root of
+    `pages_path`, because such a site deploys successfully and then serves 404
+    at its own address. `require_entry_file: false` opts out.
+  - `working_directory` is held to the same rules as `pages_path` — relative, no
+    climbing out of the checkout, must exist — rather than failing several steps
+    later with a message about whichever command ran first.
+
+  `deploy: false` builds without publishing — pass
+  `${{ github.event_name != 'pull_request' }}` to validate a site on every pull
+  request and publish only from the default branch. Note that the caller must
+  grant `pages: write` and `id-token: write` **even when `deploy` is false**:
+  GitHub validates a reusable workflow's declared permissions at run start,
+  before any job-level `if:` is evaluated.
+
+  `actions/configure-pages` runs before the build on deploying runs and exports
+  `PAGES_BASE_URL`, `PAGES_ORIGIN` and `PAGES_HOST` to `build_command`, for
+  generators that need the site's own address. It is skipped when `deploy` is
+  false, so a repository validating its site on pull requests before enabling
+  Pages fails on its own site rather than on the Pages API.
+
+  All third-party actions are pinned to commit SHAs, matching the rest of the
+  repository.
+
 ## 2026-08-04 — 0.19.2
 
 ### Security
