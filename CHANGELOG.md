@@ -41,8 +41,8 @@
   Two failure modes are handled deliberately, because both produce a green run
   that publishes nothing useful:
 
-  - `build_command` is required. A Pages run with nothing to build is a
-    misconfiguration, not a no-op.
+  - `pages_path` must not be empty. An empty value would upload the whole
+    checkout, `.git` included.
   - The build fails if `pages_path` is missing or empty afterwards, so a
     generator that silently produces nothing cannot replace a working site with
     an empty one.

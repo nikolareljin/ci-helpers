@@ -223,10 +223,18 @@ jobs:
         env:
           PAGES_PATH: ${{ inputs.pages_path }}
           REQUIRE_ENTRY_FILE: ${{ inputs.require_entry_file }}
+          BUILD_COMMAND: ${{ inputs.build_command }}
         run: |
           set -euo pipefail
           if [ ! -d "${PAGES_PATH}" ]; then
-            echo "::error::build_command finished but ${PAGES_PATH} does not exist"
+            # Two different mistakes, so two different messages: a generator
+            # that ran and wrote nowhere useful, or a deploy-only call pointed
+            # at a directory that is not in the repository.
+            if [ -n "${BUILD_COMMAND}" ]; then
+              echo "::error::build_command finished but ${PAGES_PATH} does not exist"
+            else
+              echo "::error::${PAGES_PATH} does not exist — no build_command was given, so it must already be in the repository"
+            fi
             exit 1
           fi
           # cd into the directory rather than passing it to find. A pages_path
