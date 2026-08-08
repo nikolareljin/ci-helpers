@@ -130,6 +130,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read
+      # Configure Pages reads the repository's Pages configuration.
+      pages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,10 +148,23 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          if [ -z "${PAGES_PATH}" ]; then
-            echo "::error::pages_path must not be empty"
-            exit 1
-          fi
+          case "${PAGES_PATH}" in
+            "")
+              echo "::error::pages_path must not be empty"; exit 1 ;;
+            "." | "./")
+              # Uploading the checkout root publishes .git — the entire history,
+              # downloadable from the site. Point at a subdirectory instead.
+              echo "::error::pages_path must not be the checkout root: that publishes .git and .github. Build or copy the site into a subdirectory"
+              exit 1 ;;
+            /*)
+              # working_directory/pages_path is what gets uploaded, so an
+              # absolute path produces a nonsense join and escapes the checkout.
+              echo "::error::pages_path must be relative to working_directory, not an absolute path"
+              exit 1 ;;
+            ".." | "../"* | *"/../"* | *"/..")
+              echo "::error::pages_path must not climb above working_directory"
+              exit 1 ;;
+          esac
           # Checked here rather than left to the first step that uses it: a
           # working-directory that does not exist fails several steps later with
           # a message about whichever command happened to run first.
@@ -161,6 +176,19 @@ jobs:
             echo "::error::working_directory '${WORKING_DIRECTORY}' does not exist in the checkout"
             exit 1
           fi
+
+      # actions/configure-pages, required by the issue this preset closes. It
+      # reports the site's own URL, which generators that build absolute links
+      # need, and fails early and clearly when Pages is not enabled for the
+      # repository.
+      #
+      # Only on deploying runs: a repository validating its site on pull
+      # requests before ever enabling Pages would otherwise fail on the Pages
+      # API rather than on anything to do with its site.
+      - name: Configure Pages
+        id: pages
+        if: ${{ inputs.deploy }}
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
@@ -207,6 +235,12 @@ jobs:
         shell: bash
         env:
           BUILD_COMMAND: ${{ inputs.build_command }}
+          # Available to the build command for generators that need to know the
+          # site's own address (Hugo baseURL, Astro site). Empty when deploy is
+          # false, because Configure Pages does not run then.
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
+          PAGES_HOST: ${{ steps.pages.outputs.host }}
         # eval for the same reason as the install step above: a chained command
         # must keep `set -euo pipefail` semantics, which `bash -c` discards.
         run: |
@@ -240,8 +274,7 @@ jobs:
           # cd into the directory rather than passing it to find. A pages_path
           # beginning with "-" is read by find as a predicate, and `find --`
           # does not rescue it — GNU findutils still reports "unknown
-          # predicate". `cd --` does handle it, and works for an absolute path
-          # too, which a "./" prefix would break.
+          # predicate". `cd --` does handle it.
           if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 -print -quit)" ]; then
             echo "::error::${PAGES_PATH} is empty — refusing to deploy an empty site"
             exit 1

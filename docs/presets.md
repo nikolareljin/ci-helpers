@@ -360,7 +360,10 @@ Defaults:
   exists to hand the site to the deploy job; keeping build output longer stores
   content nobody reads
 - `pages_path`: `site` — directory uploaded to Pages, relative to
-  `working_directory`
+  `working_directory`. It must be a relative subdirectory: the checkout root
+  (`.`) is refused because uploading it publishes `.git` — the whole history,
+  downloadable from the site — along with `.github`. Absolute paths and any
+  `..` segment are refused too
 - `deploy`: `true` — set `false` to build without publishing
 - `timeout_minutes`: `20`
 
@@ -375,6 +378,25 @@ directory full of files with no entry document publishes cleanly and then serves
 `working_directory` is validated up front too, because a path that does not
 exist otherwise fails several steps later with a message about whichever command
 happened to run first.
+
+`actions/configure-pages` runs before the build on deploying runs, so a
+generator that needs the site's own address can read it:
+
+| Variable | Example |
+|---|---|
+| `PAGES_BASE_URL` | `https://owner.github.io/repo` |
+| `PAGES_ORIGIN` | `https://owner.github.io` |
+| `PAGES_HOST` | `owner.github.io` |
+
+```yaml
+with:
+  build_command: "hugo --baseURL \"$PAGES_BASE_URL\""
+```
+
+They are empty when `deploy` is `false`: a repository validating its site on
+pull requests before ever enabling Pages should fail on its own site, not on the
+Pages API. The repository must have **Settings → Pages → Source: GitHub
+Actions** for a deploying run to succeed.
 
 **Do not set a `pages-*` concurrency group in the caller.** This preset's own
 group is `ci-helpers-pages-<key>`. A caller whose group name collides with the

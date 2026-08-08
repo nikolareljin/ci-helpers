@@ -41,8 +41,9 @@
   Two failure modes are handled deliberately, because both produce a green run
   that publishes nothing useful:
 
-  - `pages_path` must not be empty. An empty value would upload the whole
-    checkout, `.git` included.
+  - `pages_path` must be a relative subdirectory. Empty, the checkout root
+    (`.`), an absolute path and any `..` segment are all refused — uploading the
+    root publishes `.git`, which puts the entire history behind a public URL.
   - The build fails if `pages_path` is missing or empty afterwards, so a
     generator that silently produces nothing cannot replace a working site with
     an empty one.
@@ -58,6 +59,12 @@
   grant `pages: write` and `id-token: write` **even when `deploy` is false**:
   GitHub validates a reusable workflow's declared permissions at run start,
   before any job-level `if:` is evaluated.
+
+  `actions/configure-pages` runs before the build on deploying runs and exports
+  `PAGES_BASE_URL`, `PAGES_ORIGIN` and `PAGES_HOST` to `build_command`, for
+  generators that need the site's own address. It is skipped when `deploy` is
+  false, so a repository validating its site on pull requests before enabling
+  Pages fails on its own site rather than on the Pages API.
 
   All third-party actions are pinned to commit SHAs, matching the rest of the
   repository.
