@@ -352,6 +352,10 @@ Defaults:
 - `build_command`: `""` — the command that writes the site into `pages_path`.
   Leave it empty to publish a directory already committed to the repository: a
   plain HTML site needs no toolchain and no placeholder command
+- `require_entry_file`: `true` — fail when `pages_path` has no `index.html` or
+  `index.htm` at its root. A site without one deploys successfully and then
+  serves 404 at its own address. Set `false` when publishing assets that are
+  only ever linked to directly
 - `artifact_retention_days`: `1` — how long the Pages artifact is kept. It
   exists to hand the site to the deploy job; keeping build output longer stores
   content nobody reads
@@ -364,7 +368,13 @@ The build fails if `pages_path` is missing or empty by the time the site is
 uploaded — whether a generator ran and produced nothing, or a deploy-only call
 points at a directory that is not there. That check is why `build_command` does
 not need to be mandatory: an empty site cannot replace a working one on a green
-run either way.
+run either way. `require_entry_file` extends the same idea one step — a
+directory full of files with no entry document publishes cleanly and then serves
+404 to every visitor.
+
+`working_directory` is validated up front too, because a path that does not
+exist otherwise fails several steps later with a message about whichever command
+happened to run first.
 
 **Do not set a `pages-*` concurrency group in the caller.** This preset's own
 group is `ci-helpers-pages-<key>`. A caller whose group name collides with the

@@ -82,6 +82,15 @@ on:
           example. The expression delimiters cannot be written in this
           description: GitHub evaluates expressions in an input description, no
           context is available there, and the workflow fails to start.
+      require_entry_file:
+        type: boolean
+        default: true
+        description: >
+          Fail when pages_path has no index.html or index.htm at its root. A
+          site without one deploys successfully and then serves 404 at its own
+          address, which is the same "green but useless" outcome the emptiness
+          check exists to prevent. Set false for the rarer case of publishing
+          assets that are only ever linked to directly.
       artifact_retention_days:
         type: number
         default: 1
@@ -134,10 +143,22 @@ jobs:
         shell: bash
         env:
           PAGES_PATH: ${{ inputs.pages_path }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
           if [ -z "${PAGES_PATH}" ]; then
             echo "::error::pages_path must not be empty"
+            exit 1
+          fi
+          # Checked here rather than left to the first step that uses it: a
+          # working-directory that does not exist fails several steps later with
+          # a message about whichever command happened to run first.
+          if [ -z "${WORKING_DIRECTORY}" ]; then
+            echo "::error::working_directory must not be empty — use '.' for the repository root"
+            exit 1
+          fi
+          if [ ! -d "${WORKING_DIRECTORY}" ]; then
+            echo "::error::working_directory '${WORKING_DIRECTORY}' does not exist in the checkout"
             exit 1
           fi
 
@@ -201,6 +222,7 @@ jobs:
         shell: bash
         env:
           PAGES_PATH: ${{ inputs.pages_path }}
+          REQUIRE_ENTRY_FILE: ${{ inputs.require_entry_file }}
         run: |
           set -euo pipefail
           if [ ! -d "${PAGES_PATH}" ]; then
@@ -215,6 +237,15 @@ jobs:
           if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 -print -quit)" ]; then
             echo "::error::${PAGES_PATH} is empty — refusing to deploy an empty site"
             exit 1
+          fi
+          # A site with no entry document deploys happily and then serves 404
+          # at its own address — the same green-but-useless publish the
+          # emptiness check above exists to stop, one step further along.
+          if [ "${REQUIRE_ENTRY_FILE}" = "true" ]; then
+            if ! ( cd -- "${PAGES_PATH}" && { [ -f index.html ] || [ -f index.htm ]; } ); then
+              echo "::error::${PAGES_PATH} has no index.html or index.htm at its root — the site would serve 404. Set require_entry_file: false if that is intended"
+              exit 1
+            fi
           fi
           echo "site: $(cd -- "${PAGES_PATH}" && find . -type f | wc -l) files"
 

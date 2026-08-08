@@ -26,7 +26,7 @@
   Inputs: `python_version`, `node_version`, `requirements_file`,
   `install_command`, `build_command`, `pages_path`, `deploy`,
   `working_directory`, `concurrency_key`, `fetch_depth`, `runner`,
-  `artifact_retention_days`, `timeout_minutes`.
+  `require_entry_file`, `artifact_retention_days`, `timeout_minutes`.
 
   `build_command` is optional: leaving it empty publishes a directory already
   committed to the repository, so a plain HTML site needs no toolchain and no
@@ -46,6 +46,11 @@
   - The build fails if `pages_path` is missing or empty afterwards, so a
     generator that silently produces nothing cannot replace a working site with
     an empty one.
+  - It also fails when there is no `index.html` or `index.htm` at the root of
+    `pages_path`, because such a site deploys successfully and then serves 404
+    at its own address. `require_entry_file: false` opts out.
+  - `working_directory` is validated up front rather than failing several steps
+    later with a message about whichever command ran first.
 
   `deploy: false` builds without publishing — pass
   `${{ github.event_name != 'pull_request' }}` to validate a site on every pull
