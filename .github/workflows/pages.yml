@@ -63,8 +63,11 @@ on:
         type: string
         default: ""
         description: >
-          The command that writes the site into pages_path. Required — a Pages
-          run with nothing to build is a misconfiguration, not a no-op.
+          The command that writes the site into pages_path. Leave empty to
+          publish a directory that is already in the repository — a plain
+          HTML site needs no toolchain and no placeholder command. Whether or
+          not anything is built, the site must exist and be non-empty before
+          it is uploaded.
       pages_path:
         type: string
         default: "site"
@@ -79,6 +82,13 @@ on:
           example. The expression delimiters cannot be written in this
           description: GitHub evaluates expressions in an input description, no
           context is available there, and the workflow fails to start.
+      artifact_retention_days:
+        type: number
+        default: 1
+        description: >
+          How long the Pages artifact is kept. One day by default: the artifact
+          exists to hand the site to the deploy job, and keeping build output
+          beyond that stores content nobody reads.
       timeout_minutes:
         type: number
         default: 20
@@ -117,17 +127,19 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
+      # build_command may legitimately be empty — a repository can publish a
+      # directory it already contains. An empty pages_path cannot: it would
+      # upload the whole checkout, including .git.
       - name: Validate inputs
         shell: bash
+        env:
+          PAGES_PATH: ${{ inputs.pages_path }}
         run: |
           set -euo pipefail
-          if [ -z "${BUILD_COMMAND}" ]; then
-            echo "::error::build_command is required — nothing would be written to ${PAGES_PATH}"
+          if [ -z "${PAGES_PATH}" ]; then
+            echo "::error::pages_path must not be empty"
             exit 1
           fi
-        env:
-          BUILD_COMMAND: ${{ inputs.build_command }}
-          PAGES_PATH: ${{ inputs.pages_path }}
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
@@ -169,6 +181,7 @@ jobs:
           fi
 
       - name: Build site
+        if: ${{ inputs.build_command != '' }}
         working-directory: ${{ inputs.working_directory }}
         shell: bash
         env:
@@ -179,8 +192,10 @@ jobs:
           set -euo pipefail
           eval "${BUILD_COMMAND}"
 
-      # A build that "succeeds" while producing nothing would otherwise deploy
-      # an empty site over a working one, and the run would still be green.
+      # The real guard, and the reason build_command does not need to be
+      # required: a build that "succeeds" while producing nothing, or a
+      # deploy-only run pointed at a directory that is not there, would
+      # otherwise publish an empty site over a working one on a green run.
       - name: Verify the site was produced
         working-directory: ${{ inputs.working_directory }}
         shell: bash
@@ -207,6 +222,7 @@ jobs:
         if: ${{ inputs.deploy }}
         with:
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
+          retention-days: ${{ inputs.artifact_retention_days }}
 
   deploy:
     needs: build

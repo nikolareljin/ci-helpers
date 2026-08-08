@@ -349,17 +349,22 @@ Defaults:
   `working_directory`; when set and `install_command` is empty it is installed
   for you and used as the pip cache key
 - `install_command`: `""` — overrides the `requirements_file` install
-- `build_command`: `""` — **required**; the command that writes the site into
-  `pages_path`. A Pages run with nothing to build fails rather than deploying
-  nothing
+- `build_command`: `""` — the command that writes the site into `pages_path`.
+  Leave it empty to publish a directory already committed to the repository: a
+  plain HTML site needs no toolchain and no placeholder command
+- `artifact_retention_days`: `1` — how long the Pages artifact is kept. It
+  exists to hand the site to the deploy job; keeping build output longer stores
+  content nobody reads
 - `pages_path`: `site` — directory uploaded to Pages, relative to
   `working_directory`
 - `deploy`: `true` — set `false` to build without publishing
 - `timeout_minutes`: `20`
 
-The build fails if `pages_path` is missing or empty after `build_command` runs,
-so a generator that silently produces nothing cannot replace a working site with
-an empty one on a green run.
+The build fails if `pages_path` is missing or empty by the time the site is
+uploaded — whether a generator ran and produced nothing, or a deploy-only call
+points at a directory that is not there. That check is why `build_command` does
+not need to be mandatory: an empty site cannot replace a working one on a green
+run either way.
 
 **Do not set a `pages-*` concurrency group in the caller.** This preset's own
 group is `ci-helpers-pages-<key>`. A caller whose group name collides with the
@@ -397,6 +402,20 @@ jobs:
       build_command: "mkdocs build --strict"
       pages_path: "site"
       deploy: ${{ github.event_name != 'pull_request' }}
+```
+
+Example (publish a directory already in the repository — no build, no toolchain):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      pages_path: "site"
 ```
 
 Example (a Node generator):

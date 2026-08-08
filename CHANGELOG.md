@@ -26,7 +26,11 @@
   Inputs: `python_version`, `node_version`, `requirements_file`,
   `install_command`, `build_command`, `pages_path`, `deploy`,
   `working_directory`, `concurrency_key`, `fetch_depth`, `runner`,
-  `timeout_minutes`.
+  `artifact_retention_days`, `timeout_minutes`.
+
+  `build_command` is optional: leaving it empty publishes a directory already
+  committed to the repository, so a plain HTML site needs no toolchain and no
+  placeholder command. Closes #127.
 
   The concurrency group is namespaced `ci-helpers-pages-<key>`. A called
   workflow's group is evaluated alongside the caller's, so a caller using the
