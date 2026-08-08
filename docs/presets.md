@@ -376,9 +376,11 @@ run either way. `require_entry_file` extends the same idea one step — a
 directory full of files with no entry document publishes cleanly and then serves
 404 to every visitor.
 
-`working_directory` is validated up front too, because a path that does not
-exist otherwise fails several steps later with a message about whichever command
-happened to run first.
+`working_directory` gets the same treatment: relative, no climbing out of the
+checkout, and it must exist. A path that does not exist otherwise fails several
+steps later with a message about whichever command happened to run first. Both
+inputs are caller-defined workflow configuration, at the same trust level as the
+workflow file — these guards catch a typo, not an attacker.
 
 `actions/configure-pages` runs before the build on deploying runs, so a
 generator that needs the site's own address can read it:

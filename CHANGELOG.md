@@ -52,7 +52,8 @@
   - It also fails when there is no `index.html` or `index.htm` at the root of
     `pages_path`, because such a site deploys successfully and then serves 404
     at its own address. `require_entry_file: false` opts out.
-  - `working_directory` is validated up front rather than failing several steps
+  - `working_directory` is held to the same rules as `pages_path` — relative, no
+    climbing out of the checkout, must exist — rather than failing several steps
     later with a message about whichever command ran first.
 
   `deploy: false` builds without publishing — pass

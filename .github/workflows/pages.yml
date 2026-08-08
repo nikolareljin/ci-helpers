@@ -139,8 +139,13 @@ jobs:
           fetch-tags: true
 
       # build_command may legitimately be empty — a repository can publish a
-      # directory it already contains. An empty pages_path cannot: there would
-      # be nothing to hand the upload action.
+      # directory it already contains. The two path inputs cannot be anything at
+      # all: working_directory/pages_path is what gets uploaded, so a value that
+      # climbs out of the checkout uploads something nobody meant to publish.
+      #
+      # These are caller-defined workflow configuration, at the same trust level
+      # as the workflow file itself — this guards against a typo, not against an
+      # attacker.
       - name: Validate inputs
         shell: bash
         env:
@@ -148,49 +153,58 @@ jobs:
           WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          if [ -z "${PAGES_PATH}" ]; then
-            echo "::error::pages_path must not be empty"
-            exit 1
-          fi
 
           # Normalise before judging, so ".", "./", "./.", ".//" and "a/./b" are
-          # all recognised for what they are. Done with shell parameter
-          # expansion and sed rather than realpath: pages_path need not exist
-          # yet at this point, and BSD realpath on a macOS runner does not
-          # support -m.
-          norm="${PAGES_PATH}"
-          while [ "${norm}" != "${norm%/}" ] && [ "${norm}" != "/" ]; do
-            norm="${norm%/}"
-          done
-          norm="$(printf '%s' "${norm}" | sed -e 's://*:/:g' -e 's:\(^\|/\)\./:\1:g' -e 's:/\.$::')"
-          [ -z "${norm}" ] && norm="."
+          # all recognised for what they are. Parameter expansion and sed rather
+          # than realpath: pages_path need not exist yet, and BSD realpath on a
+          # macOS runner has no -m.
+          normalise() {
+            local n="$1"
+            while [ "${n}" != "${n%/}" ] && [ "${n}" != "/" ]; do n="${n%/}"; done
+            n="$(printf '%s' "${n}" | sed -e 's://*:/:g' -e 's:\(^\|/\)\./:\1:g' -e 's:/\.$::')"
+            [ -z "${n}" ] && n="."
+            printf '%s' "${n}"
+          }
 
-          case "${norm}" in
-            /*)
-              # working_directory/pages_path is what gets uploaded, so an
-              # absolute path produces a nonsense join.
-              echo "::error::pages_path must be relative to working_directory, not an absolute path"
-              exit 1 ;;
-            ".." | "../"* | *"/../"* | *"/..")
-              echo "::error::pages_path must not climb above working_directory"
-              exit 1 ;;
-            ".")
-              # Allowed, and legitimate for a repository whose root is the site.
-              # Worth saying out loud all the same, because "everything here"
-              # is rarely what someone means to publish. upload-pages-artifact
-              # excludes .git, .github and dotfiles; it does not exclude source.
-              echo "::warning::pages_path is the root of working_directory — every non-hidden file there will be published, source included. .git, .github and dotfiles are excluded by the upload action" ;;
-          esac
-          # Checked here rather than left to the first step that uses it: a
-          # working-directory that does not exist fails several steps later with
-          # a message about whichever command happened to run first.
-          if [ -z "${WORKING_DIRECTORY}" ]; then
-            echo "::error::working_directory must not be empty — use '.' for the repository root"
-            exit 1
-          fi
+          # Errors go to stderr, never stdout: this function returns the
+          # normalised path on stdout, so an ::error:: written there would be
+          # captured by the caller's $( ) — or discarded — and the run would
+          # fail with no message at all, which is worse than not checking.
+          check_relative() {
+            local name="$1" value="$2" norm
+            if [ -z "${value}" ]; then
+              echo "::error::${name} must not be empty" >&2
+              exit 1
+            fi
+            norm="$(normalise "${value}")"
+            case "${norm}" in
+              /*)
+                echo "::error::${name} must be a relative path, not an absolute one — working_directory/pages_path is what gets uploaded" >&2
+                exit 1 ;;
+              ".." | "../"* | *"/../"* | *"/..")
+                echo "::error::${name} must not climb above the checkout" >&2
+                exit 1 ;;
+            esac
+            printf '%s' "${norm}"
+          }
+
+          check_relative working_directory "${WORKING_DIRECTORY}" >/dev/null
+          pages_norm="$(check_relative pages_path "${PAGES_PATH}")"
+
           if [ ! -d "${WORKING_DIRECTORY}" ]; then
+            # Checked here rather than left to the first step that uses it: a
+            # working-directory that does not exist fails several steps later
+            # with a message about whichever command happened to run first.
             echo "::error::working_directory '${WORKING_DIRECTORY}' does not exist in the checkout"
             exit 1
+          fi
+
+          if [ "${pages_norm}" = "." ]; then
+            # Allowed, and legitimate for a repository whose root is the site.
+            # Worth saying out loud all the same, because "everything here" is
+            # rarely what someone means to publish. upload-pages-artifact
+            # excludes .git, .github and dotfiles; it does not exclude source.
+            echo "::warning::pages_path is the root of working_directory — every non-hidden file there will be published, source included. .git, .github and dotfiles are excluded by the upload action"
           fi
 
       # actions/configure-pages, required by the issue this preset closes. It
