@@ -23,6 +23,16 @@ on:
       working_directory:
         type: string
         default: "."
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Separates deployments that must not queue behind each other — a
+          preview site and a production site in the same repository, say.
+          Defaults to github.ref, which serialises every deployment to a given
+          ref. Pages hosts one site per repository, so serialising is the safe
+          default: two deploys racing decide the published content by whichever
+          finishes last.
       fetch_depth:
         type: number
         default: 0
@@ -73,8 +83,20 @@ on:
 # Serialise Pages deployments so an older run cannot overwrite a newer one when
 # two pushes arrive close together. cancel-in-progress stays false: a
 # half-finished deployment is worse than a queued one.
+#
+# The group is namespaced with `ci-helpers-pages-` on purpose. A called
+# workflow's concurrency group is evaluated alongside the caller's, so a caller
+# that sets a bare `pages-<ref>` group of its own — the obvious name, and the
+# one most hand-rolled Pages workflows already use — would leave these jobs
+# queued behind the very run that started them. The prefix makes that collision
+# impossible to hit by accident.
+#
+# github.workflow is deliberately *not* in the key: Pages hosts one site per
+# repository, so two different caller workflows must serialise against each
+# other rather than race to publish. Use concurrency_key when they genuinely
+# publish different things.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: ci-helpers-pages-${{ inputs.concurrency_key || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -125,6 +147,15 @@ jobs:
         env:
           INSTALL_COMMAND: ${{ inputs.install_command }}
           REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
+        # eval, not `bash -c`, and deliberately so. A caller command is usually a
+        # chain ("npm ci && npm run build"), and `bash -c` runs it in a fresh
+        # shell that does not inherit `set -euo pipefail`: a failure in
+        # everything but the last command is then swallowed, the step passes,
+        # and an empty or stale site gets published on a green run. eval runs in
+        # this shell and inherits the failure semantics.
+        #
+        # The input is caller-defined workflow configuration — the same trust
+        # level as the workflow file itself — not user or event data.
         run: |
           set -euo pipefail
           if [ -n "${INSTALL_COMMAND}" ]; then
@@ -139,6 +170,8 @@ jobs:
         shell: bash
         env:
           BUILD_COMMAND: ${{ inputs.build_command }}
+        # eval for the same reason as the install step above: a chained command
+        # must keep `set -euo pipefail` semantics, which `bash -c` discards.
         run: |
           set -euo pipefail
           eval "${BUILD_COMMAND}"

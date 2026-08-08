@@ -337,6 +337,10 @@ caller granting less fails the whole run with `startup_failure`.
 Defaults:
 - `runner`: `ubuntu-latest`
 - `working_directory`: `.`
+- `concurrency_key`: `""` — defaults to `github.ref`. Every deployment to a ref
+  is serialised, because Pages hosts one site per repository and two racing
+  deploys decide the published content by whichever finishes last. Set this only
+  when two workflows genuinely publish different things
 - `fetch_depth`: `0` — full history, which generators reading git dates or tags
   need (`mkdocs-git-revision-date`, Hugo `.Lastmod`); set `1` when nothing does
 - `python_version`: `""` — set to install Python before building
@@ -356,6 +360,13 @@ Defaults:
 The build fails if `pages_path` is missing or empty after `build_command` runs,
 so a generator that silently produces nothing cannot replace a working site with
 an empty one on a green run.
+
+**Do not set a `pages-*` concurrency group in the caller.** This preset's own
+group is `ci-helpers-pages-<key>`; a caller that adds a bare `pages-<ref>` group
+is not prevented from doing so, but a caller whose group collides with the
+called workflow's leaves the called jobs queued behind the run that started
+them. If you are migrating a hand-rolled Pages workflow, delete its
+`concurrency:` block — this preset already serialises deployments.
 
 Example (MkDocs — build on every pull request, publish only from `main`):
 

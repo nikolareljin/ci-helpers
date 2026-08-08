@@ -13,7 +13,14 @@
 
   Inputs: `python_version`, `node_version`, `requirements_file`,
   `install_command`, `build_command`, `pages_path`, `deploy`,
-  `working_directory`, `fetch_depth`, `runner`, `timeout_minutes`.
+  `working_directory`, `concurrency_key`, `fetch_depth`, `runner`,
+  `timeout_minutes`.
+
+  The concurrency group is namespaced `ci-helpers-pages-<key>`. A called
+  workflow's group is evaluated alongside the caller's, so a caller using the
+  obvious bare `pages-<ref>` name — which most hand-rolled Pages workflows
+  already do — would leave the called jobs queued behind the run that started
+  them.
 
   Two failure modes are handled deliberately, because both produce a green run
   that publishes nothing useful:
