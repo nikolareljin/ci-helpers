@@ -73,9 +73,12 @@ on:
         type: boolean
         default: true
         description: >
-          Set false to build without publishing. Pass
-          `${{ github.event_name != 'pull_request' }}` to validate a site on
-          every pull request and publish only from the default branch.
+          Set false to build without publishing. To validate a site on every
+          pull request and publish only from the default branch, pass an
+          expression on github.event_name — docs/presets.md has the complete
+          example. The expression delimiters cannot be written in this
+          description: GitHub evaluates expressions in an input description, no
+          context is available there, and the workflow fails to start.
       timeout_minutes:
         type: number
         default: 20
