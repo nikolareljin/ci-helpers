@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-08-08 — 0.20.0
+
+### Added
+
+- **`pages.yml` — a stack-agnostic GitHub Pages preset.** Builds a static site
+  with whatever generator a repository uses and deploys it: MkDocs, Sphinx,
+  Hugo, Astro, or a plain `cp -r`. Until now the only Pages publisher was
+  `pnpm-pages.yml`, which carries pnpm-workspace and Playwright capture
+  behaviour that does not generalise, so every non-pnpm repository hand-rolled
+  its own build-and-deploy pair.
+
+  Inputs: `python_version`, `node_version`, `requirements_file`,
+  `install_command`, `build_command`, `pages_path`, `deploy`,
+  `working_directory`, `fetch_depth`, `runner`, `timeout_minutes`.
+
+  Two failure modes are handled deliberately, because both produce a green run
+  that publishes nothing useful:
+
+  - `build_command` is required. A Pages run with nothing to build is a
+    misconfiguration, not a no-op.
+  - The build fails if `pages_path` is missing or empty afterwards, so a
+    generator that silently produces nothing cannot replace a working site with
+    an empty one.
+
+  `deploy: false` builds without publishing — pass
+  `${{ github.event_name != 'pull_request' }}` to validate a site on every pull
+  request and publish only from the default branch. Note that the caller must
+  grant `pages: write` and `id-token: write` **even when `deploy` is false**:
+  GitHub validates a reusable workflow's declared permissions at run start,
+  before any job-level `if:` is evaluated.
+
+  All third-party actions are pinned to commit SHAs, matching the rest of the
+  repository.
+
 ## 2026-08-04 — 0.19.2
 
 ### Security

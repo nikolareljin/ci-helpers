@@ -320,6 +320,91 @@ jobs:
       e2e_command: "pnpm exec playwright install --with-deps && pnpm dlx start-server-and-test 'pnpm --filter demo preview' http://localhost:4173 'pnpm exec playwright test'"
 ```
 
+## Pages (any static site)
+
+Workflow: `.github/workflows/pages.yml`
+
+Builds a static site with whatever generator the repository uses and deploys it
+to GitHub Pages. Stack-agnostic: MkDocs, Sphinx, Hugo, Astro, or a plain
+`cp -r`. Use `pnpm-pages.yml` instead when you need pnpm-workspace installs or a
+Playwright capture step.
+
+Requires `pages: write` and `id-token: write` in the caller **even on runs where
+`deploy` is false** — GitHub validates a reusable workflow's declared
+permissions when the run starts, before any job-level `if:` is evaluated, so a
+caller granting less fails the whole run with `startup_failure`.
+
+Defaults:
+- `runner`: `ubuntu-latest`
+- `working_directory`: `.`
+- `fetch_depth`: `0` — full history, which generators reading git dates or tags
+  need (`mkdocs-git-revision-date`, Hugo `.Lastmod`); set `1` when nothing does
+- `python_version`: `""` — set to install Python before building
+- `node_version`: `""` — set to install Node before building
+- `requirements_file`: `""` — a pip requirements file relative to
+  `working_directory`; when set and `install_command` is empty it is installed
+  for you and used as the pip cache key
+- `install_command`: `""` — overrides the `requirements_file` install
+- `build_command`: `""` — **required**; the command that writes the site into
+  `pages_path`. A Pages run with nothing to build fails rather than deploying
+  nothing
+- `pages_path`: `site` — directory uploaded to Pages, relative to
+  `working_directory`
+- `deploy`: `true` — set `false` to build without publishing
+- `timeout_minutes`: `20`
+
+The build fails if `pages_path` is missing or empty after `build_command` runs,
+so a generator that silently produces nothing cannot replace a working site with
+an empty one on a green run.
+
+Example (MkDocs — build on every pull request, publish only from `main`):
+
+```yaml
+name: Docs
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+  pull_request:
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      python_version: "3.12"
+      requirements_file: "requirements-docs.txt"
+      build_command: "mkdocs build --strict"
+      pages_path: "site"
+      deploy: ${{ github.event_name != 'pull_request' }}
+```
+
+Example (a Node generator):
+
+```yaml
+jobs:
+  pages:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages.yml@production
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      node_version: "22"
+      install_command: "npm ci"
+      build_command: "npm run build"
+      pages_path: "dist"
+```
+
 ## pnpm + Pages
 
 Workflow: `.github/workflows/pnpm-pages.yml`

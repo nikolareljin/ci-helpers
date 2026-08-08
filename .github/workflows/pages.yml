@@ -1,0 +1,183 @@
+name: preset-pages
+#
+# Stack-agnostic GitHub Pages publisher: build a static site with whatever
+# generator the repository uses, then deploy it.
+#
+# pnpm-pages.yml stays as it is — it carries pnpm-workspace and Playwright
+# capture behaviour that does not generalise. This preset covers everything
+# else: MkDocs, Sphinx, Hugo, Astro, a plain `cp -r`, anything that writes a
+# directory of files.
+#
+# The caller must grant `pages: write` and `id-token: write` even on runs where
+# `deploy` is false. GitHub validates a reusable workflow's declared permissions
+# when the run starts, before any job-level `if:` is evaluated, so a caller that
+# grants less fails the whole run with `startup_failure` rather than skipping
+# the deploy job.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+        description: >
+          0 keeps full history, which generators that read git dates or tags
+          need (mkdocs-git-revision-date, Hugo .Lastmod). Set 1 when nothing
+          reads history.
+      python_version:
+        type: string
+        default: ""
+        description: Set to install Python before building.
+      node_version:
+        type: string
+        default: ""
+        description: Set to install Node before building.
+      requirements_file:
+        type: string
+        default: ""
+        description: >
+          Path to a pip requirements file, relative to working_directory. When
+          set and install_command is empty, it is installed for you and used as
+          the pip cache key.
+      install_command:
+        type: string
+        default: ""
+        description: Overrides the requirements_file install when set.
+      build_command:
+        type: string
+        default: ""
+        description: >
+          The command that writes the site into pages_path. Required — a Pages
+          run with nothing to build is a misconfiguration, not a no-op.
+      pages_path:
+        type: string
+        default: "site"
+        description: Directory uploaded to Pages, relative to working_directory.
+      deploy:
+        type: boolean
+        default: true
+        description: >
+          Set false to build without publishing. Pass
+          `${{ github.event_name != 'pull_request' }}` to validate a site on
+          every pull request and publish only from the default branch.
+      timeout_minutes:
+        type: number
+        default: 20
+
+# Serialise Pages deployments so an older run cannot overwrite a newer one when
+# two pushes arrive close together. cancel-in-progress stays false: a
+# half-finished deployment is worse than a queued one.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILD_COMMAND}" ]; then
+            echo "::error::build_command is required — nothing would be written to ${PAGES_PATH}"
+            exit 1
+          fi
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+          PAGES_PATH: ${{ inputs.pages_path }}
+
+      - name: Setup Python
+        if: ${{ inputs.python_version != '' }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: ${{ inputs.requirements_file != '' && 'pip' || '' }}
+          cache-dependency-path: ${{ inputs.requirements_file != '' && format('{0}/{1}', inputs.working_directory, inputs.requirements_file) || '' }}
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install
+        if: ${{ inputs.install_command != '' || inputs.requirements_file != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INSTALL_COMMAND}" ]; then
+            eval "${INSTALL_COMMAND}"
+          else
+            python -m pip install --upgrade pip
+            python -m pip install -r "${REQUIREMENTS_FILE}"
+          fi
+
+      - name: Build site
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          eval "${BUILD_COMMAND}"
+
+      # A build that "succeeds" while producing nothing would otherwise deploy
+      # an empty site over a working one, and the run would still be green.
+      - name: Verify the site was produced
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          PAGES_PATH: ${{ inputs.pages_path }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${PAGES_PATH}" ]; then
+            echo "::error::build_command finished but ${PAGES_PATH} does not exist"
+            exit 1
+          fi
+          if [ -z "$(find "${PAGES_PATH}" -mindepth 1 -print -quit)" ]; then
+            echo "::error::${PAGES_PATH} is empty — refusing to deploy an empty site"
+            exit 1
+          fi
+          echo "site: $(find "${PAGES_PATH}" -type f | wc -l) files"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: ${{ inputs.deploy }}
+        with:
+          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
+
+  deploy:
+    needs: build
+    if: ${{ inputs.deploy }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
