@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-08 — 0.20.1
+
+### Fixed
+
+- **`pages.yml` upgraded pip from PyPI on every run.** The requirements-file
+  install path ran `pip install --upgrade pip` before installing anything,
+  pulling whatever PyPI served at that moment into the job that builds and
+  uploads the published site. Every `uses:` in the preset is pinned to a SHA;
+  this one line was the exception, and the only part of the workflow that could
+  behave differently between two runs of the same commit. `actions/setup-python`
+  already provides a current pip, so the line bought nothing it did not already
+  have. A caller who needs a specific pip can install it through
+  `install_command`, where the version is theirs to pin.
+
+  No input changed and no caller needs to do anything.
+
 ## 2026-08-08 — 0.20.0
 
 ### Fixed
