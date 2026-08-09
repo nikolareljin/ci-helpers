@@ -1,0 +1,88 @@
+name: preset-pages-deploy
+#
+# Deploys the `github-pages` artifact that pages-build.yml uploaded earlier in
+# the same run. It builds nothing and checks out nothing, so the only place
+# `pages: write` and `id-token: write` are ever live is a job that runs no
+# third-party code.
+#
+# Pair it with pages-build.yml when a repository validates its site on pull
+# requests and publishes from its default branch:
+#
+#   jobs:
+#     build:
+#       uses: nikolareljin/ci-helpers/.github/workflows/pages-build.yml@production
+#       permissions:
+#         contents: read
+#         pages: read
+#       with:
+#         build_command: "mkdocs build --strict"
+#         upload: ${{ github.ref == 'refs/heads/main' }}
+#     deploy:
+#       needs: build
+#       if: ${{ github.ref == 'refs/heads/main' }}
+#       uses: nikolareljin/ci-helpers/.github/workflows/pages-deploy.yml@production
+#       permissions:
+#         pages: write
+#         id-token: write
+#
+# The pull-request run then holds no write scope at all: `deploy` is skipped, so
+# its token is never minted, and `build` asked for nothing beyond read.
+#
+# pages.yml calls both of these in sequence and remains the simpler choice for a
+# repository that publishes from every event it builds on.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      timeout_minutes:
+        type: number
+        default: 20
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Separates deployments that must not queue behind each other — a
+          preview site and a production site in the same repository, say.
+          Defaults to github.ref, which serialises every deployment to a given
+          ref. Pages hosts one site per repository, so serialising is the safe
+          default: two deploys racing decide the published content by whichever
+          finishes last.
+    outputs:
+      page_url:
+        description: The URL the site was published at.
+        value: ${{ jobs.deploy.outputs.page_url }}
+
+# Serialise Pages deployments so an older run cannot overwrite a newer one when
+# two pushes arrive close together. cancel-in-progress stays false: a
+# half-finished deployment is worse than a queued one.
+#
+# The group is namespaced `ci-helpers-pages-deploy-` rather than
+# `ci-helpers-pages-`, which is what pages.yml uses. That difference is
+# load-bearing: pages.yml calls this workflow, a called workflow's concurrency
+# group is evaluated alongside its caller's, and a shared name would leave this
+# job queued behind the very run that started it — permanently.
+concurrency:
+  group: ci-helpers-pages-deploy-${{ inputs.concurrency_key || github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

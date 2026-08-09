@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-08-09 — 0.21.0
+
+### Added
+
+- **`pages-build.yml` and `pages-deploy.yml` — the Pages preset in two callable
+  halves (#137).** `pages.yml` contains both a build and a deploy, and GitHub
+  validates a called workflow's declared permissions when the run starts, before
+  any job-level `if:` is evaluated. Every caller therefore had to grant
+  `pages: write` and `id-token: write` on *every* event it handled, including
+  pull requests, where `deploy: false` means nothing is published — so the build
+  ran pip, npm postinstall and generator plugins with deploy-capable scopes live
+  and nothing to deploy.
+
+  A caller can now build with `pages-build.yml` and deploy with
+  `pages-deploy.yml` as two jobs, granting write only on the second. On a pull
+  request the deploy job is skipped, its token is never minted, and the run holds
+  no write scope anywhere. `pages-deploy.yml` checks out nothing and builds
+  nothing, so those scopes are only ever live in a job that runs no third-party
+  code.
+
+  Measured against real runs rather than inferred: `pages-build.yml` succeeds on
+  `contents: read` + `pages: read`, and `startup_failure`s on `contents: read`
+  alone — `pages: read` is genuinely required, because Configure Pages reads the
+  repository's Pages configuration.
+
+  `pages-build.yml` adds two inputs of its own, `upload` and `configure_pages`,
+  which `pages.yml` drives from its `deploy` input to keep its own behaviour
+  identical.
+
+### Changed
+
+- **`pages.yml` now calls those two workflows instead of carrying the steps.**
+  Its inputs, defaults, concurrency group and permission requirements are
+  unchanged, and it gains a `page_url` output. Nothing calling it needs to
+  change. Verified from a consuming repository at this branch: the single-call
+  path builds through two levels of nesting and skips the deploy on
+  `deploy: false`, exactly as before.
+
+  A relative `uses:` inside a reusable workflow resolves against *its own*
+  repository at the ref the consumer pinned, not against the consumer's
+  repository — so `pages.yml@production` gets `pages-build.yml@production` with
+  no coordination on the caller's side. Measured, because the alternative
+  reading would have made this refactor impossible.
+
+- **`pages-deploy.yml` serialises on `ci-helpers-pages-deploy-<key>`,** not the
+  `ci-helpers-pages-<key>` group `pages.yml` uses. A called workflow's group is
+  evaluated alongside its caller's, so sharing the name would leave the deploy
+  queued behind the run that started it.
+
 ## 2026-08-08 — 0.20.1
 
 ### Fixed

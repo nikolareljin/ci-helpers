@@ -334,6 +334,13 @@ Requires `pages: write` and `id-token: write` in the caller **even on runs where
 permissions when the run starts, before any job-level `if:` is evaluated, so a
 caller granting less fails the whole run with `startup_failure`.
 
+That matters on pull requests, where the build runs third-party code (pip, npm
+postinstall, generator plugins) while those write scopes are live and nothing is
+being published. If you would rather not grant them there, call
+`pages-build.yml` and `pages-deploy.yml` as two jobs instead — see
+[Pages, split](#pages-split) below. `pages.yml` remains the simpler choice for a
+repository that publishes from every event it builds on.
+
 Defaults:
 - `runner`: `ubuntu-latest`
 - `working_directory`: `.`
@@ -469,6 +476,85 @@ jobs:
       build_command: "npm run build"
       pages_path: "dist"
 ```
+
+## Pages, split
+
+Workflows: `.github/workflows/pages-build.yml` and
+`.github/workflows/pages-deploy.yml`
+
+The same publisher as `pages.yml`, in two callable halves. Reach for it when a
+repository builds its site on pull requests and publishes only from its default
+branch, and you do not want the pull-request build holding deploy-capable
+scopes. `pages.yml` calls these two internally, so behaviour is identical — the
+only difference is which permissions the caller has to grant on which event.
+
+Minimum grants, both measured against a real run rather than inferred:
+
+| Job | Grant | Measured |
+| --- | --- | --- |
+| `pages-build.yml` | `contents: read` + `pages: read` | succeeds |
+| `pages-build.yml` | `contents: read` alone | `startup_failure` — `pages: read` is genuinely required |
+| `pages-deploy.yml` | `pages: write` + `id-token: write` | succeeds |
+
+`pages-build.yml` takes every input `pages.yml` does except `deploy` and
+`concurrency_key`, plus two of its own:
+
+- `upload`: `true` — upload the built site as the `github-pages` artifact for a
+  later deploy job. Set `false` on runs that only check the site builds, so no
+  artifact is stored for a deploy that never happens
+- `configure_pages`: `false` — run `actions/configure-pages` and export
+  `PAGES_BASE_URL`, `PAGES_ORIGIN` and `PAGES_HOST` to `build_command`. Off by
+  default because it calls the Pages API, which fails on a repository that has
+  not enabled Pages — the common case for a caller that only validates its site.
+  Turn it on for the deploying run of a generator that builds absolute links
+
+`pages-deploy.yml` takes `runner`, `timeout_minutes` and `concurrency_key`, and
+outputs `page_url`. It checks out nothing and builds nothing: the write scopes
+are only ever live in a job that runs no third-party code.
+
+```yaml
+name: Docs
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+  pull_request:
+    paths: [docs/**, mkdocs.yml, requirements-docs.txt]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: nikolareljin/ci-helpers/.github/workflows/pages-build.yml@production
+    permissions:
+      contents: read
+      pages: read
+    with:
+      python_version: "3.12"
+      requirements_file: "requirements-docs.txt"
+      build_command: "mkdocs build --strict"
+      pages_path: "site"
+      upload: ${{ github.ref == 'refs/heads/main' }}
+
+  deploy:
+    needs: build
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/pages-deploy.yml@production
+    permissions:
+      pages: write
+      id-token: write
+```
+
+On a pull request the `deploy` job is skipped, so its token is never minted and
+the run holds no write scope anywhere.
+
+**Concurrency:** `pages-deploy.yml` serialises on
+`ci-helpers-pages-deploy-<key>`, which is deliberately *not* the
+`ci-helpers-pages-<key>` group `pages.yml` uses. A called workflow's group is
+evaluated alongside its caller's, so sharing the name would leave the deploy
+queued behind the run that started it. The same rule applies to your own
+workflow: do not name a group `ci-helpers-pages-deploy-*`.
 
 ## pnpm + Pages
 
