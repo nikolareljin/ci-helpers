@@ -261,8 +261,9 @@ jobs:
         env:
           BUILD_COMMAND: ${{ inputs.build_command }}
           # Available to the build command for generators that need to know the
-          # site's own address (Hugo baseURL, Astro site). Empty unless
-          # configure_pages is on, because Configure Pages does not run then.
+          # site's own address (Hugo baseURL, Astro site). Set when
+          # configure_pages is on; empty when it is off, because the step that
+          # produces them is skipped.
           PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
           PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
           PAGES_HOST: ${{ steps.pages.outputs.host }}
