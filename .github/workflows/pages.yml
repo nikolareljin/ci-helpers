@@ -1,18 +1,29 @@
 name: preset-pages
 #
 # Stack-agnostic GitHub Pages publisher: build a static site with whatever
-# generator the repository uses, then deploy it.
+# generator the repository uses, then deploy it. One call, one job pair.
 #
 # pnpm-pages.yml stays as it is — it carries pnpm-workspace and Playwright
 # capture behaviour that does not generalise. This preset covers everything
 # else: MkDocs, Sphinx, Hugo, Astro, a plain `cp -r`, anything that writes a
 # directory of files.
 #
+# The work lives in pages-build.yml and pages-deploy.yml; this file wires them
+# together and keeps its own input list unchanged, so nothing calling it needs
+# to know the split happened.
+#
 # The caller must grant `pages: write` and `id-token: write` even on runs where
 # `deploy` is false. GitHub validates a reusable workflow's declared permissions
 # when the run starts, before any job-level `if:` is evaluated, so a caller that
 # grants less fails the whole run with `startup_failure` rather than skipping
 # the deploy job.
+#
+# That is the cost of the single call, and on a pull-request run it means the
+# build holds deploy-capable scopes while pip, npm and generator plugins
+# execute. A repository that would rather not can call pages-build.yml and
+# pages-deploy.yml as two jobs instead, granting write only on the second —
+# pages-deploy.yml documents the shape. Use this file when you publish from
+# every event you build on, and the distinction does not arise.
 
 on:
   workflow_call:
@@ -101,6 +112,10 @@ on:
       timeout_minutes:
         type: number
         default: 20
+    outputs:
+      page_url:
+        description: The URL the site was published at. Empty when deploy is false.
+        value: ${{ jobs.deploy.outputs.page_url }}
 
 # Serialise Pages deployments so an older run cannot overwrite a newer one when
 # two pushes arrive close together. cancel-in-progress stays false: a
@@ -113,6 +128,9 @@ on:
 # queued behind the very run that started them. The prefix makes that collision
 # impossible to hit by accident.
 #
+# The same rule applies one level down, which is why pages-deploy.yml uses
+# `ci-helpers-pages-deploy-` and not this name.
+#
 # github.workflow is deliberately *not* in the key: Pages hosts one site per
 # repository, so two different caller workflows must serialise against each
 # other rather than race to publish. Use concurrency_key when they genuinely
@@ -121,250 +139,44 @@ concurrency:
   group: ci-helpers-pages-${{ inputs.concurrency_key || github.ref }}
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
+  # A relative `uses:` resolves against this repository at the ref the caller
+  # pinned, not against the caller's repository — so a consumer calling
+  # pages.yml@production gets pages-build.yml@production, with no coordination
+  # on their side.
   build:
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ inputs.timeout_minutes }}
+    uses: ./.github/workflows/pages-build.yml
     permissions:
       contents: read
-      # Configure Pages reads the repository's Pages configuration.
       pages: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: ${{ inputs.fetch_depth }}
-          fetch-tags: true
-
-      # build_command may legitimately be empty — a repository can publish a
-      # directory it already contains. The two path inputs cannot be anything at
-      # all: working_directory/pages_path is what gets uploaded, so a value that
-      # climbs out of the checkout uploads something nobody meant to publish.
-      #
-      # These are caller-defined workflow configuration, at the same trust level
-      # as the workflow file itself — this guards against a typo, not against an
-      # attacker.
-      - name: Validate inputs
-        shell: bash
-        env:
-          PAGES_PATH: ${{ inputs.pages_path }}
-          WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-
-          # Normalise before judging, so ".", "./", "./.", ".//" and "a/./b" are
-          # all recognised for what they are. Parameter expansion and sed rather
-          # than realpath: pages_path need not exist yet, and BSD realpath on a
-          # macOS runner has no -m.
-          normalise() {
-            local n="$1"
-            while [ "${n}" != "${n%/}" ] && [ "${n}" != "/" ]; do n="${n%/}"; done
-            n="$(printf '%s' "${n}" | sed -e 's://*:/:g' -e 's:\(^\|/\)\./:\1:g' -e 's:/\.$::')"
-            [ -z "${n}" ] && n="."
-            printf '%s' "${n}"
-          }
-
-          # Errors go to stderr, never stdout: this function returns the
-          # normalised path on stdout, so an ::error:: written there would be
-          # captured by the caller's $( ) — or discarded — and the run would
-          # fail with no message at all, which is worse than not checking.
-          check_relative() {
-            local name="$1" value="$2" norm
-            if [ -z "${value}" ]; then
-              echo "::error::${name} must not be empty" >&2
-              exit 1
-            fi
-            norm="$(normalise "${value}")"
-            case "${norm}" in
-              /*)
-                echo "::error::${name} must be a relative path, not an absolute one — working_directory/pages_path is what gets uploaded" >&2
-                exit 1 ;;
-              ".." | "../"* | *"/../"* | *"/..")
-                echo "::error::${name} must not climb above the checkout" >&2
-                exit 1 ;;
-            esac
-            printf '%s' "${norm}"
-          }
-
-          check_relative working_directory "${WORKING_DIRECTORY}" >/dev/null
-          pages_norm="$(check_relative pages_path "${PAGES_PATH}")"
-
-          if [ ! -d "${WORKING_DIRECTORY}" ]; then
-            # Checked here rather than left to the first step that uses it: a
-            # working-directory that does not exist fails several steps later
-            # with a message about whichever command happened to run first.
-            echo "::error::working_directory '${WORKING_DIRECTORY}' does not exist in the checkout"
-            exit 1
-          fi
-
-          if [ "${pages_norm}" = "." ]; then
-            # Allowed, and legitimate for a repository whose root is the site.
-            # Worth saying out loud all the same, because "everything here" is
-            # rarely what someone means to publish. upload-pages-artifact
-            # excludes .git, .github and dotfiles; it does not exclude source.
-            echo "::warning::pages_path is the root of working_directory — every non-hidden file there will be published, source included. .git, .github and dotfiles are excluded by the upload action"
-          fi
-
-      # actions/configure-pages, required by the issue this preset closes. It
-      # reports the site's own URL, which generators that build absolute links
-      # need, and fails early and clearly when Pages is not enabled for the
-      # repository.
-      #
-      # Only on deploying runs: a repository validating its site on pull
-      # requests before ever enabling Pages would otherwise fail on the Pages
-      # API rather than on anything to do with its site.
-      - name: Configure Pages
-        id: pages
-        if: ${{ inputs.deploy }}
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-
-      - name: Setup Python
-        if: ${{ inputs.python_version != '' }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ inputs.python_version }}
-          cache: ${{ inputs.requirements_file != '' && 'pip' || '' }}
-          cache-dependency-path: ${{ inputs.requirements_file != '' && format('{0}/{1}', inputs.working_directory, inputs.requirements_file) || '' }}
-
-      - name: Setup Node
-        if: ${{ inputs.node_version != '' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ inputs.node_version }}
-
-      - name: Install
-        if: ${{ inputs.install_command != '' || inputs.requirements_file != '' }}
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
-        env:
-          INSTALL_COMMAND: ${{ inputs.install_command }}
-          REQUIREMENTS_FILE: ${{ inputs.requirements_file }}
-          PYTHON_VERSION: ${{ inputs.python_version }}
-        # eval, not `bash -c`, and deliberately so. A caller command is usually a
-        # chain ("npm ci && npm run build"), and `bash -c` runs it in a fresh
-        # shell that does not inherit `set -euo pipefail`: a failure in
-        # everything but the last command is then swallowed, the step passes,
-        # and an empty or stale site gets published on a green run. eval runs in
-        # this shell and inherits the failure semantics.
-        #
-        # The input is caller-defined workflow configuration — the same trust
-        # level as the workflow file itself — not user or event data.
-        #
-        # No `python -m pip install --upgrade pip` here. It fetched whatever PyPI
-        # served at that moment into the job that produces the published site — an
-        # unpinned dependency inside an otherwise SHA-pinned toolchain, and the one
-        # thing here that could behave differently between two runs of the same
-        # commit. With python_version set, actions/setup-python has already
-        # provided a current pip and the upgrade bought nothing; without it, the
-        # upgrade was mutating the runner image's own Python, which is worse. A
-        # caller who needs a particular pip can install it through install_command,
-        # where the version is theirs to pin.
-        run: |
-          set -euo pipefail
-          if [ -n "${INSTALL_COMMAND}" ]; then
-            eval "${INSTALL_COMMAND}"
-          else
-            # Setup Python only runs when python_version is set, so a
-            # requirements_file on its own installs into whichever Python the
-            # runner image happens to ship — a version nobody chose, and one that
-            # moves when the image does. Warned about rather than refused: it
-            # works today, and failing would break callers already relying on it.
-            if [ -z "${PYTHON_VERSION}" ]; then
-              echo "::warning::requirements_file is set but python_version is not, so the runner image's own Python is used. Set python_version to pin the interpreter"
-            fi
-            python -m pip install -r "${REQUIREMENTS_FILE}"
-          fi
-
-      - name: Build site
-        if: ${{ inputs.build_command != '' }}
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
-        env:
-          BUILD_COMMAND: ${{ inputs.build_command }}
-          # Available to the build command for generators that need to know the
-          # site's own address (Hugo baseURL, Astro site). Empty when deploy is
-          # false, because Configure Pages does not run then.
-          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
-          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
-          PAGES_HOST: ${{ steps.pages.outputs.host }}
-        # eval for the same reason as the install step above: a chained command
-        # must keep `set -euo pipefail` semantics, which `bash -c` discards.
-        run: |
-          set -euo pipefail
-          eval "${BUILD_COMMAND}"
-
-      # The real guard, and the reason build_command does not need to be
-      # required: a build that "succeeds" while producing nothing, or a
-      # deploy-only run pointed at a directory that is not there, would
-      # otherwise publish an empty site over a working one on a green run.
-      - name: Verify the site was produced
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
-        env:
-          PAGES_PATH: ${{ inputs.pages_path }}
-          REQUIRE_ENTRY_FILE: ${{ inputs.require_entry_file }}
-          BUILD_COMMAND: ${{ inputs.build_command }}
-        run: |
-          set -euo pipefail
-          if [ -e "${PAGES_PATH}" ] && [ ! -d "${PAGES_PATH}" ]; then
-            # Pointing at the generated index.html rather than the directory
-            # holding it is an easy typo, and "does not exist" would send you
-            # looking for the wrong problem entirely.
-            echo "::error::pages_path '${PAGES_PATH}' is a file, not a directory — point it at the directory that contains the site"
-            exit 1
-          fi
-          if [ ! -d "${PAGES_PATH}" ]; then
-            # Two different mistakes, so two different messages: a generator
-            # that ran and wrote nowhere useful, or a deploy-only call pointed
-            # at a directory that is not in the repository.
-            if [ -n "${BUILD_COMMAND}" ]; then
-              echo "::error::build_command finished but ${PAGES_PATH} does not exist"
-            else
-              echo "::error::${PAGES_PATH} does not exist — no build_command was given, so it must already be in the repository"
-            fi
-            exit 1
-          fi
-          # cd into the directory rather than passing it to find. A pages_path
-          # beginning with "-" is read by find as a predicate, and `find --`
-          # does not rescue it — GNU findutils still reports "unknown
-          # predicate". `cd --` does handle it.
-          # -type f (or a symlink, which the upload action dereferences) rather
-          # than any entry: a tree of empty directories is not a site, and with
-          # require_entry_file off it would otherwise deploy nothing at all.
-          if [ -z "$(cd -- "${PAGES_PATH}" && find . -mindepth 1 \( -type f -o -type l \) -print -quit)" ]; then
-            echo "::error::${PAGES_PATH} contains no files — refusing to deploy an empty site"
-            exit 1
-          fi
-          # A site with no entry document deploys happily and then serves 404
-          # at its own address — the same green-but-useless publish the
-          # emptiness check above exists to stop, one step further along.
-          if [ "${REQUIRE_ENTRY_FILE}" = "true" ]; then
-            if ! ( cd -- "${PAGES_PATH}" && { [ -f index.html ] || [ -f index.htm ]; } ); then
-              echo "::error::${PAGES_PATH} has no index.html or index.htm at its root — the site would serve 404. Set require_entry_file: false if that is intended"
-              exit 1
-            fi
-          fi
-          echo "site: $(cd -- "${PAGES_PATH}" && find . -type f | wc -l) files"
-
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        if: ${{ inputs.deploy }}
-        with:
-          path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}
-          retention-days: ${{ inputs.artifact_retention_days }}
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      python_version: ${{ inputs.python_version }}
+      node_version: ${{ inputs.node_version }}
+      requirements_file: ${{ inputs.requirements_file }}
+      install_command: ${{ inputs.install_command }}
+      build_command: ${{ inputs.build_command }}
+      pages_path: ${{ inputs.pages_path }}
+      require_entry_file: ${{ inputs.require_entry_file }}
+      artifact_retention_days: ${{ inputs.artifact_retention_days }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      # Both follow `deploy`, which is what this file did before the split:
+      # Configure Pages only ran on deploying runs, so a repository validating
+      # its site before ever enabling Pages fails on its own site rather than on
+      # the Pages API, and no artifact is stored for a deploy that never happens.
+      configure_pages: ${{ inputs.deploy }}
+      upload: ${{ inputs.deploy }}
 
   deploy:
     needs: build
     if: ${{ inputs.deploy }}
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ inputs.timeout_minutes }}
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    uses: ./.github/workflows/pages-deploy.yml
     permissions:
       pages: write
       id-token: write
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+    with:
+      runner: ${{ inputs.runner }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      concurrency_key: ${{ inputs.concurrency_key }}
