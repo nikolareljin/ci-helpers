@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-24 — 0.21.1
+
+### Fixed
+
+- **Refreshed the audited GitHub Action pins.** `actions/checkout` advances to
+  v7.0.1, `github/codeql-action/upload-sarif` to v4.37.7, and the moving
+  `master` refs for Trivy and gosec to their verified current commits. The
+  Trivy composite-action pin is refreshed alongside its workflow callers, so
+  the SHA-pin gate again reports no stale references. No workflow interface or
+  caller configuration changes.
+
 ## 2026-08-09 — 0.21.0
 
 ### Added
