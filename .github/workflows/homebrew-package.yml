@@ -143,6 +143,7 @@ jobs:
 
           version="$(cat "$repo/VERSION")"
           tarball_path="$dist_dir/${name}-${version}.tar.gz"
+          helper_scripts="$repo/vendor/script-helpers/scripts"
           tarball_url="${{ inputs.tarball_url }}"
           if [[ -z "$tarball_url" && -n "${{ inputs.release_repo }}" ]]; then
             tarball_url="https://github.com/${{ inputs.release_repo }}/releases/download/v${version}/${name}-${version}.tar.gz"
@@ -160,6 +161,7 @@ jobs:
             echo "BREW_VERSION=$version"
             echo "BREW_TARBALL_PATH=$tarball_path"
             echo "BREW_TARBALL_URL=$tarball_url"
+            echo "BREW_HELPER_SCRIPTS=$helper_scripts"
           } >> "$GITHUB_ENV"
           {
             echo "BREW_ARTIFACT_GLOB<<EOF"
@@ -181,7 +183,7 @@ jobs:
             args+=(--exclude "$ex")
           done
 
-          bash ./vendor/script-helpers/scripts/build_brew_tarball.sh "${args[@]}"
+          bash "$BREW_HELPER_SCRIPTS/build_brew_tarball.sh" "${args[@]}"
 
       - name: Generate Homebrew formula
         shell: bash
@@ -224,7 +226,7 @@ jobs:
             args+=(--dep "$dep")
           done
 
-          bash ./vendor/script-helpers/scripts/gen_brew_formula.sh "${args[@]}"
+          bash "$BREW_HELPER_SCRIPTS/gen_brew_formula.sh" "${args[@]}"
 
       - name: Upload Homebrew artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -254,4 +256,4 @@ jobs:
           if [[ -n "${{ inputs.commit_message }}" ]]; then
             args+=(--commit-message "${{ inputs.commit_message }}")
           fi
-          bash ./vendor/script-helpers/scripts/publish_homebrew.sh "${args[@]}"
+          bash "$BREW_HELPER_SCRIPTS/publish_homebrew.sh" "${args[@]}"
