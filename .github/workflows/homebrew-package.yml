@@ -181,7 +181,7 @@ jobs:
             args+=(--exclude "$ex")
           done
 
-          ./vendor/script-helpers/scripts/build_brew_tarball.sh "${args[@]}"
+          bash ./vendor/script-helpers/scripts/build_brew_tarball.sh "${args[@]}"
 
       - name: Generate Homebrew formula
         shell: bash
