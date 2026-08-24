@@ -224,7 +224,7 @@ jobs:
             args+=(--dep "$dep")
           done
 
-          ./vendor/script-helpers/scripts/gen_brew_formula.sh "${args[@]}"
+          bash ./vendor/script-helpers/scripts/gen_brew_formula.sh "${args[@]}"
 
       - name: Upload Homebrew artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -254,4 +254,4 @@ jobs:
           if [[ -n "${{ inputs.commit_message }}" ]]; then
             args+=(--commit-message "${{ inputs.commit_message }}")
           fi
-          ./vendor/script-helpers/scripts/publish_homebrew.sh "${args[@]}"
+          bash ./vendor/script-helpers/scripts/publish_homebrew.sh "${args[@]}"
