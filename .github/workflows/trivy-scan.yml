@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@2736533278103862a861f4a35ebac3e97854d956 # master @ 2026-08-08
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
         with:
           scan-type: fs
           scan-ref: ${{ inputs.scan_path }}
@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload SARIF
         if: ${{ always() && inputs.upload_sarif && inputs.format == 'sarif' }}
-        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           sarif_file: ${{ inputs.output }}
 

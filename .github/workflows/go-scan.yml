@@ -56,6 +56,6 @@ jobs:
 
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        uses: securego/gosec@5e72efc19d97e11549b3427b83fab3257a8c9894 # master @ 2026-08-08
+        uses: securego/gosec@9e75c0576c9878035d4221392108d458abe10fc3 # v2.28.0 @ 2026-08-24
         with:
           args: ${{ inputs.gosec_args }}
