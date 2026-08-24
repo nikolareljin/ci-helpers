@@ -1,4 +1,10 @@
 # Changelog
+## 2026-08-24 — 0.21.2
+
+### Fixed
+
+- **RPM and Homebrew packaging helper scripts no longer require executable bits.** The reusable workflows invoke the helper scripts through Bash, so a caller whose script-helpers checkout retains non-executable file modes no longer fails with exit 126, and subdirectory callers resolve helpers from their configured working directory.
+
 
 ## 2026-08-24 — 0.21.1
 

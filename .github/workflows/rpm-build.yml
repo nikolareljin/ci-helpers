@@ -92,7 +92,7 @@ jobs:
             prebuild_args=(--prebuild "$prebuild")
           fi
 
-          ./vendor/script-helpers/scripts/build_rpm_artifacts.sh \
+          bash ./vendor/script-helpers/scripts/build_rpm_artifacts.sh \
             --repo "$repo" \
             "${spec_args[@]}" \
             "${prebuild_args[@]}" \
