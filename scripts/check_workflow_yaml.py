@@ -13,7 +13,8 @@ invalid: its heredoc bodies were written at column 0 inside an indented
 own. Both PyYAML and Ruby's Psych refused the file, while the repository's own
 PR gate -- a release-tag check and a secret scan -- had nothing to say about it.
 
-Exits non-zero on the first file that fails, naming it.
+Reports every file that fails to parse, not just the first, so one run
+names all of them. Exits non-zero if any did.
 """
 from __future__ import annotations
 

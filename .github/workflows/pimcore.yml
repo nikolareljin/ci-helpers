@@ -125,12 +125,17 @@ jobs:
           # php_version (singular) wins, so a caller wanting exactly one
           # version does not have to write a one-element array. Built with jq
           # rather than string interpolation, so the value is JSON-escaped.
+          #
+          # There is deliberately no fallback for an empty php_versions. The
+          # input already defaults to a non-empty array, so an empty value
+          # means the caller passed one -- typically an unset variable -- and
+          # quietly substituting the default would hide that. It falls through
+          # to the validation below and fails. This also keeps the default in
+          # one place, the input declaration, rather than repeating it here.
           if [ -n "$PHP_VERSION" ]; then
             versions="$(jq -nc --arg v "$PHP_VERSION" '[$v]')"
-          elif [ -n "$PHP_VERSIONS" ]; then
-            versions="$PHP_VERSIONS"
           else
-            versions='["8.3", "8.4"]'
+            versions="$PHP_VERSIONS"
           fi
 
           # Must be a non-empty array of non-blank strings. Failing here beats
