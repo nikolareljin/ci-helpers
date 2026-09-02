@@ -1,11 +1,19 @@
 name: pimcore
 
-# Preset for Pimcore 11 bundle CI.
+# Preset for Pimcore bundle CI.
 # Runs Docker-based PHPUnit + PHPCS (PSR-12) against a PHP + MySQL test stack.
 # Override any input to customise for your bundle.
 #
 # Minimal usage:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#
+# Testing several PHP versions -- pass a JSON array. Each version runs as its
+# own matrix leg, and the version is exported into the environment (see
+# php_version_env) so a compose file can pick it up as a build argument:
+#
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#   with:
+#     php_versions: '["8.3", "8.4"]'
 #
 # Full usage with overrides:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
@@ -45,6 +53,16 @@ on:
       php_version:
         type: string
         default: "8.4"
+      # A JSON array of versions to test, e.g. '["8.3", "8.4"]'. When empty the
+      # preset runs once against php_version, which is the previous behaviour.
+      php_versions:
+        type: string
+        default: ""
+      # Environment variable the chosen version is exported as, so a compose
+      # file can read it as a build argument. Set to "" to export nothing.
+      php_version_env:
+        type: string
+        default: PHP_VERSION
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"
@@ -74,8 +92,38 @@ on:
         default: bundle-check-results
 
 jobs:
+  # php_versions is a string input, so it cannot be used as a matrix directly.
+  # Resolve it here: an explicit list when given, otherwise the single
+  # php_version, so callers that never set php_versions behave as before.
+  resolve-versions:
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      versions: ${{ steps.resolve.outputs.versions }}
+    steps:
+      - id: resolve
+        env:
+          PHP_VERSIONS: ${{ inputs.php_versions }}
+          PHP_VERSION: ${{ inputs.php_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$PHP_VERSIONS" ]; then
+            versions="$PHP_VERSIONS"
+          else
+            versions="[\"$PHP_VERSION\"]"
+          fi
+          echo "versions=${versions}" >> "$GITHUB_OUTPUT"
+
   pimcore-bundle:
-    uses: nikolareljin/ci-helpers/.github/workflows/pimcore-bundle-check.yml@production
+    needs: resolve-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        php_version: ${{ fromJSON(needs.resolve-versions.outputs.versions) }}
+    # Relative, so the child is taken from this repository at whatever ref the
+    # consumer pinned. Pinning the child to @production would hand a consumer
+    # testing a release branch the previous version of it.
+    uses: ./.github/workflows/pimcore-bundle-check.yml
     with:
       runner: ${{ inputs.runner }}
       compose_file: ${{ inputs.compose_file }}
@@ -85,7 +133,8 @@ jobs:
       db_service: ${{ inputs.db_service }}
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
       out_dir: ${{ inputs.out_dir }}
-      php_version: ${{ inputs.php_version }}
+      php_version: ${{ matrix.php_version }}
+      php_version_env: ${{ inputs.php_version_env }}
       composer_command: ${{ inputs.composer_command }}
       phpcs_command: ${{ inputs.phpcs_command }}
       phpstan_command: ${{ inputs.phpstan_command }}

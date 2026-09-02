@@ -1,4 +1,16 @@
 # Changelog
+## 2026-09-02 — 0.22.0
+
+### Added
+
+- **`pimcore.yml` can test several PHP versions.** Pass `php_versions: '["8.3", "8.4"]'` and each version runs as its own matrix leg. The input is a JSON array because a reusable workflow's inputs are strings and cannot be used as a matrix directly; it is resolved into one in a small preceding job. Leaving it unset keeps the previous single-version behaviour against `php_version`.
+- **The selected PHP version now reaches the Docker stack.** `php_version` previously configured only the optional standalone (host) PHP; the containers were built from the compose file, which could not see it, so every leg of a would-be matrix would have tested the same PHP. `pimcore-bundle-check.yml` now publishes the version to the environment as `PHP_VERSION` — the variable name is the new `php_version_env` input, and setting it to `""` exports nothing — so a compose file can interpolate it as a build argument.
+
+### Changed
+
+- `pimcore.yml` calls `pimcore-bundle-check.yml` through a **relative** `uses:`, so the child comes from this repository at whatever ref the consumer pinned. It previously pinned the child to `@production`, which would have handed a consumer testing a release branch the previous version of the child — and with this change that means a version input the child does not yet understand.
+- The preset's header no longer says "Pimcore 11"; it is not version-specific.
+
 ## 2026-09-01 — 0.21.3
 
 ### Changed

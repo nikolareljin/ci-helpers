@@ -32,6 +32,11 @@ on:
       php_version:
         type: string
         default: ""
+      # Environment variable the PHP version is exported as, so the compose
+      # stack can read it as a build argument. Empty exports nothing.
+      php_version_env:
+        type: string
+        default: PHP_VERSION
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"
@@ -96,6 +101,20 @@ jobs:
         with:
           php-version: ${{ inputs.php_version }}
           coverage: xdebug
+
+      # php_version alone only configures the optional standalone (host) PHP.
+      # The Docker stack builds from the compose file, which cannot see it, so
+      # the version is published to the environment for compose to interpolate
+      # -- e.g. `image: php:${PHP_VERSION}-cli` or a build arg.
+      - name: Export PHP version for the compose stack
+        if: ${{ inputs.php_version != '' && inputs.php_version_env != '' }}
+        env:
+          PHP_VERSION_ENV_NAME: ${{ inputs.php_version_env }}
+          PHP_VERSION_VALUE: ${{ inputs.php_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${PHP_VERSION_ENV_NAME}=${PHP_VERSION_VALUE}" >> "$GITHUB_ENV"
 
       - name: Pimcore bundle check
         shell: bash
