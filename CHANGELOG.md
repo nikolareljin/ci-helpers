@@ -14,6 +14,11 @@
 - **`php_version` (singular) still works and now overrides `php_versions`**, so a caller wanting exactly one version does not have to write a one-element array. Its default changed from `"8.4"` to `""`, meaning "not overridden"; callers who relied on the old default now get 8.3 and 8.4 instead of 8.4 alone.
 - **The selected PHP version now reaches the Docker stack.** `php_version` previously configured only the optional standalone (host) PHP; the containers were built from the compose file, which could not see it, so every leg of a would-be matrix would have tested the same PHP. `pimcore-bundle-check.yml` now publishes the version to the environment as `PHP_VERSION` — the variable name is the new `php_version_env` input, and setting it to `""` exports nothing — so a compose file can interpolate it as a build argument.
 
+### Documentation
+
+- **The Pimcore preset is documented for the first time.** It shipped undocumented: `docs/presets.md`, `docs/workflows.md` and `docs/examples.md` had no mention of `pimcore.yml` at all. Added a preset section covering how to choose PHP versions (`php_versions` for a list, `php_version` for exactly one, and that any versions may be passed), reference entries for `pimcore.yml` and `pimcore-bundle-check.yml`, and a worked multi-version example.
+- The docs spell out the part that is easy to get wrong: setting a version is only half of it. The checks run inside the caller's compose stack, so the version is exported as `PHP_VERSION` (configurable via `php_version_env`) and **the compose file must consume it as a build argument** — otherwise every matrix leg builds the same image and the run reports version coverage it does not have. Both the compose and Dockerfile snippets are given.
+
 ### Dependencies
 
 - `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.

@@ -855,6 +855,52 @@ jobs:
       snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
+## pimcore.yml
+
+Workflow: `.github/workflows/pimcore.yml`
+
+Purpose: Preset for Pimcore bundle CI. Runs PHPCS and PHPUnit against the
+caller's Docker Compose stack, over one or more PHP versions.
+
+Inputs (selected):
+- `runner` (string, default `ubuntu-latest`)
+- `compose_file` (string, default `test/docker-compose.yml`)
+- `bundle_src` (string, default `"."`) and `bundle_src_env` (string, default `BUNDLE_SRC`)
+- `php_service` (string, default `php`), `db_service` (string, default `db`), `db_wait_seconds` (string, default `"20"`)
+- `php_versions` (string, default `'["8.3", "8.4"]'`) — JSON array; one matrix leg per version. Any versions may be passed; they are not validated against an allow-list
+- `php_version` (string, default `""`) — test exactly one version; **overrides** `php_versions`
+- `php_version_env` (string, default `PHP_VERSION`) — env var the selected version is exported as, for the compose file to read as a build argument. `""` exports nothing
+- `composer_command`, `phpcs_command`, `phpstan_command`, `phpunit_command`, `phpunit_coverage_command`
+- `fail_on_findings` (boolean, default `true`), `cleanup` (boolean, default `true`)
+- `upload_artifact` (boolean, default `false`), `artifact_name` (string, default `bundle-check-results`)
+
+Example:
+
+```yaml
+jobs:
+  pimcore:
+    uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+    with:
+      compose_file: docker-test/docker-compose.yml
+      php_versions: '["8.3", "8.4"]'
+```
+
+Note: `php_version` alone configures only the optional standalone (host) PHP
+used by `php_lint_command` and friends. The containerised checks take their PHP
+from your compose file, which is why the version is also exported via
+`php_version_env`. See [Presets](presets.md#choosing-php-versions).
+
+## pimcore-bundle-check.yml
+
+Workflow: `.github/workflows/pimcore-bundle-check.yml`
+
+Purpose: The single-version worker behind `pimcore.yml`. Brings up the compose
+stack, installs dependencies, and runs lint, static analysis and tests inside
+it. Call `pimcore.yml` instead unless you are driving one specific version and
+want no matrix.
+
+Inputs: as `pimcore.yml`, minus `php_versions` — it takes one `php_version`.
+
 ## auto-tag.yml
 
 Workflow: `.github/workflows/auto-tag.yml`

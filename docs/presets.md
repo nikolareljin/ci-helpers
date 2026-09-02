@@ -90,6 +90,83 @@ jobs:
       php_version: "8.4"
 ```
 
+## Pimcore
+
+Workflow: `.github/workflows/pimcore.yml`
+
+Runs PHPCS and PHPUnit for a Pimcore bundle **inside your own Docker Compose
+stack**, so the checks run against a real PHP + MySQL environment rather than a
+bare runner.
+
+Defaults:
+- `php_versions`: `'["8.3", "8.4"]'` — each version runs as its own matrix leg
+- `php_version`: `""` — set it to test exactly one version; overrides `php_versions`
+- `php_version_env`: `PHP_VERSION` — env var the version is exported as
+- `compose_file`: `test/docker-compose.yml`
+- `phpcs_command`: `vendor/bin/phpcs --standard=PSR12 --extensions=php src/`
+- `phpunit_command`: `vendor/bin/phpunit --testdox`
+
+Example:
+
+```yaml
+jobs:
+  pimcore:
+    uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+    with:
+      compose_file: docker-test/docker-compose.yml
+```
+
+### Choosing PHP versions
+
+The preset tests **8.3 and 8.4** by default. Pass any JSON array to test
+something else — the versions are not checked against an allow-list, so older
+and newer lines both work:
+
+```yaml
+    with:
+      php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+```
+
+To test a single version, use `php_version`; it takes precedence, so you do not
+need a one-element array:
+
+```yaml
+    with:
+      php_version: "8.2"
+```
+
+The value must be a non-empty JSON array. Anything else fails the run rather
+than expanding to an empty matrix, which would report as a skipped job and read
+like a pass.
+
+### Making the version reach your containers
+
+Setting a version is only half of it. The checks run inside **your** compose
+stack, which the workflow cannot see into, so the preset exports the selected
+version into the environment — as `PHP_VERSION` unless you change
+`php_version_env`. Your compose file has to consume it, or every matrix leg will
+build the same image and the run will report version coverage it does not have.
+
+```yaml
+# docker-test/docker-compose.yml
+services:
+  php:
+    build:
+      context: ..
+      dockerfile: docker-test/Dockerfile
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.3}
+```
+
+```dockerfile
+# docker-test/Dockerfile
+ARG PHP_VERSION=8.3
+FROM php:${PHP_VERSION}-cli
+```
+
+Set `php_version_env: ""` to export nothing, if your stack pins its PHP version
+some other way.
+
 ## Go
 
 Workflow: `.github/workflows/go.yml`

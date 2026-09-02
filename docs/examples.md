@@ -286,6 +286,35 @@ jobs:
       upload_artifact: true
 ```
 
+## Pimcore bundle across several PHP versions
+
+```yaml
+jobs:
+  bundle-check:
+    uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+    with:
+      compose_file: docker-test/docker-compose.yml
+      # Defaults to '["8.3", "8.4"]'. Any versions may be passed.
+      php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+      phpcs_command: "vendor/bin/phpcs"
+      phpunit_command: "vendor/bin/phpunit --testdox"
+      upload_artifact: true
+```
+
+The selected version is exported as `PHP_VERSION`, so the compose file must use
+it or every leg builds the same image:
+
+```yaml
+services:
+  php:
+    build:
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.3}
+```
+
+To pin a single version instead, set `php_version: "8.2"` — it overrides
+`php_versions`.
+
 ## PPA publish
 
 ```yaml
