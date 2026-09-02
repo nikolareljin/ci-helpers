@@ -1,4 +1,48 @@
 # Changelog
+## 2026-09-02 — 0.22.0
+
+### Added
+
+- **`pimcore.yml` tests several PHP versions, and which ones is up to the caller.** It now defaults to `["8.3", "8.4"]` and accepts any JSON array — versions are not checked against an allow-list, so a bundle on an older or newer PHP line uses the same preset:
+
+  ```yaml
+  with:
+    php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+  ```
+
+  Each version runs as its own matrix leg. The input is a JSON array because a reusable workflow's inputs are strings and cannot be used as a matrix directly; it is resolved into one in a small preceding job, which also fails loudly if the value is not a non-empty array — an empty matrix expands to a skipped job, which reads like a pass.
+- **`php_version` (singular) still works and now overrides `php_versions`**, so a caller wanting exactly one version does not have to write a one-element array. Its default changed from `"8.4"` to `""`, meaning "not overridden"; callers who relied on the old default now get 8.3 and 8.4 instead of 8.4 alone.
+- **The selected PHP version now reaches the Docker stack.** `php_version` previously configured only the optional standalone (host) PHP; the containers were built from the compose file, which could not see it, so every leg of a would-be matrix would have tested the same PHP. `pimcore-bundle-check.yml` now publishes the version to the environment as `PHP_VERSION` — the variable name is the new `php_version_env` input, and setting it to `""` exports nothing — so a compose file can interpolate it as a build argument.
+
+- **`scripts/check_workflow_yaml.py` and a `workflow-yaml-check` workflow.** Everything under `.github/workflows` and `.github/actions` is consumed by other repositories, so a file that does not parse is a broken release for everyone pinned to it — and nothing checked. This repository's own PR gate is a release-tag check and a secret scan, neither of which reads the files it ships, which is how the `wp-plugin-check` breakage above went unnoticed. The script parses all 78 workflow and action files and annotates failures with `::error file=`; it fails on the pre-fix `wp-plugin-check` and passes on the fix. It also runs in the tracked `.githooks/pre-commit` hook, alongside `check_release_version.sh`, so the failure is caught at commit time rather than in CI. It also covers `.github/dependabot.yml`, where a malformed file fails nothing visibly — GitHub simply stops opening update pull requests, which looks the same as having nothing to update. It treats an unreadable or non-UTF-8 file as a failure rather than dying on it, and collapses the parser's message to one line — workflow commands are line-based, so a multi-line message truncates the `::error` annotation and spills the rest into the log.
+- The new `resolve-versions` job carries `timeout-minutes`, so a hung resolve cannot bill to GitHub's six-hour default (the reason `release-tag-check` sets one).
+
+### Changed
+
+- **The `pimcore-bundle-check` composite action gained `php_version_env` too**, so the action and the reusable workflow behave the same way. Previously only the workflow exported the version, and a repository calling the action directly would have had `php_version` affect the standalone steps while the Compose stack silently built its own default. Its description no longer says "Pimcore 11" — it is not version-specific.
+
+- `pimcore.yml` calls `pimcore-bundle-check.yml` through a **relative** `uses:`, so the child comes from this repository at whatever ref the consumer pinned. It previously pinned the child to `@production`, which would have handed a consumer testing a release branch the previous version of the child — and with this change that means a version input the child does not yet understand.
+- The preset's header no longer says "Pimcore 11"; it is not version-specific.
+- **An explicitly empty `php_versions` now fails instead of falling back.** The input defaults to a non-empty array, so an empty value means the caller passed one — usually an unset variable — and substituting the default quietly would hide that. It falls through to validation and fails with a message naming the expected shape. This also keeps the default in one place, the input declaration, rather than repeating it in the resolver.
+
+### Fixed
+
+- **`wp-plugin-check/action.yml` was not valid YAML and had shipped that way.** Its two heredoc bodies — the `wp-cli.yml` config and the `python3 - <<'PY'` findings check — were written at column 0 inside an indented `run: |` block. A block scalar ends as soon as indentation drops below its own, so the document was malformed from the `WPCLI` line onward; PyYAML and Ruby's Psych both refuse it. `docs/actions.md` and `docs/usage.md` point consumers at this action. Fixed by re-indenting both bodies to their step's indentation, which YAML strips straight back off — the emitted shell and Python are byte-identical, and the diff is provably whitespace-only.
+
+- **`$GITHUB_ENV` writes are validated before they happen.** `php_version_env` and `php_version` are both caller-controlled, and were written as a bare `NAME=VALUE` line. A name containing `=` or whitespace, or a value containing a newline, would have appended extra entries — a value of `8.4\nSECRET_INJECTED=yes` set a second variable. The name is now checked against `^[A-Za-z_][A-Za-z0-9_]*$`, newlines in the value are rejected outright, and the write uses the heredoc form with a unique delimiter. This matches how `ci.yml` already validates `db_env`.
+- **The matrix value is JSON-safe and always single-line.** `php_version` was interpolated into `["${PHP_VERSION}"]` without escaping, so a value containing a quote produced malformed JSON; it is now built with `jq --arg`. A pretty-printed `php_versions` array passed the old check but wrote a multi-line `$GITHUB_OUTPUT` value that `fromJSON` could not read, so the value is now compacted with `jq -c`. The check also requires every element to be a non-blank string, rather than only that the array is non-empty.
+
+### Documentation
+
+- **The Pimcore preset is documented for the first time.** It shipped undocumented: `docs/presets.md`, `docs/workflows.md` and `docs/examples.md` had no mention of `pimcore.yml` at all. Added a preset section covering how to choose PHP versions (`php_versions` for a list, `php_version` for exactly one, and that any versions may be passed), reference entries for `pimcore.yml` and `pimcore-bundle-check.yml`, and a worked multi-version example.
+- **`docs/actions.md` now documents the `pimcore-bundle-check` composite action.** It was the only action in `.github/actions/` missing from that reference.
+- The docs spell out the part that is easy to get wrong: setting a version is only half of it. The checks run inside the caller's compose stack, so the version is exported as `PHP_VERSION` (configurable via `php_version_env`) and **the compose file must consume it as a build argument** — otherwise every matrix leg builds the same image and the run reports version coverage it does not have. Both the compose and Dockerfile snippets are given.
+
+### Dependencies
+
+- `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.
+
+
 ## 2026-09-01 — 0.21.3
 
 ### Changed

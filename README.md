@@ -354,6 +354,7 @@ Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.
 - The PR gate only blocks if your branch protection requires its status checks.
 - `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 - `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
+- `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
 
 ## Release tagging in external repos
 

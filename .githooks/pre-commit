@@ -7,3 +7,10 @@ if [[ -z "$repo_root" ]]; then
 fi
 
 "$repo_root/scripts/check_release_version.sh" --repo "$repo_root"
+
+# Every workflow and composite action here is consumed by other
+# repositories, so one that does not parse is a broken release for anyone
+# pinned to it. Catching that at commit time is cheaper than in CI, and
+# cheaper still than after a release -- wp-plugin-check/action.yml shipped
+# invalid and nothing noticed.
+python3 "$repo_root/scripts/check_workflow_yaml.py"

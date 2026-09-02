@@ -32,6 +32,11 @@ on:
       php_version:
         type: string
         default: ""
+      # Environment variable the PHP version is exported as, so the compose
+      # stack can read it as a build argument. Empty exports nothing.
+      php_version_env:
+        type: string
+        default: PHP_VERSION
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"
@@ -96,6 +101,41 @@ jobs:
         with:
           php-version: ${{ inputs.php_version }}
           coverage: xdebug
+
+      # php_version alone only configures the optional standalone (host) PHP.
+      # The Docker stack builds from the compose file, which cannot see it, so
+      # the version is published to the environment for compose to interpolate
+      # -- e.g. `image: php:${PHP_VERSION}-cli` or a build arg.
+      - name: Export PHP version for the compose stack
+        if: ${{ inputs.php_version != '' && inputs.php_version_env != '' }}
+        env:
+          PHP_VERSION_ENV_NAME: ${{ inputs.php_version_env }}
+          PHP_VERSION_VALUE: ${{ inputs.php_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Both halves are caller-controlled. A name containing '=' or
+          # whitespace, or a value containing a newline, would append extra
+          # entries to GITHUB_ENV rather than the one intended -- so validate
+          # before writing, as ci.yml does for db_env.
+          if [[ ! "$PHP_VERSION_ENV_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "::error::php_version_env must be a valid environment variable name; got '${PHP_VERSION_ENV_NAME}'" >&2
+            exit 1
+          fi
+          if [[ "$PHP_VERSION_VALUE" == *$'\n'* || "$PHP_VERSION_VALUE" == *$'\r'* ]]; then
+            echo "::error::php_version must not contain newlines" >&2
+            exit 1
+          fi
+
+          # Heredoc form: the value is taken literally, and the delimiter is
+          # unique so it cannot appear in the value.
+          delimiter="php_version_$(date +%s%N)_${RANDOM}"
+          {
+            printf '%s<<%s\n' "$PHP_VERSION_ENV_NAME" "$delimiter"
+            printf '%s\n' "$PHP_VERSION_VALUE"
+            printf '%s\n' "$delimiter"
+          } >> "$GITHUB_ENV"
 
       - name: Pimcore bundle check
         shell: bash

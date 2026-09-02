@@ -1,16 +1,33 @@
 name: pimcore
 
-# Preset for Pimcore 11 bundle CI.
+# Preset for Pimcore bundle CI.
 # Runs Docker-based PHPUnit + PHPCS (PSR-12) against a PHP + MySQL test stack.
 # Override any input to customise for your bundle.
 #
 # Minimal usage:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #
+# PHP versions. By default the preset tests 8.3 and 8.4. Pass any JSON array
+# to test something else -- the versions are not validated against a list, so
+# older or newer lines work as long as the caller's compose file can build
+# them. Each version runs as its own matrix leg, and the version is exported
+# into the environment (see php_version_env) so a compose file can pick it up
+# as a build argument:
+#
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#   with:
+#     php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+#
+# To test exactly one version, set php_version instead; it overrides
+# php_versions:
+#
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#   with:
+#     php_version: "8.2"
+#
 # Full usage with overrides:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #   with:
-#     php_version: "8.4"
 #     phpstan_command: "vendor/bin/phpstan analyse src --level=6"
 #     phpunit_coverage_command: "XDEBUG_MODE=coverage vendor/bin/phpunit"
 #     upload_artifact: true
@@ -42,9 +59,22 @@ on:
       out_dir:
         type: string
         default: test/tmp
+      # Test exactly one version. Overrides php_versions when set; left empty,
+      # php_versions decides.
       php_version:
         type: string
-        default: "8.4"
+        default: ""
+      # A JSON array of versions to test. Any versions may be passed -- they
+      # are not checked against an allow-list -- so a bundle on an older or
+      # newer PHP line uses the same preset.
+      php_versions:
+        type: string
+        default: '["8.3", "8.4"]'
+      # Environment variable the chosen version is exported as, so a compose
+      # file can read it as a build argument. Set to "" to export nothing.
+      php_version_env:
+        type: string
+        default: PHP_VERSION
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"
@@ -74,8 +104,70 @@ on:
         default: bundle-check-results
 
 jobs:
+  # php_versions is a string input, so it cannot be used as a matrix directly.
+  # Resolve it here: an explicit list when given, otherwise the single
+  # php_version, so callers that never set php_versions behave as before.
+  resolve-versions:
+    runs-on: ${{ inputs.runner }}
+    # Without this a hung job bills until GitHub's six-hour default (see #132).
+    timeout-minutes: 5
+    outputs:
+      versions: ${{ steps.resolve.outputs.versions }}
+    steps:
+      - id: resolve
+        env:
+          PHP_VERSIONS: ${{ inputs.php_versions }}
+          PHP_VERSION: ${{ inputs.php_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # php_version (singular) wins, so a caller wanting exactly one
+          # version does not have to write a one-element array. Built with jq
+          # rather than string interpolation, so the value is JSON-escaped.
+          #
+          # There is deliberately no fallback for an empty php_versions. The
+          # input already defaults to a non-empty array, so an empty value
+          # means the caller passed one -- typically an unset variable -- and
+          # quietly substituting the default would hide that. It falls through
+          # to the validation below and fails. This also keeps the default in
+          # one place, the input declaration, rather than repeating it here.
+          if [ -n "$PHP_VERSION" ]; then
+            versions="$(jq -nc --arg v "$PHP_VERSION" '[$v]')"
+          else
+            versions="$PHP_VERSIONS"
+          fi
+
+          # Must be a non-empty array of non-blank strings. Failing here beats
+          # letting the matrix expand to nothing: an empty matrix reports as a
+          # skipped job, and a skipped job reads like a pass.
+          if ! printf '%s' "$versions" | jq -e '
+                type == "array"
+                and length > 0
+                and all(.[]; type == "string" and (test("^\\s*$") | not))
+              ' >/dev/null 2>&1; then
+            echo "::error::php_versions must be a non-empty JSON array of version strings, e.g. '[\"8.3\", \"8.4\"]'" >&2
+            exit 1
+          fi
+
+          # Compact onto one line. A pretty-printed array is valid JSON and
+          # passes the check above, but would write a multi-line GITHUB_OUTPUT
+          # value that fromJSON reads back truncated or not at all.
+          versions="$(printf '%s' "$versions" | jq -c '.')"
+
+          echo "Testing PHP: $(printf '%s' "$versions" | jq -r 'join(", ")')"
+          echo "versions=${versions}" >> "$GITHUB_OUTPUT"
+
   pimcore-bundle:
-    uses: nikolareljin/ci-helpers/.github/workflows/pimcore-bundle-check.yml@production
+    needs: resolve-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        php_version: ${{ fromJSON(needs.resolve-versions.outputs.versions) }}
+    # Relative, so the child is taken from this repository at whatever ref the
+    # consumer pinned. Pinning the child to @production would hand a consumer
+    # testing a release branch the previous version of it.
+    uses: ./.github/workflows/pimcore-bundle-check.yml
     with:
       runner: ${{ inputs.runner }}
       compose_file: ${{ inputs.compose_file }}
@@ -85,7 +177,8 @@ jobs:
       db_service: ${{ inputs.db_service }}
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
       out_dir: ${{ inputs.out_dir }}
-      php_version: ${{ inputs.php_version }}
+      php_version: ${{ matrix.php_version }}
+      php_version_env: ${{ inputs.php_version_env }}
       composer_command: ${{ inputs.composer_command }}
       phpcs_command: ${{ inputs.phpcs_command }}
       phpstan_command: ${{ inputs.phpstan_command }}
