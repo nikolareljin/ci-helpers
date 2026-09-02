@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Check that every workflow and composite action in this repository parses.
+"""Check that every GitHub configuration file in this repository parses.
 
     python3 scripts/check_workflow_yaml.py
 
 Everything under .github/workflows and .github/actions is consumed by other
 repositories, so a file that does not parse is a broken release for everyone
-pinned to it -- and until this existed, nothing checked.
+pinned to it -- and until this existed, nothing checked. .github/dependabot.yml
+is covered for a different reason: a malformed one does not fail anything,
+GitHub just stops opening update pull requests, which looks the same as having
+nothing to update.
 
 That is not hypothetical. `.github/actions/wp-plugin-check/action.yml` shipped
 invalid: its heredoc bodies were written at column 0 inside an indented
@@ -36,6 +39,11 @@ PATTERNS = (
     ".github/workflows/*.yaml",
     ".github/actions/*/action.yml",
     ".github/actions/*/action.yaml",
+    # Included because a malformed dependabot.yml does not fail anything --
+    # GitHub simply stops opening update pull requests, which looks identical
+    # to having nothing to update.
+    ".github/dependabot.yml",
+    ".github/dependabot.yaml",
 )
 
 
@@ -44,7 +52,7 @@ def main() -> int:
         {p for pattern in PATTERNS for p in glob.glob(str(ROOT / pattern))}
     )
     if not paths:
-        print("no workflow or action files found", file=sys.stderr)
+        print("no GitHub configuration files found", file=sys.stderr)
         return 1
 
     failed = []
@@ -73,7 +81,7 @@ def main() -> int:
         print(f"\n{len(failed)} of {len(paths)} file(s) failed to parse.", file=sys.stderr)
         return 1
 
-    print(f"{len(paths)} workflow and action files parse.")
+    print(f"{len(paths)} GitHub configuration files parse.")
     return 0
 
 
