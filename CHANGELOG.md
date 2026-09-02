@@ -3,8 +3,20 @@
 
 ### Added
 
-- **`pimcore.yml` can test several PHP versions.** Pass `php_versions: '["8.3", "8.4"]'` and each version runs as its own matrix leg. The input is a JSON array because a reusable workflow's inputs are strings and cannot be used as a matrix directly; it is resolved into one in a small preceding job. Leaving it unset keeps the previous single-version behaviour against `php_version`.
+- **`pimcore.yml` tests several PHP versions, and which ones is up to the caller.** It now defaults to `["8.3", "8.4"]` and accepts any JSON array — versions are not checked against an allow-list, so a bundle on an older or newer PHP line uses the same preset:
+
+  ```yaml
+  with:
+    php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+  ```
+
+  Each version runs as its own matrix leg. The input is a JSON array because a reusable workflow's inputs are strings and cannot be used as a matrix directly; it is resolved into one in a small preceding job, which also fails loudly if the value is not a non-empty array — an empty matrix expands to a skipped job, which reads like a pass.
+- **`php_version` (singular) still works and now overrides `php_versions`**, so a caller wanting exactly one version does not have to write a one-element array. Its default changed from `"8.4"` to `""`, meaning "not overridden"; callers who relied on the old default now get 8.3 and 8.4 instead of 8.4 alone.
 - **The selected PHP version now reaches the Docker stack.** `php_version` previously configured only the optional standalone (host) PHP; the containers were built from the compose file, which could not see it, so every leg of a would-be matrix would have tested the same PHP. `pimcore-bundle-check.yml` now publishes the version to the environment as `PHP_VERSION` — the variable name is the new `php_version_env` input, and setting it to `""` exports nothing — so a compose file can interpolate it as a build argument.
+
+### Dependencies
+
+- `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.
 
 ### Changed
 

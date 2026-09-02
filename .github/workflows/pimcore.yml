@@ -7,18 +7,27 @@ name: pimcore
 # Minimal usage:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #
-# Testing several PHP versions -- pass a JSON array. Each version runs as its
-# own matrix leg, and the version is exported into the environment (see
-# php_version_env) so a compose file can pick it up as a build argument:
+# PHP versions. By default the preset tests 8.3 and 8.4. Pass any JSON array
+# to test something else -- the versions are not validated against a list, so
+# older or newer lines work as long as the caller's compose file can build
+# them. Each version runs as its own matrix leg, and the version is exported
+# into the environment (see php_version_env) so a compose file can pick it up
+# as a build argument:
 #
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #   with:
-#     php_versions: '["8.3", "8.4"]'
+#     php_versions: '["8.1", "8.2", "8.3", "8.4"]'
+#
+# To test exactly one version, set php_version instead; it overrides
+# php_versions:
+#
+#   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
+#   with:
+#     php_version: "8.2"
 #
 # Full usage with overrides:
 #   uses: nikolareljin/ci-helpers/.github/workflows/pimcore.yml@production
 #   with:
-#     php_version: "8.4"
 #     phpstan_command: "vendor/bin/phpstan analyse src --level=6"
 #     phpunit_coverage_command: "XDEBUG_MODE=coverage vendor/bin/phpunit"
 #     upload_artifact: true
@@ -50,14 +59,17 @@ on:
       out_dir:
         type: string
         default: test/tmp
+      # Test exactly one version. Overrides php_versions when set; left empty,
+      # php_versions decides.
       php_version:
         type: string
-        default: "8.4"
-      # A JSON array of versions to test, e.g. '["8.3", "8.4"]'. When empty the
-      # preset runs once against php_version, which is the previous behaviour.
+        default: ""
+      # A JSON array of versions to test. Any versions may be passed -- they
+      # are not checked against an allow-list -- so a bundle on an older or
+      # newer PHP line uses the same preset.
       php_versions:
         type: string
-        default: ""
+        default: '["8.3", "8.4"]'
       # Environment variable the chosen version is exported as, so a compose
       # file can read it as a build argument. Set to "" to export nothing.
       php_version_env:
@@ -107,11 +119,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "$PHP_VERSIONS" ]; then
+
+          # php_version (singular) wins, so a caller wanting exactly one
+          # version does not have to write a one-element array.
+          if [ -n "$PHP_VERSION" ]; then
+            versions="[\"${PHP_VERSION}\"]"
+          elif [ -n "$PHP_VERSIONS" ]; then
             versions="$PHP_VERSIONS"
           else
-            versions="[\"$PHP_VERSION\"]"
+            versions='["8.3", "8.4"]'
           fi
+
+          # Fail here rather than let the matrix expand to nothing, which
+          # reports as a skipped job and reads like a pass.
+          if ! printf '%s' "$versions" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+            echo "php_versions must be a non-empty JSON array, e.g. '[\"8.3\", \"8.4\"]'; got: ${versions}" >&2
+            exit 1
+          fi
+
+          echo "Testing PHP: $(printf '%s' "$versions" | jq -r 'join(", ")')"
           echo "versions=${versions}" >> "$GITHUB_OUTPUT"
 
   pimcore-bundle:
