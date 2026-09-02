@@ -136,13 +136,13 @@ runs:
         host_port="${{ inputs.host_port }}"
         mkdir -p "$out_dir"
         cat > "$out_dir/wp-cli.yml" <<WPCLI
-path: /var/www/html
-url: http://localhost:${host_port}
-color: false
-disable_wp_cron: true
-apache_modules:
-  - mod_rewrite
-WPCLI
+        path: /var/www/html
+        url: http://localhost:${host_port}
+        color: false
+        disable_wp_cron: true
+        apache_modules:
+          - mod_rewrite
+        WPCLI
 
     - name: Start WordPress stack
       shell: bash
@@ -245,48 +245,48 @@ WPCLI
         set -euo pipefail
 
         python3 - <<'PY'
-import json
-import sys
-from pathlib import Path
+        import json
+        import sys
+        from pathlib import Path
 
-out_dir = Path("${{ inputs.out_dir }}")
-plugin_check = out_dir / "plugin-check.json"
-meta_check = out_dir / "meta-check.json"
+        out_dir = Path("${{ inputs.out_dir }}")
+        plugin_check = out_dir / "plugin-check.json"
+        meta_check = out_dir / "meta-check.json"
 
-error_count = 0
+        error_count = 0
 
-if plugin_check.exists():
-    data = json.loads(plugin_check.read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        if isinstance(data.get("errors"), int):
-            error_count += data.get("errors", 0)
-        for key in ("results", "issues", "messages"):
-            items = data.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        level = str(item.get("severity") or item.get("level") or item.get("type") or "").lower()
-                        if level in {"error", "critical", "fatal"}:
-                            error_count += 1
-                    else:
+        if plugin_check.exists():
+            data = json.loads(plugin_check.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                if isinstance(data.get("errors"), int):
+                    error_count += data.get("errors", 0)
+                for key in ("results", "issues", "messages"):
+                    items = data.get(key)
+                    if isinstance(items, list):
+                        for item in items:
+                            if isinstance(item, dict):
+                                level = str(item.get("severity") or item.get("level") or item.get("type") or "").lower()
+                                if level in {"error", "critical", "fatal"}:
+                                    error_count += 1
+                            else:
+                                error_count += 1
+            elif isinstance(data, list):
+                error_count += len(data)
+
+        if meta_check.exists():
+            data = json.loads(meta_check.read_text(encoding="utf-8"))
+            checks = data.get("checks") if isinstance(data, dict) else None
+            if isinstance(checks, dict):
+                for value in checks.values():
+                    if isinstance(value, dict) and value.get("ok") is False:
                         error_count += 1
-    elif isinstance(data, list):
-        error_count += len(data)
 
-if meta_check.exists():
-    data = json.loads(meta_check.read_text(encoding="utf-8"))
-    checks = data.get("checks") if isinstance(data, dict) else None
-    if isinstance(checks, dict):
-        for value in checks.values():
-            if isinstance(value, dict) and value.get("ok") is False:
-                error_count += 1
+        if error_count > 0:
+            print(f"Plugin checks reported {error_count} error(s)")
+            sys.exit(4)
 
-if error_count > 0:
-    print(f"Plugin checks reported {error_count} error(s)")
-    sys.exit(4)
-
-print("No plugin-check errors detected.")
-PY
+        print("No plugin-check errors detected.")
+        PY
 
     - name: Cleanup
       if: ${{ always() && inputs.cleanup == 'true' }}

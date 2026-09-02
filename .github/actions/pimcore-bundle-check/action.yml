@@ -1,6 +1,6 @@
 name: Pimcore Bundle Check
 description: >
-  Run PHPUnit, PHPCS, and PHPStan for a Pimcore 11 bundle via Docker Compose.
+  Run PHPUnit, PHPCS, and PHPStan for a Pimcore bundle via Docker Compose.
   Supports both a lightweight unit-only mode (no Docker required) and a full
   integration mode with a MySQL-backed Pimcore test application.
 
@@ -38,9 +38,18 @@ inputs:
   # ── Standalone PHP checks (no Docker) ────────────────────────────────────
   php_version:
     description: >
-      PHP version for standalone lint/PHPUnit steps. Leave empty to skip
-      standalone checks and rely exclusively on Docker.
+      PHP version. Drives the optional standalone lint/PHPUnit steps, and is
+      exported to the environment under php_version_env so the Compose stack
+      can read it as a build argument. Leave empty to skip standalone checks
+      and let the Compose file choose its own PHP.
     default: ""
+    required: false
+  php_version_env:
+    description: >
+      Environment variable that php_version is exported as, for the Compose
+      file to consume as a build argument. Set to an empty string to export
+      nothing.
+    default: PHP_VERSION
     required: false
   composer_command:
     description: Composer install command for standalone steps.
@@ -157,6 +166,34 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p "${{ inputs.out_dir }}"
+
+    - name: Export PHP version for the compose stack
+      if: ${{ inputs.php_version != '' && inputs.php_version_env != '' }}
+      shell: bash
+      env:
+        PHP_VERSION_ENV_NAME: ${{ inputs.php_version_env }}
+        PHP_VERSION_VALUE: ${{ inputs.php_version }}
+      run: |
+        set -euo pipefail
+
+        # Both halves are caller-controlled; validate before writing so a name
+        # containing '=' or whitespace, or a value containing a newline, cannot
+        # append extra entries to GITHUB_ENV.
+        if [[ ! "$PHP_VERSION_ENV_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+          echo "::error::php_version_env must be a valid environment variable name; got '${PHP_VERSION_ENV_NAME}'" >&2
+          exit 1
+        fi
+        if [[ "$PHP_VERSION_VALUE" == *$'\n'* || "$PHP_VERSION_VALUE" == *$'\r'* ]]; then
+          echo "::error::php_version must not contain newlines" >&2
+          exit 1
+        fi
+
+        delimiter="php_version_$(date +%s%N)_${RANDOM}"
+        {
+          printf '%s<<%s\n' "$PHP_VERSION_ENV_NAME" "$delimiter"
+          printf '%s\n' "$PHP_VERSION_VALUE"
+          printf '%s\n' "$delimiter"
+        } >> "$GITHUB_ENV"
 
     - name: Start test stack
       shell: bash

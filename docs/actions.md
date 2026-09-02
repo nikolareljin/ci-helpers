@@ -310,6 +310,53 @@ Notes:
   in a separate post-build step — this action only exports the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`
 
+## pimcore-bundle-check
+
+Path: `.github/actions/pimcore-bundle-check`
+
+Purpose: Run PHPCS, PHPStan and PHPUnit for a Pimcore bundle inside a Docker
+Compose stack, with an optional standalone (no-Docker) mode.
+
+Note: Requires Docker on the runner and a compose file that mounts the bundle.
+For most repositories the [`pimcore.yml` preset](presets.md#pimcore) is the
+better entry point — it wraps this action and adds a PHP version matrix.
+
+Inputs (selected):
+- `compose_file` (default `test/docker-compose.yml`)
+- `bundle_src` (default `"."`), `bundle_src_env` (default `BUNDLE_SRC`)
+- `php_service` (default `php`), `db_service` (default `db`), `db_wait_seconds` (default `"20"`)
+- `out_dir` (default `test/tmp`)
+- `php_version` (default `""`) — drives the optional standalone steps, and is exported for the Compose stack
+- `php_version_env` (default `PHP_VERSION`) — variable `php_version` is exported as; `""` exports nothing
+- `composer_command`, `phpcs_command`, `phpstan_command`, `phpunit_command`, `phpunit_coverage_command`
+- `fail_on_findings`, `cleanup`
+
+Example:
+
+```yaml
+- name: Pimcore bundle check
+  uses: nikolareljin/ci-helpers/.github/actions/pimcore-bundle-check@production
+  with:
+    compose_file: docker-test/docker-compose.yml
+    php_version: "8.4"
+    phpcs_command: "vendor/bin/phpcs"
+    fail_on_findings: "true"
+```
+
+`php_version` is exported as `PHP_VERSION` before the stack starts, so the
+compose file can build against it:
+
+```yaml
+services:
+  php:
+    build:
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.3}
+```
+
+Without that, the stack builds whatever its own default is and `php_version`
+affects only the standalone steps.
+
 ## wp-plugin-check
 
 Path: `.github/actions/wp-plugin-check`

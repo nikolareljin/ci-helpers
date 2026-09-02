@@ -1,0 +1,35 @@
+name: workflow-yaml-check
+#
+# Every reusable workflow and composite action here is consumed by other
+# repositories, so a file that does not parse is a broken release for everyone
+# pinned to it. Nothing checked that until now: this repository's own PR gate
+# is a release-tag check and a secret scan, neither of which reads the files it
+# ships.
+#
+# The gap was not theoretical. wp-plugin-check/action.yml shipped invalid --
+# heredoc bodies at column 0 inside an indented `run: |` block end the block
+# scalar -- and both PyYAML and Ruby's Psych refused it while CI stayed green.
+#
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "release/*"
+
+permissions:
+  contents: read
+
+jobs:
+  yaml:
+    name: workflow and action YAML
+    runs-on: ubuntu-latest
+    # Without this a hung job bills until GitHub's six-hour default (see #132).
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # PyYAML ships on the GitHub-hosted images, so there is nothing to install.
+      - name: Parse every workflow and action file
+        shell: bash
+        run: python3 scripts/check_workflow_yaml.py

@@ -121,21 +121,32 @@ jobs:
           set -euo pipefail
 
           # php_version (singular) wins, so a caller wanting exactly one
-          # version does not have to write a one-element array.
+          # version does not have to write a one-element array. Built with jq
+          # rather than string interpolation, so the value is JSON-escaped.
           if [ -n "$PHP_VERSION" ]; then
-            versions="[\"${PHP_VERSION}\"]"
+            versions="$(jq -nc --arg v "$PHP_VERSION" '[$v]')"
           elif [ -n "$PHP_VERSIONS" ]; then
             versions="$PHP_VERSIONS"
           else
             versions='["8.3", "8.4"]'
           fi
 
-          # Fail here rather than let the matrix expand to nothing, which
-          # reports as a skipped job and reads like a pass.
-          if ! printf '%s' "$versions" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
-            echo "php_versions must be a non-empty JSON array, e.g. '[\"8.3\", \"8.4\"]'; got: ${versions}" >&2
+          # Must be a non-empty array of non-blank strings. Failing here beats
+          # letting the matrix expand to nothing: an empty matrix reports as a
+          # skipped job, and a skipped job reads like a pass.
+          if ! printf '%s' "$versions" | jq -e '
+                type == "array"
+                and length > 0
+                and all(.[]; type == "string" and (test("^\\s*$") | not))
+              ' >/dev/null 2>&1; then
+            echo "::error::php_versions must be a non-empty JSON array of version strings, e.g. '[\"8.3\", \"8.4\"]'" >&2
             exit 1
           fi
+
+          # Compact onto one line. A pretty-printed array is valid JSON and
+          # passes the check above, but would write a multi-line GITHUB_OUTPUT
+          # value that fromJSON reads back truncated or not at all.
+          versions="$(printf '%s' "$versions" | jq -c '.')"
 
           echo "Testing PHP: $(printf '%s' "$versions" | jq -r 'join(", ")')"
           echo "versions=${versions}" >> "$GITHUB_OUTPUT"
