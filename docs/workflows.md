@@ -461,13 +461,13 @@ jobs:
     with:
       name: "isoforge"
       desc: "TUI tool for downloading and flashing ISO images to USB"
-      homepage: "https://github.com/nikolareljin/burn-iso"
+      homepage: "https://github.com/nikolareljin/iso-forge"
       deps: "dialog,jq,curl"
       entrypoint: "inc/isoforge.sh"
       man_path: "docs/man/isoforge.1"
       use_libexec: "true"
       env_var: "ISOFORGE_ROOT"
-      release_repo: "nikolareljin/burn-iso"
+      release_repo: "nikolareljin/iso-forge"
       publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
       tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
       tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}

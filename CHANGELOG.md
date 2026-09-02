@@ -1,4 +1,10 @@
 # Changelog
+## 2026-09-01 — 0.21.3
+
+### Changed
+
+- **The Homebrew example names the renamed IsoForge repository.** `nikolareljin/burn-iso` is now `nikolareljin/iso-forge`, so the `homepage` and `release_repo` inputs in the `homebrew-package.yml` example in `docs/workflows.md` would have sent a reader to a redirect and named a repository that no longer exists under that name.
+
 ## 2026-08-24 — 0.21.2
 
 ### Fixed
