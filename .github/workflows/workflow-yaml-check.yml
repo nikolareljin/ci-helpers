@@ -10,12 +10,14 @@ name: workflow-yaml-check
 # heredoc bodies at column 0 inside an indented `run: |` block end the block
 # scalar -- and both PyYAML and Ruby's Psych refused it while CI stayed green.
 #
+# pull_request covers branch work, including release branches, so push is
+# limited to main -- listing release/* as well ran this twice on every
+# release-branch pull request.
 on:
   pull_request:
   push:
     branches:
       - main
-      - "release/*"
 
 permissions:
   contents: read

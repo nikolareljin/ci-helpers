@@ -109,6 +109,8 @@ jobs:
   # php_version, so callers that never set php_versions behave as before.
   resolve-versions:
     runs-on: ${{ inputs.runner }}
+    # Without this a hung job bills until GitHub's six-hour default (see #132).
+    timeout-minutes: 5
     outputs:
       versions: ${{ steps.resolve.outputs.versions }}
     steps:

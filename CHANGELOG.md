@@ -26,6 +26,7 @@
 ### Added
 
 - **`scripts/check_workflow_yaml.py` and a `workflow-yaml-check` workflow.** Everything under `.github/workflows` and `.github/actions` is consumed by other repositories, so a file that does not parse is a broken release for everyone pinned to it — and nothing checked. This repository's own PR gate is a release-tag check and a secret scan, neither of which reads the files it ships, which is how the `wp-plugin-check` breakage above went unnoticed. The script parses all 78 workflow and action files and annotates failures with `::error file=`; it fails on the pre-fix `wp-plugin-check` and passes on the fix.
+- The new `resolve-versions` job carries `timeout-minutes`, so a hung resolve cannot bill to GitHub's six-hour default (the reason `release-tag-check` sets one).
 
 ### Changed
 
