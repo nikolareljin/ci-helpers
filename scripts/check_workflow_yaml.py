@@ -13,8 +13,10 @@ invalid: its heredoc bodies were written at column 0 inside an indented
 own. Both PyYAML and Ruby's Psych refused the file, while the repository's own
 PR gate -- a release-tag check and a secret scan -- had nothing to say about it.
 
-Reports every file that fails to parse, not just the first, so one run
-names all of them. Exits non-zero if any did.
+Reports every file that fails, not just the first, so one run names all of
+them. A file that cannot be read or decoded counts as a failure too -- it is
+just as broken for a consumer as one that will not parse. Exits non-zero if
+any failed.
 """
 from __future__ import annotations
 
@@ -50,12 +52,22 @@ def main() -> int:
         try:
             yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:
-            failed.append((path, exc))
+            failed.append((path, "is not valid YAML", exc))
+        except (OSError, UnicodeDecodeError) as exc:
+            # A file that cannot be read or decoded is just as broken for a
+            # consumer as one that will not parse. Catching only YAMLError
+            # would end the run in a traceback and report nothing, which is
+            # the opposite of naming every bad file in one pass.
+            failed.append((path, "could not be read", exc))
 
-    for path, exc in failed:
+    for path, problem, exc in failed:
         rel = Path(path).relative_to(ROOT)
+        # Workflow commands are line-based, and PyYAML's messages are usually
+        # several lines. An unescaped newline truncates the annotation and
+        # spills the remainder into the log as loose text, so collapse it.
+        detail = " ".join(str(exc).split())
         # ::error:: so the failure is annotated on the file in the PR diff.
-        print(f"::error file={rel}::{rel} is not valid YAML: {exc}", file=sys.stderr)
+        print(f"::error file={rel}::{rel} {problem}: {detail}", file=sys.stderr)
 
     if failed:
         print(f"\n{len(failed)} of {len(paths)} file(s) failed to parse.", file=sys.stderr)
