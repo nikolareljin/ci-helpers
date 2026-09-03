@@ -1,4 +1,39 @@
 # Changelog
+## 2026-09-03 — 0.22.1
+
+### Fixed
+
+- **`rpm-build.yml` builds again.** `rpmbuild`'s `_topdir` has to be absolute, and the workflow passed `working_directory` into it unchanged. On the default `"."` that made `_topdir` relative, `%prep` resolved `_builddir` to an absolute `/packaging/rpm/build/BUILD` that does not exist, and the build died:
+
+  ```
+  error: Bad exit status from /var/tmp/rpm-tmp.r7Qq1N (%prep)
+  ```
+
+  A caller cannot fix this from the outside. `${{ github.workspace }}` is the obvious try, and it is worse: a `workflow_call` `with:` block is evaluated before any runner exists, so the expression is the empty string, and the spec is then looked for at `/packaging/<name>.spec`:
+
+  ```
+  [ERROR] Spec file not found (use --spec): /packaging/isoforge.spec
+  ```
+
+  The step already runs in the requested directory, so it now takes the path from `pwd`. Callers keep passing `working_directory` as before, absolute or relative, and both work. Nothing about the input's meaning changes.
+
+### Known issues
+
+- **`deb-build.yml`'s default `artifact_glob` cannot be uploaded.** It is `../*.deb`, matching where `dpkg-buildpackage` puts its output, but `upload-artifact` rejects the path outright:
+
+  ```
+  ##[error]Invalid pattern '../*.deb'. Relative pathing '.' and '..' is not allowed.
+  ```
+
+  Every caller that does not override it builds a package and then fails on the upload. Until the default moves the artifacts into the workspace, a caller works around it with:
+
+  ```yaml
+  build_command: "dpkg-buildpackage -us -uc && mkdir -p dist && mv ../*.deb dist/"
+  artifact_glob: "dist/*.deb"
+  ```
+
+  Fixing the default belongs in `build_deb_artifacts.sh`, which is where the output location is decided, so it is left for a change that can move both together.
+
 ## 2026-09-02 — 0.22.0
 
 ### Added
