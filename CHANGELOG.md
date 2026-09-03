@@ -9,11 +9,13 @@
   error: Bad exit status from /var/tmp/rpm-tmp.r7Qq1N (%prep)
   ```
 
-  A caller cannot fix this from the outside. `${{ github.workspace }}` is the obvious try, and it is worse: a `workflow_call` `with:` block is evaluated before any runner exists, so the expression is the empty string, and the spec is then looked for at `/packaging/<name>.spec`:
+  A caller cannot fix this from the outside, which is worth showing rather than asserting. Passing `${{ github.workspace }}` as `working_directory` produced:
 
   ```
   [ERROR] Spec file not found (use --spec): /packaging/isoforge.spec
   ```
+
+  That is `repo=""` with `packaging/isoforge.spec` appended, so the expression reached the workflow as an empty string. The explanation is that a reusable workflow's `with:` block is evaluated in the caller's workflow context, where no runner and therefore no workspace exists yet. Note this is specific to `jobs.<id>.with` on a `uses:` call — `${{ github.workspace }}` in a step, as `release-tag-check.yml` uses it, runs on a runner and resolves normally.
 
   The step already runs in the requested directory, so it now takes the path from `pwd`. Callers keep passing `working_directory` as before, absolute or relative, and both work. Nothing about the input's meaning changes.
 

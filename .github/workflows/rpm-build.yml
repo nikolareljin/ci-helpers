@@ -69,16 +69,11 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          # Not inputs.working_directory: rpmbuild's _topdir must be absolute,
-          # and this input is a caller-supplied path that usually is not. The
-          # default "." made _topdir relative, so %prep resolved _builddir to
-          # an absolute /packaging/rpm/build/BUILD and every build died with
-          # "Bad exit status from /var/tmp/rpm-tmp.* (%prep)". Callers cannot
-          # work around it with the github.workspace context either: a
-          # workflow_call `with:` block is evaluated before any runner exists,
-          # so that expression is the empty string and the spec is then looked
-          # for at /packaging/<name>.spec. The step already runs in the
-          # requested directory, so ask the shell where that is.
+          # rpmbuild's _topdir must be absolute, and inputs.working_directory
+          # is a caller-supplied path that usually is not. This step already
+          # runs in that directory, so take the absolute form from the shell
+          # rather than from the input. See the 0.22.1 CHANGELOG entry for why
+          # a caller cannot supply an absolute path here instead.
           repo="$(pwd)"
           spec="${{ inputs.spec_path }}"
           prebuild="${{ inputs.prebuild_command }}"
