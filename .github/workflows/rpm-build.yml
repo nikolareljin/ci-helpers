@@ -69,7 +69,12 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          repo="${{ inputs.working_directory }}"
+          # rpmbuild's _topdir must be absolute, and inputs.working_directory
+          # is a caller-supplied path that usually is not. This step already
+          # runs in that directory, so take the absolute form from the shell
+          # rather than from the input. See the 0.22.1 CHANGELOG entry for why
+          # a caller cannot supply an absolute path here instead.
+          repo="$(pwd)"
           spec="${{ inputs.spec_path }}"
           prebuild="${{ inputs.prebuild_command }}"
           artifact_dir="${{ inputs.artifact_dir }}"
