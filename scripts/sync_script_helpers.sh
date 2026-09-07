@@ -93,7 +93,14 @@ mkdir -p "$ROOT_DIR/vendor"
 # copy succeeds, so an interruption never leaves an empty vendor tree.
 rm -rf "$STAGE_DIR"
 cp -r "$TMP_DIR/script-helpers" "$STAGE_DIR"
-rm -rf "$STAGE_DIR/.git"
+# Paths that are never vendored. `.github` is upstream's own CI configuration:
+# GitHub only runs workflows at the repository root, so a copy under vendor/ can
+# never execute, and it references this repository's reusable workflows back --
+# which makes it read like a second, stale definition of our own CI.
+VENDOR_EXCLUDES=(".git" ".github")
+for excluded in "${VENDOR_EXCLUDES[@]}"; do
+  rm -rf "${STAGE_DIR:?}/${excluded}"
+done
 rm -rf "$DEST_DIR"
 mv "$STAGE_DIR" "$DEST_DIR"
 
