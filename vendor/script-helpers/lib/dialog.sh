@@ -52,7 +52,7 @@ get_value() {
   rm -f "$tmp"
 }
 
-# Selection helpers used by burn-iso project. Expect an associative array DISTROS to be defined by the caller.
+# Selection helpers used by iso-forge. Expect an associative array DISTROS to be defined by the caller.
 select_multiple_distros() {
   dialog_init; check_if_dialog_installed || return 1
   local selected_distros options=() d

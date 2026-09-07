@@ -4,17 +4,27 @@
 # USAGE: bash scripts/local_test_node.sh [--quick] [--workspace <name>]
 #
 # PARAMETERS:
+#   --dir     Project directory, relative to the repository root (default: .).
 #   --quick       Skip install; run tests against existing node_modules.
 #   --workspace   Run tests only for a specific npm workspace.
 # ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false
+TEST_DIR="."
 WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-node] --dir requires a path." >&2
+        exit 1
+      fi
+      TEST_DIR="$2"
+      shift
+      ;;
     --workspace)
       if [[ $# -lt 2 ]]; then
         echo "[local-test-node] --workspace requires a workspace name." >&2
@@ -29,7 +39,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
+if [[ ! -d "$repo_root/$TEST_DIR" ]]; then
+  echo "[local-test-node] Directory not found: $repo_root/$TEST_DIR" >&2
+  exit 1
+fi
+cd "$repo_root/$TEST_DIR"
 
 if [[ ! -f package.json ]]; then
   echo "[local-test-node] No package.json found at repo root." >&2; exit 1

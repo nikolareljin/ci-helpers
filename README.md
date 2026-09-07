@@ -439,10 +439,33 @@ jobs:
 
 After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
 
-- Update vendored `script-helpers` with:
-  - `./scripts/sync_script_helpers.sh`
-  - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
-  - Source repo: `https://github.com/nikolareljin/script-helpers`
+### Updating the vendored `script-helpers`
+
+Do this whenever script-helpers cuts a release. Two commands:
+
+```bash
+./scripts/sync_script_helpers.sh          # newest semver tag; --ref X.Y.Z to pin
+./scripts/verify_vendor.sh                # prove the copy still works
+git add -f vendor/ && git commit
+```
+
+`vendor/` is gitignored and the tree is tracked by force-add, so **`git add -f` is
+required** -- a plain `git add` stages modified files and silently skips new ones,
+which leaves `VERSION` claiming a release the tree does not contain.
+
+`sync_script_helpers.sh` excludes upstream's `.github/` (see `VENDOR_EXCLUDES`).
+A vendored copy of it can never execute -- GitHub only runs workflows at the
+repository root -- and it references this repository's own reusable workflows
+back, so it reads as a second, stale definition of our CI.
+
+`verify_vendor.sh` checks structure, the exclusions, that every module
+`scripts/` imports is present and loads, that each dependent script still runs,
+and that the copy is current. It runs on every pull request via
+`vendor-check.yml`, with `--offline` there so an upstream release does not turn
+unrelated pull requests red; `security-weekly.yml` owns the currency check.
+
+- Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
+- Source repo: `https://github.com/nikolareljin/script-helpers`
 
 ## Using from other repositories
 

@@ -96,7 +96,7 @@ verify_checksum() {
   fi
 }
 
-# Convenience used by burn-iso: expects DISTROS associative array defined by caller
+# Convenience used by iso-forge: expects DISTROS associative array defined by caller
 download_iso() {
   local distro_name="$1"
   local url="${DISTROS[$distro_name]}"

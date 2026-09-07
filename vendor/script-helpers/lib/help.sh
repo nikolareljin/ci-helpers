@@ -183,7 +183,7 @@ get_script_metadata() {
   _meta[param_lines]="${param_lines%$'\n'}"
 }
 
-# Generic usage printer and common arg parser (network-scan style)
+# Generic usage printer and common arg parser.
 show_usage() {
   local script_name; script_name="$(basename "${1:-$0}")"
   cat << EOF

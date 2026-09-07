@@ -34,6 +34,7 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `deps.ps1`       | `install_package`, `install_dependencies`, `require_command` — uses `winget` > `choco` > `scoop` |
 | `version.ps1`    | `version_bump`, `version_compare` |
 | `docker.ps1`     | `get_docker_compose_cmd`, `docker_compose`, `check_docker`, `wait_for_service` |
+| `docker_install.ps1` | `install_docker`, `ensure_docker`, `docker_ready`, `docker_install_status`, `docker_report_state`, `docker_start_daemon`, `wait_for_docker_daemon` — installs Docker Desktop via `winget` > `choco` > official installer |
 | `ports.ps1`      | `port_in_use`, `list_port_usage_details`, `get_port_conflicts_json` — uses `Get-NetTCPConnection` |
 | `json.ps1`       | `json_escape`, `format_json`, `json_get`, `jq_query` |
 | `browser.ps1`    | `open_url`, `wait_for_port`, `check_port_open` |
@@ -46,6 +47,9 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `hosts.ps1`      | `add_hosts_entry`, `remove_hosts_entry` — Windows hosts file (requires admin) |
 | `ci_defaults.ps1` | Docker image version pins (current stable; see module for divergence note vs Bash `ci_defaults.sh`) |
 | `packaging.ps1`  | `pkg_load_metadata`, `pkg_require_vars`, `pkg_trim`, `pkg_join_list`, `pkg_quote_list`, `pkg_render_lines`, `pkg_classify_name`, `pkg_guess_version` + PS helpers: `join_by`, `quote_args`, `load_packaging_metadata`, `get_package_version` |
+| `adb.ps1`        | `adb_list_devices`, `adb_install`, `adb_push`, `adb_pull`, `adb_shell`, `adb_logcat` — multi-device safe |
+| `serve.ps1`      | `serve_static_site` — local static-site preview; python3 > python > `npx http-server` |
+| `svg.ps1`        | `svg_rasterizer`, `svg_rasterize`, `svg_rasterize_sizes` — Inkscape > ImageMagick |
 
 PowerShell CI scripts (`ps/scripts/`):
 
@@ -135,9 +139,11 @@ Loader and modules
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
+  - `svg.sh` — rasterize SVG art to PNG (`svg_rasterize <in> <out> [size]`, `svg_rasterize_sizes`) for app logos/launcher icons; prefers Inkscape, falls back to ImageMagick. CLI: `bin/svg-rasterize`.
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
+- `hub.sh` — corpus-hub setup for capture clients: local-or-remote dialog with a plain and a no-terminal fallback, probe, key check, `.env` writer, bootstrap through the hub's own scripts, and an offer to run the hub's own `./update` (`hub_setup_dialog`, `hub_probe`, `hub_check_key`, `hub_write_env`, `hub_bootstrap`, `hub_offer_update`, `hub_latest_tag`, `hub_ui_mode`).
 - `ports.sh` — port usage/availability helpers.
 - `browser.sh` — `open_url`, `open_frontend_when_ready`.
 - `traps.sh` — cleanup and signal traps.
@@ -229,6 +235,22 @@ shlib_import logging docker
 docker_status
 ```
 
+Serving a static site locally
+------------------------------
+
+- `serve_static_site <dir> [port]` (from `lib/serve.sh`) starts a static HTTP server rooted at `<dir>`, auto-selecting the first free port at/after `[port]` (default `8000`). Prefers `python3 -m http.server`, falling back to `python` (its `http.server` on Python 3 or `SimpleHTTPServer` on Python 2), then `npx http-server`. Prints the URL and serves until Ctrl-C.
+- `bin/serve-pages <dir> [port]` — CLI wrapper, handy for previewing a static/GitHub-Pages build output:
+
+```bash
+bin/serve-pages ./site 8000
+```
+
+```bash
+source ./helpers.sh
+shlib_import serve
+serve_static_site ./public 8080
+```
+
 Testing locally
 ---------------
 
@@ -304,9 +326,9 @@ Versioning and releases
 - Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
 - Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
 - GitHub Actions:
-  - Auto-tag (`.github/workflows/auto-tag.yml`): manually triggered via `workflow_dispatch` to bump `VERSION` from conventional commits and create a semver tag.
-  - Production pinning: when a semver tag is created by release automation from `main`, the same workflow run fast-forwards `production` to that tag commit.
-  - Release: publishes a GitHub Release when a `*.*.*` tag is pushed.
+  - Auto tag + release (`.github/workflows/auto-tag-release.yml`): on merge of a `release/X.Y.Z` PR into `main`, reuses the shared ci-helpers workflows to detect the version, create the semver tag, and publish the GitHub Release.
+  - Production pinning: the same workflow run fast-forwards the `production` branch to the new tag commit.
+  - Release (`.github/workflows/release.yml`): fallback that publishes a GitHub Release when a `*.*.*` tag is pushed manually.
 
 
 ---

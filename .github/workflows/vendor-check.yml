@@ -1,0 +1,33 @@
+name: vendor-check
+#
+# vendor/script-helpers is a copy, and a copy is only safe while something
+# proves it still works. Syncing is a file copy: it cannot tell you that a
+# module scripts/ imports went away upstream, or that upstream's own .github
+# crept back in -- a non-executing, stale second definition of this repository's
+# reusable workflows, which is what the vendored tree used to carry.
+#
+# Currency is deliberately NOT checked here. An upstream release would then
+# turn every open pull request red for a reason unrelated to the change under
+# review. security-weekly.yml owns that check and fails loudly once a week,
+# which is the right cadence for "you are a release behind".
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  vendor:
+    name: vendored script-helpers
+    runs-on: ubuntu-latest
+    # Without this a hung job bills until GitHub's six-hour default (see #132).
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify the vendored copy is usable
+        shell: bash
+        run: ./scripts/verify_vendor.sh --offline

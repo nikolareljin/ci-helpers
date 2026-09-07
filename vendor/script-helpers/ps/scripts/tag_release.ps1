@@ -31,7 +31,9 @@ if (-not [System.IO.Path]::IsPathRooted($File)) {
 }
 if (-not (Test-Path $File)) { Write-Error "VERSION file not found: $File"; exit 1 }
 $version = (Get-Content $File -Raw).Trim()
-if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { Write-Error "Invalid version in $File: $version"; exit 1 }
+    # ${File} must be delimited: bare "$File:" parses as a scoped variable
+    # reference (like $env:PATH), which is a syntax error.
+if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { Write-Error "Invalid version in ${File}: $version"; exit 1 }
 
 log_info "Version: $version"
 
