@@ -11,6 +11,12 @@
 
 - **`pr-gate.yml` and `release-tag-gate.yml` now check out `check_release_tag.sh` at `1bb1977` (0.24.0)** instead of `3d70d24`, a commit from 2026-04-11. This picks up a real fix: the old revision swallowed a failed tag fetch with `|| true`, so the release-tag gate could evaluate against stale tags and pass when it should not. The new revision fails loudly instead, and adds an optional `--remote`. Both call sites pass only `--branch`, `--repo`, `--fetch-tags` and `--print-version`, all still accepted.
 
+### Known issues
+
+- **The vendored tree carries an upstream data-loss bug in `scripts/install_dev_cli.sh`.** Its `--shims` backup is an unconditional `mv "$dest" "$dest.pre-dev-cli"`; on a second run `$dest` is the shim the previous run wrote, so re-running replaces the caller's original script with the generated shim. Reproduced, and fixed upstream in nikolareljin/script-helpers#58 — this repository will pick the fix up on the next vendor sync.
+
+  Deliberately **not** patched here. The whole point of this PR is that `vendor/script-helpers` is byte-identical to upstream at `0.24.0`; a local edit would break that invariant, defeat the drift check in `security-weekly.yml`, and be silently reverted the next time `sync_script_helpers.sh` runs. ci-helpers does not invoke this script, so the defect is dormant here.
+
 ### Notes
 
 - **`wp-plugin-check.yml` and `pimcore-bundle-check.yml` deliberately stay pinned at `3d70d24`.** `ci_wp_plugin_check.sh` and `ci_pimcore_bundle_check.sh` **dropped `--php-version`** after that commit, and both scripts exit 2 on an unknown argument. Since both workflows pass `--php-version "${{ inputs.php_version }}"`, moving those pins would hard-fail every caller. Rewiring the `php_version` input belongs in its own change, not in a vendor sync.
