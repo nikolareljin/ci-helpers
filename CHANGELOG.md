@@ -20,6 +20,14 @@
 
 - **`pr-gate.yml` and `release-tag-gate.yml` now check out `check_release_tag.sh` at `1bb1977` (0.24.0)** instead of `3d70d24`, a commit from 2026-04-11. This picks up a real fix: the old revision swallowed a failed tag fetch with `|| true`, so the release-tag gate could evaluate against stale tags and pass when it should not. The new revision fails loudly instead, and adds an optional `--remote`. Both call sites pass only `--branch`, `--repo`, `--fetch-tags` and `--print-version`, all still accepted.
 
+- **`scripts/verify_vendor.sh` proves the vendored copy still works, and runs on every pull request** (`vendor-check.yml`). Syncing is a file copy: it cannot tell you that a module `scripts/` imports went away upstream, or that an excluded path crept back in. The check derives the required module list from the `shlib_import` lines in `scripts/` rather than hard-coding it, imports them the way a real caller does, and runs `--help` on every script that depends on the vendored tree.
+
+  Currency is checked too, but the pull-request job passes `--offline`: an upstream release should not turn every open pull request red for a reason unrelated to the change under review. `security-weekly.yml` already fails once a week when the copy falls behind, which is the right cadence for that.
+
+  Each guard was verified to fail when it should — a reintroduced `.github`, a missing imported module, and a stale recorded SHA each make it exit 1.
+
+- **`version_bump.sh` accepts `--help`, not only `-h`.** Every other script here takes both; this one fell through to the argument error and exited 1 while printing correct help.
+
 ### Known issues
 
 - **The vendored tree carries an upstream data-loss bug in `scripts/install_dev_cli.sh`.** Its `--shims` backup is an unconditional `mv "$dest" "$dest.pre-dev-cli"`; on a second run `$dest` is the shim the previous run wrote, so re-running replaces the caller's original script with the generated shim. Reproduced, and fixed upstream in nikolareljin/script-helpers#58 — this repository will pick the fix up on the next vendor sync.

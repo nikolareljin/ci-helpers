@@ -5,7 +5,11 @@
 - `.github/workflows/`: reusable workflows (`ci.yml`, `pr-gate.yml`, `deploy.yml`) and top-level preset workflows (for GitHub reusable workflow requirements).
 - `.github/actions/`: composite actions (`semver-compare`, `check-release-tag`).
 - `scripts/`: Bash helpers used by actions and maintenance tasks.
-- `vendor/script-helpers/`: vendored Bash utilities (sync with `scripts/sync_script_helpers.sh`).
+- `vendor/script-helpers/`: vendored Bash utilities. Sync with
+  `scripts/sync_script_helpers.sh`, then prove it with `scripts/verify_vendor.sh`,
+  then stage with `git add -f vendor/` (the directory is gitignored, so a plain
+  `git add` silently skips new files). Upstream's `.github/` is deliberately not
+  vendored. Update this whenever script-helpers cuts a release.
 - `docs/`: detailed usage docs and examples.
 
 ## Build, Test, and Development Commands

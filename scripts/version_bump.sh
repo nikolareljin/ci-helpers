@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: version_bump.sh
 # DESCRIPTION: Bump VERSION and update docs/examples that reference @X.Y.Z.
-# USAGE: ./version_bump.sh [major|minor|patch] [-h]
+# USAGE: ./version_bump.sh [major|minor|patch] [-h|--help]
 # PARAMETERS:
 #   major|minor|patch   Which part of the version to increment.
 #   -h                 Show this help message.
@@ -19,7 +19,7 @@ shlib_import logging help env version file
 
 usage() { display_help; }
 
-if [[ "${1:-}" == "-h" ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
