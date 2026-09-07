@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test
 
 help:
 	@echo "Available targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make examples RUN_NETWORK=1   # Include download example (network)"
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
+	@echo "  make test                     # Run tests under tests/"
 	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
 	@echo "  make example_<name>           # Run a specific example"
 
@@ -71,6 +72,18 @@ example_package_publish:
 
 lint-docs:
 	@bash scripts/lint_docs.sh
+	@# The changelog header is load-bearing: ci-helpers extracts release notes
+	@# by finding it, and silently falls back to an auto-generated commit list
+	@# when the shape is wrong. This repository shipped the checker and never
+	@# ran it, so its own headers had drifted for twenty releases.
+	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
+
+test:
+	@for f in tests/*_test.sh; do \
+	  [[ -f "$$f" ]] || continue; \
+	  printf '\n--- Running: %s ---\n' "$$f"; \
+	  bash "$$f" || exit 1; \
+	done
 
 install-git-hooks:
 	@mkdir -p .git/hooks

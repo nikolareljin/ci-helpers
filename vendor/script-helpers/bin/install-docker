@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# SCRIPT: install-docker
+# DESCRIPTION: Install Docker for the current platform — Docker Engine on
+#              Linux, Docker Desktop on macOS and Windows. Thin CLI wrapper
+#              around lib/docker_install.sh. Idempotent.
+# USAGE: install-docker [-h] [-y] [-n] [--check] [--no-start] [--no-group] [--timeout N]
+# PARAMETERS:
+#   -h, --help      Show this help
+#   -y, --yes       Non-interactive; assume yes. Required with no TTY.
+#   -n, --dry-run   Print what would run; change nothing.
+#       --check     Report whether Docker is usable, then exit. Installs nothing.
+#       --no-start  Install but do not start the daemon / launch Desktop.
+#       --no-group  Linux only: skip adding the user to the `docker` group.
+#       --timeout N Seconds to wait for the daemon. Default 120.
+# EXAMPLE:
+#   install-docker --check
+#   install-docker -n
+#   install-docker -y
+# EXIT CODES:
+#   0 usable · 1 failed or declined · 2 bad usage · 3 installed, daemon not up
+# ----------------------------------------------------
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+# shellcheck source=/dev/null
+source "$root_dir/helpers.sh"
+shlib_import logging os docker_install
+
+check_only=false
+args=()
+for a in "$@"; do
+  case "$a" in
+    -h|--help)
+      sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//; $d'
+      exit 0
+      ;;
+    --check) check_only=true ;;
+    *) args+=("$a") ;;
+  esac
+done
+
+if [[ "$check_only" == true ]]; then
+  if docker_report_state; then
+    log_info "Docker is installed and usable."
+    exit 0
+  fi
+  log_warn "Docker is not usable. Run 'install-docker' to fix that."
+  exit 1
+fi
+
+install_docker ${args[@]+"${args[@]}"}

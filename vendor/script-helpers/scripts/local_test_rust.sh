@@ -4,17 +4,27 @@
 # USAGE: bash scripts/local_test_rust.sh [--quick] [--manifest <path>]
 #
 # PARAMETERS:
+#   --dir     Project directory, relative to the repository root (default: .).
 #   --quick      Skip cargo check/clippy; run tests only.
 #   --manifest   Path to Cargo.toml (default: ./Cargo.toml).
 # ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false
+TEST_DIR="."
 MANIFEST="Cargo.toml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-rust] --dir requires a path." >&2
+        exit 1
+      fi
+      TEST_DIR="$2"
+      shift
+      ;;
     --manifest)
       if [[ $# -lt 2 ]]; then
         echo "[local-test-rust] --manifest requires a Cargo.toml path." >&2
@@ -29,7 +39,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
+if [[ ! -d "$repo_root/$TEST_DIR" ]]; then
+  echo "[local-test-rust] Directory not found: $repo_root/$TEST_DIR" >&2
+  exit 1
+fi
+cd "$repo_root/$TEST_DIR"
 
 if ! command -v cargo &>/dev/null; then
   echo "[local-test-rust] cargo not found in PATH." >&2; exit 1

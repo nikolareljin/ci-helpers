@@ -16,12 +16,12 @@ Functions
   - Returns: 0 on success; non-zero (with error message) if canceled or empty.
 
 - select_multiple_distros
-  - Purpose: Checklist selection used by the burn-iso workflow.
+  - Purpose: Checklist selection used by the iso-forge workflow.
   - Requirements: Associative array `DISTROS` mapping name -> URL must be defined by the caller.
   - Returns: space-separated selected names.
 
 - select_distro
-  - Purpose: Menu selection used by the burn-iso workflow.
+  - Purpose: Menu selection used by the iso-forge workflow.
   - Requirements: `DISTROS` associative array.
   - Returns: selected name.
 

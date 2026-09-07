@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# The one entry point. See scripts/cli.sh for the verbs.
+exec bash "$(dirname "$0")/scripts/cli.sh" "$@"

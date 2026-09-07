@@ -1,4 +1,20 @@
 # Changelog
+## 2026-09-06 — 0.23.0
+
+### Changed
+
+- **`vendor/script-helpers` updated from 0.14.0 to 0.24.0.** The vendored tree is now byte-identical to script-helpers at tag `0.24.0` (`1bb1977`), which is where the `production` branch points. 71 files added, 26 changed, 2 removed.
+
+  The three scripts these workflows actually invoke — `build_deb_artifacts.sh`, `build_rpm_artifacts.sh` and `ppa_upload.sh` — are **unchanged across the whole 0.14.0 → 0.24.0 span**, so no packaging behaviour moves with this bump. What arrives is the rest of the library: new modules (`adb`, `android`, `changelog`, `flutter`, `git_branches`, `gradle`, `hub`, `ios`, `manifest`, `screencap`, `serve`, `svg`, `docker_install`) and their docs, available to future work rather than used today.
+
+  The two removed files are `vendor/script-helpers/.github/workflows/{auto-tag,release-tag}.yml`, which upstream deleted in favour of the shared reusable workflows. They were vendored copies of script-helpers' own workflows and were never executed from here — GitHub only runs workflows at the repository root.
+
+- **`pr-gate.yml` and `release-tag-gate.yml` now check out `check_release_tag.sh` at `1bb1977` (0.24.0)** instead of `3d70d24`, a commit from 2026-04-11. This picks up a real fix: the old revision swallowed a failed tag fetch with `|| true`, so the release-tag gate could evaluate against stale tags and pass when it should not. The new revision fails loudly instead, and adds an optional `--remote`. Both call sites pass only `--branch`, `--repo`, `--fetch-tags` and `--print-version`, all still accepted.
+
+### Notes
+
+- **`wp-plugin-check.yml` and `pimcore-bundle-check.yml` deliberately stay pinned at `3d70d24`.** `ci_wp_plugin_check.sh` and `ci_pimcore_bundle_check.sh` **dropped `--php-version`** after that commit, and both scripts exit 2 on an unknown argument. Since both workflows pass `--php-version "${{ inputs.php_version }}"`, moving those pins would hard-fail every caller. Rewiring the `php_version` input belongs in its own change, not in a vendor sync.
+
 ## 2026-09-03 — 0.22.1
 
 ### Fixed

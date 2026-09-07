@@ -17,7 +17,9 @@ Functions
   - Purpose: Compatibility alias for `docker_compose`.
 
 - run_docker_compose_command "subcommand and args"
-  - Purpose: Helper that accepts a single combined string (compatibility with some callers).
+  - Purpose: Helper that accepts one whitespace-separated command string.
+  - Behavior: Quoting and escaping within that string are not parsed. Pass
+    separate arguments when an argument contains whitespace or shell syntax.
 
 - check_docker
   - Purpose: Verify Docker is installed and the daemon is running/reachable.

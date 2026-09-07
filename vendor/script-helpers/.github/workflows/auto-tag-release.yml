@@ -1,0 +1,80 @@
+name: Auto tag + release on main
+
+# On merge of a release/X.Y.Z PR into main: detect the version (from the PR's
+# release branch), create the bare-SemVer tag, create the GitHub Release, and move
+# the floating `production` branch to it. Replaces the previously hand-rolled
+# release-tag.yml + auto-tag.yml by reusing the shared ci-helpers workflows.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: auto-tag-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 1) Detect the release version from the merged release/X.Y.Z PR and tag it.
+  #    update_production_tag: false — script-helpers has no create_production.sh;
+  #    we move the `production` BRANCH ourselves below (consumers track it via
+  #    `git submodule add -b production`). No release_workflow dispatch either —
+  #    the release is created in-run by the `release` job, avoiding the GITHUB_TOKEN
+  #    tag-push trigger restriction.
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    # The reusable workflow's `dispatch` job declares job-level `actions: write`
+    # unconditionally (only its execution is gated by `if`), and GitHub validates
+    # job permissions statically — so every caller must grant `actions: write`
+    # here or the run fails validation before `tag` can execute, even though we
+    # leave `release_workflow` unset and the dispatch job is skipped.
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
+    with:
+      update_production_tag: false
+
+  # 2) Create the GitHub Release for the new tag (CHANGELOG notes), same run.
+  release:
+    needs: tag
+    if: ${{ needs.tag.outputs.version != '' }}
+    permissions:
+      contents: write
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ needs.tag.outputs.version }}
+
+  # 3) Move the `production` branch to the new tag (script-helpers ships from a
+  #    production branch, not a floating tag).
+  production:
+    needs: tag
+    if: ${{ needs.tag.outputs.version != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Move production branch to the new tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.tag.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          tag_commit="$(git rev-parse "${tag}^{}")"
+          git fetch origin production || true
+          if git rev-parse -q --verify origin/production >/dev/null; then
+            git checkout -B production origin/production
+            git merge --ff-only "$tag_commit"
+          else
+            git checkout -b production "$tag_commit"
+          fi
+          git push origin production
+          echo "production branch moved to ${tag}"

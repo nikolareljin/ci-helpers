@@ -1,5 +1,10 @@
 name: Release on tag
 
+# Fallback for tags pushed MANUALLY (by a human / PAT), which do trigger this
+# `push: tags` event. Tags created by the automated GITHUB_TOKEN path are handled
+# in-run by release-tag.yml / auto-tag.yml instead (GITHUB_TOKEN-pushed refs don't
+# trigger downstream workflows). Both paths use the same shared ci-helpers workflow.
+
 on:
   push:
     tags:
@@ -10,22 +15,8 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Read version
-        id: ver
-        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: write
+    uses: nikolareljin/ci-helpers/.github/workflows/create-github-release.yml@production
+    with:
+      release_tag: ${{ github.ref_name }}

@@ -68,6 +68,25 @@ Using as a library in other projects
 - Source `helpers.sh` from your scripts and import the modules you need.
 - Keep examples in `scripts/` handy for quick reference; you can copy/paste and adapt.
 
+Bundled CLIs
+------------
+
+- `scripts/adb_tool.sh` — a ready-to-use CLI over the `adb` module for inspecting
+  and debugging Android devices (multi-device safe). Subcommands:
+  `list`, `status <serial>`, `ip <serial> [iface]`, `install <serial> <apk>`,
+  `install-all <apk>`, `push <serial> <local> <remote>`, `pull <serial> <remote> [local]`,
+  `shell <serial> <cmd...>`, `logcat <serial> [regex]`, `clear-logcat <serial>`,
+  `uninstall <serial> <package>`. Run `scripts/adb_tool.sh --help` for details.
+  See [`modules/adb.md`](modules/adb.md).
+
+- `scripts/prune_branches.sh` — removes branches whose work has already landed,
+  including the squash and rebase merges `git branch --merged` cannot see, and
+  only when the branch gained nothing afterwards. A dry run by default; `--apply`
+  to act and `--remote` before a remote branch is considered at all. Options:
+  `--repo`, `--base`, `--remote-name`, `--keep <glob>`, `--no-fetch`. Run
+  `scripts/prune_branches.sh --help` for details.
+  See [`modules/git_branches.md`](modules/git_branches.md).
+
 Shared include and dependency check
 -----------------------------------
 
@@ -265,6 +284,7 @@ bash scripts/local_test_python.sh --quick --dir backend
 bash scripts/local_test_go.sh --quick
 bash scripts/local_test_rust.sh --quick
 bash scripts/local_test_flutter.sh --quick --dir app
+bash scripts/local_test_php.sh --quick --dir backend
 
 # In a consuming repo (script-helpers as a submodule under scripts/script-helpers)
 bash scripts/script-helpers/scripts/local_test_node.sh --quick
@@ -272,7 +292,21 @@ bash scripts/script-helpers/scripts/local_test_python.sh --quick --dir backend
 bash scripts/script-helpers/scripts/local_test_go.sh --quick
 bash scripts/script-helpers/scripts/local_test_rust.sh --quick
 bash scripts/script-helpers/scripts/local_test_flutter.sh --quick --dir app
+bash scripts/script-helpers/scripts/local_test_php.sh --quick --dir backend
 ```
+
+The PHP runner targets PHP/Laravel projects: it runs `composer install`
+(skipped with `--quick`), checks style with Laravel Pint when
+`vendor/bin/pint` is present, then runs the suite via `php artisan test`
+(falling back to `vendor/bin/phpunit`). When tests are not skipped and no
+runner is found, the script exits non-zero so callers do not treat "no runner"
+as a passing suite. Set `SKIP_PHP_TESTS=1` for a style-only run that skips the
+(often DB-backed) test suite — handy for a pre-push on a machine without a
+local database. In the `pre-push` hook, `composer.json` is authoritative: a
+repo that has it runs the PHP suite rather than falling through to the Node
+runner, even when a `package.json` is also present for Vite. If PHP or Composer
+is not installed, the hook prints a message and skips the PHP checks (the push
+still proceeds).
 
 Release branch checks
 ---------------------

@@ -115,7 +115,9 @@ port_in_use_by() {
   return 1
 }
 
-# Defaults used by document-tracker; callers may override or pass a different list
+# Defaults for a typical containerised web stack -- reverse proxy, search,
+# cache, database and a local model runner. Callers may override any of these
+# or pass a different list entirely.
 REQUIRED_PORT_DEFAULTS=(
   "TRAEFIK_HTTP_PORT:80"
   "TRAEFIK_DASHBOARD_PORT:8081"

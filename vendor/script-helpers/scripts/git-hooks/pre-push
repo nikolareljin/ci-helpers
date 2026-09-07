@@ -16,6 +16,33 @@ if [[ -f .githooks/pre-push ]] && ! [[ .githooks/pre-push -ef "$0" ]]; then
   exec bash .githooks/pre-push "$@"
 fi
 
+# A push that only deletes refs adds no commits, so there is nothing for a test
+# suite to have an opinion about. Running one is pure latency, and it is the
+# kind of latency that teaches people to reach for --no-verify: pruning three
+# merged branches otherwise runs the full gate three times, once per deletion.
+#
+# Deliberately conservative. The gate is skipped only when EVERY ref in this
+# push is a deletion; one added ref alongside them and the checks run as usual.
+# Zeroes are matched as a pattern rather than compared with a 40-character
+# constant, because a SHA-256 repository writes 64 of them.
+_push_is_deletions_only() {
+  local lref lsha rref rsha saw_ref=false
+  # git feeds four fields per ref. Three are unread, but all four must be
+  # consumed positionally or the shas land in the wrong variables.
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lsha:-}" ]] || continue
+    saw_ref=true
+    [[ "$lsha" =~ ^0+$ ]] || return 1
+  done
+  [[ "$saw_ref" == "true" ]]
+}
+
+if _push_is_deletions_only; then
+  echo "[pre-push] deletions only — no new commits to check."
+  exit 0
+fi
+
 # Resolve local_test_*.sh scripts directory; submodule path takes priority.
 _scripts_dir=""
 if [[ -d "$repo_root/scripts/script-helpers/scripts" ]]; then
@@ -25,6 +52,29 @@ elif [[ -d "$repo_root/scripts" ]]; then
 fi
 
 _ran_tests=false
+
+# preflight.sh, when the submodule is new enough, runs every check the repo's CI
+# would have run and knows about stacks this hook's own chain does not — Gradle
+# and Android among them. In a repo that has deleted its build workflows this
+# hook is the only remaining gate, so prefer the thorough runner and fall back
+# to the per-language chain below only when it is absent.
+# Returns 127 when preflight is not installed — distinct from any status
+# preflight itself can return, so "not available" can never be confused with
+# "checks failed". Confusing the two would let a failing push through.
+run_preflight() {
+  local preflight=""
+  if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/preflight.sh" ]]; then
+    preflight="$_scripts_dir/preflight.sh"
+  else
+    return 127
+  fi
+  echo "[pre-push] preflight --quick"
+  bash "$preflight" --quick
+  # 3 = no stack detected. Not a failure; let the chain below try instead.
+  local rc=$?
+  [[ "$rc" -eq 3 ]] && return 127
+  return "$rc"
+}
 
 # Inline Go runner used when local_test_go.sh is not available.
 run_go_tests_inline() {
@@ -41,6 +91,47 @@ run_go_tests_inline() {
 }
 
 run_tests() {
+  # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
+  # package.json for Vite, so once composer.json is present we run the PHP suite
+  # (or skip with a clear message) and never fall through to the Node runner.
+  if [[ -f composer.json ]]; then
+    if ! command -v php &>/dev/null || ! command -v composer &>/dev/null; then
+      echo "[pre-push] composer.json found but php/composer are not installed — skipping PHP checks; push proceeds." >&2
+      echo "[pre-push] Install PHP and Composer to run these checks before pushing." >&2
+      return 0
+    fi
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_php.sh" ]]; then
+      echo "[pre-push] local_test_php.sh --quick"
+      bash "$_scripts_dir/local_test_php.sh" --quick
+      _ran_tests=true
+    else
+      # Track whether any PHP check actually ran so _ran_tests stays honest.
+      local _php_checked=false
+      if [[ -x vendor/bin/pint ]]; then
+        echo "[pre-push] vendor/bin/pint --test"
+        vendor/bin/pint --test
+        _php_checked=true
+      fi
+      if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
+        if [[ -f artisan ]]; then
+          echo "[pre-push] php artisan test"
+          php artisan test
+          _php_checked=true
+        elif [[ -x vendor/bin/phpunit ]]; then
+          echo "[pre-push] vendor/bin/phpunit"
+          vendor/bin/phpunit
+          _php_checked=true
+        fi
+      fi
+      if [[ "$_php_checked" == "true" ]]; then
+        _ran_tests=true
+      else
+        echo "[pre-push] composer.json found but no PHP checks ran (no pint/artisan/phpunit, or tests skipped)." >&2
+      fi
+    fi
+    return 0
+  fi
+
   # Node / npm workspaces — only return when tests actually ran; otherwise fall through.
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
@@ -108,6 +199,25 @@ run_tests() {
     fi
   fi
 
+  # Gradle / Android — checked before Flutter, because a Flutter repo's android/
+  # subdirectory is built by `flutter build` and must not match here, while a
+  # native Android or plain JVM repo has no pubspec.yaml to fall through to.
+  if [[ ! -f pubspec.yaml ]] && { [[ -x ./gradlew ]] || [[ -f settings.gradle ]] || [[ -f settings.gradle.kts ]]; }; then
+    if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_gradle.sh" ]]; then
+      echo "[pre-push] local_test_gradle.sh --quick"
+      bash "$_scripts_dir/local_test_gradle.sh" --quick
+      _ran_tests=true
+      return 0
+    elif [[ -x ./gradlew ]]; then
+      echo "[pre-push] ./gradlew test"
+      ./gradlew --no-daemon test
+      _ran_tests=true
+      return 0
+    fi
+    # settings.gradle but no wrapper — fall through rather than invoking a
+    # system gradle at a version the project did not pin.
+  fi
+
   # Rust
   if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_rust.sh" ]]; then
@@ -136,6 +246,17 @@ run_tests() {
 
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
 }
+
+_preflight_rc=0
+run_preflight || _preflight_rc=$?
+if [[ "$_preflight_rc" -eq 0 ]]; then
+  echo "[pre-push] All checks passed."
+  exit 0
+elif [[ "$_preflight_rc" -ne 127 ]]; then
+  echo "[pre-push] preflight failed — push refused." >&2
+  echo "[pre-push] Fix the failures above, or use 'git push --no-verify' if you know why." >&2
+  exit "$_preflight_rc"
+fi
 
 run_tests
 if [[ "$_ran_tests" == "true" ]]; then

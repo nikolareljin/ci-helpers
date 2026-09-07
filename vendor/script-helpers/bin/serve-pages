@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/serve.sh
+source "${HERE}/../lib/serve.sh"
+serve_static_site "$@"

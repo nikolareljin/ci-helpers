@@ -4,17 +4,27 @@
 # USAGE: bash scripts/local_test_go.sh [--quick] [--module <path>]
 #
 # PARAMETERS:
+#   --dir     Project directory, relative to the repository root (default: .).
 #   --quick     Skip vet; run tests only.
 #   --module    Path to a specific module directory (default: all go.mod roots).
 # ----------------------------------------------------
 set -euo pipefail
 
 QUICK=false
+TEST_DIR="."
 MODULE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --quick) QUICK=true ;;
+    --dir)
+      if [[ $# -lt 2 ]]; then
+        echo "[local-test-go] --dir requires a path." >&2
+        exit 1
+      fi
+      TEST_DIR="$2"
+      shift
+      ;;
     --module)
       if [[ $# -lt 2 ]]; then
         echo "[local-test-go] --module requires a path." >&2
@@ -29,7 +39,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-cd "$repo_root"
+if [[ ! -d "$repo_root/$TEST_DIR" ]]; then
+  echo "[local-test-go] Directory not found: $repo_root/$TEST_DIR" >&2
+  exit 1
+fi
+cd "$repo_root/$TEST_DIR"
 
 if ! command -v go &>/dev/null; then
   echo "[local-test-go] go not found in PATH." >&2; exit 1

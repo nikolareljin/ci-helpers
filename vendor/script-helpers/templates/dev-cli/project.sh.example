@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Repo-specific overrides for ./dev. Copy to scripts/project.sh to use.
+#
+# cli.sh sources this file when it exists, before dispatching. Define
+# project_<verb> to replace a verb entirely; anything you do not define falls
+# back to the shared implementation. Keeping overrides here is what lets
+# scripts/cli.sh be refreshed from the script-helpers template without merge
+# conflicts.
+#
+# Available at the point this is sourced: everything from script-helpers'
+# `logging`, `help`, `manifest` and `changelog` modules, plus $DEV_REPO_ROOT and
+# $SCRIPT_HELPERS_DIR. Import anything else you need with shlib_import.
+#
+# The parsed shared options are available to your override as:
+#   $DEV_TARGET   android|ios|host|... (empty if not given)
+#   $DEV_DEVICE   value of --device    (empty if not given)
+#   $DEV_RELEASE  true|false
+#   $DEV_ARGS     array of anything unrecognized
+
+# The app is not at the repo root — everything runs in mobile/.
+# project_build() {
+#   shlib_import flutter
+#   local mode=debug; [[ "$DEV_RELEASE" == "true" ]] && mode=release
+#   flutter_build appbundle mobile "--$mode"
+# }
+
+# This repo runs on a desktop target by default rather than a phone.
+# project_run() {
+#   shlib_import flutter
+#   flutter_run_cmd mobile run -d "${DEV_DEVICE:-linux}"
+# }
+
+# A verb this repo genuinely cannot honour. Say so and exit 0 — never delete the
+# verb, because a missing verb is indistinguishable from a typo.
+# project_deploy() {
+#   not_applicable deploy "this is a desktop host component, not an installable app"
+# }
+
+# Extra work after the shared install. There is no "super" call, so repeat what
+# you still want.
+# project_install() {
+#   git submodule update --init --recursive
+#   ./scripts/install_deps.sh
+#   shlib_import flutter && flutter_pub_get mobile
+# }

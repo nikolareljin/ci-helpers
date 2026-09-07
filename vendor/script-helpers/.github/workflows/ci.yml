@@ -42,3 +42,47 @@ jobs:
       - name: Run non-interactive examples
         run: |
           make examples
+
+      - name: Run test suite
+        run: |
+          make test
+
+  powershell:
+    # The PowerShell companion library was never built or linted here, which is
+    # how ps/scripts/tag_release.ps1 shipped with a syntax error that made it
+    # impossible to load. Parsing every file catches that class of bug.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Environment info
+        shell: pwsh
+        run: $PSVersionTable | Format-List
+
+      - name: Parse every PowerShell file
+        shell: pwsh
+        run: |
+          $failed = 0
+          Get-ChildItem -Path ps -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              Write-Host "::error file=$($_.FullName)::$($errors.Count) parse error(s)"
+              $errors | ForEach-Object {
+                Write-Host "  line $($_.Extent.StartLineNumber): $($_.Message)"
+              }
+              $failed = 1
+            } else {
+              Write-Host "ok  $($_.FullName)"
+            }
+          }
+          exit $failed
+
+      - name: Import every module
+        shell: pwsh
+        run: |
+          . ./ps/helpers.ps1
+          Import-ScriptHelpersAll
+          Write-Host "All PowerShell modules imported cleanly."
