@@ -60,7 +60,14 @@
   skip — warnings already fail `--check`, so an unreadable pin stops a release
   instead of passing as a read one. That fallback is anchored to the same
   optional `- `/`uses:` shape as the parser it backs, so a commented-out
-  `# uses: owner/action@<sha>` is still a comment and not a failed check. Verified both ways: a corrupted
+  `# uses: owner/action@<sha>` is still a comment and not a failed check, and it
+  accepts uppercase hex where the strict parser does not — git and the GitHub
+  API both resolve an uppercase object id, so `@ABCDEF…` is a pin that really
+  runs, and it was falling through both patterns into silence. Matching it in
+  the strict parser instead would mean comparing it against a lowercase API
+  answer and calling every such pin stale; caught here it fails `--check` as
+  unreadable, and normalising it is a one-line edit that puts it back under the
+  real audit. Verified both ways: a corrupted
   `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
   `@ <date>` comment raises the new warning.
 
