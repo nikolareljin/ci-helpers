@@ -2,6 +2,13 @@ name: preset-pnpm-pages
 on:
   workflow_call:
     inputs:
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Overrides github.ref in the concurrency group. Set it when two callers
+          publish different sites from the same ref and must not queue behind
+          each other; leave it empty for the usual one-site-per-branch case.
       runner:
         type: string
         default: ubuntu-latest
@@ -41,8 +48,10 @@ on:
 # current deployment finish before the next one starts.
 concurrency:
   # Prefixed, as in pages.yml: a caller's own bare `pages-<ref>` group would
-  # otherwise queue these jobs behind the run that started them (#133).
-  group: ci-helpers-pnpm-pages-${{ github.ref }}
+  # otherwise queue these jobs behind the run that started them. And keyed on
+  # concurrency_key when given, so two sites published from one ref do not
+  # serialise on each other (#133).
+  group: ci-helpers-pnpm-pages-${{ inputs.concurrency_key || github.ref }}
   cancel-in-progress: false
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
