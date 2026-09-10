@@ -102,6 +102,9 @@ jobs:
         uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
         with:
           workspaces: ${{ inputs.working_directory }}
+          # Keyed on the runner label: both Ubuntu versions are `Linux` to the
+          # cache, so a 22.04 target cache is an exact hit on 24.04 otherwise.
+          key: ${{ inputs.runner }}
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}

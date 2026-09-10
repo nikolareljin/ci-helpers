@@ -390,7 +390,7 @@
 
 ### Fixed
 
-- **`flutter-release.yml` — a channel name was passed where a version belongs (found in `anchor`):**
+- **`flutter-release.yml` — a channel name was passed where a version belongs (found in R-588):**
   `flutter_version` defaulted to `stable` and was forwarded verbatim to
   `subosito/flutter-action` as `flutter-version`, which expects a version
   number. Every caller relying on the default failed in seconds with:
@@ -431,7 +431,7 @@
   Introduced in 0.19.0 (ff0fd2d) and inherited by all thirteen presets that
   delegate here: `csharp`, `cypress`, `docker`, `go`, `java`, `java-gradle`,
   `kotlin`, `node`, `php`, `playwright`, `python`, `react`, `rust`. Observed
-  in document-tracker, whose `main` had no complete CI run for three days:
+  in R-185, whose `main` had no complete CI run for three days:
   the `python` and `node` legs killed each other on every push.
 
   The group now includes the working directory, which already distinguishes
