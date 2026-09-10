@@ -21,6 +21,34 @@
   The 22.04 runner image has a finite life, and nothing in the fleet was
   tracking that.
 
+- **`build-linux` sets `APPIMAGE_EXTRACT_AND_RUN=1`.** This is the one place
+  the two images actually differ for a Tauri build. The 22.04 image shipped
+  `libfuse2`; 24.04 does not (it became `libfuse2t64`) and additionally sets
+  `kernel.apparmor_restrict_unprivileged_userns=1` — either alone stops an
+  AppImage mounting itself, which is what `linuxdeploy` and `appimagetool` do
+  by default. With the variable set they extract and run instead, needing
+  neither FUSE nor a package whose name 26.04 will change again. Tauri's
+  bundler usually sets this itself; usually is not a contract, and nothing in
+  this repository ever runs a Tauri workflow to find out. The consumer that
+  would have found out publishes AppImages to a public dist repo.
+
+- **`rust-cache` on `build-linux` keys on the runner label.** `-sys` crates
+  compile against the image's C libraries; a cache built on one Ubuntu and
+  restored on the next is a successful restore followed by a link error.
+
+- **Docs stop calling it a matrix.** `tauri-release.yml` runs three independent
+  jobs; there is no `matrix.os` to override, and the Linux runner is the
+  `runner` input. Two input descriptions that repeated "Runner label." are
+  fixed — they render verbatim in GitHub's workflow UI. `README.md` gains a
+  *Runner floor* note, the only top-level statement of what this repository
+  assumes about Ubuntu.
+
+- **Known and left alone:** `ppa-deb.yml` falls through to the vendored
+  script-helpers' `DEB_SERIES="jammy"` when `series` is empty, so a 22.04
+  codename survives in the PPA path. Changing that default silently changes
+  *what distro consumers publish for*, which is a decision to make upstream
+  on purpose and re-vendor — not a side effect of a runner bump.
+
 ### Added
 
 - **`tauri-release.yml` takes a `runner` input**, as `tauri.yml` and

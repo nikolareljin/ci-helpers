@@ -1379,6 +1379,7 @@ and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
 Runs on `ubuntu-24.04` by default; override with `runner`.
 
 Inputs: same as `tauri-scan.yml` except `rust_components` defaults to `""` (no components), plus:
+- `runner` (string, default `ubuntu-24.04`) — stated here too, because it is the one worth overriding
 - `test_command` (string, default `cargo test --verbose`)
 - `build_command` (string, default `cargo build --verbose`)
 
@@ -1397,7 +1398,7 @@ jobs:
 
 Workflow: `.github/workflows/tauri-release.yml`
 
-Purpose: Cross-platform Tauri desktop release — builds on a 3-job matrix
+Purpose: Cross-platform Tauri desktop release — three independent build jobs
 (`macos-latest`, `windows-latest`, and the `runner` input — default
 `ubuntu-24.04`), signs/notarizes, uploads
 artifacts, publishes a GitHub release, and optionally submits to WinGet.

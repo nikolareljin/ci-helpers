@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: Runner label — must be a Linux runner. Runner label. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
+        description: Runner label — must be a Linux runner. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
         type: string
         default: ubuntu-24.04
       working_directory:

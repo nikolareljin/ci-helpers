@@ -17,7 +17,7 @@ Includes:
 - Composite actions for semver comparison, release tag checks, and release notes.
 - Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign` — free ED25519, paid PFX, or Azure Trusted Signing).
-- Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (3-OS matrix with signing, notarization, and GitHub release).
+- Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
 - `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
 - `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
@@ -355,6 +355,19 @@ Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.
 - `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 - `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
 - `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
+
+### Runner floor
+
+Linux jobs default to `ubuntu-latest`, which GitHub resolves to 24.04 today and
+will roll to 26.04 on its own schedule. The three Tauri workflows are the
+exception: they pin `ubuntu-24.04`, because their apt list
+(`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`) is
+GTK3-era and is the thing 26.04 will actually change — so that rollover is a
+deliberate edit here, not a drift. Every one of them takes a `runner` input.
+
+22.04 is not required by anything in this repository. It was needed only by
+Tauri v1, which linked `webkit2gtk-4.0`; a v1 app can still ask for it through
+`runner`, and should be migrating.
 
 ## Release tagging in external repos
 

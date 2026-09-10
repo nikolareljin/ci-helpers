@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: Linux runner label for the build-linux job. Runner label. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
+        description: Linux runner label for the build-linux job. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
         type: string
         default: ubuntu-24.04
       version:
@@ -533,6 +533,10 @@ jobs:
         uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
         with:
           workspaces: ${{ inputs.working_directory }}
+          # The runner label is part of the key. -sys crates compile against the
+          # image's C libraries, and a cache built on one Ubuntu handed to the
+          # next looks like a successful restore followed by a link error.
+          key: ${{ inputs.runner }}
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
@@ -569,6 +573,15 @@ jobs:
       - name: Build Tauri app (Linux)
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          # The AppImage tools want to mount themselves with FUSE. The 24.04
+          # image has no libfuse2 (it became libfuse2t64) and sets
+          # kernel.apparmor_restrict_unprivileged_userns=1, and either alone
+          # breaks that. With this set, linuxdeploy and appimagetool extract
+          # and run instead, which needs neither -- and neither does the
+          # package name, which is the part 26.04 will rename again. Tauri's
+          # bundler usually sets it; usually is not a contract.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           set -euo pipefail
           cargo tauri build
