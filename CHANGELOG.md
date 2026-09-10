@@ -28,9 +28,13 @@
   AppImage mounting itself, which is what `linuxdeploy` and `appimagetool` do
   by default. With the variable set they extract and run instead, needing
   neither FUSE nor a package whose name 26.04 will change again. Tauri's
-  bundler usually sets this itself; usually is not a contract, and nothing in
-  this repository ever runs a Tauri workflow to find out. The consumer that
-  would have found out publishes AppImages to a public dist repo.
+  bundler sets this itself today (`tauri-bundler 2.9.4`,
+  `linuxdeploy.rs:191`) — measured: a Tauri v2 app bundled on a 24.04 machine
+  with `apparmor_restrict_unprivileged_userns=1` both with and without the
+  variable. So this is a guarantee, not a fix: it pins in the workflow what a
+  dependency currently chooses to do, and nothing in this repository ever runs
+  a Tauri workflow to notice if that choice changed. The consumer that would
+  notice publishes AppImages to a public dist repo.
 
 - **`rust-cache` on `build-linux` keys on the runner label.** `-sys` crates
   compile against the image's C libraries; a cache built on one Ubuntu and

@@ -580,7 +580,9 @@ jobs:
           # breaks that. With this set, linuxdeploy and appimagetool extract
           # and run instead, which needs neither -- and neither does the
           # package name, which is the part 26.04 will rename again. Tauri's
-          # bundler usually sets it; usually is not a contract.
+          # bundler sets it itself today (tauri-bundler 2.9.4,
+          # linuxdeploy.rs:191); this pins that choice where a consumer can
+          # see it, because a dependency's default is not a contract.
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           set -euo pipefail
