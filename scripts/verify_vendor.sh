@@ -6,7 +6,7 @@
 #   --offline   Skip the upstream currency check (no network / no gh).
 #   -h, --help  Show this help message.
 # EXIT_CODES:
-#   0  Vendored copy is usable and current.
+#   0  Vendored copy is usable, and current unless a SKIP line says otherwise.
 #   1  A check failed. The failing check is named on stderr.
 #   2  Bad arguments.
 #
@@ -39,8 +39,15 @@ done
 
 cd "$ROOT_DIR"
 failures=0
+skipped=0
 ok()   { echo "[verify-vendor] $*"; }
 bad()  { echo "[verify-vendor][ERROR] $*" >&2; failures=$((failures+1)); }
+# A check that did not run is not a check that passed. Three of these printed
+# through ok() and were indistinguishable from a verified result in the log --
+# including the currency check, which CI never runs at all because
+# vendor-check.yml invokes this script with --offline. The summary at the end
+# says how many, so a green run cannot be read as more than it was.
+skip() { echo "[verify-vendor][SKIP] $*"; skipped=$((skipped+1)); }
 
 # 1) Structure -----------------------------------------------------------------
 [[ -f "$VENDOR_DIR/helpers.sh" ]] \
@@ -119,9 +126,9 @@ done
 
 # 5) Currency ------------------------------------------------------------------
 if [[ "$OFFLINE" == "true" ]]; then
-  ok "skipping the upstream currency check (--offline)"
+  skip "upstream currency not checked (--offline); security-weekly's vendor-drift job covers it online"
 elif ! command -v gh >/dev/null 2>&1; then
-  ok "gh not available; skipping the upstream currency check"
+  skip "upstream currency not checked: gh is not installed"
 else
   pinned="$(tr -d '[:space:]' < "$SHA_LOCK" 2>/dev/null || true)"
   ref="$(tr -d '[:space:]' < "$REF_LOCK" 2>/dev/null || true)"
@@ -137,7 +144,7 @@ else
   fi
   upstream="$(gh api "repos/$UPSTREAM_REPO/commits/$ref" --jq '.sha' 2>/dev/null || true)"
   if [[ -z "$upstream" ]]; then
-    ok "could not resolve upstream ref '$ref'; skipping currency check"
+    skip "upstream currency not checked: could not resolve upstream ref '$ref'"
   elif [[ "$pinned" == "$upstream" ]]; then
     ok "vendored copy is current with $ref ($upstream)"
   else
@@ -145,8 +152,16 @@ else
   fi
 fi
 
+if [[ $skipped -gt 0 ]]; then
+  echo "[verify-vendor] $skipped check(s) did not run — see the SKIP lines above"
+fi
+
 if [[ $failures -gt 0 ]]; then
   echo "[verify-vendor] FAILED ($failures)" >&2
   exit 1
 fi
-echo "[verify-vendor] vendored script-helpers is usable and current"
+if [[ $skipped -gt 0 ]]; then
+  echo "[verify-vendor] vendored script-helpers is usable; $skipped check(s) did not run"
+else
+  echo "[verify-vendor] vendored script-helpers is usable and current"
+fi

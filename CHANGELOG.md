@@ -64,6 +64,16 @@
   `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
   `@ <date>` comment raises the new warning.
 
+- **`verify_vendor.sh` reported checks it had not run as passes.** Three
+  outcomes printed through `ok()` — the `--offline` skip, `gh` missing, and an
+  upstream ref that would not resolve — so a log that had verified nothing about
+  currency read exactly like one that had. `vendor-check.yml` invokes this
+  script with `--offline`, which means **CI has never checked currency at all**,
+  and the run still finished by announcing the vendored copy "usable and
+  current". Skips now print as `SKIP`, are counted, and the closing line drops
+  the word `current` when any of them fired. `security-weekly`'s `vendor-drift`
+  job is what actually checks currency, online, once a week.
+
 - **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
   the newest upstream tag with `sort -V | tail -1`, which places every
   `v`-prefixed tag after every bare one — so an old `v0.2.0` won over `0.26.0`
