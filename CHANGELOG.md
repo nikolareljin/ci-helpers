@@ -78,9 +78,11 @@
   way. A loop sees the expansion. Found by actionlint (below); with it, five
   more shellcheck warnings: three `local x=$(…)` masking exit codes under
   `set -e`, a `trap` expanding at definition rather than on signal, and
-  `export GPG_TTY="$(tty)"` — which, once split as shellcheck asks, would have
-  aborted `ppa-deb.yml` on every runner, because there is no terminal and
-  `tty` exits 1. It gets `|| true`.
+  `export GPG_TTY="$(tty)"` in `ppa-deb.yml` — which, split as shellcheck
+  asks, would have aborted every run (no terminal, `tty` exits 1), and with
+  `|| true` would have exported the literal string `not a tty`. The block is
+  **removed**: the export could not reach the build step anyway, and signing
+  uses loopback pinentry, which never asks a terminal.
 
 - **`APPLE_PASSWORD` is accepted as an alias of `APPLE_APP_PASSWORD`** in
   `tauri-release.yml`, since it is the name most consumers already hold. (#97)
@@ -103,9 +105,13 @@
   teaches it `macos-15-intel`, a real label its list lags behind. (#134)
 
 - **Every job that runs on a runner has a `timeout-minutes`.** Fifty-seven had
-  none, so a hung job billed to GitHub's six-hour default. Release, build and
-  deploy jobs get 120; scans, checks, lints and tagging get 30; the rest 60.
-  Jobs that call a reusable workflow cannot carry one and are unchanged. (#132)
+  none, so a hung job billed to GitHub's six-hour default. By workload: 120
+  for release, build, deploy and packaging jobs (the Tauri, Flutter, Rust,
+  Go, FPC, Docker, deb/rpm/PPA/Homebrew builders); 30 for scans, checks,
+  lints and tagging; 60 for the rest; and two set by hand — the YAML and
+  actionlint checks at 10, the new release gate at 15. Six workflows already
+  took a caller-owned `timeout_minutes` input and keep it. Jobs that call a
+  reusable workflow cannot carry one and are unchanged. (#132)
 
 - **`tauri-release.yml` takes a `runner` input**, as `tauri.yml` and
   `tauri-scan.yml` already did. It was the one Tauri workflow a consumer could

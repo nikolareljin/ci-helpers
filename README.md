@@ -367,11 +367,16 @@ deliberate edit here, not a drift. Every one of them takes a `runner` input.
 
 22.04 is not required by anything in this repository. It was needed only by
 Tauri v1, which linked `webkit2gtk-4.0`. A v1 app that must build here has to
-override **both** inputs — `runner: ubuntu-22.04` *and* an `apt_packages` list
-naming `libwebkit2gtk-4.0-dev libsoup2.4-dev libappindicator3-dev` in place of
-the 4.1 / ayatana defaults — because the default apt list is v2's and `runner`
-alone leaves it in place. And it should be migrating: 22.04 is the last image
-that can build it at all.
+override **both** inputs, because the default apt list is v2's and `runner`
+alone leaves it in place: `runner: ubuntu-22.04`, and an `apt_packages` value
+that **starts from the workflow's full default list** and replaces only the
+WebKit and appindicator entries — `libwebkit2gtk-4.1-dev` →
+`libwebkit2gtk-4.0-dev libsoup2.4-dev`, `libayatana-appindicator3-dev` →
+`libappindicator3-dev` — keeping `libssl-dev`, `librsvg2-dev`,
+`libgtk-3-dev`, `build-essential`, `curl`, `wget`, `file` (and `rpm` for
+`tauri-release.yml`). `apt_packages` replaces the whole list; a three-package
+value builds nothing. And it should be migrating: 22.04 is the last image that
+can build it at all.
 
 ## Release tagging in external repos
 
