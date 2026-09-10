@@ -210,13 +210,16 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
-    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable
       # from a pin that was up to date. Warnings fail --check, so an unreadable
       # pin now stops a release instead of passing as one that was never read.
       #
+      # A quoted scalar -- `uses: 'owner/action@<sha>'` -- is valid YAML that
+      # GitHub runs, and the strict parser above does not accept it, so it too
+      # must land here rather than pass unseen. Same reasoning as uppercase hex.
       # Uppercase hex is deliberate here and not above: git and the GitHub API
       # resolve an uppercase object id, so `@ABCDEF...` is a pin that really
       # runs, and matching it only in the strict parser would mean comparing it

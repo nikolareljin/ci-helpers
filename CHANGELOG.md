@@ -62,8 +62,9 @@
   skip — warnings already fail `--check`, so an unreadable pin stops a release
   instead of passing as a read one. That fallback is anchored to the same
   optional `- `/`uses:` shape as the parser it backs, so a commented-out
-  `# uses: owner/action@<sha>` is still a comment and not a failed check, and it
-  accepts uppercase hex where the strict parser does not — git and the GitHub
+  `# uses: owner/action@<sha>` is still a comment and not a failed check; it
+  accepts a quoted scalar (`uses: 'owner/action@<sha>'` is valid YAML that
+  GitHub runs) and uppercase hex where the strict parser does not — git and the GitHub
   API both resolve an uppercase object id, so `@ABCDEF…` is a pin that really
   runs, and it was falling through both patterns into silence. Matching it in
   the strict parser instead would mean comparing it against a lowercase API
