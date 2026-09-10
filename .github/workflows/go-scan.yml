@@ -29,13 +29,13 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
         with:
           go-version: ${{ inputs.go_version }}
 
@@ -57,6 +57,6 @@ jobs:
 
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0
+        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0 @ 2026-09-10
         with:
           args: ${{ inputs.gosec_args }}

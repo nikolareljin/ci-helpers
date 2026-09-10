@@ -35,7 +35,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -105,7 +105,7 @@ jobs:
             --artifact-dir "$artifact_dir"
 
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.artifact_glob }}
