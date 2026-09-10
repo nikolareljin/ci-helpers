@@ -16,20 +16,22 @@
   purpose" from "forgotten". Keeping the pin current is a decision taken here,
   not one the weekly forces.
 
-  What actually changes for the six vendored scripts these workflows invoke
-  (`build_deb_artifacts.sh`, `build_rpm_artifacts.sh`, `ppa_upload.sh`,
-  `build_brew_tarball.sh`, `gen_brew_formula.sh`, `publish_homebrew.sh`) and
-  what they source: the four packaging scripts are byte-identical across the
-  span. `helpers.sh` gained a bash-version preamble whose advisory prints only
-  when stderr is a terminal — never on a runner. `lib/help.sh`'s
-  `get_script_metadata` changed signature (namerefs are bash 4.3+; the library
-  now runs on macOS's 3.2) — no caller outside the library. `lib/os.sh`'s
-  `get_os` now recognises `linux-musl` and `linux-android`. The two Homebrew
-  scripts gained `set -u` empty-array guards, a no-op on bash ≥ 4.4, and the
-  **generated formula wrapper's shebang is now `#!/usr/bin/env bash`** — a
-  change on the user's Mac, and one that reaches a consumer only when it
-  bumps its own pin, since `homebrew-package.yml` runs the caller's submodule
-  copy rather than this vendored one.
+  Three vendored scripts are run from `vendor/` by workflows here —
+  `build_deb_artifacts.sh`, `build_rpm_artifacts.sh`, `ppa_upload.sh` — and all
+  three are byte-identical across the span. (An earlier draft counted six; the
+  Homebrew scripts are not run from this vendored copy — `homebrew-package.yml`
+  runs the caller's own submodule — and `check_release_tag.sh` and the two
+  `ci_*_check.sh` scripts run from a checkout of script-helpers at the caller's
+  pin, not from `vendor/`.) Of what those three source, `lib/logging.sh`,
+  `lib/package_publish.sh` and `lib/packaging.sh` are unchanged; `helpers.sh`
+  gained a bash-version preamble whose advisory prints only when stderr is a
+  terminal — never on a runner; and `lib/help.sh`'s `get_script_metadata`
+  changed signature (namerefs are bash 4.3+; the library now runs on macOS's
+  3.2) — the three scripts use `display_help`, which is unchanged. Elsewhere in
+  the tree: `lib/os.sh`'s `get_os` now recognises `linux-musl` and
+  `linux-android`, and the two Homebrew scripts gained `set -u` empty-array
+  guards and a `#!/usr/bin/env bash` shebang on the generated formula wrapper —
+  which reaches a consumer only when it bumps its own pin.
 
   Two lines in the vendored copy named a private repository; they are gone
   upstream and gone here.
