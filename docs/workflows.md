@@ -1446,6 +1446,7 @@ Secrets:
 | `APPLE_TEAM_ID` | `sign_macos: true` |
 | `APPLE_ID` | `notarize_macos: true` |
 | `APPLE_APP_PASSWORD` | `notarize_macos: true` |
+| `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD` — the name most consumers already hold; pass either, not both (#97) |
 | `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
 | `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` |
