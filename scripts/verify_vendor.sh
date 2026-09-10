@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SCRIPT: verify_vendor.sh
-# DESCRIPTION: Verify vendor/script-helpers is usable, current, and free of upstream CI config.
+# DESCRIPTION: Verify vendor/script-helpers is usable and free of upstream CI config; online, that it matches its recorded ref.
 # USAGE: ./scripts/verify_vendor.sh [--offline] [-h|--help]
 # PARAMETERS:
-#   --offline   Skip the upstream currency check (no network / no gh).
+#   --offline   Skip the recorded-ref comparison (no network / no gh); it is reported as SKIP, not as a pass.
 #   -h, --help  Show this help message.
 # EXIT_CODES:
-#   0  Vendored copy is usable, and current unless a SKIP line says otherwise.
+#   0  Vendored copy is usable; it also matches its recorded ref unless a SKIP line says that was not checked.
 #   1  A check failed. The failing check is named on stderr.
 #   2  Bad arguments.
 #

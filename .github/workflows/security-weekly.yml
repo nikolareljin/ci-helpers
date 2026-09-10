@@ -153,12 +153,12 @@ jobs:
           echo "Upstream script-helpers SHA : $upstream_sha"
 
           if [[ "$pinned_sha" != "$upstream_sha" ]]; then
-            echo "::warning::script-helpers is behind upstream. Run scripts/sync_script_helpers.sh to update."
+            echo "::warning::vendor/script-helpers does not match $compare_ref. Run scripts/sync_script_helpers.sh --ref <tag> to re-vendor."
             echo "Vendored : $pinned_sha"
             echo "Upstream : $upstream_sha"
             exit 1
           fi
-          echo "script-helpers is up to date."
+          echo "vendor/script-helpers matches $compare_ref."
         env:
           GH_TOKEN: ${{ github.token }}
 

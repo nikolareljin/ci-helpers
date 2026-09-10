@@ -86,7 +86,11 @@
   so it catches a vendored tree that no longer matches its own pin and says
   nothing about whether a newer release exists upstream. Nothing automated
   answers that question while the ref is pinned; advancing it stays a decision
-  taken here.
+  taken here. The same claim was written in three more places and is corrected
+  in each: `vendor-check.yml`'s header ("fails loudly once a week ... a release
+  behind"), `verify_vendor.sh`'s `--help` text ("usable, current"), and the
+  drift job's own message ("behind upstream"), which now names what it
+  compared against.
 
 - **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
   the newest upstream tag with `sort -V | tail -1`, which places every

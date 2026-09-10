@@ -8,8 +8,12 @@ name: vendor-check
 #
 # Currency is deliberately NOT checked here. An upstream release would then
 # turn every open pull request red for a reason unrelated to the change under
-# review. security-weekly.yml owns that check and fails loudly once a week,
-# which is the right cadence for "you are a release behind".
+# review. verify_vendor.sh reports the skipped check as SKIP rather than as a
+# pass. security-weekly.yml's vendor-drift job compares the vendored SHA
+# against the ref recorded in vendor/.script-helpers-ref once a week: with an
+# explicit tag pinned that catches a tree that no longer matches its own pin,
+# and says nothing about whether a newer upstream release exists. Nothing
+# automated answers that while the ref is pinned; re-vendoring is a decision.
 on:
   pull_request:
   push:
