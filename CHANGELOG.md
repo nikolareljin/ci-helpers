@@ -58,7 +58,9 @@
   The optional `- ` is now part of the pattern (209 audited, 0 stale), and a
   pinned action the pattern *cannot* parse is a warning rather than a silent
   skip — warnings already fail `--check`, so an unreadable pin stops a release
-  instead of passing as a read one. Verified both ways: a corrupted
+  instead of passing as a read one. That fallback is anchored to the same
+  optional `- `/`uses:` shape as the parser it backs, so a commented-out
+  `# uses: owner/action@<sha>` is still a comment and not a failed check. Verified both ways: a corrupted
   `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
   `@ <date>` comment raises the new warning.
 

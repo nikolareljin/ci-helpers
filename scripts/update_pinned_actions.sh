@@ -210,7 +210,7 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
-    elif [[ "$line" =~ uses:[[:space:]]*[a-zA-Z0-9_./-]+@[0-9a-f]{40} ]]; then
+    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[a-zA-Z0-9_./-]+@[0-9a-f]{40} ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable
