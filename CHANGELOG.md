@@ -5,8 +5,16 @@
 
 - **`vendor/script-helpers` updated from 0.24.0 to 0.26.0.** The vendored tree
   now matches script-helpers at tag `0.26.0`, which is where `production`
-  points. Without this, `security-weekly`'s `vendor-drift` job fails on its
-  next run and files an issue.
+  points.
+
+  This is not a fix for a failing drift check, and an earlier draft of this
+  entry said it was. `vendor-drift` compares the stored SHA against whatever
+  `vendor/.script-helpers-ref` names, and re-resolves the newest upstream tag
+  only when that file literally contains `latest`. `main` pinned `0.24.0`
+  explicitly, which matched, so the weekly would have passed indefinitely on
+  a vendored tree two releases behind — the drift job cannot tell "pinned on
+  purpose" from "forgotten". Keeping the pin current is a decision taken here,
+  not one the weekly forces.
 
   What actually changes for the six vendored scripts these workflows invoke
   (`build_deb_artifacts.sh`, `build_rpm_artifacts.sh`, `ppa_upload.sh`,
