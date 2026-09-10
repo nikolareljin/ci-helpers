@@ -35,3 +35,25 @@ jobs:
       - name: Parse every workflow and action file
         shell: bash
         run: python3 scripts/check_workflow_yaml.py
+
+  actionlint:
+    # PyYAML proves a file parses; it does not know a runner label from a typo,
+    # an expression from a string, or an input that nobody declared -- which is
+    # how a startup-failure bug shipped through a green PR (#134). actionlint
+    # does. Pinned by image digest, so nothing new enters the SHA pin audit.
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint workflows
+        # shellcheck at warning and above: an error or a warning in a run:
+        # block is a bug, a style note is a review comment. The gate blocks
+        # on the former only.
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            -e SHELLCHECK_OPTS="-S warning" \
+            rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 \
+            -color=false

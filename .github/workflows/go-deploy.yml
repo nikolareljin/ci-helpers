@@ -50,6 +50,7 @@ on:
 jobs:
   deploy:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,7 +118,7 @@ jobs:
           }
 
           TMP_KEY=$(mktemp)
-          trap "rm -f '$TMP_KEY'" EXIT
+          trap 'rm -f "$TMP_KEY"' EXIT
 
           # Write SSH key without tracing to avoid leaking it.
           set +x

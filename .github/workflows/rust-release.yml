@@ -67,6 +67,7 @@ env:
 jobs:
   release:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:

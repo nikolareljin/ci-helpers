@@ -53,7 +53,59 @@
   *what distro consumers publish for*, which is a decision to make upstream
   on purpose and re-vendor — not a side effect of a runner bump.
 
+### Fixed
+
+- **`security-weekly` had failed every Monday since 2026-08-17.** The SHA Pin
+  Audit found twenty pins behind the ref they annotate and exited 1, and
+  nothing else on the release path runs that check. Refreshed with
+  `update_pinned_actions.sh`; `--check` reports 46 up-to-date, 0 stale. (#152)
+
+- **The security gate never ran on the automated release path.**
+  `production-branch.yml` triggers on a tag push, but the tag is pushed by
+  `GITHUB_TOKEN`, which does not fire workflows — so `production` has advanced
+  without a stale-pin or floating-ref check since the automation landed.
+  `auto-tag-release-push.yml` now runs both checks in a `gate` job before the
+  tag is cut. `docs/usage.md` also stopped claiming `create_production.sh` does
+  not move the `production` branch; it does, unless `--no-branch`.
+
+- **`tauri-release.yml` referenced its own `winget-submit.yml` at
+  `@production`.** A consumer pinned to a tag was getting whatever `production`
+  pointed at for that one job. Relative now, so it resolves at the consumer's
+  pinned ref.
+
+- **`[ -f src/*Bundle.php ]` in `php-scan.yml` never matched** — `-f` takes one
+  path and an unmatched glob stays literal, so Pimcore was never detected that
+  way. A loop sees the expansion. Found by actionlint (below); with it, five
+  more shellcheck warnings: three `local x=$(…)` masking exit codes under
+  `set -e`, a `trap` expanding at definition rather than on signal, and
+  `export GPG_TTY="$(tty)"` — which, once split as shellcheck asks, would have
+  aborted `ppa-deb.yml` on every runner, because there is no terminal and
+  `tty` exits 1. It gets `|| true`.
+
+- **`APPLE_PASSWORD` is accepted as an alias of `APPLE_APP_PASSWORD`** in
+  `tauri-release.yml`, since it is the name most consumers already hold. (#97)
+
+- **`pnpm-pages.yml` used a bare `pages-<ref>` concurrency group**, the obvious
+  name a caller would also use — leaving these jobs queued behind the run that
+  started them. Prefixed, as `pages.yml` already was. (#133)
+
+- **Two changelog entries named private repositories.** Cited by code now, per
+  the convention for anything that lands in a public repository.
+
 ### Added
+
+- **actionlint runs on every PR**, pinned by image digest so nothing new enters
+  the SHA pin audit, with shellcheck at warning and above — an error or a
+  warning in a `run:` block is a bug; a style note is a review comment.
+  `check_workflow_yaml.py` proves a file parses; it does not know a runner
+  label from a typo or an expression from a string, which is how a
+  startup-failure bug shipped through a green PR. `.github/actionlint.yaml`
+  teaches it `macos-15-intel`, a real label its list lags behind. (#134)
+
+- **Every job that runs on a runner has a `timeout-minutes`.** Fifty-seven had
+  none, so a hung job billed to GitHub's six-hour default. Release, build and
+  deploy jobs get 120; scans, checks, lints and tagging get 30; the rest 60.
+  Jobs that call a reusable workflow cannot carry one and are unchanged. (#132)
 
 - **`tauri-release.yml` takes a `runner` input**, as `tauri.yml` and
   `tauri-scan.yml` already did. It was the one Tauri workflow a consumer could

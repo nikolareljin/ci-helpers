@@ -60,6 +60,7 @@ on:
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8
@@ -113,9 +114,11 @@ jobs:
           fi
 
           is_pimcore=false
-          if [ -f src/*Bundle.php ] || [ -f src/*Bundle.php ] 2>/dev/null; then
-            is_pimcore=true
-          fi
+          # `[ -f src/*Bundle.php ]` never matched: -f takes one path, and an
+          # unmatched glob stays literal. A loop sees the expansion.
+          for bundle in src/*Bundle.php; do
+            if [ -f "$bundle" ]; then is_pimcore=true; break; fi
+          done
           if [ "$is_pimcore" = "false" ] && [ -f composer.json ]; then
             if grep -qiE '"(pimcore/pimcore|pimcore/skeleton)"' composer.json; then
               is_pimcore=true

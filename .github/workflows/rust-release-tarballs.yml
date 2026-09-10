@@ -71,6 +71,7 @@ jobs:
   build-tarballs:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -178,6 +179,7 @@ jobs:
     name: Bump Homebrew formula
     needs: build-tarballs
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Resolve tag
         id: tag

@@ -40,7 +40,9 @@ on:
 # one when two pushes arrive close together. cancel-in-progress: false lets the
 # current deployment finish before the next one starts.
 concurrency:
-  group: pages-${{ github.ref }}
+  # Prefixed, as in pages.yml: a caller's own bare `pages-<ref>` group would
+  # otherwise queue these jobs behind the run that started them (#133).
+  group: ci-helpers-pnpm-pages-${{ github.ref }}
   cancel-in-progress: false
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
@@ -50,6 +52,7 @@ env:
 jobs:
   build:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -129,6 +132,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

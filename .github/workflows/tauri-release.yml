@@ -137,6 +137,9 @@ on:
       APPLE_APP_PASSWORD:
         description: App-specific password for notarytool
         required: false
+      APPLE_PASSWORD:
+        description: Accepted as an alias of APPLE_APP_PASSWORD, which is the name most consumers already hold (#97)
+        required: false
       WINDOWS_CERTIFICATE:
         description: Base64-encoded PFX certificate for Authenticode signing
         required: false
@@ -176,6 +179,7 @@ jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -264,7 +268,7 @@ jobs:
           signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           team_id: ${{ secrets.APPLE_TEAM_ID }}
           apple_id: ${{ secrets.APPLE_ID }}
-          app_password: ${{ secrets.APPLE_APP_PASSWORD }}
+          app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
 
       - name: Build Tauri app (universal macOS binary)
         shell: bash
@@ -277,7 +281,7 @@ jobs:
         if: ${{ inputs.sign_macos && inputs.notarize_macos }}
         env:
           APPLE_ID_EMAIL: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WORK_DIR: ${{ inputs.working_directory }}
         shell: bash
@@ -330,6 +334,7 @@ jobs:
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 120
     defaults:
       run:
         shell: bash
@@ -479,6 +484,7 @@ jobs:
     # override, which is the wrong one to hardcode: it is the workflow that
     # produces release artefacts.
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -612,6 +618,7 @@ jobs:
     needs: [build-macos, build-windows, build-linux]
     if: ${{ inputs.upload_release }}
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
@@ -673,7 +680,10 @@ jobs:
   winget-submit:
     needs: release
     if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
-    uses: nikolareljin/ci-helpers/.github/workflows/winget-submit.yml@production
+    # Relative, not @production: a consumer pinned to a tag was getting whatever
+    # `production` pointed at for this one job. A relative `uses:` resolves against
+    # this repository at the ref the consumer pinned.
+    uses: ./.github/workflows/winget-submit.yml
     with:
       package_id: ${{ inputs.winget_package_id }}
       version: ${{ inputs.version != '' && inputs.version || github.ref_name }}

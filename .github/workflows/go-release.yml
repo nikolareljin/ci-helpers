@@ -55,6 +55,7 @@ env:
 jobs:
   release:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
@@ -125,7 +126,8 @@ jobs:
           write_multiline_output() {
             local key="$1"
             local value="$2"
-            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            local delimiter
+            delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
             while [[ "$value" == *"$delimiter"* ]]; do
               delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
             done
@@ -171,7 +173,8 @@ jobs:
           write_multiline_output() {
             local key="$1"
             local value="$2"
-            local delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            local delimiter
+            delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
             while [[ "$value" == *"$delimiter"* ]]; do
               delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
             done

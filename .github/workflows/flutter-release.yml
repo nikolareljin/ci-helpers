@@ -349,8 +349,8 @@ jobs:
             echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}"
           }
           mkdir -p ~/.appstoreconnect/private_keys
-          echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
-          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8
+          echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/"AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
+          chmod 600 ~/.appstoreconnect/private_keys/"AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
           set -x
 
       - name: Deploy to Google Play via Fastlane

@@ -24,6 +24,7 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Resolve tag
         id: resolve_tag
