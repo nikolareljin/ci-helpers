@@ -35,6 +35,25 @@
 
 ### Fixed
 
+- **The SHA Pin Audit had never checked 59 of the 209 pins it reports on,
+  including `actions/checkout` in nearly every workflow.** `update_pinned_actions.sh`
+  matched `^[[:space:]]*uses:`, which is only one of the two spellings in use
+  here: a step whose sole key is `uses:` is written `- uses: ...`, and every one
+  of those was skipped before any lookup happened. The summary counted only what
+  matched, so those pins were indistinguishable from pins that were up to date —
+  replacing `actions/checkout`'s SHA with forty zeros still produced
+  `150 up-to-date, 0 stale, 0 warnings` and exit 0. This is the job that gates
+  `security-weekly`, `production-branch` and `auto-tag-release-push`; a
+  supply-chain gate that cannot see the most-used action in the repository is
+  reporting on something other than what it claims.
+
+  The optional `- ` is now part of the pattern (209 audited, 0 stale), and a
+  pinned action the pattern *cannot* parse is a warning rather than a silent
+  skip — warnings already fail `--check`, so an unreadable pin stops a release
+  instead of passing as a read one. Verified both ways: a corrupted
+  `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
+  `@ <date>` comment raises the new warning.
+
 - **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
   the newest upstream tag with `sort -V | tail -1`, which places every
   `v`-prefixed tag after every bare one — so an old `v0.2.0` won over `0.26.0`
