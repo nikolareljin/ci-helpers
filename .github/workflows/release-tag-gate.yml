@@ -27,14 +27,14 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Resolve branches
         id: branches
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
         with:
           script: |
             const inputDefault = core.getInput("default_branch");
@@ -80,7 +80,7 @@ jobs:
 
       - name: Checkout script-helpers
         if: ${{ steps.gate.outputs.run_check == 'true' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
           ref: 1bb1977070c1a21016a20c7fdab728d1f68f1b55

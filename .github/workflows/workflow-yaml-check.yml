@@ -29,7 +29,7 @@ jobs:
     # Without this a hung job bills until GitHub's six-hour default (see #132).
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
 
       # PyYAML ships on the GitHub-hosted images, so there is nothing to install.
       - name: Parse every workflow and action file
@@ -47,7 +47,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
       - name: Lint workflows
         # shellcheck at warning and above: an error or a warning in a run:
         # block is a bug, a style note is a review comment. The gate blocks

@@ -115,7 +115,7 @@ jobs:
       # configuration; nothing in this workflow publishes anything.
       pages: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
@@ -195,11 +195,11 @@ jobs:
       - name: Configure Pages
         id: pages
         if: ${{ inputs.configure_pages }}
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0 @ 2026-09-10
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-10
         with:
           python-version: ${{ inputs.python_version }}
           cache: ${{ inputs.requirements_file != '' && 'pip' || '' }}
@@ -207,7 +207,7 @@ jobs:
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -326,7 +326,7 @@ jobs:
           fi
           echo "site: $(cd -- "${PAGES_PATH}" && find . -type f | wc -l) files"
 
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0 @ 2026-09-10
         if: ${{ inputs.upload }}
         with:
           path: ${{ inputs.working_directory != '.' && format('{0}/{1}', inputs.working_directory, inputs.pages_path) || inputs.pages_path }}

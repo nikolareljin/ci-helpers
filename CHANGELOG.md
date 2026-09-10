@@ -1,4 +1,33 @@
 # Changelog
+## 2026-09-10 — 0.24.1
+
+### Changed
+
+- **Three Dependabot action bumps, in one release.** `actions/deploy-pages`
+  5.0.0 → 5.0.1 (#157), `softprops/action-gh-release` 3.0.2 → 3.0.3 (#158),
+  `docker/setup-qemu-action` 4.2.0 → 4.3.0 (#159). One of them needed a
+  hand: Dependabot updated `setup-qemu-action`'s pin to the commit for the
+  `v4.3.0` ref but left the inline comment saying `v4.2.0 @ 2026-07-01`, and
+  the SHA pin audit resolves the *annotated* ref — merged as written, the
+  release gate that 0.24.0 added would have failed on the next merge to
+  `main`. The comment now names the ref the commit belongs to.
+
+### Fixed
+
+- **The SHA pin audit covered 54 of 209 pins.** `update_pinned_actions.sh`
+  only recognises the documented form `# <ref> @ <YYYY-MM-DD>`, and 155
+  `uses:` lines carried `# vX.Y.Z` with no date — every one of them invisible
+  to the audit, the weekly check, and the release gate, while those reported
+  "46 up-to-date, 0 stale". Found by review on this release. All 155 are dated
+  `2026-09-10` now, and the audit covers every pin in the repository.
+
+  The first full run found one that had drifted: `github/codeql-action/upload-sarif`
+  in the trivy-scan action is annotated with the floating `v3`, upstream tagged
+  a new `v3.x` after this morning's refresh, and the audit said so within
+  hours. Refreshed. Exact-version annotations (`v7.0.1`) cannot drift that way
+  — the audit checks that the commit is the one its ref names, which is the
+  integrity property; version currency stays Dependabot's.
+
 ## 2026-09-09 — 0.24.0
 
 ### Changed

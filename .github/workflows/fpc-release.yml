@@ -193,7 +193,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           ref: ${{ steps.tag.outputs.tag }}
           fetch-depth: ${{ inputs.fetch_depth }}
@@ -653,14 +653,14 @@ jobs:
 
       - name: Upload package artifact
         # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: pkg-${{ matrix.label }}
           path: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
           if-no-files-found: error
 
       - name: Upload SHA artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: sha256-${{ matrix.label }}
           path: ${{ inputs.working_directory }}/sha256-${{ matrix.label }}.txt
@@ -668,7 +668,7 @@ jobs:
 
       - name: Upload extra Linux packages as artifacts
         if: runner.os == 'Linux' && inputs.linux_packages != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: pkgs-${{ matrix.label }}-extra
           path: ${{ inputs.working_directory }}/dist_extra/
@@ -676,7 +676,7 @@ jobs:
 
       - name: Upload macOS DMG as artifact
         if: runner.os == 'macOS' && inputs.macos_dmg == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: pkg-dmg-${{ matrix.label }}
           path: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg

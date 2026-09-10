@@ -47,7 +47,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
@@ -63,13 +63,13 @@ jobs:
 
       - name: Upload SARIF
         if: ${{ always() && inputs.upload_sarif && inputs.format == 'sarif' }}
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9 @ 2026-09-10
         with:
           sarif_file: ${{ inputs.output }}
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.output }}
