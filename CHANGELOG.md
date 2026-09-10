@@ -1,4 +1,17 @@
 # Changelog
+## 2026-09-10 — 0.24.1
+
+### Changed
+
+- **Three Dependabot action bumps, in one release.** `actions/deploy-pages`
+  5.0.0 → 5.0.1 (#157), `softprops/action-gh-release` 3.0.2 → 3.0.3 (#158),
+  `docker/setup-qemu-action` 4.2.0 → 4.3.0 (#159). One of them needed a
+  hand: Dependabot moved `setup-qemu-action`'s SHA to 4.3.0 but left the
+  inline comment saying `v4.2.0 @ 2026-07-01`, and the SHA pin audit resolves
+  the *annotated* ref — merged as written, the release gate that 0.24.0 added
+  would have failed on the next merge to `main`. The comment now names the
+  version the SHA is.
+
 ## 2026-09-09 — 0.24.0
 
 ### Changed
