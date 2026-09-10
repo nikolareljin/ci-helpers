@@ -1,4 +1,126 @@
 # Changelog
+## 2026-09-09 — 0.24.0
+
+### Changed
+
+- **The Tauri workflows default to `ubuntu-24.04`.** All three named
+  `ubuntu-22.04`, and the reason recorded next to them was backwards:
+
+  > Runner label — ubuntu-22.04 required for Tauri v2 WebKit ABI
+
+  and, in `docs/workflows.md`, *"required for Tauri v2 WebKit2GTK ABI
+  compatibility — ubuntu-24.04 breaks it"*. It is **v1** that needs
+  `webkit2gtk-4.0`, which Ubuntu removed in 24.04. **v2** links `4.1` — which
+  is what these workflows' own apt step already installs, and what 24.04
+  ships. The pin was holding jobs on an older image so they could install
+  libraries the newer image has.
+
+  Verified before changing it, by compiling a Tauri v2 app on a 24.04 machine
+  rather than by reading the docs that were wrong.
+
+  The 22.04 runner image has a finite life, and nothing in the fleet was
+  tracking that.
+
+- **`build-linux` sets `APPIMAGE_EXTRACT_AND_RUN=1`.** This is the one place
+  the two images actually differ for a Tauri build. The 22.04 image shipped
+  `libfuse2`; 24.04 does not (it became `libfuse2t64`) and additionally sets
+  `kernel.apparmor_restrict_unprivileged_userns=1` — either alone stops an
+  AppImage mounting itself, which is what `linuxdeploy` and `appimagetool` do
+  by default. With the variable set they extract and run instead, needing
+  neither FUSE nor a package whose name 26.04 will change again. Tauri's
+  bundler sets this itself today (`tauri-bundler 2.9.4`,
+  `linuxdeploy.rs:191`) — measured: a Tauri v2 app bundled on a 24.04 machine
+  with `apparmor_restrict_unprivileged_userns=1` both with and without the
+  variable. So this is a guarantee, not a fix: it pins in the workflow what a
+  dependency currently chooses to do, and nothing in this repository ever runs
+  a Tauri workflow to notice if that choice changed. The consumer that would
+  notice publishes AppImages to a public dist repo.
+
+- **`rust-cache` on `build-linux` keys on the runner label.** `-sys` crates
+  compile against the image's C libraries; a cache built on one Ubuntu and
+  restored on the next is a successful restore followed by a link error.
+
+- **Docs stop calling it a matrix.** `tauri-release.yml` runs three independent
+  jobs; there is no `matrix.os` to override, and the Linux runner is the
+  `runner` input. Two input descriptions that repeated "Runner label." are
+  fixed — they render verbatim in GitHub's workflow UI. `README.md` gains a
+  *Runner floor* note, the only top-level statement of what this repository
+  assumes about Ubuntu.
+
+- **Known and left alone:** `ppa-deb.yml` falls through to the vendored
+  script-helpers' `DEB_SERIES="jammy"` when `series` is empty, so a 22.04
+  codename survives in the PPA path. Changing that default silently changes
+  *what distro consumers publish for*, which is a decision to make upstream
+  on purpose and re-vendor — not a side effect of a runner bump.
+
+### Fixed
+
+- **`security-weekly` had failed every Monday since 2026-08-17.** The SHA Pin
+  Audit found twenty pins behind the ref they annotate and exited 1, and
+  nothing else on the release path runs that check. Refreshed with
+  `update_pinned_actions.sh`; `--check` reports 46 up-to-date, 0 stale. (#152)
+
+- **The security gate never ran on the automated release path.**
+  `production-branch.yml` triggers on a tag push, but the tag is pushed by
+  `GITHUB_TOKEN`, which does not fire workflows — so `production` has advanced
+  without a stale-pin or floating-ref check since the automation landed.
+  `auto-tag-release-push.yml` now runs both checks in a `gate` job before the
+  tag is cut. `docs/usage.md` also stopped claiming `create_production.sh` does
+  not move the `production` branch; it does, unless `--no-branch`.
+
+- **`tauri-release.yml` referenced its own `winget-submit.yml` at
+  `@production`.** A consumer pinned to a tag was getting whatever `production`
+  pointed at for that one job. Relative now, so it resolves at the consumer's
+  pinned ref.
+
+- **`[ -f src/*Bundle.php ]` in `php-scan.yml` only worked with exactly one
+  bundle** — with none the glob stays literal, with several `-f` gets more
+  than one argument and errors out, so Pimcore detection by that route was
+  unreliable at both ends. A loop sees each match. Found by actionlint
+  (below); with it, five
+  more shellcheck warnings: three `local x=$(…)` masking exit codes under
+  `set -e`, a `trap` expanding at definition rather than on signal, and
+  `export GPG_TTY="$(tty)"` in `ppa-deb.yml` — which, split as shellcheck
+  asks, would have aborted every run (no terminal, `tty` exits 1), and with
+  `|| true` would have exported the literal string `not a tty`. The block is
+  **removed**: the export could not reach the build step anyway, and signing
+  uses loopback pinentry, which never asks a terminal.
+
+- **`APPLE_PASSWORD` is accepted as an alias of `APPLE_APP_PASSWORD`** in
+  `tauri-release.yml`, since it is the name most consumers already hold. (#97)
+
+- **`pnpm-pages.yml` used a bare `pages-<ref>` concurrency group**, the obvious
+  name a caller would also use — leaving these jobs queued behind the run that
+  started them. Prefixed, as `pages.yml` already was. (#133)
+
+- **Two changelog entries named private repositories.** Cited by code now, per
+  the convention for anything that lands in a public repository.
+
+### Added
+
+- **actionlint runs on every PR**, pinned by image digest so nothing new enters
+  the SHA pin audit, with shellcheck at warning and above — an error or a
+  warning in a `run:` block is a bug; a style note is a review comment.
+  `check_workflow_yaml.py` proves a file parses; it does not know a runner
+  label from a typo or an expression from a string, which is how a
+  startup-failure bug shipped through a green PR. `.github/actionlint.yaml`
+  teaches it `macos-15-intel`, a real label its list lags behind. (#134)
+
+- **Every job that runs on a runner has a `timeout-minutes`.** Fifty-seven had
+  none, so a hung job billed to GitHub's six-hour default. By workload: 120
+  for release, build, deploy and packaging jobs (the Tauri, Flutter, Rust,
+  Go, FPC, Docker, deb/rpm/PPA/Homebrew builders); 30 for scans, checks,
+  lints and tagging; 60 for the rest; and two set by hand — the YAML and
+  actionlint checks at 10, the new release gate at 15. Six workflows already
+  took a caller-owned `timeout_minutes` input and keep it. Jobs that call a
+  reusable workflow cannot carry one and are unchanged. (#132)
+
+- **`tauri-release.yml` takes a `runner` input**, as `tauri.yml` and
+  `tauri-scan.yml` already did. It was the one Tauri workflow a consumer could
+  not override — and the wrong one to hardcode, being the workflow that
+  produces release artefacts. Consumers pinned to an older image now have a
+  way out that is not a fork.
+
 ## 2026-09-06 — 0.23.0
 
 ### Changed
@@ -328,7 +450,7 @@
 
 ### Fixed
 
-- **`flutter-release.yml` — a channel name was passed where a version belongs (found in `anchor`):**
+- **`flutter-release.yml` — a channel name was passed where a version belongs (found in R-588):**
   `flutter_version` defaulted to `stable` and was forwarded verbatim to
   `subosito/flutter-action` as `flutter-version`, which expects a version
   number. Every caller relying on the default failed in seconds with:
@@ -369,7 +491,7 @@
   Introduced in 0.19.0 (ff0fd2d) and inherited by all thirteen presets that
   delegate here: `csharp`, `cypress`, `docker`, `go`, `java`, `java-gradle`,
   `kotlin`, `node`, `php`, `playwright`, `python`, `react`, `rust`. Observed
-  in document-tracker, whose `main` had no complete CI run for three days:
+  in R-185, whose `main` had no complete CI run for three days:
   the `python` and `node` legs killed each other on every push.
 
   The group now includes the working directory, which already distinguishes

@@ -46,6 +46,7 @@ on:
 jobs:
   ppa:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,7 +85,9 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           printf '5\ny\n' | gpg --batch --command-fd 0 --edit-key "$GPG_KEY_ID" trust
           gpg --batch --list-keys "$GPG_KEY_ID"
-          export GPG_TTY="$(tty)"
+          # No GPG_TTY here, on purpose. There is no terminal on a runner, an
+          # export in this step cannot reach the build step anyway, and
+          # signing runs with loopback pinentry, which never asks a terminal.
 
       - name: Configure Launchpad SSH
         shell: bash

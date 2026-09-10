@@ -24,6 +24,7 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Resolve tag
         id: resolve_tag
@@ -91,7 +92,7 @@ jobs:
 
       - name: Create GitHub Release (CHANGELOG notes)
         if: steps.notes.outputs.body != ''
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 @ 2026-07-21
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
@@ -99,7 +100,7 @@ jobs:
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.notes.outputs.body == ''
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 @ 2026-07-21
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}

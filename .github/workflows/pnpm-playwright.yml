@@ -55,6 +55,7 @@ env:
 jobs:
   ci:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -142,6 +143,7 @@ jobs:
     needs: ci
     if: ${{ always() && inputs.upload_test_results }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
       checks: write

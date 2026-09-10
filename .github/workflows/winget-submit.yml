@@ -45,6 +45,7 @@ env:
 jobs:
   submit:
     runs-on: windows-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:

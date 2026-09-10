@@ -430,8 +430,12 @@ cd REPO
 ## Production tag (optional)
 
 This repo includes a repo-local workflow that updates the `production` tag to
-the latest non-rc tag. It does not update a `production` branch. It is not a
-reusable workflow; copy it into other repos only if you want the same behavior.
+the latest non-rc tag **and moves the `production` branch to the same commit**
+(`create_production.sh` does both unless passed `--no-branch`; consumers that
+reference `@production` get it either way). It is not a reusable workflow; copy
+it into other repos only if you want the same behavior. On the automated path
+the tag is cut by `auto-tag.yml` after a merge to `main`, and the security gate
+runs in `auto-tag-release-push.yml` before it.
 
 ```yaml
 name: Update Production Tag

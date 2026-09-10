@@ -17,7 +17,7 @@ Includes:
 - Composite actions for semver comparison, release tag checks, and release notes.
 - Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign` — free ED25519, paid PFX, or Azure Trusted Signing).
-- Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (3-OS matrix with signing, notarization, and GitHub release).
+- Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
 - `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
 - `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
@@ -106,7 +106,7 @@ jobs:
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
-- `.github/workflows/production-branch.yml`: repo-local workflow that updates the `production` tag to a released tag (it does not move a branch)
+- `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
@@ -355,6 +355,28 @@ Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.
 - `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 - `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
 - `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
+
+### Runner floor
+
+Linux jobs default to `ubuntu-latest`, which GitHub resolves to 24.04 today and
+will roll to 26.04 on its own schedule. The three Tauri workflows are the
+exception: they pin `ubuntu-24.04`, because their apt list
+(`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`) is
+GTK3-era and is the thing 26.04 will actually change — so that rollover is a
+deliberate edit here, not a drift. Every one of them takes a `runner` input.
+
+22.04 is not required by anything in this repository. It was needed only by
+Tauri v1, which linked `webkit2gtk-4.0`. A v1 app that must build here has to
+override **both** inputs, because the default apt list is v2's and `runner`
+alone leaves it in place: `runner: ubuntu-22.04`, and an `apt_packages` value
+that **starts from the workflow's full default list** and replaces only the
+WebKit and appindicator entries — `libwebkit2gtk-4.1-dev` →
+`libwebkit2gtk-4.0-dev libsoup2.4-dev`, `libayatana-appindicator3-dev` →
+`libappindicator3-dev` — keeping `libssl-dev`, `librsvg2-dev`,
+`libgtk-3-dev`, `build-essential`, `curl`, `wget`, `file` (and `rpm` for
+`tauri-release.yml`). `apt_packages` replaces the whole list; a three-package
+value builds nothing. And it should be migrating: 22.04 is the last image that
+can build it at all.
 
 ## Release tagging in external repos
 

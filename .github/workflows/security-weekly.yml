@@ -11,6 +11,7 @@ jobs:
   sha-pin-audit:
     name: SHA Pin Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,6 +36,7 @@ jobs:
   floating-ref-scan:
     name: Floating Reference Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -45,6 +47,7 @@ jobs:
   trivy-fs:
     name: Trivy Filesystem Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -62,6 +65,7 @@ jobs:
   gitleaks:
     name: Gitleaks Secret Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -90,6 +94,7 @@ jobs:
   vendor-drift:
     name: Vendor Drift Check
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -160,6 +165,7 @@ jobs:
   issue-on-failure:
     name: Report Failure
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift]
     if: failure()
     permissions:

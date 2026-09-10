@@ -11,7 +11,29 @@ permissions:
   actions: write
 
 jobs:
+  # The same two checks production-branch.yml runs -- but that workflow is
+  # triggered by a tag push, and the tag is pushed by GITHUB_TOKEN, which does
+  # not fire workflows. So it never ran on the automated path, and `production`
+  # advanced without a stale-pin or floating-ref check since the day the
+  # automation landed. This runs them before the tag is cut.
+  gate:
+    name: Security gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check stale SHA pins
+        shell: bash
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Detect floating action refs
+        shell: bash
+        run: bash scripts/check_floating_refs.sh
   tag:
+    needs: [gate]
     uses: ./.github/workflows/auto-tag-release.yml
     with:
       release_workflow: create-github-release.yml

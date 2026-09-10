@@ -2,6 +2,10 @@ name: tauri-release
 on:
   workflow_call:
     inputs:
+      runner:
+        description: Linux runner label for the build-linux job. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
+        type: string
+        default: ubuntu-24.04
       version:
         description: >
           Version string used to patch tauri.conf.json and Cargo.toml before
@@ -133,6 +137,9 @@ on:
       APPLE_APP_PASSWORD:
         description: App-specific password for notarytool
         required: false
+      APPLE_PASSWORD:
+        description: Accepted as an alias of APPLE_APP_PASSWORD, which is the name most consumers already hold (#97)
+        required: false
       WINDOWS_CERTIFICATE:
         description: Base64-encoded PFX certificate for Authenticode signing
         required: false
@@ -172,6 +179,7 @@ jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -203,7 +211,7 @@ jobs:
           SCRIPT
 
       - name: Setup Rust and universal targets
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-08
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -260,7 +268,7 @@ jobs:
           signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           team_id: ${{ secrets.APPLE_TEAM_ID }}
           apple_id: ${{ secrets.APPLE_ID }}
-          app_password: ${{ secrets.APPLE_APP_PASSWORD }}
+          app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
 
       - name: Build Tauri app (universal macOS binary)
         shell: bash
@@ -273,7 +281,7 @@ jobs:
         if: ${{ inputs.sign_macos && inputs.notarize_macos }}
         env:
           APPLE_ID_EMAIL: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WORK_DIR: ${{ inputs.working_directory }}
         shell: bash
@@ -326,6 +334,7 @@ jobs:
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 120
     defaults:
       run:
         shell: bash
@@ -360,7 +369,7 @@ jobs:
           SCRIPT
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-08
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -470,8 +479,12 @@ jobs:
 
   # ── Linux ──────────────────────────────────────────────────────────────────
   build-linux:
-    # ubuntu-22.04 required for Tauri v2 WebKit ABI (libwebkit2gtk-4.1-dev)
-    runs-on: ubuntu-22.04
+    # The runner is an input here, as it already was in tauri.yml and
+    # tauri-scan.yml. It was the one Tauri workflow a consumer could not
+    # override, which is the wrong one to hardcode: it is the workflow that
+    # produces release artefacts.
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -518,7 +531,7 @@ jobs:
           fi
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-08
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -526,6 +539,10 @@ jobs:
         uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
         with:
           workspaces: ${{ inputs.working_directory }}
+          # The runner label is part of the key. -sys crates compile against the
+          # image's C libraries, and a cache built on one Ubuntu handed to the
+          # next looks like a successful restore followed by a link error.
+          key: ${{ inputs.runner }}
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
@@ -562,6 +579,17 @@ jobs:
       - name: Build Tauri app (Linux)
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          # The AppImage tools want to mount themselves with FUSE. The 24.04
+          # image has no libfuse2 (it became libfuse2t64) and sets
+          # kernel.apparmor_restrict_unprivileged_userns=1, and either alone
+          # breaks that. With this set, linuxdeploy and appimagetool extract
+          # and run instead, which needs neither -- and neither does the
+          # package name, which is the part 26.04 will rename again. Tauri's
+          # bundler sets it itself today (tauri-bundler 2.9.4,
+          # linuxdeploy.rs:191); this pins that choice where a consumer can
+          # see it, because a dependency's default is not a contract.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           set -euo pipefail
           cargo tauri build
@@ -590,6 +618,7 @@ jobs:
     needs: [build-macos, build-windows, build-linux]
     if: ${{ inputs.upload_release }}
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
@@ -614,7 +643,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 @ 2026-07-21
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}
@@ -651,7 +680,10 @@ jobs:
   winget-submit:
     needs: release
     if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
-    uses: nikolareljin/ci-helpers/.github/workflows/winget-submit.yml@production
+    # Relative, not @production: a consumer pinned to a tag was getting whatever
+    # `production` pointed at for this one job. A relative `uses:` resolves against
+    # this repository at the ref the consumer pinned.
+    uses: ./.github/workflows/winget-submit.yml
     with:
       package_id: ${{ inputs.winget_package_id }}
       version: ${{ inputs.version != '' && inputs.version || github.ref_name }}

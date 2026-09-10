@@ -643,6 +643,15 @@ GitHub Pages. Requires `pages: write` and `id-token: write` in the caller.
 
 Defaults:
 - `runner`: `ubuntu-latest`
+- `concurrency_key`: `""` — overrides `github.ref` in the concurrency group, for callers publishing several sites from one ref (#133)
+
+Migrating a caller (#133): the workflow's own concurrency group is now
+`ci-helpers-pnpm-pages-<key>`, so a caller no longer collides with it.
+**Remove** any caller-level `concurrency:` block that was added to work around
+the old collision; keep one only if you want the caller's *own* runs
+serialised, and give it a name that is not `pages-<ref>`. Two callers
+publishing different sites from one ref pass distinct `concurrency_key`
+values and stop queueing behind each other.
 - `working_directory`: `.` — set to a subdirectory when the pnpm workspace root is not the repo root
 - `fetch_depth`: `0` — full history; this is the safe default for tag-based tooling (e.g. changeset
   version, release scripts); set to `1` for faster shallow clones when no tag/history access is needed

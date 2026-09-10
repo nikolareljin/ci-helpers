@@ -1,0 +1,5 @@
+# actionlint's built-in label list lags GitHub's. Labels listed here are
+# accepted as valid runners rather than flagged.
+self-hosted-runner:
+  labels:
+    - macos-15-intel

@@ -60,6 +60,7 @@ on:
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
     services:
       mysql:
         image: mysql:8
@@ -113,9 +114,12 @@ jobs:
           fi
 
           is_pimcore=false
-          if [ -f src/*Bundle.php ] || [ -f src/*Bundle.php ] 2>/dev/null; then
-            is_pimcore=true
-          fi
+          # `[ -f src/*Bundle.php ]` only worked when exactly one file matched:
+          # with none the glob stays literal, with several -f gets more than
+          # one argument and the test errors out. A loop sees each match.
+          for bundle in src/*Bundle.php; do
+            if [ -f "$bundle" ]; then is_pimcore=true; break; fi
+          done
           if [ "$is_pimcore" = "false" ] && [ -f composer.json ]; then
             if grep -qiE '"(pimcore/pimcore|pimcore/skeleton)"' composer.json; then
               is_pimcore=true
