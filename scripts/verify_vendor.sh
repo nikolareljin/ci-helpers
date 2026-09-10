@@ -126,9 +126,14 @@ else
   pinned="$(tr -d '[:space:]' < "$SHA_LOCK" 2>/dev/null || true)"
   ref="$(tr -d '[:space:]' < "$REF_LOCK" 2>/dev/null || true)"
   if [[ "$ref" == "latest" ]]; then
+    # Same pipeline as security-weekly's vendor-drift and sync_script_helpers.sh:
+    # strip a leading v and sort numerically. `sort -V` alone puts every
+    # v-prefixed tag after every bare one, so an old v0.2.0 won as "newest"
+    # over 0.26.0 and this check refused a correct re-vendor.
     ref="$(gh api "repos/$UPSTREAM_REPO/tags" --jq '.[].name' 2>/dev/null \
-           | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
-           | sort -V | tail -1 || true)"
+           | { grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
+           | awk '{ k=$0; gsub(/^v/,"",k); n=split(k,a,"."); printf "%010d%010d%010d %s\n",a[1],a[2],a[3],$0 }' \
+           | sort -k1,1 | awk '{print $2}' | tail -n1 || true)"
   fi
   upstream="$(gh api "repos/$UPSTREAM_REPO/commits/$ref" --jq '.sha' 2>/dev/null || true)"
   if [[ -z "$upstream" ]]; then

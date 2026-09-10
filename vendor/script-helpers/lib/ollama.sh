@@ -361,7 +361,10 @@ ollama_dialog_select_model() {
   local menu_height total_count value=""
   local idx=0 tag model_name slug summary sizes desc cache_file
   local -a menu_items=()
-  local -A model_lookup=()
+  # Indexed by the integer $idx, not by the zero-padded $tag. As an array
+  # subscript "0010" is an arithmetic expression read as octal, so tag-keyed
+  # lookups collided from the tenth model on.
+  local -a model_lookup=()
   menu_height=18
 
   if [[ -n "${OLLAMA_MODEL_MENU_CACHE_FILE:-}" ]]; then
@@ -388,7 +391,7 @@ ollama_dialog_select_model() {
     fi
     summary="${summary:0:140}"
     menu_items+=("$tag" "$summary")
-    model_lookup["$tag"]="$model_name"
+    model_lookup[$idx]="$model_name"
     if [[ "$model_name" == "$current_model" ]]; then
       default_tag="$tag"
     fi
@@ -416,12 +419,17 @@ ollama_dialog_select_model() {
     fi
   fi
 
-  if [[ -z "$selected" || -z "${model_lookup[$selected]:-}" ]]; then
+  # dialog echoes back the padded tag; 10# forces base ten so the padding is
+  # not mistaken for an octal literal.
+  local selected_idx=""
+  [[ "$selected" =~ ^[0-9]+$ ]] && selected_idx=$((10#$selected))
+
+  if [[ -z "$selected" || -z "$selected_idx" || -z "${model_lookup[$selected_idx]:-}" ]]; then
     print_error "No model selected." >&2
     return 1
   fi
 
-  echo "${model_lookup[$selected]}"
+  echo "${model_lookup[$selected_idx]}"
 }
 
 # Use dialog to select size for a given model. If none available, returns 'latest'.

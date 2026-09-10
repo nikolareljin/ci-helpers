@@ -3,6 +3,37 @@ script-helpers
 
 Reusable Bash helpers extracted from projects in this workspace. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
+Shell requirements — and macOS
+------------------------------
+
+**bash 3.2 or newer.** That is deliberate: macOS ships bash 3.2 as `/bin/bash`
+and, for licensing reasons, always will. The library is written to run unchanged
+on it — no `mapfile`, no associative arrays, no namerefs — so a Mac needs no
+setup to use these helpers.
+
+A newer bash is still better, and `./dev` picks one automatically when the
+machine has it (`/opt/homebrew/bin/bash`, `/usr/local/bin/bash`, or whatever is
+on `PATH`), falling back to `/bin/bash` when it does not. Sourcing `helpers.sh`
+on bash 3.x prints a one-time note on stderr — never stdout, and only to a
+terminal — suggesting `brew install bash`. Silence it with
+`SHLIB_NO_BASH_ADVISORY=1`.
+
+Three functions are the exception and require bash 4.0, because they take an
+associative array **from the caller**: `select_distro`,
+`select_multiple_distros` and `download_iso`. They fail with an actionable
+message rather than returning wrong values.
+
+Two gates keep this true, because it was not true for twenty-three releases:
+
+```bash
+make test-bash32   # the suite under a real bash 3.2, in Docker — needs no Mac
+bash tests/portability_test.sh   # static scan for GNU-only and bash-4-only constructs
+```
+
+CI runs the suite on macOS under `/bin/bash` for every change touching shell
+code. See `docs/usage.md` for the iOS verbs (`./dev deploy ios`) and the
+preflight `ios` stack.
+
 Windows / PowerShell support
 -----------------------------
 

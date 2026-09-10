@@ -2,7 +2,253 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
-## [Unreleased]
+## 2026-09-09 — v0.26.0
+
+### Added
+- **`lib/rust.sh` — the Rust toolchain a gate compiles with.** CI installs Rust
+  through `dtolnay/rust-toolchain@stable`, which is rustup's stable. A
+  workstation often also carries a distribution cargo that comes first on
+  `PATH` and is years older, and the errors that produces name the lockfile
+  rather than the compiler:
+
+      error: lock file version 4 requires `-Znext-lockfile-bump`
+      feature `edition2024` is required
+
+  So the search goes to the dependency tree while the toolchain is the
+  problem — and a local gate saying "this is what CI would have run" is saying
+  something false, which is worse than having no gate.
+
+  `rust_toolchain_ci_uses [toolchain]` puts that rustup toolchain's cargo first —
+  `stable` by default, asked for **by name** rather than through `rustup which
+  cargo`, which follows a developer's default or override and may be nightly —
+  and **says so when that differs from what `PATH` offered**, naming both versions; it refuses with an
+  actionable message rather than falling back to the older one silently.
+  `rust_toolchain_report` prints the same facts without touching `PATH`.
+
+  Promoted from a consumer that had solved it privately, so every Rust
+  repository can have it. Same shape as a snap Flutter resolving `.dart_tool`
+  for a project the dev SDK was building.
+
+### Changed
+- **`scripts/local_test_rust.sh` resolves the toolchain before it looks for
+  cargo.** It previously took whatever `command -v cargo` returned. New
+  `--any-cargo` opts out for a repository that genuinely targets the system
+  toolchain.
+
+## 2026-09-09 — v0.25.0
+
+### Fixed
+- macOS support, which had never worked and which no test could have caught.
+  The audit behind this release found three independent problems, none of which
+  fails loudly: `/bin/bash` on macOS is 3.2, BSD userland is not GNU userland,
+  and the iOS half of this library had no callers.
+
+- **bash 3.2.** The library now runs unchanged on the shell macOS ships. The 13
+  `mapfile` calls became the while-read loop already used in `lib/ports.sh`; the
+  associative arrays in `lib/ports.sh` and `lib/ollama.sh` became indexed ones,
+  which is what they always were in effect; and `get_script_metadata` no longer
+  returns its result through a bash 4.3 nameref. That last one mattered most:
+  every `--help` path in this library was dead on a stock Mac, with no fallback.
+
+  The `lib/ollama.sh` lookup was keyed by a `printf '%04d'` tag. As an array
+  subscript `"0010"` is an arithmetic expression read as **octal**, so model
+  selection collided from the tenth model on. It is keyed by the integer now.
+
+  `templates/dev-cli/dev` ran `exec bash`, which resolves bash from `PATH` and
+  discards the file's own `#!/usr/bin/env bash`. It now prefers a bash 4+ where
+  one exists and falls back to 3.2 where none does. Generated shims delegate to
+  `./dev` instead of duplicating that resolver into every consuming repo.
+
+  `helpers.sh` refuses anything older than 3.2 and, on 3.x, prints a one-time
+  advisory to stderr — never stdout, and only to a terminal, so it cannot
+  corrupt a helper whose output is parsed or fill a CI log.
+
+  Three functions still require bash 4 because they take an associative array
+  *from the caller* — `select_distro`, `select_multiple_distros`, `download_iso`.
+  They now say so through `require_bash4` rather than returning wrong values.
+
+  A ninth of the same shape sat in a bash regex rather than in grep:
+  `[[ $line =~ ^#( |\t)(.*) ]]` in `lib/help.sh`. Bash's ERE has no `\t`
+  escape, so a tab-indented script header lost every continuation line and
+  rendered no `Parameters:` block at all -- no error, no match, exactly like the
+  grep patterns. It is `[[:space:]]` now, one character wide, because the rest
+  of a block's indentation is reproduced as written. `portability_test.sh` bans
+  `\t` inside `[[ =~ ]]`, and `help_test.sh` carries a tab-indented fixture
+  written with printf so no reformatting can quietly make it pass.
+
+- **BSD userland.** Eight `grep` patterns used GNU `\s` or `\b`. BSD grep does
+  not reject those; it simply never matches them, so each one silently did
+  nothing on macOS. `add_to_etc_hosts` therefore concluded "absent" every time
+  and appended a duplicate `/etc/hosts` line on every call, and the docs linter
+  reported every function as undocumented, which made `make lint-docs`
+  impossible to pass on a Mac. Also fixed: `md5sum` in a test (absent on macOS),
+  `base64 -d` (older macOS spells it `-D`, and the failure blamed the caller's
+  input), `mktemp --suffix` (whose fallback dropped the extension that ffmpeg's
+  `palettegen` infers its format from), and a generated Homebrew wrapper that
+  hardcoded `#!/bin/bash` — on the one platform where that is always 3.2.
+
+- **Empty arrays under `set -u`.** bash 3.2 treats `"${arr[@]}"` on an empty
+  array as an unbound variable; bash 4.4 made it safe. `scripts/preflight.sh`
+  aborted on its own argument parsing, and `scripts/lint_docs.sh` on any module
+  with no functions. Both now use the `"${arr[@]+"${arr[@]}"}"` form already
+  present elsewhere in this repo, as do the Homebrew packaging scripts, which
+  by definition only ever run on a Mac.
+
+- `get_os` matched only `linux-gnu*`, so it returned `unknown` on Alpine
+  (`linux-musl`) and Termux (`linux-android`), sending `docker_install`, `deps`
+  and `certs` down their do-nothing branches. It now matches any `linux*`, and
+  reads `$OSTYPE` defensively so a caller under `set -u` is not aborted.
+
+- Everything released in 0.24.1 is carried forward here, so 0.25.0 is a
+  superset of it. `scripts/install_dev_cli.sh` no longer destroys the caller's
+  original script when `--shims` runs twice: the backup was an unconditional
+  `mv "$dest" "$dest.pre-dev-cli"`, and on a second run `$dest` is the shim the
+  previous run wrote, so the move replaced the original -- the only copy -- with
+  our generated three-line shim. An existing `.pre-dev-cli` is now kept and the
+  current file removed instead, and that removal is guarded on the
+  `# Compatibility shim. Use ./dev ...` marker so only a shim this script wrote
+  is ever discarded. `rm`, `mv`, `cp` and `chmod` pass `--` before the path, so
+  a shim name beginning with a dash cannot be read as an option. Covered by
+  `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
+  code and which asserts the installer's exit status rather than discarding it.
+  That test's shim assertion keys on the `# Compatibility shim. Use ./dev ...`
+  marker the installer's own re-run guard greps for, not on `scripts/cli.sh`:
+  the shim this release writes delegates to `./dev`, so the original assertion
+  passed on 0.24.1 and failed the moment the two changes met.
+
+### Added
+- `lib/os.sh`: `is_macos`, `is_linux`, `bash_major`, `bash_at_least` and
+  `require_bash4`. The library branched on `get_os` in five modules without ever
+  having a predicate for it, and had no bash-version guard anywhere at all.
+
+- `./dev deploy ios --release` requires `IOS_EXPORT_OPTIONS_PLIST`, and says so
+  before it starts building. Without a plist `ios_build_release` falls back to
+  `flutter build ios --release --no-codesign`, which writes an unsigned `.app`
+  and nothing at all under `build/ios/ipa`. The install step globs that
+  directory newest-first, so an `.ipa` from an earlier signed build was picked
+  up and pushed to the device -- a stale binary installed with every step
+  reporting success. Gated by `tests/dev_deploy_ios_test.sh`, which watches the
+  build and install steps rather than the exit status, since nothing on that
+  path ever returned non-zero.
+
+- `get_script_metadata` refuses an unreadable script file up front, returning 2
+  and naming the path. Left to the redirection on its read loop, a missing file
+  failed inside `lib/help.sh`, so a caller under `set -e` was aborted with a
+  raw "No such file or directory" citing this library and a line number rather
+  than the path it passed in. A directory was worse: the redirection succeeds,
+  `read` fails without assigning, and the loop condition then aborted on
+  `line: unbound variable` under `set -u`. `line` is initialised for that
+  reason too. `display_help` already guarded this; `get_script_metadata` is
+  public API and is called directly.
+
+- **iOS is reachable.** `lib/ios.sh` and `scripts/ci_ios.sh` were complete,
+  correct and called by nothing: `ios_install` and `ios_launch` had no callers,
+  `preflight` had no `ios` stack, and `verb_deploy` was hard-wired to `adb`, so
+  `./dev deploy ios` silently built and installed an Android APK.
+
+  `deploy`, `run` and `build` now branch on the target word. `deploy ios`
+  resolves a booted simulator, builds, installs and launches; `build ios
+  --release` goes through `ios_build_release`, so the signed-IPA path is
+  reachable from `./dev` for the first time. New: `ios_resolve_device`,
+  `ios_resolve_physical_device`, `ios_bundle_id` and `ios_artifact` — the last
+  two are what `ios_install` and `ios_launch` needed to be callable at all, and
+  the two resolvers exist separately because a debug deploy installs a simulator
+  `.app` through simctl while a release deploy installs a signed `.ipa` through
+  devicectl onto real hardware. Resolving a simulator for the latter cannot work. `flutter_build` gained
+  `--simulator`, because `flutter build ios` targets a physical device and the
+  `.app` it produces cannot be installed on a simulator.
+
+  `preflight` gained an `ios` stack, detected from a Flutter project with an
+  `ios/` directory or a `Podfile`, which finally gives `ci_ios.sh` a caller. Off
+  macOS it reports SKIP with a reason rather than failing. `check_flutter` no
+  longer builds an APK unconditionally: without an `android/` directory or an
+  Android SDK it skips that step, so preflight on a Mac stops demanding a
+  toolchain the repository never asked for.
+
+- The portability gate also refuses an unescaped `*(` in a parameter expansion.
+  It is not a bash-4 problem but the same silent shape: `*(` is the extglob
+  "zero or more" operator, so `${line##*(}` parses differently in a caller that
+  ran `shopt -s extglob` and returns the wrong text with no error to notice.
+
+- `tests/scope_test.sh`: these helpers are sourced into other people's scripts,
+  so an undeclared loop variable becomes a global in the caller. The while-read
+  loops that replaced `mapfile` introduced exactly that across five modules;
+  every affected variable is now declared, and the test asserts a call leaves no
+  trace behind.
+
+- `tests/dev_shim_test.sh`, covering which bash the shim selects: it prefers 4+,
+  accepts 3.2, and refuses 3.0 and 3.1 rather than committing to an interpreter
+  helpers.sh will reject a moment later. The rule is impossible to exercise from
+  Linux by hand, where every candidate is bash 5.
+
+- `tests/portability_test.sh`, a blocking static gate for GNU-only utilities and
+  bash-4-only syntax. CI has always run shellcheck with `|| true`, so nothing
+  here could fail a build; every rule in this gate was verified to fire by
+  introducing the construct it bans and watching it fail.
+
+- `scripts/local_test_bash32.sh` and `make test-bash32`: the whole suite under a
+  real bash 3.2 in Docker, so the constraint is verifiable from a Linux box.
+  Tests whose subject is a missing tool are reported as SKIPPED, because a test
+  that fails for want of `git` says nothing about bash 3.2.
+
+- A macOS CI job (`.github/workflows/ci-macos.yml`) running the suite explicitly
+  under `/bin/bash`. GitHub's macOS runners also carry a modern bash, so the
+  legacy shell has to be named or the job proves nothing. It is path-filtered to
+  shell changes: GitHub bills macOS runners at a 10x minute multiplier, and
+  the absence of any macOS job is why all of the above stood for 23 releases.
+
+- Tests for `lib/help.sh`, `lib/os.sh`, `lib/hosts.sh` and preflight detection.
+  `lib/help.sh` had none, and it is the file this release changes most.
+
+### Changed
+- **`get_script_metadata` takes a variable-name prefix, not an associative array.**
+  `get_script_metadata ./x.sh meta` now sets `meta_name`, `meta_usage` and so on
+  instead of filling `meta[...]` through a nameref. Callers of `show_help`,
+  `print_help` and `display_help` are unaffected, and their output is unchanged.
+  Only direct callers of `get_script_metadata` need to move from `${meta[usage]}`
+  to `$meta_usage`. It returns `2` when the prefix is missing or is not a valid
+  shell variable name, rather than emitting one `printf` error per field and
+  leaving the caller half-populated state to diagnose. Its arguments, and
+  `add_to_etc_hosts`', are defaulted rather than bare: under `set -u` a bare
+  `"$2"` aborts the caller on the expansion itself, before the function can
+  return the error code it documents.
+
+- `add_to_etc_hosts` compares whitespace-separated tokens exactly instead of
+  interpolating the domain into a `grep` pattern, and skips comment lines. A
+  hostname carries its own dots into a regex, where `.` matches any character,
+  so `demo.local` was "found" in a file holding only `demoXlocal` and the real
+  entry was then never added. It also honours `HOSTS_FILE` and writes directly
+  when the file is writable, falling back to `sudo tee`. The presence test was wrong on macOS and
+  nothing could demonstrate it, because exercising it meant editing the real
+  `/etc/hosts` as root.
+
+- `Makefile` uses the `bash` on `PATH` rather than `/bin/bash`, which on macOS is
+  3.2 whatever the developer has installed. Bash 3.2 coverage is now an explicit
+  target rather than an accident of platform.
+
+- preflight's "tool is not installed" skips name a platform-appropriate fix, so a
+  Mac is no longer told to run `apt install`.
+
+
+## 2026-09-08 — v0.24.1
+
+### Fixed
+- `scripts/install_dev_cli.sh` no longer destroys the original script when
+  `--shims` is run twice. The backup was an unconditional
+  `mv "$dest" "$dest.pre-dev-cli"`, but on a second run `$dest` is the shim the
+  previous run wrote, so the move replaced the caller's original — the only
+  copy of it — with our generated three-line shim. An existing
+  `.pre-dev-cli` backup is now kept and the current file removed instead.
+
+  That removal is guarded: only a shim this script wrote is discarded, matched
+  on its `# Compatibility shim. Use ./dev ...` marker. If `.pre-dev-cli` exists
+  for some other reason and the root file is a real script, the backup slot
+  that would have saved it is already taken, so there is no move that does not
+  lose a file -- the shim is skipped with a warning and both files are left
+  alone. `rm`, `mv`, `cp` and `chmod` now also pass `--` before the path, so a
+  shim name that begins with a dash cannot be read as an option. Covered by
+  `tests/install_dev_cli_test.sh`, whose cases fail on the respective unfixed
+  code and which asserts the installer's exit status rather than discarding it.
 
 ## 2026-09-02 — v0.24.0
 

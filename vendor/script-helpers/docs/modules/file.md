@@ -37,6 +37,8 @@ Functions
   - Returns: 0 on successful verification; prints success/error.
 
 - download_iso distro_name
+  - Requires bash 4.0 or newer: it reads a `DISTROS` associative array supplied
+    by the caller, and calls `require_bash4` when the shell is older.
   - Purpose: Download ISO based on a `DISTROS` associative array defined by the caller.
   - Behavior: Prints success/error; validates ISO structure.
 

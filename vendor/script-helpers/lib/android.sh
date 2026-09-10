@@ -225,7 +225,10 @@ android_sign() {
       return 2
     }
     tmp_keystore="$(mktemp)" || return 1
-    printf '%s' "${!b64var}" | base64 -d > "$tmp_keystore" 2>/dev/null || {
+    # Older macOS base64 spells the decode flag -D; without the fallback the
+    # failure took the branch below and blamed the caller's input.
+    { printf '%s' "${!b64var}" | base64 -d > "$tmp_keystore" 2>/dev/null ||
+      printf '%s' "${!b64var}" | base64 -D > "$tmp_keystore" 2>/dev/null; } || {
       rm -f "$tmp_keystore"
       log_error "android_sign: \$$b64var is not valid base64"
       return 2

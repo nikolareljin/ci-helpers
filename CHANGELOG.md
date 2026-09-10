@@ -1,4 +1,40 @@
 # Changelog
+## 2026-09-10 — 0.24.2
+
+### Changed
+
+- **`vendor/script-helpers` updated from 0.24.0 to 0.26.0.** The vendored tree
+  now matches script-helpers at tag `0.26.0`, which is where `production`
+  points. Without this, `security-weekly`'s `vendor-drift` job fails on its
+  next run and files an issue.
+
+  What actually changes for the six vendored scripts these workflows invoke
+  (`build_deb_artifacts.sh`, `build_rpm_artifacts.sh`, `ppa_upload.sh`,
+  `build_brew_tarball.sh`, `gen_brew_formula.sh`, `publish_homebrew.sh`) and
+  what they source: the four packaging scripts are byte-identical across the
+  span. `helpers.sh` gained a bash-version preamble whose advisory prints only
+  when stderr is a terminal — never on a runner. `lib/help.sh`'s
+  `get_script_metadata` changed signature (namerefs are bash 4.3+; the library
+  now runs on macOS's 3.2) — no caller outside the library. `lib/os.sh`'s
+  `get_os` now recognises `linux-musl` and `linux-android`. The two Homebrew
+  scripts gained `set -u` empty-array guards, a no-op on bash ≥ 4.4, and the
+  **generated formula wrapper's shebang is now `#!/usr/bin/env bash`** — a
+  change on the user's Mac, and one that reaches a consumer only when it
+  bumps its own pin, since `homebrew-package.yml` runs the caller's submodule
+  copy rather than this vendored one.
+
+  Two lines in the vendored copy named a private repository; they are gone
+  upstream and gone here.
+
+### Fixed
+
+- **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
+  the newest upstream tag with `sort -V | tail -1`, which places every
+  `v`-prefixed tag after every bare one — so an old `v0.2.0` won over `0.26.0`
+  and the script reported the fresh vendored copy as "behind". It now uses the
+  same strip-the-v, sort-numerically pipeline as `security-weekly`'s
+  `vendor-drift` job and `sync_script_helpers.sh`, which had it right.
+
 ## 2026-09-10 — 0.24.1
 
 ### Changed

@@ -87,6 +87,45 @@ provided, or an unsigned iOS app otherwise. The optional plist is resolved
 relative to the project directory. It requires Flutter, macOS, and Xcode and
 returns non-zero for missing prerequisites, paths, or failed Flutter commands.
 
+### `ios_resolve_device [preferred]`
+
+Prints the simulator UDID to act on. Uses `preferred` when it is booted, else
+`IOS_DEVICE`, else the only booted simulator. `preferred` may be a UDID or a
+display name; a simulator that is not booted is booted first, and the result is
+always resolved back to a **UDID** — `simctl install` and `simctl launch` take a
+UDID (or the literal `booted`), never a display name. Returns `1` with a listing on stderr
+when no simulator is booted or when more than one is — an ambiguous device is a
+question for the caller rather than something to guess at, the same contract as
+`flutter_resolve_device`.
+
+### `ios_resolve_physical_device [preferred]`
+
+Prints the UDID of an attached iPhone or iPad, accepting a UDID or a device
+name and always returning a UDID. Same none/one/many discipline as
+`ios_resolve_device`, but for real hardware — a signed `.ipa` installs through
+`devicectl` onto a device and can never be installed on a simulator, so the two
+need separate resolvers. Returns `1` when nothing is attached, when the choice
+is ambiguous, or when `preferred` matches no attached device.
+
+### `ios_bundle_id <path.app>`
+
+Prints the `CFBundleIdentifier` of a built `.app`, read from its `Info.plist`
+via `PlistBuddy` (falling back to `plutil`). `ios_launch` needs a bundle id
+rather than a path, and the artifact is the only source that reflects the
+flavor actually built. Returns `1` when the path is not an `.app` directory,
+has no `Info.plist`, or carries no identifier.
+
+### `ios_artifact [dir=.] [mode=simulator]`
+
+Prints the newest matching build output, the iOS counterpart of
+`android_artifact`. Modes:
+
+- `simulator` — `build/ios/iphonesimulator/*.app`
+- `device` — `build/ios/iphoneos/*.app`
+- `release` / `ipa` — `build/ios/ipa/*.ipa`
+
+Returns `1` when nothing matches and `2` for an unknown mode.
+
 Example
 -------
 
@@ -98,4 +137,15 @@ ios_available || { echo "not on macOS"; exit 0; }
 ios_list_simulators
 ios_boot_simulator "iPhone 15"
 ios_build_release ./mobile ios/ExportOptions.plist
+
+# Install and launch a debug build on a booted simulator. This is what
+# `./dev deploy ios` does.
+udid="$(ios_resolve_device)" || exit 1
+app="$(ios_artifact ./mobile simulator)" || exit 1
+ios_install "$udid" "$app"
+ios_launch "$udid" "$(ios_bundle_id "$app")"
 ```
+
+Note that a simulator build needs `flutter build ios --simulator`: a plain
+`flutter build ios` targets a physical device and produces an `.app` that
+`simctl install` cannot use.

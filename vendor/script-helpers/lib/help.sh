@@ -5,6 +5,41 @@
 # header comments in shell scripts. Supports multi-line fields and consistent output
 # for script name, description, usage, parameters, examples, and more.
 
+# The metadata fields this module understands, in render order.
+_HELP_META_FIELDS="name description author created version usage parameters example exit_codes date creator"
+
+# Usage: _help__pattern_for <field>; prints the header regex for that field.
+_help__pattern_for() {
+  case "$1" in
+    name)        echo '^# SCRIPT:[[:space:]]*(.*)' ;;
+    description) echo '^# DESCRIPTION:[[:space:]]*(.*)' ;;
+    author)      echo '^# AUTHOR:[[:space:]]*(.*)' ;;
+    created)     echo '^# CREATED:[[:space:]]*(.*)' ;;
+    version)     echo '^# VERSION:[[:space:]]*(.*)' ;;
+    usage)       echo '^# USAGE:[[:space:]]*(.*)' ;;
+    parameters)  echo '^# PARAMETERS:[[:space:]]*(.*)' ;;
+    example)     echo '^# EXAMPLE:[[:space:]]*(.*)' ;;
+    exit_codes)  echo '^# EXIT_CODES:[[:space:]]*(.*)' ;;
+    date)        echo '^# DATE:[[:space:]]*(.*)' ;;
+    creator)     echo '^# CREATOR:[[:space:]]*(.*)' ;;
+    *)           return 1 ;;
+  esac
+}
+
+# Usage: _help__is_multiline <field>; success when the field may span lines.
+_help__is_multiline() {
+  case "$1" in
+    parameters|usage|example|exit_codes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Usage: _help__meta_get <prefix> <field>; prints one collected metadata value.
+_help__meta_get() {
+  local _ref="${1}_${2}"
+  printf '%s' "${!_ref:-}"
+}
+
 # Usage: display_help [script_file]; renders concise help.
 display_help() {
   export SHLIB_HELP_SHOWN=true
@@ -58,18 +93,33 @@ _help__render() {
     return 1
   fi
 
-  declare -A meta
-  get_script_metadata "$script_file" meta
+  local pfx="_shlib_help_meta"
+  get_script_metadata "$script_file" "$pfx"
 
-  local usage_text="${meta[usage]}"
+  local m_name m_description m_usage m_parameters m_param_lines
+  local m_example m_author m_created m_version m_exit_codes m_date m_creator
+  m_name="$(_help__meta_get "$pfx" name)"
+  m_description="$(_help__meta_get "$pfx" description)"
+  m_usage="$(_help__meta_get "$pfx" usage)"
+  m_parameters="$(_help__meta_get "$pfx" parameters)"
+  m_param_lines="$(_help__meta_get "$pfx" param_lines)"
+  m_example="$(_help__meta_get "$pfx" example)"
+  m_author="$(_help__meta_get "$pfx" author)"
+  m_created="$(_help__meta_get "$pfx" created)"
+  m_version="$(_help__meta_get "$pfx" version)"
+  m_exit_codes="$(_help__meta_get "$pfx" exit_codes)"
+  m_date="$(_help__meta_get "$pfx" date)"
+  m_creator="$(_help__meta_get "$pfx" creator)"
+
+  local usage_text="$m_usage"
   if [[ -z "$usage_text" ]]; then
     usage_text="$(basename "$script_file") [OPTIONS]"
   fi
 
   if [[ "$mode" == "full" ]]; then
-    _help__print_inline "cyan" "Script" "${meta[name]:-$(basename "$script_file")}"
-  elif [[ -n "${meta[name]}" ]]; then
-    _help__print_inline "green" "Script Name" "${meta[name]}"
+    _help__print_inline "cyan" "Script" "${m_name:-$(basename "$script_file")}"
+  elif [[ -n "$m_name" ]]; then
+    _help__print_inline "green" "Script Name" "$m_name"
   fi
 
   if [[ "$usage_text" == *$'\n'* ]]; then
@@ -77,54 +127,83 @@ _help__render() {
   else
     _help__print_inline "green" "Usage" "$usage_text"
   fi
-  _help__print_block "white" "Description" "${meta[description]}"
+  _help__print_block "white" "Description" "$m_description"
 
-  if [[ -n "${meta[parameters]}" ]]; then
-    local params="${meta[param_lines]:-${meta[parameters]}}"
+  if [[ -n "$m_parameters" ]]; then
+    local params="${m_param_lines:-$m_parameters}"
     _help__print_block "white" "Parameters" "$params"
   fi
 
   if [[ "$mode" == "concise" || "$mode" == "minimal" ]]; then
-    _help__print_block "yellow" "Example" "${meta[example]}"
+    _help__print_block "yellow" "Example" "$m_example"
   fi
 
   if [[ "$mode" == "full" ]]; then
-    _help__print_inline "white" "Author" "${meta[author]}"
-    _help__print_inline "white" "Created" "${meta[created]}"
-    _help__print_inline "white" "Version" "${meta[version]}"
+    _help__print_inline "white" "Author" "$m_author"
+    _help__print_inline "white" "Created" "$m_created"
+    _help__print_inline "white" "Version" "$m_version"
   fi
 
   if [[ "$mode" == "minimal" ]]; then
-    _help__print_block "white" "Exit Codes" "${meta[exit_codes]}"
-    _help__print_inline "white" "Date" "${meta[date]}"
-    _help__print_inline "white" "Version" "${meta[version]}"
-    _help__print_inline "white" "Creator" "${meta[creator]}"
+    _help__print_block "white" "Exit Codes" "$m_exit_codes"
+    _help__print_inline "white" "Date" "$m_date"
+    _help__print_inline "white" "Version" "$m_version"
+    _help__print_inline "white" "Creator" "$m_creator"
   fi
   show_usage "$script_file"
 }
 
-# Shared logic: extract script metadata from header comments into an associative array
+# Usage: get_script_metadata <script_file> <prefix>
+#
+# Extracts script metadata from header comments into a set of shell variables
+# named "<prefix>_<field>" -- e.g. get_script_metadata ./x.sh meta sets
+# meta_name, meta_usage, meta_parameters, ... plus meta_param_lines. Read them
+# back with indirect expansion:  ref="meta_usage"; echo "${!ref}"
+#
+# The second argument used to be the name of an associative array, filled
+# through a nameref. Both are bash 4.3+ features, which made every --help path
+# in this library dead on the bash 3.2 that macOS ships. A name prefix plus
+# `printf -v` needs nothing newer than bash 3.1 and no eval.
 get_script_metadata() {
-  local script_file="$1"
-  local -n _meta="$2"
-  local line key current_field="" param_lines=""
+  # Defaulted, not bare: under `set -u` a bare "$2" aborts the caller on the
+  # expansion itself, before this function can return the documented exit 2.
+  local script_file="${1:-}"
+  local prefix="${2:-}"
+  local line="" key current_field="" param_lines="" ref pattern
   local in_header=true saw_header_key=false
-  declare -A map=(
-    [name]="^# SCRIPT:[[:space:]]*(.*)"
-    [description]="^# DESCRIPTION:[[:space:]]*(.*)"
-    [author]="^# AUTHOR:[[:space:]]*(.*)"
-    [created]="^# CREATED:[[:space:]]*(.*)"
-    [version]="^# VERSION:[[:space:]]*(.*)"
-    [usage]="^# USAGE:[[:space:]]*(.*)"
-    [parameters]="^# PARAMETERS:[[:space:]]*(.*)"
-    [example]="^# EXAMPLE:[[:space:]]*(.*)"
-    [exit_codes]="^# EXIT_CODES:[[:space:]]*(.*)"
-    [date]="^# DATE:[[:space:]]*(.*)"
-    [creator]="^# CREATOR:[[:space:]]*(.*)"
-  )
-  # Fields that can be multi-line
-  local -A multiline_fields=([parameters]=1 [usage]=1 [example]=1 [exit_codes]=1)
-  for k in "${!map[@]}"; do _meta["$k"]=""; done
+
+  # The prefix becomes half a variable name, so an empty or malformed one turns
+  # every assignment below into a `printf: not a valid identifier` error and
+  # leaves the caller with a half-filled set of variables to diagnose. An empty
+  # prefix is worse than an error: it silently writes _name, _usage and so on.
+  if [[ -z "$script_file" ]]; then
+    local msg0="get_script_metadata: needs a script file"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg0"; else echo "$msg0" >&2; fi
+    return 2
+  fi
+  if [[ -z "$prefix" || ! "$prefix" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    local msg="get_script_metadata: prefix must be a valid shell variable name, got '${prefix}'"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg"; else echo "$msg" >&2; fi
+    return 2
+  fi
+  # Checked here rather than left to the redirection on the loop below. An
+  # unreadable path there fails inside this file, so `set -e` aborts the caller
+  # citing lib/help.sh and a line number instead of the path it passed in, and
+  # a directory is worse still: the redirection succeeds, `read` fails without
+  # assigning, and the loop condition then aborts on an unbound variable.
+  # display_help guards this already; get_script_metadata is public API and is
+  # called directly.
+  if [[ ! -f "$script_file" || ! -r "$script_file" ]]; then
+    local msg1="get_script_metadata: cannot read script file: $script_file"
+    if declare -F log_error >/dev/null 2>&1; then log_error "$msg1"; else echo "$msg1" >&2; fi
+    return 2
+  fi
+
+  for key in $_HELP_META_FIELDS; do
+    printf -v "${prefix}_${key}" '%s' ""
+  done
+  printf -v "${prefix}_param_lines" '%s' ""
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     if $in_header; then
       if [[ $line =~ ^#!/ ]]; then
@@ -141,16 +220,15 @@ get_script_metadata() {
       fi
     fi
     local matched=0
-    for key in "${!map[@]}"; do
-      if [[ $line =~ ${map[$key]} ]]; then
+    for key in $_HELP_META_FIELDS; do
+      pattern="$(_help__pattern_for "$key")"
+      if [[ $line =~ $pattern ]]; then
         matched=1
         current_field=""
         saw_header_key=true
-        if [[ -n "${multiline_fields[$key]:-}" ]]; then
-          _meta["$key"]="${BASH_REMATCH[1]}"
+        printf -v "${prefix}_${key}" '%s' "${BASH_REMATCH[1]}"
+        if _help__is_multiline "$key"; then
           current_field="$key"
-        else
-          _meta["$key"]="${BASH_REMATCH[1]}"
         fi
         break
       fi
@@ -158,9 +236,14 @@ get_script_metadata() {
     if (( ! matched )); then
       # If inside a multiline field, accumulate lines
       if [[ -n "$current_field" ]]; then
-        if [[ $line =~ ^#( |\t)(.*) ]]; then
-          # Continuation line (starts with # and space/tab)
-          _meta["$current_field"]+=$'\n'"${BASH_REMATCH[2]}"
+        if [[ $line =~ ^#([[:space:]])(.*) ]]; then
+          # Continuation line (starts with # and one space or tab). The class,
+          # not `\t`: bash's ERE has no \t escape, so a tab-indented header
+          # silently lost every continuation line. One character wide, because
+          # the rest of the indentation is rendered as written.
+
+          ref="${prefix}_${current_field}"
+          printf -v "$ref" '%s' "${!ref}"$'\n'"${BASH_REMATCH[2]}"
         elif [[ $line =~ ^#[-]{3,}$ ]]; then
           # Separator ends header block
           current_field=""
@@ -172,7 +255,7 @@ get_script_metadata() {
       fi
     fi
     # For param_lines (indented lines under PARAMETERS only)
-    if [[ "$current_field" == "parameters" ]] && [[ $line =~ ^#( |\t)(.*) ]]; then
+    if [[ "$current_field" == "parameters" ]] && [[ $line =~ ^#([[:space:]])(.*) ]]; then
       local param_line="${BASH_REMATCH[2]}"
       if [[ "$param_line" == PARAMETERS:* ]]; then
         continue
@@ -180,7 +263,7 @@ get_script_metadata() {
       param_lines+="${param_line}"$'\n'
     fi
   done < "$script_file"
-  _meta[param_lines]="${param_lines%$'\n'}"
+  printf -v "${prefix}_param_lines" '%s' "${param_lines%$'\n'}"
 }
 
 # Generic usage printer and common arg parser.

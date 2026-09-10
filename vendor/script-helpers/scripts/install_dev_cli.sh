@@ -72,9 +72,9 @@ install_file() {
   fi
   say "write: $rel"
   [[ "$DRY_RUN" == "true" ]] && return 0
-  mkdir -p "$(dirname "$dest")"
-  cp "$src" "$dest"
-  chmod "$mode" "$dest"
+  mkdir -p -- "$(dirname "$dest")"
+  cp -- "$src" "$dest"
+  chmod -- "$mode" "$dest"
 }
 
 # --- the entry point -------------------------------------------------------
@@ -105,17 +105,36 @@ if [[ -n "$SHIMS" ]]; then
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then
-      say "back up: $name -> $name.pre-dev-cli"
-      [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
+      # On a re-run $dest is the shim written last time. Moving that over an
+      # existing backup would replace the caller's original script with our
+      # own generated one -- the only copy of it, gone. Keep the first backup.
+      if [[ -e "$dest.pre-dev-cli" ]]; then
+        # Only a shim we wrote is safe to discard. If $dest is anything else
+        # the backup slot that would have saved it is already occupied, so
+        # there is no move that does not lose a file: leave both untouched.
+        if grep -q '^# Compatibility shim\. Use \./dev ' "$dest" 2>/dev/null; then
+          say "keep backup: $name.pre-dev-cli already exists"
+          [[ "$DRY_RUN" == "true" ]] || rm -f -- "$dest"
+        else
+          log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
+          continue
+        fi
+      else
+        say "back up: $name -> $name.pre-dev-cli"
+        [[ "$DRY_RUN" == "true" ]] || mv -- "$dest" "$dest.pre-dev-cli"
+      fi
     fi
     say "shim: ./$name -> ./dev $name"
     [[ "$DRY_RUN" == "true" ]] && continue
+    # Delegates to ./dev rather than re-running scripts/cli.sh directly: ./dev
+    # is what picks a usable bash, and duplicating that resolver into every
+    # consumer repo is how it would drift out of step with this library.
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
-exec bash "\$(dirname "\$0")/scripts/cli.sh" $name "\$@"
+exec "\$(dirname "\$0")/dev" "$name" "\$@"
 EOF
-    chmod 755 "$dest"
+    chmod -- 755 "$dest"
   done
 fi
 

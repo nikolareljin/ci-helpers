@@ -37,10 +37,13 @@ Functions
   - Purpose: Run the test suite, optionally with coverage.
   - Returns: 2 on an unknown option; otherwise Flutter's status.
 
-- `flutter_build <apk|appbundle|ios|web|linux|macos|windows> [dir=.] [--release|--debug|--profile] [--flavor <name>]`
+- `flutter_build <apk|appbundle|ios|web|linux|macos|windows> [dir=.] [--release|--debug|--profile] [--flavor <name>] [--simulator]`
   - Purpose: Build an artifact. Defaults to `--release`, because a Flutter build with no mode flag is a debug build and that is rarely what a caller of a build function means.
-  - Returns: 2 on an unknown target or option; otherwise Flutter's status.
+  - Args:
+    - `--simulator` — ios target only. `flutter build ios` targets a physical device, and the `.app` it produces cannot be installed on a simulator.
+  - Returns: 2 on an unknown target or option, or on `--simulator` with a non-ios target; otherwise Flutter's status.
   - Example: `flutter_build appbundle mobile --release --flavor prod`
+  - Example: `flutter_build ios mobile --debug --simulator`
 
 - `flutter_devices [dir=.]`
   - Purpose: Print one `<id><TAB><name>` line per connected device. Parses `flutter devices --machine` with `jq` when available and falls back to the human-readable table when it is not, so this works on a machine without `jq`.

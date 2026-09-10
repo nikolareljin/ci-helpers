@@ -11,7 +11,7 @@ Functions
   - Behavior: Detects and uses `apt-get`, `dnf`, `pacman`, or `brew`. Uses `sudo` when available.
 
 - install_dependencies_ai_runner
-  - Purpose: Install a profile of tools typically used by AI Runner/HelperGPT workflows.
+  - Purpose: Install a profile of tools typically used by the AI tooling consumers (R-643 and its runner).
   - Behavior:
     - Ensures: `dialog`, `curl`, `jq`, `python3`, `pip3`, `nodejs` (>=20), `npm`/`npx`, `git`, and `ollama`.
     - Installs clipboard utilities (`xclip` on Linux) as needed.

@@ -110,9 +110,11 @@ grep -q '^## \[Unreleased\]' "$tmp/good.md" \
 grep -q 'The first thing.' "$tmp/good.md" \
   || error "existing content was lost"
 
-before="$(md5sum < "$tmp/good.md")"
+# cksum, not md5sum (GNU-only) or shasum (a perl script, absent on
+# musl): this only needs to notice a change, and cksum is POSIX.
+before="$(cksum < "$tmp/good.md")"
 changelog_new_section "$tmp/good.md" 1.3.0 --date 2026-07-31 >/dev/null 2>&1
-after="$(md5sum < "$tmp/good.md")"
+after="$(cksum < "$tmp/good.md")"
 [[ "$before" == "$after" ]] || error "a second call for the same version changed the file"
 note "new_section inserts correctly and is idempotent"
 

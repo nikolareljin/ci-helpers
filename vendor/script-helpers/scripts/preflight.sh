@@ -50,7 +50,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging
+shlib_import help logging os
 
 QUICK=false
 USE_DOCKER=false
@@ -79,8 +79,8 @@ fi
 [[ -d "$PROJECT_DIR" ]] || { log_error "preflight: not a directory: $PROJECT_DIR"; exit 2; }
 cd "$PROJECT_DIR" || exit 2
 
-KNOWN_STACKS="flutter gradle node python go rust php"
-for s in "${WANTED_STACKS[@]}"; do
+KNOWN_STACKS="flutter gradle ios node python go rust php"
+for s in "${WANTED_STACKS[@]+"${WANTED_STACKS[@]}"}"; do
   [[ " $KNOWN_STACKS " == *" $s "* ]] || {
     log_error "preflight: unknown stack '$s'. Known: $KNOWN_STACKS"
     exit 2
@@ -129,6 +129,28 @@ detect_stacks() {
                 -o -name pyproject.toml -o -name setup.py -o -name requirements.txt \
                 -o -name go.mod -o -name Cargo.toml -o -name composer.json \) 2>/dev/null | sort)
 
+  # iOS. Detected from a Flutter project that has an ios/ directory, and from a
+  # Podfile. The stack directory is the Flutter project root rather than the
+  # ios/ folder itself, because that is what ci_ios.sh takes as its --workdir.
+  # Without this, `preflight` on a Mac demanded the Android SDK and never once
+  # invoked Xcode, while ci_ios.sh sat in the library with no caller at all.
+  local fdir podfile pdir_ios
+  for fdir in "${flutter_dirs[@]+"${flutter_dirs[@]}"}"; do
+    [[ -n "$fdir" ]] || continue
+    [[ -d "$fdir/ios" ]] && pairs+=("ios	$fdir")
+  done
+  while IFS= read -r podfile; do
+    _is_pruned "$podfile" && continue
+    pdir_ios="$(dirname "$podfile")"; pdir_ios="${pdir_ios#./}"
+    [[ -n "$pdir_ios" ]] || pdir_ios="."
+    # A Podfile lives in the ios/ folder; the project it belongs to is above it.
+    if [[ "$(basename "$pdir_ios")" == "ios" ]]; then
+      pdir_ios="$(dirname "$pdir_ios")"; pdir_ios="${pdir_ios#./}"
+      [[ -n "$pdir_ios" ]] || pdir_ios="."
+    fi
+    pairs+=("ios	$pdir_ios")
+  done < <(find . -maxdepth 4 -type f -name Podfile 2>/dev/null | sort)
+
   # Deduplicate, then drop two kinds of redundant project:
   #
   #  * A Gradle project inside a Flutter app. A Flutter repo's android/ tree is
@@ -139,7 +161,7 @@ detect_stacks() {
   #    runs the same tests twice.
   local pair stack pdir other odir ostack skip
   local -a seen=() kept=()
-  for pair in "${pairs[@]}"; do
+  for pair in "${pairs[@]+"${pairs[@]}"}"; do
     case " ${seen[*]-} " in *" $pair "*) continue ;; esac
     seen+=("$pair")
     stack="${pair%%	*}"; pdir="${pair#*	}"
@@ -158,7 +180,7 @@ detect_stacks() {
     [[ -n "$pair" ]] || continue
     stack="${pair%%	*}"; pdir="${pair#*	}"
     skip=0
-    for other in "${kept[@]}"; do
+    for other in "${kept[@]+"${kept[@]}"}"; do
       ostack="${other%%	*}"; odir="${other#*	}"
       [[ "$ostack" == "$stack" && "$odir" != "$pdir" ]] || continue
       # $pdir sits inside $odir — the outer project owns it.
@@ -203,7 +225,7 @@ PAIRS=()
 if [[ ${#WANTED_STACKS[@]} -gt 0 ]]; then
   for pair in "${DETECTED[@]-}"; do
     [[ -n "$pair" ]] || continue
-    for s in "${WANTED_STACKS[@]}"; do
+    for s in "${WANTED_STACKS[@]+"${WANTED_STACKS[@]}"}"; do
       [[ "${pair%%	*}" == "$s" ]] && { PAIRS+=("$pair"); break; }
     done
   done
@@ -220,7 +242,7 @@ if [[ "$LIST_ONLY" == "true" ]]; then
     echo "No stack detected in $PROJECT_DIR"
     exit 3
   fi
-  printf '%s\n' "${DETECTED[@]}"
+  printf '%s\n' "${DETECTED[@]+"${DETECTED[@]}"}"
   exit 0
 fi
 
@@ -285,12 +307,33 @@ label() {
 # Per-stack checks. Each takes the directory its project lives in.
 # ---------------------------------------------------------------------------
 
+# install_hint <brew-formula> <apt-package>; a platform-appropriate way to get a
+# missing tool. A skip that names the fix is actionable; "go is not installed"
+# on a Mac, where nothing here has ever run, is not.
+install_hint() {
+  case "$(get_os)" in
+    mac)   printf 'brew install %s' "$1" ;;
+    linux) printf 'apt install %s' "$2" ;;
+    *)     printf 'your package manager' ;;
+  esac
+}
+
+# Whether an Android SDK is installed. Checked by location rather than by a
+# command, because the SDK is a directory and its tools are not usually on PATH.
+_android_sdk_present() {
+  [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}" ]] && return 0
+  [[ -n "${ANDROID_SDK_ROOT:-}" && -d "${ANDROID_SDK_ROOT}" ]] && return 0
+  [[ -d "$HOME/Android/Sdk" ]] && return 0
+  [[ -d "$HOME/Library/Android/sdk" ]] && return 0
+  return 1
+}
+
 check_flutter() {
   local dir="$1" name; name="$(label flutter "$dir")"
   if [[ "$USE_DOCKER" == "true" ]]; then
     local args=(--workdir "$dir")
     [[ "$QUICK" == "true" ]] && args+=(--skip-build)
-    run_step "$name (docker)" bash "$(helper_script ci_flutter.sh)" "${args[@]}"
+    run_step "$name (docker)" bash "$(helper_script ci_flutter.sh)" "${args[@]+"${args[@]}"}"
     return
   fi
   if ! command -v flutter >/dev/null 2>&1 && [[ ! -x "${FLUTTER_ROOT:-}/bin/flutter" ]]; then
@@ -300,10 +343,48 @@ check_flutter() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="analyze + test"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
   if [[ "$QUICK" == "false" ]]; then
-    run_step "$name build apk --debug" in_dir "$dir" flutter build apk --debug
+    # An APK build needs the Android SDK, which a Mac set up for iOS work has no
+    # reason to have. This used to be unconditional, so preflight on a Mac
+    # failed on a toolchain the repo never asked for. The iOS build is the
+    # `ios` stack's job, not this one's.
+    if [[ ! -d "$PROJECT_DIR/$dir/android" ]]; then
+      skip_step "$name build apk --debug" "no android/ directory in this project"
+    elif _android_sdk_present; then
+      run_step "$name build apk --debug" in_dir "$dir" flutter build apk --debug
+    else
+      skip_step "$name build apk --debug" "no Android SDK (set ANDROID_HOME or ANDROID_SDK_ROOT)"
+    fi
   fi
+}
+
+# iOS is the one stack that cannot fall back to Docker: Xcode runs on macOS
+# only. Everywhere else this reports a skip rather than a failure, because a
+# Linux box failing an iOS check would be noise on every run.
+check_ios() {
+  local dir="$1" name; name="$(label ios "$dir")"
+  if ! is_macos; then
+    skip_step "$name" "iOS checks need macOS with Xcode"
+    return
+  fi
+  if ! command -v xcrun >/dev/null 2>&1; then
+    skip_step "$name" "xcrun not found — install Xcode and its command line tools"
+    return
+  fi
+  if [[ ! -f "$PROJECT_DIR/$dir/pubspec.yaml" ]]; then
+    skip_step "$name" "only Flutter iOS projects are checked here"
+    return
+  fi
+  if ! command -v flutter >/dev/null 2>&1 && [[ ! -x "${FLUTTER_ROOT:-}/bin/flutter" ]]; then
+    skip_step "$name" "flutter is not installed (set FLUTTER_ROOT)"
+    return
+  fi
+  # analyze and test belong to the flutter stack for this same directory;
+  # running them again here would double the slowest part of the run.
+  local args=(--workdir "$dir" --skip-analyze --skip-test)
+  [[ "$QUICK" == "true" ]] && args+=(--skip-build)
+  run_step "$name build" bash "$(helper_script ci_ios.sh)" "${args[@]+"${args[@]}"}"
 }
 
 check_gradle() {
@@ -311,7 +392,7 @@ check_gradle() {
   if [[ "$USE_DOCKER" == "true" ]]; then
     local args=(--workdir "$dir" --skip-detekt)
     [[ "$QUICK" == "true" ]] && args+=(--skip-build)
-    run_step "$name (docker)" bash "$(helper_script ci_gradle.sh)" "${args[@]}"
+    run_step "$name (docker)" bash "$(helper_script ci_gradle.sh)" "${args[@]+"${args[@]}"}"
     return
   fi
   if [[ ! -x "$PROJECT_DIR/$dir/gradlew" ]]; then
@@ -321,62 +402,62 @@ check_gradle() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="lint + test + assemble"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_node() {
   local dir="$1" name; name="$(label node "$dir")"
   if ! command -v npm >/dev/null 2>&1; then
-    skip_step "$name" "npm is not installed"
+    skip_step "$name" "npm is not installed — $(install_hint node nodejs)"
     return
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_python() {
   local dir="$1" name; name="$(label python "$dir")"
   if ! command -v python3 >/dev/null 2>&1 && ! command -v python >/dev/null 2>&1; then
-    skip_step "$name" "no python interpreter found"
+    skip_step "$name" "no python interpreter found — $(install_hint python python3)"
     return
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_go() {
   local dir="$1" name; name="$(label go "$dir")"
   if ! command -v go >/dev/null 2>&1; then
-    skip_step "$name" "go is not installed"
+    skip_step "$name" "go is not installed — $(install_hint go golang)"
     return
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_rust() {
   local dir="$1" name; name="$(label rust "$dir")"
   if ! command -v cargo >/dev/null 2>&1; then
-    skip_step "$name" "cargo is not installed"
+    skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
     return
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_php() {
   local dir="$1" name; name="$(label php "$dir")"
   if ! command -v php >/dev/null 2>&1; then
-    skip_step "$name" "php is not installed"
+    skip_step "$name" "php is not installed — $(install_hint php php-cli)"
     return
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$dir" "${args[@]}"
+  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_security() {
@@ -391,7 +472,7 @@ check_security() {
     log_warn "preflight: gitleaks is not installed — secret scanning is being skipped."
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
   fi
-  run_step "security scan" bash "$scanner" "${args[@]}"
+  run_step "security scan" bash "$scanner" "${args[@]+"${args[@]}"}"
 }
 
 # ---------------------------------------------------------------------------
@@ -400,14 +481,15 @@ check_security() {
 
 log_info "preflight: $PROJECT_DIR"
 log_info "preflight: ${#PAIRS[@]} project(s)$([[ "$CONFIGURED" == "true" ]] && echo ' from .preflight')$([[ "$QUICK" == "true" ]] && echo ' (quick)')$([[ "$USE_DOCKER" == "true" ]] && echo ' (docker)')"
-for pair in "${PAIRS[@]}"; do
+for pair in "${PAIRS[@]+"${PAIRS[@]}"}"; do
   log_info "  - $(label "${pair%%	*}" "${pair#*	}")"
 done
 
-for pair in "${PAIRS[@]}"; do
+for pair in "${PAIRS[@]+"${PAIRS[@]}"}"; do
   stack="${pair%%	*}"; stack_dir="${pair#*	}"
   case "$stack" in
     flutter) check_flutter "$stack_dir" ;;
+    ios)     check_ios     "$stack_dir" ;;
     gradle)  check_gradle  "$stack_dir" ;;
     node)    check_node    "$stack_dir" ;;
     python)  check_python  "$stack_dir" ;;
@@ -426,7 +508,7 @@ done
 echo
 echo "preflight summary"
 echo "-----------------"
-printf '%s\n' "${RESULTS[@]}"
+printf '%s\n' "${RESULTS[@]+"${RESULTS[@]}"}"
 echo
 
 if [[ "$FAILED" -eq 0 ]]; then

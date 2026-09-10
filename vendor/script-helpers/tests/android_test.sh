@@ -56,7 +56,11 @@ gradle_run /nonexistent-dir test >/dev/null 2>&1; [[ $? -eq 2 ]] || error "gradl
 set -e
 note "bad arguments return 2"
 
-tmp="$(mktemp -d)"
+# Canonicalised with `pwd -P`: on macOS /var is a symlink to /private/var, so
+# mktemp returns /var/folders/... while anything resolving the path returns
+# /private/var/folders/... . gradle_wrapper deliberately returns a resolved
+# path, so an unresolved fixture path fails the comparison on macOS only.
+tmp="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$tmp"' EXIT
 
 # 3) signing: a missing keystore is an error, unless the caller opted into the

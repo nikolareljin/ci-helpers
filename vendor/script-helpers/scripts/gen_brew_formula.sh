@@ -103,7 +103,7 @@ mkdir -p "$(dirname "$formula_path")"
 class_name="$(pkg_classify_name "$name")"
 
 deps_block=""
-for dep in "${deps[@]}"; do
+for dep in "${deps[@]+"${deps[@]}"}"; do
   deps_block+="  depends_on \"$dep\"\n"
 done
 
@@ -130,7 +130,7 @@ $deps_block
   def install
     libexec.install Dir["*"]
     (bin/"$entrypoint").write <<~EOS
-      #!/bin/bash
+      #!/usr/bin/env bash
       export $env_var="#{libexec}"
       exec "#{libexec}/$entrypoint" "\$@"
     EOS

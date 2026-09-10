@@ -94,7 +94,7 @@ if [[ "$QUICK" == "false" ]]; then
   # it. A project that declares a `dev` extra is stating where they live, so
   # honour it rather than making the caller install pytest by hand. This is the
   # same shape ci-helpers' documented install_command uses.
-  if [[ -f pyproject.toml ]] && grep -qE '^\s*dev\s*=' pyproject.toml; then
+  if [[ -f pyproject.toml ]] && grep -qE '^[[:space:]]*dev[[:space:]]*=' pyproject.toml; then
     echo "[local-test-python] $PYTHON -m pip install -e '.[dev]'"
     "$PYTHON" -m pip install -e '.[dev]' --quiet \
       || echo "[local-test-python] the dev extra did not install; continuing" >&2

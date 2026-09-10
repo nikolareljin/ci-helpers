@@ -96,8 +96,21 @@ verify_checksum() {
   fi
 }
 
+
+# The DISTROS-based selectors here take an associative array *from the caller*,
+# which is the one thing in this library that genuinely cannot work on bash 3.2.
+# os.sh carries require_bash4, which says so with an actionable message; load it
+# the way screencap.sh loads its optional modules.
+if ! declare -f require_bash4 >/dev/null 2>&1; then
+  if [[ -n "${_SHLIB_LIB_DIR:-}" && -f "${_SHLIB_LIB_DIR}/os.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${_SHLIB_LIB_DIR}/os.sh"
+  fi
+fi
+
 # Convenience used by iso-forge: expects DISTROS associative array defined by caller
 download_iso() {
+  require_bash4 "download_iso (DISTROS associative array)" || return 1
   local distro_name="$1"
   local url="${DISTROS[$distro_name]}"
   if [[ -z "$url" ]]; then

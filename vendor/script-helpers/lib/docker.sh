@@ -145,10 +145,10 @@ docker_status() {
     else
       # Not running; inspect ps output to differentiate failed vs not started
       out=$(docker_compose ps "$service" 2>/dev/null || true)
-      if echo "$out" | grep -Eqi '\b(Exit|Exited|exited|dead|restarting)\b'; then
+      if echo "$out" | grep -Eqi '(^|[^A-Za-z])(Exit|Exited|exited|dead|restarting)([^A-Za-z]|$)'; then
         # Extract a short status phrase if possible
         local reason
-        reason=$(echo "$out" | grep -Eio '\b(Exit(ed)?\s*\(?[0-9]*\)?|exited\s*\(?[0-9]*\)?|dead|restarting[^ ]*)\b' | head -n1)
+        reason=$(echo "$out" | grep -Eio '(Exit(ed)?[[:space:]]*\(?[0-9]*\)?|exited[[:space:]]*\(?[0-9]*\)?|dead|restarting[^ ]*)' | head -n1)
         log_error "💥 ${service} — failed (${reason:-last state unknown})"
       else
         log_warn "✖️ ${service} — not running"
