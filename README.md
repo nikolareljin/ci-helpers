@@ -366,8 +366,12 @@ GTK3-era and is the thing 26.04 will actually change — so that rollover is a
 deliberate edit here, not a drift. Every one of them takes a `runner` input.
 
 22.04 is not required by anything in this repository. It was needed only by
-Tauri v1, which linked `webkit2gtk-4.0`; a v1 app can still ask for it through
-`runner`, and should be migrating.
+Tauri v1, which linked `webkit2gtk-4.0`. A v1 app that must build here has to
+override **both** inputs — `runner: ubuntu-22.04` *and* an `apt_packages` list
+naming `libwebkit2gtk-4.0-dev libsoup2.4-dev libappindicator3-dev` in place of
+the 4.1 / ayatana defaults — because the default apt list is v2's and `runner`
+alone leaves it in place. And it should be migrating: 22.04 is the last image
+that can build it at all.
 
 ## Release tagging in external repos
 
