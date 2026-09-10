@@ -47,6 +47,12 @@ bad()  { echo "[verify-vendor][ERROR] $*" >&2; failures=$((failures+1)); }
 # including the currency check, which CI never runs at all because
 # vendor-check.yml invokes this script with --offline. The summary at the end
 # says how many, so a green run cannot be read as more than it was.
+#
+# A skip line says what did not happen and nothing more. Naming some other job
+# as covering it is how the claim drifts: with an explicit ref pinned,
+# security-weekly's vendor-drift compares the stored SHA against *that ref*, so
+# it catches a vendored tree that no longer matches its own pin and says nothing
+# about whether a newer release exists upstream.
 skip() { echo "[verify-vendor][SKIP] $*"; skipped=$((skipped+1)); }
 
 # 1) Structure -----------------------------------------------------------------
@@ -126,7 +132,7 @@ done
 
 # 5) Currency ------------------------------------------------------------------
 if [[ "$OFFLINE" == "true" ]]; then
-  skip "upstream currency not checked (--offline); security-weekly's vendor-drift job covers it online"
+  skip "upstream currency not checked (--offline)"
 elif ! command -v gh >/dev/null 2>&1; then
   skip "upstream currency not checked: gh is not installed"
 else

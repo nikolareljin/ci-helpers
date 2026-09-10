@@ -78,8 +78,13 @@
   script with `--offline`, which means **CI has never checked currency at all**,
   and the run still finished by announcing the vendored copy "usable and
   current". Skips now print as `SKIP`, are counted, and the closing line drops
-  the word `current` when any of them fired. `security-weekly`'s `vendor-drift`
-  job is what actually checks currency, online, once a week.
+  the word `current` when any of them fired — and a skip line says only what did
+  not happen. Naming another job as covering it is how the claim drifts: with an
+  explicit ref pinned, `vendor-drift` compares the stored SHA against *that ref*,
+  so it catches a vendored tree that no longer matches its own pin and says
+  nothing about whether a newer release exists upstream. Nothing automated
+  answers that question while the ref is pinned; advancing it stays a decision
+  taken here.
 
 - **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
   the newest upstream tag with `sort -V | tail -1`, which places every
