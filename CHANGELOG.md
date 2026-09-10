@@ -73,9 +73,11 @@
   pointed at for that one job. Relative now, so it resolves at the consumer's
   pinned ref.
 
-- **`[ -f src/*Bundle.php ]` in `php-scan.yml` never matched** — `-f` takes one
-  path and an unmatched glob stays literal, so Pimcore was never detected that
-  way. A loop sees the expansion. Found by actionlint (below); with it, five
+- **`[ -f src/*Bundle.php ]` in `php-scan.yml` only worked with exactly one
+  bundle** — with none the glob stays literal, with several `-f` gets more
+  than one argument and errors out, so Pimcore detection by that route was
+  unreliable at both ends. A loop sees each match. Found by actionlint
+  (below); with it, five
   more shellcheck warnings: three `local x=$(…)` masking exit codes under
   `set -e`, a `trap` expanding at definition rather than on signal, and
   `export GPG_TTY="$(tty)"` in `ppa-deb.yml` — which, split as shellcheck

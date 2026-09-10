@@ -114,8 +114,9 @@ jobs:
           fi
 
           is_pimcore=false
-          # `[ -f src/*Bundle.php ]` never matched: -f takes one path, and an
-          # unmatched glob stays literal. A loop sees the expansion.
+          # `[ -f src/*Bundle.php ]` only worked when exactly one file matched:
+          # with none the glob stays literal, with several -f gets more than
+          # one argument and the test errors out. A loop sees each match.
           for bundle in src/*Bundle.php; do
             if [ -f "$bundle" ]; then is_pimcore=true; break; fi
           done
