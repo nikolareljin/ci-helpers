@@ -85,10 +85,9 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           printf '5\ny\n' | gpg --batch --command-fd 0 --edit-key "$GPG_KEY_ID" trust
           gpg --batch --list-keys "$GPG_KEY_ID"
-          # No terminal on a runner: tty exits 1, and under set -e a plain
-          # assignment of its output would stop the job here.
-          GPG_TTY="$(tty || true)"
-          export GPG_TTY
+          # No GPG_TTY here, on purpose. There is no terminal on a runner, an
+          # export in this step cannot reach the build step anyway, and
+          # signing runs with loopback pinentry, which never asks a terminal.
 
       - name: Configure Launchpad SSH
         shell: bash
