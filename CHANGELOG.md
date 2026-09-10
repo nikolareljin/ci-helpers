@@ -26,6 +26,13 @@
   Two lines in the vendored copy named a private repository; they are gone
   upstream and gone here.
 
+  `vendor/.script-helpers-ref` records the tag, `0.26.0`, as the previous two
+  syncs recorded `0.24.0` and `0.14.0`. Running `sync_script_helpers.sh` with
+  no `--ref` writes the literal `latest` instead, and `security-weekly`'s
+  drift check treats that as "re-resolve the newest tag every week" — which
+  would have turned every future script-helpers release into a weekly failure
+  here until someone re-vendored. The pin keeps drift a decision.
+
 ### Fixed
 
 - **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
