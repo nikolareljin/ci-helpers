@@ -1,4 +1,34 @@
 # Changelog
+## 2026-09-09 — 0.24.0
+
+### Changed
+
+- **The Tauri workflows default to `ubuntu-24.04`.** All three named
+  `ubuntu-22.04`, and the reason recorded next to them was backwards:
+
+  > Runner label — ubuntu-22.04 required for Tauri v2 WebKit ABI
+
+  and, in `docs/workflows.md`, *"required for Tauri v2 WebKit2GTK ABI
+  compatibility — ubuntu-24.04 breaks it"*. It is **v1** that needs
+  `webkit2gtk-4.0`, which Ubuntu removed in 24.04. **v2** links `4.1` — which
+  is what these workflows' own apt step already installs, and what 24.04
+  ships. The pin was holding jobs on an older image so they could install
+  libraries the newer image has.
+
+  Verified before changing it, by compiling a Tauri v2 app on a 24.04 machine
+  rather than by reading the docs that were wrong.
+
+  The 22.04 runner image has a finite life, and nothing in the fleet was
+  tracking that.
+
+### Added
+
+- **`tauri-release.yml` takes a `runner` input**, as `tauri.yml` and
+  `tauri-scan.yml` already did. It was the one Tauri workflow a consumer could
+  not override — and the wrong one to hardcode, being the workflow that
+  produces release artefacts. Consumers pinned to an older image now have a
+  way out that is not a fork.
+
 ## 2026-09-06 — 0.23.0
 
 ### Changed

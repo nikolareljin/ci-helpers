@@ -1338,11 +1338,16 @@ jobs:
 
 Workflow: `.github/workflows/tauri-scan.yml`
 
-Purpose: Fast Tauri lint + check gate (no full build). Runs on `ubuntu-22.04`
-(required for Tauri v2 WebKit2GTK ABI compatibility — ubuntu-24.04 breaks it).
+Purpose: Fast Tauri lint + check gate (no full build). Runs on `ubuntu-24.04`.
+
+The previous default said 22.04 was "required for Tauri v2 WebKit2GTK ABI
+compatibility — ubuntu-24.04 breaks it". That had it backwards: **v1** linked
+`webkit2gtk-4.0`, which 24.04 removed; **v2** links `4.1`, which is what these
+workflows' own apt step installs and what 24.04 ships. A v2 app was verified
+compiling on 24.04 before this default moved.
 
 Inputs:
-- `runner` (string, default `ubuntu-22.04`)
+- `runner` (string, default `ubuntu-24.04`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `rust_toolchain` (string, default `stable`)
@@ -1371,7 +1376,7 @@ Workflow: `.github/workflows/tauri.yml`
 
 Purpose: Standalone Tauri CI preset — installs Tauri system deps, runs tests
 and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
-Runs on `ubuntu-22.04`.
+Runs on `ubuntu-24.04` by default; override with `runner`.
 
 Inputs: same as `tauri-scan.yml` except `rust_components` defaults to `""` (no components), plus:
 - `test_command` (string, default `cargo test --verbose`)
@@ -1393,7 +1398,8 @@ jobs:
 Workflow: `.github/workflows/tauri-release.yml`
 
 Purpose: Cross-platform Tauri desktop release — builds on a 3-job matrix
-(`macos-latest`, `windows-latest`, `ubuntu-22.04`), signs/notarizes, uploads
+(`macos-latest`, `windows-latest`, and the `runner` input — default
+`ubuntu-24.04`), signs/notarizes, uploads
 artifacts, publishes a GitHub release, and optionally submits to WinGet.
 
 Key design notes:
@@ -1408,6 +1414,7 @@ Inputs (selected):
 
 | Input | Default | Description |
 |-------|---------|-------------|
+| `runner` | `ubuntu-24.04` | Linux runner for `build-linux`. New in 0.24.0 — it was hardcoded, the one Tauri workflow a consumer could not override |
 | `version` | `""` | Patches `tauri.conf.json` + `Cargo.toml` |
 | `rust_toolchain` | `stable` | Rust toolchain |
 | `node_version` | `""` | Optional Node.js version |

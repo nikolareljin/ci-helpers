@@ -2,6 +2,10 @@ name: tauri-release
 on:
   workflow_call:
     inputs:
+      runner:
+        description: Linux runner label for the build-linux job. Runner label. 24.04 carries libwebkit2gtk-4.1, which is what Tauri v2 links; 22.04 was needed only by v1, which linked 4.0
+        type: string
+        default: ubuntu-24.04
       version:
         description: >
           Version string used to patch tauri.conf.json and Cargo.toml before
@@ -470,8 +474,11 @@ jobs:
 
   # ── Linux ──────────────────────────────────────────────────────────────────
   build-linux:
-    # ubuntu-22.04 required for Tauri v2 WebKit ABI (libwebkit2gtk-4.1-dev)
-    runs-on: ubuntu-22.04
+    # The runner is an input here, as it already was in tauri.yml and
+    # tauri-scan.yml. It was the one Tauri workflow a consumer could not
+    # override, which is the wrong one to hardcode: it is the workflow that
+    # produces release artefacts.
+    runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
