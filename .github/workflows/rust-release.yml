@@ -220,74 +220,21 @@ jobs:
 
       - name: Generate release notes
         id: notes
-        if: ${{ inputs.generate_release_notes }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          repo_dir="${GITHUB_WORKSPACE:-.}"
-          cd "$repo_dir"
-
-          since_tag=""
-          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
-            since_tag="$(git describe --tags --abbrev=0)"
-          fi
-
-          notes_file="$(mktemp)"
-          if [ -n "$since_tag" ]; then
-            git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
-          else
-            git log --pretty=format:"* %s" > "$notes_file"
-          fi
-
-          if [ ! -s "$notes_file" ]; then
-            echo "* No changes listed." > "$notes_file"
-          fi
-
-          release_tag="${{ inputs.release_tag }}"
-          if [ -z "$release_tag" ]; then
-            release_tag="${GITHUB_REF_NAME:-}"
-          fi
-
-          binary_base_url="${{ inputs.binary_base_url }}"
-          if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
-            binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
-          fi
-
-          binary_links="${{ steps.binaries.outputs.links }}"
-          if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
-            {
-              echo ""
-              echo "## Download Binaries"
-              echo ""
-              echo "| Platform | Binary |"
-              echo "|----------|--------|"
-            } >> "$notes_file"
-
-            while IFS= read -r line; do
-              trimmed="${line#"${line%%[![:space:]]*}"}"
-              if [ -z "$trimmed" ]; then
-                continue
-              fi
-              label="${trimmed%%|*}"
-              filename="${trimmed#*|}"
-              if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
-                continue
-              fi
-              printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
-            done <<< "$binary_links"
-          fi
-
-          notes_content="$(cat "$notes_file")"
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$notes_content" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+        if: ${{ inputs.generate_release_notes || inputs.release_notes != '' }}
+        uses: ./.github/actions/release-notes
+        with:
+          version: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+          release_tag: ${{ inputs.release_tag }}
+          override: ${{ inputs.release_notes }}
+          binary_links: ${{ inputs.binary_links }}
+          binary_base_url: ${{ inputs.binary_base_url }}
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3 @ 2026-09-10
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
           release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
-          body: ${{ inputs.release_notes != '' && inputs.release_notes || steps.notes.outputs.notes }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
           overwrite_files: true
         env:

@@ -1,71 +1,109 @@
 name: release-notes
-description: Generate release notes from git history with optional binary links
+description: >
+  Produce a GitHub Release body and write it to a file. The body is the
+  CHANGELOG.md section for the version, or the commits since the previous
+  release tag when there is none -- never the placeholder "* No changes listed."
+  Wraps the vendored script-helpers scripts/release_notes.sh, so the range is
+  computed from the previous release tag rather than the tag being released.
+  The notes are written to a file and exposed as a path (notes_file); pass that
+  to body_path / --notes-file so the body never travels through a ${{ }} string.
 inputs:
-  repo_dir:
-    description: Repository root (defaults to GITHUB_WORKSPACE)
-    required: false
-    default: ""
-  since_tag:
-    description: Tag to start notes from (defaults to latest tag if available)
+  version:
+    description: "Version being released. Default: release_tag, else GITHUB_REF_NAME (a leading v is fine)."
     required: false
     default: ""
   release_tag:
-    description: Tag used for binary download links (defaults to GITHUB_REF_NAME)
+    description: "Tag for this release and for binary download links. Default: GITHUB_REF_NAME."
+    required: false
+    default: ""
+  repo_dir:
+    description: "Repository root to read. Default: GITHUB_WORKSPACE."
+    required: false
+    default: ""
+  changelog:
+    description: "CHANGELOG path relative to repo_dir. Default: CHANGELOG.md."
+    required: false
+    default: ""
+  override:
+    description: >
+      Explicit body text. When set it is used verbatim instead of the generated
+      notes (binary links are still appended). This is the escape hatch a caller
+      uses to supply its own text.
     required: false
     default: ""
   binary_links:
-    description: Newline-delimited list of label|filename entries for binary links
+    description: Newline-delimited "label|filename" entries for a download table.
     required: false
     default: ""
   binary_base_url:
-    description: Base URL for binaries (defaults to repo releases/download/<tag>)
+    description: "Base URL for binaries. Default: this repo's releases/download/<tag>."
     required: false
     default: ""
 outputs:
+  notes_file:
+    description: Path to the file holding the release body. Pass to body_path / --notes-file.
+    value: ${{ steps.produce.outputs.notes_file }}
   notes:
-    description: Generated release notes markdown
+    description: The release body as text. Prefer notes_file; this exists for callers that still read an output.
+    value: ${{ steps.produce.outputs.notes }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    # Everything reaches the shell through the environment, never interpolated
+    # into the script: a ${{ }} value spliced into `run:` is expanded before the
+    # shell sees it, so a CHANGELOG line or a commit subject containing `${{ }}`
+    # or a backtick would run. This is the failure this action exists to end, so
+    # it does not reproduce it. See GitHub's workflow-injection guidance.
+    - id: produce
+      shell: bash
+      env:
+        RN_VERSION: ${{ inputs.version }}
+        RN_RELEASE_TAG: ${{ inputs.release_tag }}
+        RN_REPO_DIR: ${{ inputs.repo_dir }}
+        RN_CHANGELOG: ${{ inputs.changelog }}
+        RN_OVERRIDE: ${{ inputs.override }}
+        RN_BINARY_LINKS: ${{ inputs.binary_links }}
+        RN_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
+        RN_ACTION_PATH: ${{ github.action_path }}
+        RN_REPOSITORY: ${{ github.repository }}
+        RN_REF_NAME: ${{ github.ref_name }}
       run: |
         set -euo pipefail
-        repo_dir="${{ inputs.repo_dir }}"
-        if [ -z "$repo_dir" ]; then
-          repo_dir="${GITHUB_WORKSPACE:-.}"
-        fi
-        cd "$repo_dir"
 
-        since_tag="${{ inputs.since_tag }}"
-        if [ -z "$since_tag" ]; then
-          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
-            since_tag="$(git describe --tags --abbrev=0)"
-          fi
-        fi
+        repo_dir="${RN_REPO_DIR:-}"
+        [ -n "$repo_dir" ] || repo_dir="${GITHUB_WORKSPACE:-.}"
 
-        notes_file="$(mktemp)"
-        if [ -n "$since_tag" ]; then
-          git log --pretty=format:"* %s" "${since_tag}..HEAD" > "$notes_file"
+        release_tag="${RN_RELEASE_TAG:-}"
+        [ -n "$release_tag" ] || release_tag="${RN_REF_NAME:-}"
+
+        version="${RN_VERSION:-}"
+        [ -n "$version" ] || version="$release_tag"
+
+        notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+
+        if [ -n "${RN_OVERRIDE:-}" ]; then
+          # Verbatim caller text. Written through the environment, not echoed
+          # from a ${{ }} expansion, for the same reason as everything else here.
+          printf '%s\n' "$RN_OVERRIDE" > "$notes_file"
         else
-          git log --pretty=format:"* %s" > "$notes_file"
+          # The vendored producer lives at the repo root of this action's repo:
+          #   .github/actions/release-notes/ -> ../../../vendor/script-helpers
+          producer="$RN_ACTION_PATH/../../../vendor/script-helpers/scripts/release_notes.sh"
+          if [ ! -x "$producer" ]; then
+            echo "release-notes: vendored producer not found at $producer" >&2
+            exit 1
+          fi
+          args=(--version "$version" --repo "$repo_dir" --output "$notes_file")
+          [ -z "${RN_CHANGELOG:-}" ] || args+=(--changelog "$RN_CHANGELOG")
+          bash "$producer" "${args[@]}"
         fi
 
-        if [ ! -s "$notes_file" ]; then
-          echo "* No changes listed." > "$notes_file"
-        fi
-
-        release_tag="${{ inputs.release_tag }}"
-        if [ -z "$release_tag" ]; then
-          release_tag="${GITHUB_REF_NAME:-}"
-        fi
-
-        binary_base_url="${{ inputs.binary_base_url }}"
+        binary_base_url="${RN_BINARY_BASE_URL:-}"
         if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
-          binary_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+          binary_base_url="https://github.com/${RN_REPOSITORY}/releases/download/${release_tag}"
         fi
 
-        binary_links="${{ inputs.binary_links }}"
-        if [ -n "$binary_links" ] && [ -n "$binary_base_url" ]; then
+        if [ -n "${RN_BINARY_LINKS:-}" ] && [ -n "$binary_base_url" ]; then
           {
             echo ""
             echo "## Download Binaries"
@@ -76,19 +114,19 @@ runs:
 
           while IFS= read -r line; do
             trimmed="${line#"${line%%[![:space:]]*}"}"
-            if [ -z "$trimmed" ]; then
-              continue
-            fi
+            [ -n "$trimmed" ] || continue
             label="${trimmed%%|*}"
             filename="${trimmed#*|}"
             if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
               continue
             fi
             printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
-          done <<< "$binary_links"
+          done <<< "$RN_BINARY_LINKS"
         fi
 
-        notes_content="$(cat "$notes_file")"
-        echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-        echo "$notes_content" >> "$GITHUB_OUTPUT"
-        echo "EOF" >> "$GITHUB_OUTPUT"
+        {
+          echo "notes_file=$notes_file"
+          echo "notes<<RELEASE_NOTES_EOF"
+          cat "$notes_file"
+          echo "RELEASE_NOTES_EOF"
+        } >> "$GITHUB_OUTPUT"
