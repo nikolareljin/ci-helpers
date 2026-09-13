@@ -3,9 +3,12 @@
 
 ### Changed
 
-- **`vendor/script-helpers` updated from 0.24.0 to 0.26.0.** The vendored tree
-  now matches script-helpers at tag `0.26.0`, which is where `production`
-  points.
+- **`vendor/script-helpers` updated from 0.24.0 to 0.27.0.** The vendored tree
+  now matches script-helpers at tag `0.27.0` (`2b91c3a`), which is where
+  `production` points. An earlier revision of this release vendored `0.26.0`;
+  review of that copy found defects in its iOS, Rust, dev-CLI and bash 3.2
+  paths, all fixed upstream in `0.27.0`, so this release carries that instead
+  of a copy already known to be wrong.
 
   This is not a fix for a failing drift check, and an earlier draft of this
   entry said it was. `vendor-drift` compares the stored SHA against whatever
@@ -25,18 +28,30 @@
   pin, not from `vendor/`.) Of what those three source, `lib/logging.sh`,
   `lib/package_publish.sh` and `lib/packaging.sh` are unchanged; `helpers.sh`
   gained a bash-version preamble whose advisory prints only when stderr is a
-  terminal — never on a runner; and `lib/help.sh`'s `get_script_metadata`
-  changed signature (namerefs are bash 4.3+; the library now runs on macOS's
-  3.2) — the three scripts use `display_help`, which is unchanged. Elsewhere in
-  the tree: `lib/os.sh`'s `get_os` now recognises `linux-musl` and
-  `linux-android`, and the two Homebrew scripts gained `set -u` empty-array
-  guards and a `#!/usr/bin/env bash` shebang on the generated formula wrapper —
-  which reaches a consumer only when it bumps its own pin.
+  terminal — never on a runner — and names a remedy that fits the host; and
+  `lib/help.sh`'s `get_script_metadata` changed signature (namerefs are bash
+  4.3+; the library now runs on macOS's 3.2). The three scripts call
+  `display_help`, whose signature and output are unchanged; it no longer leaves
+  a dozen `_shlib_help_meta_*` globals behind in the calling script. Elsewhere
+  in the tree: `lib/os.sh`'s `get_os` now recognises `linux-musl` and
+  `linux-android`; the two Homebrew scripts gained `set -u` empty-array guards
+  and a `#!/usr/bin/env bash` shebang on the generated formula wrapper; the
+  `local_test_*.sh` runners and `preflight.sh` resolve paths correctly under
+  `--dir`; `install_dev_cli.sh` refuses shim names and destinations that would
+  overwrite the entry point or write outside the repository; and
+  `ios_boot_simulator` waits for `Booted`. Those reach a consumer only when it
+  bumps its own pin.
+
+  One upstream test, `tests/runner_dir_test.sh`, fails when run from inside
+  this repository rather than a script-helpers checkout: it expects a relative
+  `--dir` to be joined to script-helpers' own root, and here the enclosing git
+  root is this repository. The runners behave as documented; nothing here runs
+  the vendored tests.
 
   Two lines in the vendored copy named a private repository; they are gone
   upstream and gone here.
 
-  `vendor/.script-helpers-ref` records the tag, `0.26.0`, as the previous two
+  `vendor/.script-helpers-ref` records the tag, `0.27.0`, as the previous two
   syncs recorded `0.24.0` and `0.14.0`. Running `sync_script_helpers.sh` with
   no `--ref` writes the literal `latest` instead, and `security-weekly`'s
   drift check treats that as "re-resolve the newest tag every week" — which

@@ -46,7 +46,7 @@ run_deploy_ios() {
     dev_is_flutter() { :; }
     dev_stack_dir() { echo "$repo"; }
     ios_resolve_physical_device() { : > "$marks/resolve"; echo "00008110-001"; }
-    ios_build_release() { : > "$marks/build"; }
+    ios_build_release() { : > "$marks/build"; printf '%s' "${2:-}" > "$marks/build_plist"; }
     ios_artifact() { : > "$marks/artifact"; echo "$repo/build/ios/ipa/App.ipa"; }
     ios_install() { : > "$marks/install"; }
     DEV_RELEASE=true
@@ -92,6 +92,46 @@ rc="$(run_deploy_ios)"
   || error "with a plist: expected exit 0, got $rc"
 ran build && note "with a plist: the build ran" || error "with a plist: no build ran"
 ran install && note "with a plist: the install ran" || error "with a plist: no install ran"
+
+# 4) A nested app plus a relative plist. The guard checks the path from the repo
+#    root -- which is where the dev CLI puts you -- while ios_build_release
+#    re-checks it after cd-ing into the project. When those are different
+#    directories (mobile/, app/: the layout the shared dev CLI assumes) a
+#    relative path names two different files, so the build either dies on a path
+#    that just validated or signs with whichever plist sits inside the project.
+#    What is handed on must therefore be absolute.
+mkdir -p "$repo/mobile/ios"
+: > "$repo/ExportOptions.plist"
+rm -rf "$marks"; mkdir -p "$marks"
+(
+  # shellcheck source=/dev/null
+  source "$repo/scripts/cli.sh"          # the bootstrap cds to the repo root
+  shlib_import() { :; }
+  ios_available() { :; }
+  dev_is_flutter() { :; }
+  dev_stack_dir() { echo "mobile"; }     # relative, as detection returns it
+  ios_resolve_physical_device() { echo "00008110-001"; }
+  ios_build_release() { printf '%s' "${2:-}" > "$marks/build_plist"; }
+  ios_artifact() { echo "mobile/build/ios/ipa/App.ipa"; }
+  ios_install() { :; }
+  ios_bundle_id() { echo "com.example.app"; }
+  ios_launch() { :; }
+  # Read by _deploy_ios through dynamic scope, not by anything lexically here.
+  # shellcheck disable=SC2034
+  DEV_RELEASE=true
+  DEV_DEVICE=""
+  IOS_EXPORT_OPTIONS_PLIST="ExportOptions.plist"   # relative to the repo root
+  _deploy_ios
+) >/dev/null 2>&1
+nested_plist_arg="$(cat "$marks/build_plist" 2>/dev/null)"
+case "$nested_plist_arg" in
+  /*) note "nested project: the plist handed on is absolute ($nested_plist_arg)" ;;
+  "") error "nested project: ios_build_release never ran" ;;
+  *)  error "nested project: relative plist passed through as '$nested_plist_arg' -- inside the project dir that names a different file" ;;
+esac
+[[ -n "$nested_plist_arg" && -f "$nested_plist_arg" ]] \
+  && note "nested project: it resolves to the file the guard validated" \
+  || error "nested project: '$nested_plist_arg' is not the validated file"
 
 if [[ $failures -gt 0 ]]; then
   echo "[dev_deploy_ios_test] FAILED ($failures)" >&2

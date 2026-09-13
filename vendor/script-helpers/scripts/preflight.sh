@@ -4,7 +4,10 @@
 # USAGE: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-security] [--list]
 #
 # PARAMETERS:
-#   --quick           Skip build/assemble steps. Tests and lint still run.
+#   --quick           Skip build/assemble steps. Tests and lint still run. The
+#                     iOS stack is skipped entirely: its analyze and test belong
+#                     to the flutter stack for the same directory, so the build
+#                     is all it does.
 #                     This is what the pre-push hook uses.
 #   --stack <name>    Check one stack only, instead of every stack detected.
 #                     Repeatable. One of: flutter gradle node python go rust php.
@@ -78,6 +81,12 @@ if [[ -z "$PROJECT_DIR" ]]; then
 fi
 [[ -d "$PROJECT_DIR" ]] || { log_error "preflight: not a directory: $PROJECT_DIR"; exit 2; }
 cd "$PROJECT_DIR" || exit 2
+# Absolute from here on. A relative --dir sub was left as "sub" after this cd,
+# so every later "$PROJECT_DIR/$dir" -- the iOS pubspec check, in_dir, the
+# runner arguments -- resolved to sub/sub/... from inside sub and skipped or
+# failed a valid nested project. The runners happened to survive because they
+# re-anchor a relative path on the git root; nothing else did.
+PROJECT_DIR="$(pwd)"
 
 KNOWN_STACKS="flutter gradle ios node python go rust php"
 for s in "${WANTED_STACKS[@]+"${WANTED_STACKS[@]}"}"; do
@@ -343,7 +352,7 @@ check_flutter() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="analyze + test"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name $what" bash "$(helper_script local_test_flutter.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
   if [[ "$QUICK" == "false" ]]; then
     # An APK build needs the Android SDK, which a Mac set up for iOS work has no
     # reason to have. This used to be unconditional, so preflight on a Mac
@@ -381,9 +390,16 @@ check_ios() {
     return
   fi
   # analyze and test belong to the flutter stack for this same directory;
-  # running them again here would double the slowest part of the run.
+  # running them again here would double the slowest part of the run. The build
+  # is therefore the whole of this step -- so --quick, which skips it, leaves
+  # ci_ios.sh with nothing but `flutter pub get`, and reporting that as a passed
+  # "ios build" claims a build that never ran. The flutter check for this same
+  # directory fetches the dependencies anyway, so there is nothing left to do.
+  if [[ "$QUICK" == "true" ]]; then
+    skip_step "$name" "--quick skips the iOS build, which is all this step does"
+    return
+  fi
   local args=(--workdir "$dir" --skip-analyze --skip-test)
-  [[ "$QUICK" == "true" ]] && args+=(--skip-build)
   run_step "$name build" bash "$(helper_script ci_ios.sh)" "${args[@]+"${args[@]}"}"
 }
 
@@ -402,7 +418,7 @@ check_gradle() {
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
   local what="lint + test + assemble"; [[ "$QUICK" == "true" ]] && what="test"
-  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name $what" bash "$(helper_script local_test_gradle.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_node() {
@@ -413,7 +429,7 @@ check_node() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_node.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_python() {
@@ -424,7 +440,7 @@ check_python() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_python.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_go() {
@@ -435,18 +451,45 @@ check_go() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name vet + test" bash "$(helper_script local_test_go.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_rust() {
   local dir="$1" name; name="$(label rust "$dir")"
-  if ! command -v cargo >/dev/null 2>&1; then
-    skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
-    return
-  fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  # cargo on PATH is not the precondition local_test_rust.sh actually has, and
+  # it is not even a precondition in the default case. That runner targets
+  # *rustup's* toolchain, because that is what CI compiles with, and resolves it
+  # before it ever looks at PATH -- prepending ~/.cargo/bin itself. So demanding
+  # cargo up front turned away a machine with rustup installed and ~/.cargo/bin
+  # not yet on PATH, which the runner handles unaided. cargo is the precondition
+  # for --any-cargo; rustup is the precondition for everything else. Either one
+  # missing is a skip naming both remedies, the way every other absent toolchain
+  # here is handled, rather than a failed run advising a flag preflight has no
+  # way to pass on.
+  if [[ "${PREFLIGHT_RUST_ANY_CARGO:-false}" == "true" ]]; then
+    if ! command -v cargo >/dev/null 2>&1; then
+      skip_step "$name" "cargo is not installed — $(install_hint rust rustc)"
+      return
+    fi
+    args+=(--any-cargo)
+  elif ! command -v rustup >/dev/null 2>&1; then
+    skip_step "$name" "rustup is not installed — CI compiles with rustup's ${RUST_TOOLCHAIN:-stable}; install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+    return
+  else
+    # rustup being present is still not the runner's precondition: it asks
+    # rustup for the selected toolchain's cargo and refuses when there is none
+    # (rustup installed, `stable` never added). Ask the same question here so
+    # that state is the documented skip and not a failed step.
+    local rustup_cargo
+    rustup_cargo="$(rustup which --toolchain "${RUST_TOOLCHAIN:-stable}" cargo 2>/dev/null || true)"
+    if [[ -z "$rustup_cargo" || ! -x "$rustup_cargo" ]]; then
+      skip_step "$name" "rustup has no cargo for '${RUST_TOOLCHAIN:-stable}' — run: rustup toolchain install ${RUST_TOOLCHAIN:-stable}, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+      return
+    fi
+  fi
+  run_step "$name clippy + test" bash "$(helper_script local_test_rust.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_php() {
@@ -457,7 +500,7 @@ check_php() {
   fi
   local args=()
   [[ "$QUICK" == "true" ]] && args+=(--quick)
-  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$dir" "${args[@]+"${args[@]}"}"
+  run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
 check_security() {

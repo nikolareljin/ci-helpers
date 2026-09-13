@@ -18,6 +18,18 @@ boot_calls=0
 install_calls=0
 simctl_output=""
 boot_status=0
+boot_reveal_after=0
+boot_reveals=""
+# `trap ... EXIT` replaces the handler rather than adding to it, and this file
+# creates temporaries in three places -- which is how the last one silently
+# orphaned the ones before it. One handler, one list appended to as each
+# temporary appears, so a new one cannot introduce that bug again.
+_cleanup_paths=()
+_cleanup() { [[ ${#_cleanup_paths[@]} -gt 0 ]] && rm -rf "${_cleanup_paths[@]+"${_cleanup_paths[@]}"}"; return 0; }
+trap _cleanup EXIT
+
+boot_poll_file="$(mktemp)"
+_cleanup_paths+=("$boot_poll_file")
 shutdown_status=0
 devicectl_available=false
 xctrace_output=""
@@ -28,11 +40,27 @@ xcrun() {
     return 0
   fi
   if [[ "$1 $2 ${3:-}" == "simctl list devices" ]]; then
+    # A listing that fails outright, for the polling loop's error path.
+    [[ "${list_status:-0}" -ne 0 ]] && return "$list_status"
+    # `booted` with boot_reveal_after set models the real thing: simctl boot
+    # returns while the device is still Booting, and it does not appear in this
+    # listing until it reaches Booted.
+    if [[ "${4:-}" == "booted" && "$boot_reveal_after" -gt 0 ]]; then
+      # Counted in a file, not a variable: every caller of this listing reads it
+      # through $( ) or process substitution, and a subshell's increment is lost.
+      local n; n=$(cat "$boot_poll_file" 2>/dev/null || echo 0)
+      n=$((n + 1)); echo "$n" > "$boot_poll_file"
+      [[ "$n" -lt "$boot_reveal_after" ]] && return 0
+    fi
     printf '%s' "$simctl_output"
     return 0
   fi
   if [[ "$1 $2" == "simctl boot" ]]; then
     boot_calls=$((boot_calls + 1))
+    # A successful boot makes the device appear in `list devices booted` -- but
+    # only once it reaches Booted, which boot_reveal_after models.
+    [[ "$boot_status" -eq 0 && -n "$boot_reveals" ]] && \
+      simctl_output="${simctl_output:+$simctl_output$'\n'}$boot_reveals"
     return "$boot_status"
   fi
   if [[ "$1 $2 ${3:-}" == "simctl shutdown all" ]]; then
@@ -82,8 +110,72 @@ ios_boot_simulator "iPhone 15"
 [[ "$boot_calls" -eq 0 ]] || { echo "already-booted simulator was booted again" >&2; exit 1; }
 
 boot_status=0
-ios_boot_simulator "iPhone 15 Pro Max"
+# "iPhone 15 Pro Max" must not match the booted "iPhone 15", so a boot runs --
+# and a real boot ends with the device listed as Booted, which the stub models.
+boot_reveals='    iPhone 15 Pro Max (11111111-2222-3333-4444-555555555555) (Booted)'
+IOS_BOOT_TIMEOUT=5 ios_boot_simulator "iPhone 15 Pro Max"
 [[ "$boot_calls" -eq 1 ]] || { echo "partial simulator name incorrectly matched" >&2; exit 1; }
+
+# A boot that has started but not finished. `simctl boot` returns immediately
+# and the device is Booting, not Booted; until 0.27.0 ios_boot_simulator
+# returned there too, so ios_resolve_device's next lookup found nothing and
+# reported a simulator it had just started as "not a booted simulator".
+simctl_output=""
+boot_reveal_after=6
+: > "$boot_poll_file"
+boot_reveals='    iPhone 15 Pro Max (11111111-2222-3333-4444-555555555555) (Booted)'
+resolved="$(IOS_BOOT_TIMEOUT=10 ios_resolve_device "iPhone 15 Pro Max" 2>/dev/null)"
+[[ "$resolved" == "11111111-2222-3333-4444-555555555555" ]] || {
+  echo "a simulator still Booting was not waited for: got '$resolved'" >&2
+  exit 1
+}
+boot_reveal_after=0
+boot_reveals=""
+boot_calls=1
+
+# A malformed timeout is refused before the loop, not fed to it. "10s" in an
+# arithmetic test errors on every iteration, so the deadline was never reached.
+# The stubs are named functions defined outside the substitution: bash 3.2's
+# parser cannot cope with a `case` pattern's `)` inside `$( )`.
+_stub_xcrun_quiet() { return 0; }
+bad_rc=0; out="$( (
+  xcrun() { _stub_xcrun_quiet "$@"; }
+  IOS_BOOT_TIMEOUT=10s ios_boot_simulator "iPhone 15 Pro Max" 2>&1 >/dev/null
+) )" || bad_rc=$?
+if [[ $bad_rc -eq 2 && "$out" == *"whole number of seconds"* ]]; then
+  echo "[ios_test] a malformed IOS_BOOT_TIMEOUT is refused with exit 2"
+else
+  echo "[ios_test] malformed IOS_BOOT_TIMEOUT not refused: rc=$bad_rc out=$out" >&2; exit 1
+fi
+
+# simctl breaking *after* a successful boot command. The polling loop used to
+# embed the listing in [[ -n "$( )" ]], discarding its exit status, so a broken
+# simctl was reported as a 60-second timeout instead of as itself.
+list_status=0
+: > "$boot_poll_file"
+boot_reveal_after=0
+boot_reveals=""
+simctl_output=""
+_stub_xcrun_listfail() {
+  if [[ "$1 $2 ${3:-}" == "simctl list devices" ]]; then
+    [[ "${4:-}" == booted && -n "${LIST_FAIL_AFTER_BOOT:-}" ]] && return 9
+    printf '%s' "$simctl_output"; return 0
+  fi
+  [[ "$1 $2" == "simctl boot" ]] && LIST_FAIL_AFTER_BOOT=1
+  return 0
+}
+poll_err="$( (
+  xcrun() { _stub_xcrun_listfail "$@"; }
+  start=$(date +%s)
+  IOS_BOOT_TIMEOUT=30 ios_boot_simulator "iPhone 15 Pro Max" 2>&1 >/dev/null
+  echo "rc=$? elapsed=$(( $(date +%s) - start ))"
+) )"
+case "$poll_err" in
+  *"could not list booted simulators"*"rc=1 elapsed=0"*|*"could not list booted simulators"*"rc=1 elapsed=1"*)
+    echo "[ios_test] a simctl failure while polling is reported as itself, immediately" ;;
+  *) echo "[ios_test] simctl failure while polling was not propagated: $poll_err" >&2; exit 1 ;;
+esac
+
 
 simctl_output=""
 boot_status=7
@@ -100,7 +192,7 @@ if ios_shutdown_simulators 2>/dev/null; then
 fi
 
 ipa_dir="$(mktemp -d)"
-trap 'rm -rf "$ipa_dir"' EXIT
+_cleanup_paths+=("$ipa_dir")
 ipa_file="$ipa_dir/app.ipa"
 : > "$ipa_file"
 if ios_install "device-id" "$ipa_file" 2>/dev/null; then
@@ -287,10 +379,7 @@ shopt -u extglob
 
 # --- ios_artifact ----------------------------------------------------------
 art_tmp="$(mktemp -d)"
-# One trap covering both temp directories: `trap ... EXIT` replaces the handler
-# rather than adding to it, so a second trap here would have silently orphaned
-# $ipa_dir on every run.
-trap 'rm -rf "$ipa_dir" "$art_tmp"' EXIT
+_cleanup_paths+=("$art_tmp")
 
 if ios_artifact "$art_tmp" simulator >/dev/null 2>&1; then
   echo "ios_artifact should fail when nothing is built" >&2

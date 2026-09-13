@@ -36,12 +36,27 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# The library root, resolved before any cd. $BASH_SOURCE is whatever the caller
+# typed -- "scripts/local_test_x.sh" for the documented invocation -- so
+# resolving it after cd-ing into the project looks for the library under the
+# project and silently loses the helper it needs.
+SH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [[ ! -d "$repo_root/$GRADLE_DIR" ]]; then
-  echo "[local-test-gradle] Directory not found: $repo_root/$GRADLE_DIR" >&2
+# --dir is documented as relative to the repository root. preflight, which may
+# be pointed at a subdirectory of a repository with --dir, resolves it to an
+# absolute path first; an absolute value is honoured as given. Without this,
+# `preflight --dir sub` in a git repository looked for sub/<stack> under the
+# git root instead of under sub/, and reported the stack's directory missing.
+if [[ "$GRADLE_DIR" == /* ]]; then
+  target="$GRADLE_DIR"
+else
+  target="$repo_root/$GRADLE_DIR"
+fi
+if [[ ! -d "$target" ]]; then
+  echo "[local-test-gradle] Directory not found: $target" >&2
   exit 1
 fi
-cd "$repo_root/$GRADLE_DIR"
+cd "$target"
 
 if [[ ! -x ./gradlew ]]; then
   echo "[local-test-gradle] No executable ./gradlew in $GRADLE_DIR (looked in $PWD)." >&2
@@ -68,7 +83,7 @@ fi
 # project fault rather than an environment one. Reuse the android module's lookup
 # rather than repeating it; an already-set value wins.
 if [[ "$ANDROID" == "true" ]]; then
-  _sh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  _sh_dir="$SH_ROOT"
   if [[ -f "$_sh_dir/helpers.sh" ]]; then
     # shellcheck source=/dev/null
     source "$_sh_dir/helpers.sh"

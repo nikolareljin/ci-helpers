@@ -29,7 +29,15 @@ if [[ "$_shlib_bash_major" -lt 4 ]]; then
   export SHLIB_BASH_LEGACY=1
   if [[ -z "${SHLIB_BASH_ADVISORY_SHOWN:-}" && -z "${SHLIB_NO_BASH_ADVISORY:-}" && -t 2 ]]; then
     export SHLIB_BASH_ADVISORY_SHOWN=1
-    echo "[script-helpers] Running on bash ${BASH_VERSION}. This is supported; bash 4+ is faster and enables the few helpers that take an associative array. On macOS: brew install bash" >&2
+    # The remedy named depends on where this is running. Naming Homebrew on a
+    # Linux host with an old bash -- a minimal container, an old enterprise
+    # release -- points at a tool that is not there.
+    case "${OSTYPE:-}" in
+      darwin*) _shlib_bash_hint="On macOS: brew install bash" ;;
+      *)       _shlib_bash_hint="Install a current bash from your package manager (apt, dnf, apk, pacman)" ;;
+    esac
+    echo "[script-helpers] Running on bash ${BASH_VERSION}. This is supported; bash 4+ is faster and enables the few helpers that take an associative array. ${_shlib_bash_hint}" >&2
+    unset _shlib_bash_hint
   fi
 else
   export SHLIB_BASH_LEGACY=0

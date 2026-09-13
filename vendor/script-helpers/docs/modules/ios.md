@@ -59,8 +59,14 @@ empty result.
 
 ### `ios_boot_simulator <udid|name>`
 
-Boots the named simulator or UDID. It returns `0` when already booted or after a
-successful boot, and non-zero for missing arguments or `simctl` failures.
+Boots the named simulator or UDID and **waits until it is Booted**. `simctl
+boot` returns when the boot starts, and the device is not listed as booted for
+several seconds after that; returning at the same moment handed callers a
+device their next lookup could not find. It returns `0` when already booted or
+once the device reaches Booted, and non-zero for missing arguments, a `simctl`
+failure (including one while polling), or when Booted is not reached within
+`IOS_BOOT_TIMEOUT` seconds (default `60`). The deadline is checked inclusively,
+so a device that boots on the last second counts.
 
 ### `ios_shutdown_simulators`
 

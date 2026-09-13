@@ -85,7 +85,43 @@ ios_boot_simulator() {
       '; then
     return 0
   fi
-  xcrun simctl boot "$id"
+  xcrun simctl boot "$id" || return 1
+
+  # `simctl boot` returns when the boot *starts*. The device then sits in
+  # Booting for several seconds, and `simctl list devices booted` does not list
+  # it until it reaches Booted -- so returning here handed the caller a device
+  # its very next lookup could not find. ios_resolve_device does exactly that
+  # lookup, and reported a simulator it had just successfully started as "not a
+  # booted simulator". Wait for the state the caller is about to ask for.
+  # Two things this loop must not do. It must not swallow a failing simctl:
+  # the listing's exit status is checked before its output, so a simctl that
+  # breaks after the boot command is reported as that, not as a timeout. And it
+  # must check once *at* the deadline: a device that reaches Booted on the last
+  # second was previously counted as never having got there.
+  local waited=0 timeout="${IOS_BOOT_TIMEOUT:-60}" udid
+  # Validated before the loop: "10s" in an arithmetic test is an error on every
+  # iteration, so the deadline is never reached and the loop runs forever.
+  case "$timeout" in
+    ''|*[!0-9]*)
+      echo "ios_boot_simulator: IOS_BOOT_TIMEOUT must be a whole number of seconds, got '$timeout'" >&2
+      return 2 ;;
+  esac
+  # All-digit is not yet safe: bash arithmetic reads a leading zero as octal, so
+  # 08 and 09 are errors rather than timeouts -- the same non-terminating loop
+  # the validation above exists to prevent. Strip to base 10.
+  while [[ "$timeout" == 0* && "${#timeout}" -gt 1 ]]; do timeout="${timeout#0}"; done
+  while :; do
+    udid="$(_ios__booted_udid_for "$id")" || {
+      echo "ios_boot_simulator: could not list booted simulators while waiting for '$id'" >&2
+      return 1
+    }
+    [[ -n "$udid" ]] && return 0
+    [[ "$waited" -ge "$timeout" ]] && break
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "ios_boot_simulator: '$id' did not reach Booted within ${timeout}s" >&2
+  return 1
 }
 
 # Usage: ios_shutdown_simulators; shuts down all booted simulators.

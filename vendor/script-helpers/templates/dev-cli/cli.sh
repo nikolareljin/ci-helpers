@@ -277,6 +277,16 @@ _deploy_ios() {
       log_error "deploy ios --release: IOS_EXPORT_OPTIONS_PLIST not found: $IOS_EXPORT_OPTIONS_PLIST"
       exit 1
     }
+    # Make it absolute before handing it on. This check runs at the repo root;
+    # ios_build_release re-checks it after `cd`-ing into the Flutter project.
+    # In a repo whose app is nested -- mobile/, app/, the layout the shared dev
+    # CLI assumes -- a relative plist path means two different files in those two
+    # places, so the build either fails on a path that just passed validation or,
+    # worse, signs with whichever plist happens to sit inside the project.
+    case "$IOS_EXPORT_OPTIONS_PLIST" in
+      /*) ;;
+      *)  IOS_EXPORT_OPTIONS_PLIST="$PWD/$IOS_EXPORT_OPTIONS_PLIST" ;;
+    esac
     # Resolved before building: a signed build is slow, and "no device attached"
     # is worth hearing before it rather than after.
     udid="$(ios_resolve_physical_device "$DEV_DEVICE")" || exit 1

@@ -40,12 +40,77 @@ shell_files() {
         | sed 's|^\./||' | sort
     fi
   }
+  local f first interp rest
   _candidates \
     | while IFS= read -r f; do
         [[ -f "$f" ]] || continue
         [[ "$f" == "$SELF" ]] && continue
         case "$f" in *.ps1|*.md) continue ;; esac
-        head -n1 "$f" | grep -q 'bash' && printf '%s\n' "$f"
+        # Classify by shebang, not by "does line 1 mention bash". The old test
+        # dropped every file whose first line did not contain the word, which
+        # silently excluded exactly the files the shebang check below exists to
+        # catch: `#!/bin/sh`, `#!/bin/zsh` and scripts with no shebang at all
+        # never reached it, so that check could only ever fire on a shebang that
+        # already said bash. A gate that cannot see its own subject is not a gate.
+        #
+        # The interpreter is compared by name and not by a `*sh` suffix, because
+        # `pwsh` ends in one: this repository ships a PowerShell library, and
+        # matching on the suffix would have run bash-4 and GNU-grep bans over it
+        # and then failed its shebang for not saying bash.
+        first="$(head -n1 "$f" 2>/dev/null)"
+        if [[ "$first" == '#!'* ]]; then
+          interp="${first#\#!}"
+          # `#! /bin/sh` is a valid shebang with a space after the magic; without
+          # this trim it read as an empty interpreter and was dropped.
+          interp="${interp#"${interp%%[![:space:]]*}"}"
+          interp="${interp%%[[:space:]]*}"
+          interp="${interp##*/}"
+          if [[ "$interp" == "env" ]]; then
+            rest="${first#*env}"
+            rest="${rest#"${rest%%[![:space:]]*}"}"
+            interp="${rest%%[[:space:]]*}"
+            interp="${interp##*/}"
+            # `env` carrying options -- `-S`, `-i`, `--ignore-environment`,
+            # `-u VAR` -- leaves a flag here rather than an interpreter. Guessing
+            # which flags take an argument to find the real one is how this
+            # filter kept growing a new hole; an unclassifiable shebang is left
+            # for the shebang check below to name, since this repository
+            # mandates exactly `#!/usr/bin/env bash` and every one of these
+            # forms is something it should report.
+            [[ "$interp" == -* ]] && interp=""
+            # `#!/usr/bin/env FOO=bar bash` is an assignment, not an interpreter,
+            # and the same rule applies: unclassifiable is reported, not dropped.
+            [[ "$interp" == *=* ]] && interp=""
+          fi
+          case "$interp" in
+            sh|bash|rbash|dash|ksh|ash|zsh) printf '%s\n' "$f" ;;
+            # A `#!` line with no interpreter left after resolving it -- bare
+            # `#!/usr/bin/env`, `#!/usr/bin/env -S`, `#!` alone. Dropping those
+            # would be the original blind spot again, one shape smaller: the
+            # shebang check below is the thing that should name a broken
+            # shebang, so the file has to reach it.
+            "") printf '%s\n' "$f" ;;
+            # python, perl, pwsh, tclsh, ... are not this test's subject --
+            # unless the file is one this repository runs as a shell script
+            # anyway: a `.sh` name, or one of the entry-point locations
+            # _candidates collects on purpose. There the name and the shebang
+            # disagree, and the shebang check should say so rather than the
+            # file vanishing from the scan.
+            *) case "$f" in
+                 *.sh|bin/*|scripts/git-hooks/*|templates/dev-cli/dev)
+                   printf '%s\n' "$f" ;;
+               esac ;;
+          esac
+        else
+          # No shebang. A `.sh` name still says what it is, and so does living
+          # in one of the entry-point locations _candidates collects on purpose:
+          # a shebang-less file under bin/ or the hooks is still something that
+          # will be run by bash, and dropping it here is the original blind
+          # spot again for exactly those files.
+          case "$f" in
+            *.sh|bin/*|scripts/git-hooks/*|templates/dev-cli/dev) printf '%s\n' "$f" ;;
+          esac
+        fi
       done
 }
 
@@ -131,6 +196,10 @@ while IFS= read -r f; do
   case "$first" in
     '#!/usr/bin/env bash') ;;
     '#!'*) error "shebang is not '#!/usr/bin/env bash' -> $f: $first" ;;
+    # The classifier deliberately keeps a shebang-less `.sh` or entry point, so
+    # that it reaches this check rather than vanishing. Without a branch here it
+    # arrived and nothing happened, which is the same silence one step later.
+    *) error "no shebang; every scanned file needs '#!/usr/bin/env bash' -> $f" ;;
   esac
 done < <(printf '%s' "$FILES" | grep -v '^$')
 

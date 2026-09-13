@@ -54,3 +54,8 @@ cargo check
 `scripts/local_test_rust.sh` does this by default; set `RUST_TOOLCHAIN` to pin a
 channel or version. Pass `--any-cargo` to opt out, for a repository that
 genuinely targets the system toolchain.
+
+`scripts/preflight.sh` inherits the requirement and cannot forward the flag, so
+it skips a Rust project when rustup is absent — `cargo` on `PATH` is not the
+precondition this gate actually has. `PREFLIGHT_RUST_ANY_CARGO=true` turns that
+skip into a real check against `PATH`'s cargo.

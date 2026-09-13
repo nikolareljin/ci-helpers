@@ -2,6 +2,199 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-10 — v0.27.0
+
+### Fixed
+- **`tests/portability_test.sh` — the portability gate could not see a non-Bash
+  script.** Candidate files were filtered with `head -n1 "$f" | grep -q bash`,
+  so a script whose first line did not contain the word never reached any check.
+  That is exactly the set the shebang check below it exists to catch: `#!/bin/sh`,
+  `#!/bin/zsh` and a file with no shebang at all were dropped before it ran, and
+  the `shebang is not '#!/usr/bin/env bash'` branch could only ever fire on a
+  shebang that already said bash. A gate blind to its own subject reports PASS
+  for the case it was written for. Files are now classified by shebang, with a
+  `*.sh` name standing in when there is none. The interpreter is compared by
+  name rather than by a `*sh` suffix, because `pwsh` ends in one and this
+  repository ships a PowerShell library — so do `tclsh` and `wish`. Anything the
+  classifier cannot resolve to an interpreter — a bare `#!`, `#!/usr/bin/env`
+  with no command, `env` carrying options (`-S`, `-i`, `-u VAR`,
+  `--ignore-environment`, an assignment such as `env FOO=bar bash`) — is
+  *included* rather than dropped, so the shebang check names it. A file with no
+  shebang is included when its name says `.sh` *or* when it lives where the
+  entry points live (`bin/`, the git hooks, `templates/dev-cli/dev`), since
+  those are collected on purpose and were still being dropped — and the shebang
+  check now errors on a file that has none at all, which is what those files
+  were being kept for. The same locations are kept when the shebang names
+  something else entirely: `templates/dev-cli/dev` as `#!/usr/bin/env python3`
+  was dropped before the check that exists to say so. `rbash` counts
+  as bash; `#! /bin/sh` with a space after the magic is a shebang, not an empty
+  interpreter; and a `.sh` file whose shebang names python or perl is reported
+  rather than dropped, since the name and the shebang disagree. Failing toward inspection is the whole point: every narrower
+  version of this filter opened a new hole somewhere else. The scanned
+  set is unchanged today (114 files) — the defect was latent, and would have
+  been paid by whoever added the first `#!/bin/sh` script.
+
+- **`lib/help.sh` — rendering help left a dozen variables in the caller.**
+  `get_script_metadata` writes its results with `printf -v "${prefix}_${key}"`,
+  which creates a *global* unless some frame already declares the name. Callers
+  that pass their own prefix are choosing that; `_help__render` passes a fixed
+  `_shlib_help_meta` prefix nobody asked for, so any script calling `show_help`,
+  `display_help` or `print_help` silently gained `_shlib_help_meta_name`,
+  `_shlib_help_meta_usage` and ten more — plus `line`, from an undeclared loop
+  variable in `_help__print_block`. These libraries are sourced into other
+  people's scripts, so each of those is a name that can quietly clobber theirs.
+  Fixed by declaring the fixed field set `local` one frame above the call:
+  bash locals are dynamically scoped, so the assignments land in that frame and
+  disappear on return — no cleanup path to forget, and nothing newer than bash
+  3.2, with the name list built from `_HELP_META_FIELDS` at both ends so a field
+  added later cannot quietly start leaking again. `tests/scope_test.sh` now
+  exercises the three renderers, not just the collector, which is why the leak
+  survived a test written to catch exactly it.
+
+- **`helpers.sh` — the bash-3 advisory told Linux hosts to use Homebrew.** The
+  one-time note printed when the library loads under bash 3.x ended with
+  "On macOS: brew install bash" regardless of where it was running, so a
+  minimal container or an old enterprise Linux with a dated bash was pointed at
+  a tool it does not have. The remedy is chosen by `$OSTYPE` now: Homebrew on
+  macOS, the package manager elsewhere.
+
+- **Three runners resolved the library root after `cd`-ing into the project.**
+  `local_test_gradle.sh`, `local_test_python.sh` and `local_test_rust.sh` built
+  a path from `${BASH_SOURCE[0]}` *after* changing directory. That variable
+  holds whatever the caller typed — `scripts/local_test_rust.sh` for the
+  documented invocation — so with any `--dir` the lookup went to
+  `<project>/scripts/..` and the helper could not be sourced at all
+  (`cd: scripts/..: No such file or directory`). Each resolves `SH_ROOT` before
+  the first `cd` now.
+
+- **`scripts/preflight.sh --dir <sub>` resolved its own later paths as
+  `sub/sub/...`.** `PROJECT_DIR` was kept exactly as given, so after `cd`-ing
+  into `sub` every later `"$PROJECT_DIR/$dir"` — the iOS stack's `pubspec.yaml`
+  test, `in_dir`, the runner arguments — was built from a relative value that
+  no longer meant anything from the new working directory. The runners happened
+  to survive because they re-anchor a relative path on the git root; nothing
+  else did, so a valid nested project was skipped or failed. `PROJECT_DIR` is
+  absolute from the `cd` onward.
+
+- **`scripts/local_test_bash32.sh` — the offline skip map named one test that
+  needs git while four others use it.** `needs_for` was kept by hand, so
+  `hub_test.sh`, `install_dev_cli_test.sh`, `portability_test.sh`,
+  `runner_dir_test.sh` and `adb_wireless_test.sh` ran without git when the
+  bootstrap could not reach the network and failed for a missing tool — under
+  exactly the name this runner exists to keep off bash 3.2. The requirement is
+  read out of each test file now, with comments stripped first so a tool named
+  in prose is not mistaken for a dependency — a skipped test is lost coverage,
+  the same failure pointed the other way. The hand-written case adds only what
+  a scan cannot see: `apt-get`, which no test invokes but `docker_install`
+  requires, and an opt-out for the portability gate, which runs git when it is
+  there and falls back to `find` when it is not.
+
+- **`scripts/install_dev_cli.sh` — `--shims dev` replaced the entry point with
+  a shim that ran itself.** Every compatibility shim delegates to `./dev`, so a
+  shim *named* `dev` moved the real entry point to `dev.pre-dev-cli` and wrote
+  `exec "$(dirname "$0")/dev" dev "$@"` in its place: an exec loop, with the
+  file it needed already moved aside. A name containing a path separator would
+  likewise have written outside the repository root. Shim names are now
+  validated as a whole list before the first write of any kind — `dev`,
+  `dev.ps1`, `scripts`, `.`, `..` and anything with a `/` are refused with exit
+  2 — so a rejected invocation leaves the repository exactly as it found it;
+  the first version of this check ran after the entry point had already been
+  installed. The pre-write pass also refuses a destination that is a symlink
+  (`-e` is false for a dangling one, so the write would have followed it and
+  created the shim wherever it pointed, outside the repository included), an
+  existing directory (`--shims .git` moved `.git` to `.git.pre-dev-cli` and
+  replaced it with a file), and the reserved `*.pre-dev-cli` suffix (which
+  would have displaced the caller's original backup). The message uses
+  `readlink` is called without `--`, the form both GNU and BSD accept; BSD
+  `readlink` on macOS is the one that rejects GNU's `--`. The same guard
+  covers the installer's own destinations (`dev`, `scripts/cli.sh`, the
+  PowerShell counterparts): a dangling symlink at one of those is neither `-f`
+  nor `-e`, so `install_file` reached `cp`, which followed it and wrote the
+  template outside the repository. The guard walks the parent components too: a
+  consumer whose `scripts/` is a symlink out of the tree left
+  `scripts/cli.sh` neither a symlink nor a directory, so the check passed and
+  the `mkdir -p` and `cp` followed the parent link — measured, the old
+  installer exited 0 having written outside the repository.
+
+- **`lib/ios.sh` — a simulator was reported as unbootable moments after being
+  booted.** `simctl boot` returns when the boot *starts*; the device then sits
+  in `Booting` for several seconds and does not appear in
+  `simctl list devices booted` until it reaches `Booted`. `ios_boot_simulator`
+  returned at the same moment, so `ios_resolve_device`'s very next lookup found
+  nothing and printed "'X' is not a booted simulator" about a simulator it had
+  just successfully started — worse on a cold simulator, which is when the
+  caller most needed it. It now waits for the state the caller is about to ask
+  for (`IOS_BOOT_TIMEOUT`, default 60s). The wait checks the listing's exit
+  status before its output, so a `simctl` that breaks after the boot command is
+  reported as that rather than as a timeout, and it checks once *at* the
+  deadline, so a device that boots on the last second counts. `tests/ios_test.sh`
+  models the `Booting` window and the broken listing, and fails without either.
+  `IOS_BOOT_TIMEOUT` is validated as a whole number before the loop and refused
+  with exit 2: `10s` in an arithmetic test errors on every iteration, so the
+  deadline was never reached. All-digit is not sufficient either — bash reads a
+  leading zero as octal, so `08` and `09` were the same error — and the value is
+  normalised to base 10.
+
+- **`templates/dev-cli/cli.sh` — a relative export-options plist named two
+  different files in a nested project.** `./dev deploy ios --release` validates
+  `IOS_EXPORT_OPTIONS_PLIST` from the repository root, then hands it to
+  `ios_build_release`, which re-checks it after `cd`-ing into the Flutter
+  project. In the layout the shared dev CLI assumes — the app under `mobile/`
+  or `app/` — those are different directories, so a relative path either died on
+  a path that had just validated, or resolved to whichever plist sat inside the
+  project and signed with that. The path is now made absolute at the point it is
+  validated.
+
+- **`scripts/preflight.sh --dir <sub>` looked for every stack under the git
+  root instead of under `<sub>`.** Stack directories are detected relative to
+  the directory preflight was pointed at, but the `local_test_*` runners resolve
+  `--dir` against `git rev-parse --show-toplevel`, so `preflight --dir sub` in
+  a repository reported `Directory not found: <root>/app` for a stack that was
+  at `sub/app`. preflight now hands the runners an absolute path, and all seven
+  runners (`flutter`, `gradle`, `node`, `python`, `go`, `rust`, `php`) honour
+  one as given; a relative `--dir` still means what it always meant. The first
+  version of this change updated four of the seven, which would have broken
+  every ordinary Flutter, Gradle and PHP preflight with `<root>/<root>/<stack>`;
+  caught in review, and each runner is now probed with both forms.
+
+- **`scripts/preflight.sh` — `--quick` reported an iOS build that never ran.**
+  `check_ios` already passes `--skip-analyze --skip-test`, because those belong
+  to the flutter check for the same directory, so the build *is* the step. Under
+  `--quick` it added `--skip-build` as well and still called the result a passed
+  "ios build" — `ci_ios.sh` was left running `flutter pub get` and nothing else.
+  `--quick` now skips the step and says why.
+
+- **`scripts/preflight.sh` — a Rust project failed the run on unactionable
+  advice.** `check_rust` gated on `cargo` being on `PATH`, but
+  `local_test_rust.sh` runs against *rustup's* toolchain, because that is what
+  CI compiles with. On a machine with a distribution cargo and no rustup it
+  refused, advising `--any-cargo` — which preflight had no way to pass on. And
+  `cargo` on `PATH` is not a precondition at all in the default case: the runner
+  resolves rustup's toolchain before it looks at `PATH`, prepending
+  `~/.cargo/bin` itself, so demanding cargo up front turned away a machine the
+  runner handles unaided. `cargo` is now required only for `--any-cargo`;
+  otherwise the precondition is rustup, and either one missing is a skip naming
+  both remedies, the way every other absent toolchain here is handled.
+  `PREFLIGHT_RUST_ANY_CARGO=true` turns the skip back into a real check against
+  `PATH`'s cargo. rustup being installed with no cargo for the selected toolchain
+  (`stable` never added) is the same kind of state and is the same skip, naming
+  both remedies — the `rustup toolchain install` to run and the
+  `PREFLIGHT_RUST_ANY_CARGO` opt-in — rather than a failed step.
+
+- **`scripts/local_test_bash32.sh` — `--test` ignored the tool-skip rules the
+  suite relies on.** The single-test path ran the file directly rather than
+  through the runner, so `--test tests/docker_install_test.sh` failed for want
+  of `apt-get`, and `--test tests/git_branches_test.sh` failed for want of git
+  whenever the bootstrap could not reach the network — reporting a missing tool
+  as a bash 3.2 defect, which is what the skip rules exist to prevent. Both
+  paths now share one runner, and the path is normalised before the skip lookup
+  so `--test ./tests/x.sh` is treated the same as `--test tests/x.sh`. A stopped daemon and a missing image are also
+  reported as themselves -- with the command to run, and the documented exit
+  code 3 -- instead of surfacing a registry error that reads like the suite is
+  broken. `--shell` gets those checks too; it used to reach `docker run`
+  directly and answer an unpullable image with `cannot attach stdin to a
+  TTY-enabled container`.
+
 ## 2026-09-09 — v0.26.0
 
 ### Added

@@ -15,8 +15,8 @@ A newer bash is still better, and `./dev` picks one automatically when the
 machine has it (`/opt/homebrew/bin/bash`, `/usr/local/bin/bash`, or whatever is
 on `PATH`), falling back to `/bin/bash` when it does not. Sourcing `helpers.sh`
 on bash 3.x prints a one-time note on stderr — never stdout, and only to a
-terminal — suggesting `brew install bash`. Silence it with
-`SHLIB_NO_BASH_ADVISORY=1`.
+terminal — naming the remedy for the host: `brew install bash` on macOS, the
+package manager elsewhere. Silence it with `SHLIB_NO_BASH_ADVISORY=1`.
 
 Three functions are the exception and require bash 4.0, because they take an
 associative array **from the caller**: `select_distro`,

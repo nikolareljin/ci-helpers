@@ -49,18 +49,33 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# The library root, resolved before any cd. $BASH_SOURCE is whatever the caller
+# typed -- "scripts/local_test_x.sh" for the documented invocation -- so
+# resolving it after cd-ing into the project looks for the library under the
+# project and silently loses the helper it needs.
+SH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [[ ! -d "$repo_root/$TEST_DIR" ]]; then
-  echo "[local-test-rust] Directory not found: $repo_root/$TEST_DIR" >&2
+# --dir is documented as relative to the repository root. preflight, which may
+# be pointed at a subdirectory of a repository with --dir, resolves it to an
+# absolute path first; an absolute value is honoured as given. Without this,
+# `preflight --dir sub` in a git repository looked for sub/<stack> under the
+# git root instead of under sub/, and reported the stack's directory missing.
+if [[ "$TEST_DIR" == /* ]]; then
+  target="$TEST_DIR"
+else
+  target="$repo_root/$TEST_DIR"
+fi
+if [[ ! -d "$target" ]]; then
+  echo "[local-test-rust] Directory not found: $target" >&2
   exit 1
 fi
-cd "$repo_root/$TEST_DIR"
+cd "$target"
 
 # Resolve the toolchain before looking for cargo: rustup's may not be on PATH
 # at all yet, and the point is to run what CI runs.
 if [[ "$ANY_CARGO" == "false" ]]; then
   # shellcheck source=/dev/null
-  source "$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)/helpers.sh"
+  source "$SH_ROOT/helpers.sh"
   shlib_import rust
   rust_toolchain_ci_uses || {
     echo "[local-test-rust] Pass --any-cargo to run against PATH's cargo anyway." >&2
