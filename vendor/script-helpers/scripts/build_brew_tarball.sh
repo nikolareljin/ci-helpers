@@ -63,11 +63,11 @@ pkg_dir="$tmp_dir/$name-$version"
 mkdir -p "$pkg_dir"
 
 rsync_args=( -a )
-for ex in "${excludes[@]}"; do
+for ex in "${excludes[@]+"${excludes[@]}"}"; do
   rsync_args+=( --exclude "$ex" )
 done
 
-rsync "${rsync_args[@]}" "$repo_dir/" "$pkg_dir/"
+rsync "${rsync_args[@]+"${rsync_args[@]}"}" "$repo_dir/" "$pkg_dir/"
 
 tarball="$dist_dir/$name-$version.tar.gz"
 tar -czf "$tarball" -C "$tmp_dir" "$name-$version"

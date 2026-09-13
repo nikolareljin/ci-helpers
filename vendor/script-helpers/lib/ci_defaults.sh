@@ -41,6 +41,13 @@ CI_DEFAULT_GRADLE_IMAGE="${CI_DEFAULT_GRADLE_IMAGE:-gradle}"
 CI_DEFAULT_GO_VERSION="${CI_DEFAULT_GO_VERSION:-1.22}"
 CI_DEFAULT_GO_IMAGE="${CI_DEFAULT_GO_IMAGE:-golang}"
 
+# -- Legacy bash (macOS compatibility gate) --
+# macOS ships bash 3.2 as /bin/bash and always will, for licensing reasons. This
+# image is how the suite is run against that shell from a Linux box, so the
+# 3.2-safe idioms in lib/ are verified without needing a Mac.
+CI_DEFAULT_BASH32_VERSION="${CI_DEFAULT_BASH32_VERSION:-3.2}"
+CI_DEFAULT_BASH32_IMAGE="${CI_DEFAULT_BASH32_IMAGE:-bash}"
+
 # -- Gitleaks (security scanning) --
 CI_DEFAULT_GITLEAKS_VERSION="${CI_DEFAULT_GITLEAKS_VERSION:-v8.30.0}"
 CI_DEFAULT_GITLEAKS_IMAGE="${CI_DEFAULT_GITLEAKS_IMAGE:-zricethezav/gitleaks}"

@@ -63,6 +63,7 @@ Modules overview
 - screencap — screenshots and screen video from a device, emulator or simulator, plus ffmpeg frame extraction and GIF conversion; chunks past `screenrecord`'s 180s cap; Bash + PowerShell.
 - manifest — read and write the project version across pubspec, Gradle, VERSION, package.json and pyproject, with the Play Store versionCode derived from semver; Bash + PowerShell.
 - changelog — check, extract and generate the CHANGELOG release-header format that `ci-helpers` builds release notes from; Bash + PowerShell.
+- rust — resolve the Rust toolchain CI compiles with, rather than whatever `PATH` offers first; a distribution cargo shadowing rustup's fails with a lockfile error that names the wrong thing.
 - hub — corpus-hub setup for capture clients: local-vs-remote dialog, probe, API-key check, symlink-safe `.env` writing, bootstrap through the hub's own scripts, and an update offer.
 
 If you add a new module or function, update ./docs/api.md and the relevant ./docs/modules/*.md file. See AGENTS.md for the process and checklist.

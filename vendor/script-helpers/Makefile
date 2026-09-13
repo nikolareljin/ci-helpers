@@ -1,6 +1,11 @@
-SHELL := /bin/bash
+# `command -v bash` comes back empty when bash is not on PATH, and Make then
+# silently falls back to /bin/sh, where every [[ ... ]] in these recipes breaks.
+# Fall back to /bin/bash explicitly: on macOS that is bash 3.2, which this
+# library supports, so the recipes still run.
+BASH_BIN := $(shell command -v bash 2>/dev/null)
+SHELL := $(if $(BASH_BIN),$(BASH_BIN),/bin/bash)
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32
 
 help:
 	@echo "Available targets:"
@@ -9,6 +14,7 @@ help:
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
 	@echo "  make test                     # Run tests under tests/"
+	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"
 	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
 	@echo "  make example_<name>           # Run a specific example"
 
@@ -77,6 +83,9 @@ lint-docs:
 	@# when the shape is wrong. This repository shipped the checker and never
 	@# ran it, so its own headers had drifted for twenty releases.
 	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
+
+test-bash32:
+	@bash scripts/local_test_bash32.sh
 
 test:
 	@for f in tests/*_test.sh; do \

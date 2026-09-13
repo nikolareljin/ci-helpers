@@ -3,6 +3,46 @@
 
 # Do not set strict mode here to avoid altering caller's shell options.
 
+# Minimum shell. This file is the single entry point every consumer sources, so
+# it is the only place that can report an unusable shell before some module
+# fails later in a more confusing way. Written deliberately without arrays or
+# bash-4 syntax so that it still runs on the shell it is reporting on.
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "[script-helpers] These helpers require bash." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+_shlib_bash_major="${BASH_VERSINFO[0]:-0}"
+_shlib_bash_minor="${BASH_VERSINFO[1]:-0}"
+
+if [[ "$_shlib_bash_major" -lt 3 ]] ||
+   [[ "$_shlib_bash_major" -eq 3 && "$_shlib_bash_minor" -lt 2 ]]; then
+  echo "[script-helpers] bash 3.2 or newer is required; this is bash ${BASH_VERSION}." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+if [[ "$_shlib_bash_major" -lt 4 ]]; then
+  # The library supports bash 3.2 (which is what stock macOS ships), so this is
+  # advice and never fatal. Printed once, to stderr, and only to a terminal: on
+  # stdout it would corrupt any caller parsing a helper's output, and in CI it
+  # would be noise on every job.
+  export SHLIB_BASH_LEGACY=1
+  if [[ -z "${SHLIB_BASH_ADVISORY_SHOWN:-}" && -z "${SHLIB_NO_BASH_ADVISORY:-}" && -t 2 ]]; then
+    export SHLIB_BASH_ADVISORY_SHOWN=1
+    # The remedy named depends on where this is running. Naming Homebrew on a
+    # Linux host with an old bash -- a minimal container, an old enterprise
+    # release -- points at a tool that is not there.
+    case "${OSTYPE:-}" in
+      darwin*) _shlib_bash_hint="On macOS: brew install bash" ;;
+      *)       _shlib_bash_hint="Install a current bash from your package manager (apt, dnf, apk, pacman)" ;;
+    esac
+    echo "[script-helpers] Running on bash ${BASH_VERSION}. This is supported; bash 4+ is faster and enables the few helpers that take an associative array. ${_shlib_bash_hint}" >&2
+    unset _shlib_bash_hint
+  fi
+else
+  export SHLIB_BASH_LEGACY=0
+fi
+
 _shlib_dir_resolve() {
   local base="${SCRIPT_HELPERS_DIR:-}" root=""
   if [[ -n "$base" && -d "$base" ]]; then

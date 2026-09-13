@@ -86,7 +86,7 @@ BREW_DEPENDS_LINES=""
 if [[ -n "$BREW_DEPENDS" ]]; then
   brew_dep_lines=""
   IFS='|' read -r -a brew_items <<< "$BREW_DEPENDS"
-  for brew_item in "${brew_items[@]}"; do
+  for brew_item in "${brew_items[@]+"${brew_items[@]}"}"; do
     brew_item="$(pkg_trim "$brew_item")"
     [[ -z "$brew_item" ]] && continue
     brew_dep_lines+="  depends_on \"${brew_item}\""$'\n'

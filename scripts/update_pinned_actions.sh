@@ -156,14 +156,23 @@ for file in "${files[@]}"; do
   # Supported patterns:
   #   uses: owner/repo@<sha40> # <ref> @ <date>
   #   uses: owner/repo/subdir@<sha40> # <ref> @ <date>
-  while IFS= read -r line; do
+  # `|| [[ -n "$line" ]]`: a file whose last line has no trailing newline makes
+  # that final `read` fail after filling `line`, so without it the last line --
+  # a pin like any other -- was never looked at and never warned about.
+  while IFS= read -r line || [[ -n "$line" ]]; do
     # Must match: uses: <path>@<40hex> # <ref> @ <YYYY-MM-DD>
     # Ref may be a branch (master/main), a tag (v1, v1.2.3), or similar.
-    if [[ "$line" =~ ^[[:space:]]*uses:[[:space:]]+([a-zA-Z0-9_./-]+)@([0-9a-f]{40})[[:space:]]+#[[:space:]]+([^[:space:]@]+)[[:space:]]+@[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
-      action_path="${BASH_REMATCH[1]}"
-      old_sha="${BASH_REMATCH[2]}"
-      ref="${BASH_REMATCH[3]}"
-      old_date="${BASH_REMATCH[4]}"
+    # The `- ` is optional because both spellings are valid YAML and both are
+    # used here: a step whose only key is `uses:` is written `- uses: ...`,
+    # while one with a `name:` or an `if:` carries `uses:` on its own line.
+    # Anchoring on the second form alone made this audit skip every step of the
+    # first -- 59 of 209 pins, actions/checkout in nearly every workflow --
+    # and report "0 stale" for a SHA it had never looked at.
+    if [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+([a-zA-Z0-9_./-]+)@([0-9a-f]{40})[[:space:]]+#[[:space:]]+([^[:space:]@]+)[[:space:]]+@[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
+      action_path="${BASH_REMATCH[2]}"
+      old_sha="${BASH_REMATCH[3]}"
+      ref="${BASH_REMATCH[4]}"
+      old_date="${BASH_REMATCH[5]}"
 
       # Repo = first two path segments (owner/repo); subpaths are subdirectories within that repo
       IFS='/' read -r -a path_parts <<< "$action_path"
@@ -204,6 +213,25 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
+    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+      # A pinned action this audit could not parse. Silently skipping one is how
+      # the gap above went unnoticed for as long as it did: the summary counted
+      # only what matched, so a pin the pattern could not see was indistinguishable
+      # from a pin that was up to date. Warnings fail --check, so an unreadable
+      # pin now stops a release instead of passing as one that was never read.
+      #
+      # A quoted scalar -- `uses: 'owner/action@<sha>'` -- is valid YAML that
+      # GitHub runs, and the strict parser above does not accept it, so it too
+      # must land here rather than pass unseen. Same reasoning as uppercase hex.
+      # Uppercase hex is deliberate here and not above: git and the GitHub API
+      # resolve an uppercase object id, so `@ABCDEF...` is a pin that really
+      # runs, and matching it only in the strict parser would mean comparing it
+      # against a lowercase API answer and calling every such pin stale. Caught
+      # here it fails --check as unreadable, and normalising it to lowercase is
+      # then a one-line edit that puts it back under the real audit.
+      echo "WARN  $file: pinned action not recognised, so not checked — ${line#"${line%%[![:space:]]*}"}" >&2
+      echo "      expected: uses: <owner>/<repo>@<40 lowercase hex> # <ref> @ <YYYY-MM-DD>" >&2
+      warn_count=$((warn_count + 1))
     fi
   done < "$file"
 

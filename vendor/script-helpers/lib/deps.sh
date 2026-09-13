@@ -23,7 +23,7 @@ install_dependencies() {
   fi
 }
 
-# AI Runner / HelperGPT specific installer profile
+# Installer profile for the AI tooling consumers (R-643 and its runner)
 install_dependencies_ai_runner() {
   local os; os=$(get_os)
   local deps=(dialog curl jq python3 python3-pip nodejs)

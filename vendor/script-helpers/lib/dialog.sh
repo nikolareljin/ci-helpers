@@ -52,8 +52,21 @@ get_value() {
   rm -f "$tmp"
 }
 
+
+# The DISTROS-based selectors here take an associative array *from the caller*,
+# which is the one thing in this library that genuinely cannot work on bash 3.2.
+# os.sh carries require_bash4, which says so with an actionable message; load it
+# the way screencap.sh loads its optional modules.
+if ! declare -f require_bash4 >/dev/null 2>&1; then
+  if [[ -n "${_SHLIB_LIB_DIR:-}" && -f "${_SHLIB_LIB_DIR}/os.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${_SHLIB_LIB_DIR}/os.sh"
+  fi
+fi
+
 # Selection helpers used by iso-forge. Expect an associative array DISTROS to be defined by the caller.
 select_multiple_distros() {
+  require_bash4 "select_multiple_distros (DISTROS associative array)" || return 1
   dialog_init; check_if_dialog_installed || return 1
   local selected_distros options=() d
   for d in "${!DISTROS[@]}"; do
@@ -68,6 +81,7 @@ select_multiple_distros() {
 
 # Usage: select_distro; expects DISTROS associative array and echoes selection.
 select_distro() {
+  require_bash4 "select_distro (DISTROS associative array)" || return 1
   dialog_init; check_if_dialog_installed || return 1
   local selected_distro options=() d
   for d in "${!DISTROS[@]}"; do

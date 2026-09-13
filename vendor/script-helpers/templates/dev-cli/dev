@@ -1,3 +1,28 @@
 #!/usr/bin/env bash
 # The one entry point. See scripts/cli.sh for the verbs.
-exec bash "$(dirname "$0")/scripts/cli.sh" "$@"
+#
+# This deliberately avoids a bare `exec bash`: that resolves bash from PATH and
+# discards this file's own `#!/usr/bin/env bash`, which on macOS means
+# /bin/bash 3.2. The library runs on 3.2, but prefers a newer bash where the
+# machine has one, and says so rather than failing obscurely when it has none.
+_dev_dir="$(dirname "$0")"
+_dev_fallback=""
+for _dev_c in "${BASH:-}" /opt/homebrew/bin/bash /usr/local/bin/bash \
+              "$(command -v bash 2>/dev/null)" /bin/bash; do
+  [ -n "$_dev_c" ] && [ -x "$_dev_c" ] || continue
+  # Minor version included: helpers.sh requires 3.2, so accepting any 3.x here
+  # would commit to a 3.0 or 3.1 interpreter and fail a moment later, after the
+  # choice was already made.
+  _dev_v="$("$_dev_c" -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"' 2>/dev/null)"
+  _dev_maj="${_dev_v%%.*}"
+  _dev_min="${_dev_v#*.}"
+  case "$_dev_maj" in ''|*[!0-9]*) continue ;; esac
+  case "$_dev_min" in ''|*[!0-9]*) _dev_min=0 ;; esac
+  [ "$_dev_maj" -ge 4 ] && exec "$_dev_c" "$_dev_dir/scripts/cli.sh" "$@"
+  if [ -z "$_dev_fallback" ] && [ "$_dev_maj" -eq 3 ] && [ "$_dev_min" -ge 2 ]; then
+    _dev_fallback="$_dev_c"
+  fi
+done
+[ -n "$_dev_fallback" ] && exec "$_dev_fallback" "$_dev_dir/scripts/cli.sh" "$@"
+echo "dev: no usable bash found (need 3.2 or newer)" >&2
+exit 78

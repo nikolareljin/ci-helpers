@@ -36,7 +36,7 @@ open_frontend_when_ready() {
   log_info "Waiting for 'frontend' service to be running..."
   local waited_running=0
   # Compose V2 shows "Up", V1 shows "Up"/"Up XX" and sometimes "running" — handle both.
-  while ! docker_compose "${compose_extra[@]}" ps frontend 2>/dev/null | grep -Eiq "\\b(Up|running)\\b"; do
+  while ! docker_compose "${compose_extra[@]}" ps frontend 2>/dev/null | grep -Eiq "(^|[^A-Za-z])(Up|running)([^A-Za-z]|$)"; do
     sleep 2; waited_running=$((waited_running + 2))
     if [[ $waited_running -ge $max_wait ]]; then log_warn "'frontend' not detected as running after ${max_wait}s; attempting to open anyway."; break; fi
     if [[ $((waited_running % 10)) -eq 0 ]]; then log_info "Still waiting for 'frontend'... (${waited_running}s elapsed)"; fi

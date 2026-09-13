@@ -37,3 +37,4 @@ This index lists all modules and their functions. See the linked module pages fo
 - screencap — ./modules/screencap.md
 - manifest — ./modules/manifest.md
 - changelog — ./modules/changelog.md
+- rust — ./modules/rust.md

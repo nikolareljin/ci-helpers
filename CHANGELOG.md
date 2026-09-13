@@ -1,4 +1,123 @@
 # Changelog
+## 2026-09-10 — 0.24.2
+
+### Changed
+
+- **`vendor/script-helpers` updated from 0.24.0 to 0.27.0.** The vendored tree
+  now matches script-helpers at tag `0.27.0` (`2b91c3a`), which is where
+  `production` points. An earlier revision of this release vendored `0.26.0`;
+  review of that copy found defects in its iOS, Rust, dev-CLI and bash 3.2
+  paths, all fixed upstream in `0.27.0`, so this release carries that instead
+  of a copy already known to be wrong.
+
+  This is not a fix for a failing drift check, and an earlier draft of this
+  entry said it was. `vendor-drift` compares the stored SHA against whatever
+  `vendor/.script-helpers-ref` names, and re-resolves the newest upstream tag
+  only when that file literally contains `latest`. `main` pinned `0.24.0`
+  explicitly, which matched, so the weekly would have passed indefinitely on
+  a vendored tree two releases behind — the drift job cannot tell "pinned on
+  purpose" from "forgotten". Keeping the pin current is a decision taken here,
+  not one the weekly forces.
+
+  Three vendored scripts are run from `vendor/` by workflows here —
+  `build_deb_artifacts.sh`, `build_rpm_artifacts.sh`, `ppa_upload.sh` — and all
+  three are byte-identical across the span. (An earlier draft counted six; the
+  Homebrew scripts are not run from this vendored copy — `homebrew-package.yml`
+  runs the caller's own submodule — and `check_release_tag.sh` and the two
+  `ci_*_check.sh` scripts run from a checkout of script-helpers at the caller's
+  pin, not from `vendor/`.) Of what those three source, `lib/logging.sh`,
+  `lib/package_publish.sh` and `lib/packaging.sh` are unchanged; `helpers.sh`
+  gained a bash-version preamble whose advisory prints only when stderr is a
+  terminal — never on a runner — and names a remedy that fits the host; and
+  `lib/help.sh`'s `get_script_metadata` changed signature (namerefs are bash
+  4.3+; the library now runs on macOS's 3.2). The three scripts call
+  `display_help`, whose signature and output are unchanged; it no longer leaves
+  a dozen `_shlib_help_meta_*` globals behind in the calling script. Elsewhere
+  in the tree: `lib/os.sh`'s `get_os` now recognises `linux-musl` and
+  `linux-android`; the two Homebrew scripts gained `set -u` empty-array guards
+  and a `#!/usr/bin/env bash` shebang on the generated formula wrapper; the
+  `local_test_*.sh` runners and `preflight.sh` resolve paths correctly under
+  `--dir`; `install_dev_cli.sh` refuses shim names and destinations that would
+  overwrite the entry point or write outside the repository; and
+  `ios_boot_simulator` waits for `Booted`. Those reach a consumer only when it
+  bumps its own pin.
+
+  One upstream test, `tests/runner_dir_test.sh`, fails when run from inside
+  this repository rather than a script-helpers checkout: it expects a relative
+  `--dir` to be joined to script-helpers' own root, and here the enclosing git
+  root is this repository. The runners behave as documented; nothing here runs
+  the vendored tests.
+
+  Two lines in the vendored copy named a private repository; they are gone
+  upstream and gone here.
+
+  `vendor/.script-helpers-ref` records the tag, `0.27.0`, as the previous two
+  syncs recorded `0.24.0` and `0.14.0`. Running `sync_script_helpers.sh` with
+  no `--ref` writes the literal `latest` instead, and `security-weekly`'s
+  drift check treats that as "re-resolve the newest tag every week" — which
+  would have turned every future script-helpers release into a weekly failure
+  here until someone re-vendored. The pin keeps drift a decision.
+
+### Fixed
+
+- **The SHA Pin Audit had never checked 59 of the 209 pins it reports on,
+  including `actions/checkout` in nearly every workflow.** `update_pinned_actions.sh`
+  matched `^[[:space:]]*uses:`, which is only one of the two spellings in use
+  here: a step whose sole key is `uses:` is written `- uses: ...`, and every one
+  of those was skipped before any lookup happened. The summary counted only what
+  matched, so those pins were indistinguishable from pins that were up to date —
+  replacing `actions/checkout`'s SHA with forty zeros still produced
+  `150 up-to-date, 0 stale, 0 warnings` and exit 0. This is the job that gates
+  `security-weekly`, `production-branch` and `auto-tag-release-push`; a
+  supply-chain gate that cannot see the most-used action in the repository is
+  reporting on something other than what it claims.
+
+  The optional `- ` is now part of the pattern (209 audited, 0 stale), and a
+  pinned action the pattern *cannot* parse is a warning rather than a silent
+  skip — warnings already fail `--check`, so an unreadable pin stops a release
+  instead of passing as a read one. That fallback is anchored to the same
+  optional `- `/`uses:` shape as the parser it backs, so a commented-out
+  `# uses: owner/action@<sha>` is still a comment and not a failed check; it
+  accepts a quoted scalar (`uses: 'owner/action@<sha>'` is valid YAML that
+  GitHub runs) and uppercase hex where the strict parser does not — git and the GitHub
+  API both resolve an uppercase object id, so `@ABCDEF…` is a pin that really
+  runs, and it was falling through both patterns into silence. Matching it in
+  the strict parser instead would mean comparing it against a lowercase API
+  answer and calling every such pin stale; caught here it fails `--check` as
+  unreadable, and normalising it is a one-line edit that puts it back under the
+  real audit. The last line of a file is read even when it has no trailing
+  newline: `read` fails on that line after filling the variable, so a pin
+  written there was reached by neither pattern and `--check` passed with
+  `0 warnings`. Verified both ways: a corrupted
+  `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
+  `@ <date>` comment raises the new warning.
+
+- **`verify_vendor.sh` reported checks it had not run as passes.** Three
+  outcomes printed through `ok()` — the `--offline` skip, `gh` missing, and an
+  upstream ref that would not resolve — so a log that had verified nothing about
+  currency read exactly like one that had. `vendor-check.yml` invokes this
+  script with `--offline`, which means **CI has never checked currency at all**,
+  and the run still finished by announcing the vendored copy "usable and
+  current". Skips now print as `SKIP`, are counted, and the closing line drops
+  the word `current` when any of them fired — and a skip line says only what did
+  not happen. Naming another job as covering it is how the claim drifts: with an
+  explicit ref pinned, `vendor-drift` compares the stored SHA against *that ref*,
+  so it catches a vendored tree that no longer matches its own pin and says
+  nothing about whether a newer release exists upstream. Nothing automated
+  answers that question while the ref is pinned; advancing it stays a decision
+  taken here. The same claim was written in three more places and is corrected
+  in each: `vendor-check.yml`'s header ("fails loudly once a week ... a release
+  behind"), `verify_vendor.sh`'s `--help` text ("usable, current"), and the
+  drift job's own message ("behind upstream"), which now names what it
+  compared against.
+
+- **`verify_vendor.sh` refused a correct re-vendor.** Its currency check picked
+  the newest upstream tag with `sort -V | tail -1`, which places every
+  `v`-prefixed tag after every bare one — so an old `v0.2.0` won over `0.26.0`
+  and the script reported the fresh vendored copy as "behind". It now uses the
+  same strip-the-v, sort-numerically pipeline as `security-weekly`'s
+  `vendor-drift` job and `sync_script_helpers.sh`, which had it right.
+
 ## 2026-09-10 — 0.24.1
 
 ### Changed

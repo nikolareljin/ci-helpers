@@ -59,9 +59,41 @@ git -C "$REPO" rev-parse --show-toplevel >/dev/null 2>&1 || {
 
 say() { if [[ "$DRY_RUN" == "true" ]]; then echo "[dry-run] $*"; else log_info "$*"; fi; }
 
+# A destination this installer is about to write must be a regular file or
+# absent. A symlink -- dangling or live -- would be written through to wherever
+# it points (-f and -e are both false for a dangling one, so the write reaches
+# cp and cp follows it); a directory would be replaced by a file. Used once
+# over every managed destination before the first write, and again at each
+# write for the window in between.
+refuse_bad_dest() {
+  local dest="$1" rel="${1#"$REPO"/}"
+  # Parents first. Checking only the final component leaves the path itself
+  # unexamined: with `scripts` a symlink to somewhere outside,
+  # $REPO/scripts/cli.sh is neither a symlink nor a directory, so the check
+  # passed and the mkdir -p and cp below followed the parent link out of the
+  # repository. Walk what this installer would create or traverse.
+  local rest="$rel" part probe="$REPO"
+  while [[ "$rest" == */* ]]; do
+    part="${rest%%/*}"; rest="${rest#*/}"; probe="$probe/$part"
+    if [[ -L "$probe" ]]; then
+      log_error "${probe#"$REPO"/} is a symlink ($(readlink "$probe")); refusing to write beneath it"
+      exit 2
+    fi
+  done
+  if [[ -L "$dest" ]]; then
+    log_error "$rel is a symlink ($(readlink "$dest")); refusing to write through it"
+    exit 2
+  fi
+  if [[ -d "$dest" ]]; then
+    log_error "$rel is a directory; refusing to replace it with a file"
+    exit 2
+  fi
+}
+
 install_file() {
   local src="$1" dest="$2" mode="${3:-644}"
   local rel="${dest#"$REPO"/}"
+  refuse_bad_dest "$dest"
   if [[ -f "$dest" ]] && cmp -s "$src" "$dest"; then
     say "unchanged: $rel"
     return 0
@@ -72,10 +104,59 @@ install_file() {
   fi
   say "write: $rel"
   [[ "$DRY_RUN" == "true" ]] && return 0
-  mkdir -p "$(dirname "$dest")"
-  cp "$src" "$dest"
-  chmod "$mode" "$dest"
+  mkdir -p -- "$(dirname "$dest")"
+  cp -- "$src" "$dest"
+  chmod -- "$mode" "$dest"
 }
+
+# --- refuse bad input before the first write --------------------------------
+#
+# Everything below writes files. Every destination -- the entry point's own
+# files and the --shims list -- is checked here, in full, so a rejected
+# invocation leaves the repository exactly as it found it: validating the shim
+# list after the entry point had been installed meant exit 2 could still have
+# rewritten dev, scripts/cli.sh and scripts/_bootstrap.sh on the way out, and a
+# dangling symlink at one of those core paths was never checked at all.
+for core in dev dev.ps1 scripts/_bootstrap.sh scripts/cli.sh scripts/cli.ps1 scripts/_bootstrap.ps1 scripts/project.sh.example; do
+  refuse_bad_dest "$REPO/$core"
+done
+shim_list=()
+if [[ -n "$SHIMS" ]]; then
+  IFS=',' read -r -a shim_list <<< "$SHIMS"
+  # Two things are refused. A name with a path
+  # separator, or `.`/`..`, would write outside the repository root or over a
+  # directory. And `dev` -- the entry point every shim delegates to -- would be
+  # moved to dev.pre-dev-cli and replaced by a shim that runs `./dev dev`, which
+  # is itself: an exec loop, with the real entry point already moved aside.
+  # The same goes for the files this installer itself writes.
+  for name in "${shim_list[@]}"; do
+    name="$(printf '%s' "$name" | tr -d '[:space:]')"
+    [[ -n "$name" ]] || continue
+    case "$name" in
+      dev|dev.ps1|scripts|*/*|.|..)
+        log_error "--shims: '$name' cannot be a shim -- it is the entry point the shims delegate to, or a path"
+        exit 2 ;;
+    esac
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+      log_error "--shims: '$name' is not a plain file name (letters, digits, . _ - only)"
+      exit 2
+    }
+    # *.pre-dev-cli is where this installer keeps the caller's original. A shim
+    # by that name would move the real backup to x.pre-dev-cli.pre-dev-cli and
+    # put a generated file where the restore path expects the original.
+    case "$name" in *.pre-dev-cli)
+      log_error "--shims: '$name' uses the backup suffix this installer reserves"
+      exit 2 ;;
+    esac
+    # What is at the destination matters as much as the name. A directory --
+    # .git, scripts, docs -- would be moved aside and replaced by a file; a
+    # symlink, dangling or live, would be written through to wherever it
+    # points. Both are checked here, before any write, so a bad entry anywhere
+    # in the list leaves the repository untouched; the per-shim check below
+    # remains for the window between this pass and the write.
+    refuse_bad_dest "$REPO/$name"
+  done
+fi
 
 # --- the entry point -------------------------------------------------------
 
@@ -99,23 +180,42 @@ fi
 # systemd unit or a README breaks the day this lands.
 
 if [[ -n "$SHIMS" ]]; then
-  IFS=',' read -r -a shim_list <<< "$SHIMS"
   for name in "${shim_list[@]}"; do
     name="$(printf '%s' "$name" | tr -d '[:space:]')"
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
+    refuse_bad_dest "$dest"
     if [[ -e "$dest" && "$FORCE" == "false" ]]; then
-      say "back up: $name -> $name.pre-dev-cli"
-      [[ "$DRY_RUN" == "true" ]] || mv "$dest" "$dest.pre-dev-cli"
+      # On a re-run $dest is the shim written last time. Moving that over an
+      # existing backup would replace the caller's original script with our
+      # own generated one -- the only copy of it, gone. Keep the first backup.
+      if [[ -e "$dest.pre-dev-cli" ]]; then
+        # Only a shim we wrote is safe to discard. If $dest is anything else
+        # the backup slot that would have saved it is already occupied, so
+        # there is no move that does not lose a file: leave both untouched.
+        if grep -q '^# Compatibility shim\. Use \./dev ' "$dest" 2>/dev/null; then
+          say "keep backup: $name.pre-dev-cli already exists"
+          [[ "$DRY_RUN" == "true" ]] || rm -f -- "$dest"
+        else
+          log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
+          continue
+        fi
+      else
+        say "back up: $name -> $name.pre-dev-cli"
+        [[ "$DRY_RUN" == "true" ]] || mv -- "$dest" "$dest.pre-dev-cli"
+      fi
     fi
     say "shim: ./$name -> ./dev $name"
     [[ "$DRY_RUN" == "true" ]] && continue
+    # Delegates to ./dev rather than re-running scripts/cli.sh directly: ./dev
+    # is what picks a usable bash, and duplicating that resolver into every
+    # consumer repo is how it would drift out of step with this library.
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
 # Compatibility shim. Use ./dev $name — this is removed one minor version on.
-exec bash "\$(dirname "\$0")/scripts/cli.sh" $name "\$@"
+exec "\$(dirname "\$0")/dev" "$name" "\$@"
 EOF
-    chmod 755 "$dest"
+    chmod -- 755 "$dest"
   done
 fi
 

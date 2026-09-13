@@ -50,6 +50,7 @@ screencap_available() {
 # more than one device is connected.
 _screencap__resolve() {
   local platform="${1:-}" device="${2:-}"
+  local _sh_line
   local -a serials=() sims=()
 
   if [[ -n "$device" && -z "$platform" ]]; then
@@ -58,8 +59,15 @@ _screencap__resolve() {
   fi
 
   if [[ -z "$platform" ]]; then
-    declare -f adb_ready_serials >/dev/null 2>&1 && mapfile -t serials < <(adb_ready_serials 2>/dev/null)
-    declare -f ios_booted_simulators >/dev/null 2>&1 && mapfile -t sims < <(ios_booted_simulators 2>/dev/null)
+    # Written as `if` rather than `probe && collect`: when the collector was a
+    # builtin that this shell lacked, the && chain returned 127 and aborted any
+    # caller running under `set -e`, which is most of scripts/.
+    if declare -f adb_ready_serials >/dev/null 2>&1; then
+      while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials 2>/dev/null)
+    fi
+    if declare -f ios_booted_simulators >/dev/null 2>&1; then
+      while IFS= read -r _sh_line; do sims+=("$_sh_line"); done < <(ios_booted_simulators 2>/dev/null)
+    fi
     if [[ ${#serials[@]} -gt 0 && ${#sims[@]} -eq 0 ]]; then platform="android"
     elif [[ ${#sims[@]} -gt 0 && ${#serials[@]} -eq 0 ]]; then platform="ios"
     elif [[ ${#serials[@]} -eq 0 && ${#sims[@]} -eq 0 ]]; then
@@ -74,7 +82,8 @@ _screencap__resolve() {
   if [[ -z "$device" ]]; then
     case "$platform" in
       android)
-        mapfile -t serials < <(adb_ready_serials 2>/dev/null)
+        serials=()
+        while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials 2>/dev/null)
         [[ ${#serials[@]} -gt 0 ]] || { log_error "screencap: no ready Android device"; return 3; }
         [[ ${#serials[@]} -eq 1 ]] || {
           log_error "screencap: ${#serials[@]} Android devices ready — pass --device"
@@ -84,7 +93,8 @@ _screencap__resolve() {
         device="${serials[0]}"
         ;;
       ios)
-        mapfile -t sims < <(ios_booted_simulators 2>/dev/null)
+        sims=()
+        while IFS= read -r _sh_line; do sims+=("$_sh_line"); done < <(ios_booted_simulators 2>/dev/null)
         [[ ${#sims[@]} -gt 0 ]] || { log_error "screencap: no booted iOS simulator"; return 3; }
         [[ ${#sims[@]} -eq 1 ]] || {
           log_error "screencap: ${#sims[@]} simulators booted — pass --device"
@@ -344,7 +354,14 @@ screencap_gif() {
     fi
   fi
 
-  palette="$(mktemp --suffix=.png 2>/dev/null || mktemp)" || return 1
+  palette="$(mktemp --suffix=.png 2>/dev/null)" || palette=""
+  if [[ -z "$palette" ]]; then
+    # BSD mktemp has no --suffix, and ffmpeg's palettegen infers the output
+    # format from the extension, so it cannot simply be dropped.
+    palette="$(mktemp)" || return 1
+    mv "$palette" "${palette}.png" || return 1
+    palette="${palette}.png"
+  fi
   ffmpeg -y -i "$video" \
     -vf "fps=$fps,scale=$width:-1:flags=lanczos,palettegen" "$palette" >/dev/null 2>&1 || rc=1
   if [[ "$rc" -eq 0 ]]; then

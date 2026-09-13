@@ -29,11 +29,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [[ ! -d "$repo_root/$FLUTTER_DIR" ]]; then
-  echo "[local-test-flutter] Directory not found: $repo_root/$FLUTTER_DIR" >&2
+# --dir is documented as relative to the repository root. preflight, which may
+# be pointed at a subdirectory of a repository with --dir, resolves it to an
+# absolute path first; an absolute value is honoured as given. Without this,
+# `preflight --dir sub` in a git repository looked for sub/<stack> under the
+# git root instead of under sub/, and reported the stack's directory missing.
+if [[ "$FLUTTER_DIR" == /* ]]; then
+  target="$FLUTTER_DIR"
+else
+  target="$repo_root/$FLUTTER_DIR"
+fi
+if [[ ! -d "$target" ]]; then
+  echo "[local-test-flutter] Directory not found: $target" >&2
   exit 1
 fi
-cd "$repo_root/$FLUTTER_DIR"
+cd "$target"
 
 if ! command -v flutter &>/dev/null; then
   echo "[local-test-flutter] flutter not found in PATH." >&2; exit 1

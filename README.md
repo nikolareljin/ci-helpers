@@ -482,9 +482,20 @@ back, so it reads as a second, stale definition of our CI.
 
 `verify_vendor.sh` checks structure, the exclusions, that every module
 `scripts/` imports is present and loads, that each dependent script still runs,
-and that the copy is current. It runs on every pull request via
+and — when online — that the copy matches the ref recorded in
+`vendor/.script-helpers-ref`. It runs on every pull request via
 `vendor-check.yml`, with `--offline` there so an upstream release does not turn
-unrelated pull requests red; `security-weekly.yml` owns the currency check.
+unrelated pull requests red; a check that did not run prints as `SKIP` and the
+closing line then does not say "current". `security-weekly.yml`'s drift job
+makes the same comparison weekly: against the *recorded ref*, so with an
+explicit tag pinned it catches a tree that no longer matches its own pin and
+says nothing about whether a newer upstream release exists. Nothing automated
+answers that while the ref is pinned; re-vendoring is a decision.
+
+Without `--ref`, `sync_script_helpers.sh` records the literal `latest`, which
+the drift job treats as "re-resolve the newest tag every week" — every upstream
+release then fails the weekly here until someone re-vendors. Pass `--ref` to
+make the pin explicit.
 
 - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
 - Source repo: `https://github.com/nikolareljin/script-helpers`

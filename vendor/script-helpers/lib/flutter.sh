@@ -84,14 +84,17 @@ flutter_test() {
 }
 
 # Usage: flutter_build <apk|appbundle|ios|web|linux> [dir=.] [--release|--debug]
-#                      [--flavor <name>]
+#                      [--flavor <name>] [--simulator]
 #
 # Build an artifact. Defaults to --release, because a Flutter build with no mode
 # flag is a debug build and that is rarely what a caller of a build function
 # means. Returns 2 on an unknown target.
+#
+# --simulator applies to the ios target only: `flutter build ios` targets a
+# physical device, and the .app it produces cannot be installed on a simulator.
 flutter_build() {
   local target="${1:-}"; shift || true
-  local dir="." mode="--release" flavor=""
+  local dir="." mode="--release" flavor="" simulator=0
   case "$target" in
     apk|appbundle|ios|web|linux|macos|windows) ;;
     "") log_error "flutter_build: need <apk|appbundle|ios|web|linux>"; return 2 ;;
@@ -103,14 +106,23 @@ flutter_build() {
       --debug) mode="--debug"; shift ;;
       --profile) mode="--profile"; shift ;;
       --flavor) flavor="${2:-}"; shift 2 ;;
+      --simulator) simulator=1; shift ;;
       -*) log_error "flutter_build: unknown option $1"; return 2 ;;
       *) dir="$1"; shift ;;
     esac
   done
+  local -a extra=()
+  if [[ "$simulator" -eq 1 ]]; then
+    if [[ "$target" != "ios" ]]; then
+      log_error "flutter_build: --simulator applies to the ios target only"
+      return 2
+    fi
+    extra+=(--simulator)
+  fi
   if [[ -n "$flavor" ]]; then
-    flutter_run_cmd "$dir" build "$target" "$mode" --flavor "$flavor"
+    flutter_run_cmd "$dir" build "$target" "$mode" --flavor "$flavor" "${extra[@]+"${extra[@]}"}"
   else
-    flutter_run_cmd "$dir" build "$target" "$mode"
+    flutter_run_cmd "$dir" build "$target" "$mode" "${extra[@]+"${extra[@]}"}"
   fi
 }
 
@@ -140,8 +152,10 @@ flutter_devices() {
 # is ambiguous — an ambiguous device is a question for the caller, not a guess.
 flutter_resolve_device() {
   local preferred="${1:-${FLUTTER_DEVICE:-}}" dir="${2:-.}" ids
+  local _sh_line
   local -a devices=()
-  mapfile -t devices < <(flutter_devices "$dir" 2>/dev/null)
+  devices=()
+  while IFS= read -r _sh_line; do devices+=("$_sh_line"); done < <(flutter_devices "$dir" 2>/dev/null)
   if [[ -n "$preferred" ]]; then
     for ids in "${devices[@]}"; do
       [[ "${ids%%$'\t'*}" == "$preferred" ]] && { printf '%s\n' "$preferred"; return 0; }
