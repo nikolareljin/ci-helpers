@@ -60,30 +60,76 @@ changelog_check_header() {
 # <version>, without its header, for use as release notes. The `v` prefix is
 # optional on both sides. Returns 1 when there is no such section.
 changelog_extract() {
-  local file="${1:-}" version="${2:-}" bare
+  local file="${1:-}" version="${2:-}" section
   [[ -n "$file" && -n "$version" ]] || { log_error "changelog_extract: need <file> <version>"; return 2; }
   [[ -f "$file" ]] || { log_error "changelog_extract: not found: $file"; return 2; }
-  bare="${version#v}"
 
-  awk -v want="$bare" '
-    /^##[[:space:]]/ {
-      if (inside) exit
-      line = $0
-      gsub(/^##[[:space:]]+/, "", line)
-      # Accept "YYYY-MM-DD - vX.Y.Z", "[X.Y.Z] - YYYY-MM-DD", or a bare version.
-      if (index(line, want) > 0) { inside = 1; next }
-      next
-    }
-    inside { print }
-  ' "$file" | sed -e '/./,$!d' | awk 'BEGIN{blank=0} {lines[NR]=$0} END{
+  if ! section="$(_changelog__section "$file" "$version")"; then
+    log_error "changelog_extract: no section for $version in $file"
+    return 1
+  fi
+  printf '%s\n' "$section" | sed -e '/./,$!d' | awk '{lines[NR]=$0} END{
       last=NR; while (last>0 && lines[last] ~ /^[[:space:]]*$/) last--
       for (i=1; i<=last; i++) print lines[i]
     }'
+}
 
-  grep -qE "^##[[:space:]].*${bare//./\\.}" "$file" || {
-    log_error "changelog_extract: no section for $version in $file"
-    return 1
-  }
+# Usage: changelog_has_entries <text>; return 0 when <text> -- a section body as
+# changelog_extract prints it -- has at least one line that is neither blank nor
+# a markdown heading.
+#
+# A section existing is not the same as a release being written up.
+# changelog_new_section writes a header over four empty `###` headings; checked
+# only for existence, that template passed the release gate and was published as
+# the release body: four headings and nothing under them.
+changelog_has_entries() {
+  printf '%s\n' "${1:-}" | awk '
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*#+[[:space:]]/ || /^[[:space:]]*#+[[:space:]]*$/ { next }
+    { found = 1; exit }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+# Usage: _changelog__section <file> <version>; print the raw lines of the
+# section whose header names <version>, and return 1 when there is none.
+#
+# The one place a header is matched against a version, so "is there a section"
+# and "what is in it" cannot disagree. They used to be two regexes, an awk one
+# and a grep one, and changelog_new_section had a third.
+#
+# The version has to match as a whole. This was `index(line, want) > 0`, a plain
+# substring test, so asking for 0.2.0 matched a `## 2026-09-10 — v10.2.0` header
+# -- "10.2.0" contains "0.2.0" -- and the release notes for one version were
+# silently the body of another. So the character before the version must not be
+# a digit or a dot, and the character after it must not be anything a version
+# can continue with: a digit, a letter, `.`, `-` or `+`. The last three matter
+# because `0.2.0` must not select `v0.2.0-rc.1`. `YYYY-MM-DD — vX.Y.Z`,
+# `[X.Y.Z] - YYYY-MM-DD` and a bare version all still match.
+_changelog__section() {
+  local file="$1" bare="${2#v}" escaped
+  # Every ERE metacharacter, not only the dot: `1.0.0+build.1` carries a `+`.
+  escaped="$(printf '%s' "$bare" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+
+  # Through the environment, not -v: awk processes escape sequences in a -v
+  # assignment, so "0\.2\.0" arrived as "0.2.0" -- unescaped dots matching any
+  # character, and a warning on every run. ENVIRON is passed through verbatim.
+  #
+  # The line is padded with a space on both sides so the boundaries are plain
+  # bracket expressions. `(^|[^0-9.])` needs `^` inside an alternation, which
+  # not every awk and grep accept; GNU grep also matched it mid-line.
+  CHANGELOG_WANT="[^0-9.]${escaped}[^0-9A-Za-z.+-]" awk '
+    BEGIN { want = ENVIRON["CHANGELOG_WANT"] }
+    /^##[[:space:]]/ {
+      if (found) exit
+      line = $0
+      sub(/^##[[:space:]]+/, "", line)
+      if ((" " line " ") ~ want) found = 1
+      next
+    }
+    found { print }
+    END { exit found ? 0 : 1 }
+  ' "$file"
 }
 
 # Usage: changelog_new_section <file> <version> [--date YYYY-MM-DD]
@@ -118,7 +164,9 @@ changelog_new_section() {
     printf '# Changelog\n\n' > "$file"
   fi
 
-  if grep -qE "^##[[:space:]].*${bare//./\\.}([^0-9]|$)" "$file"; then
+  # The same whole-version rule as changelog_extract. This was a substring grep,
+  # so an existing v10.2.0 section made 0.2.0 look present and nothing was added.
+  if _changelog__section "$file" "$bare" >/dev/null; then
     log_info "changelog: $file already has a section for $bare"
     return 0
   fi

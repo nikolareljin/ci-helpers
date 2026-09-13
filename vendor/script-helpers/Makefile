@@ -83,6 +83,11 @@ lint-docs:
 	@# when the shape is wrong. This repository shipped the checker and never
 	@# ran it, so its own headers had drifted for twenty releases.
 	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
+	@# And that the version being released actually has a section. The header
+	@# check only looks at the newest one; a release branch whose version was
+	@# never written up still passed it, and the release body then fell back to
+	@# a commit list. Off a release branch this is a no-op.
+	@bash scripts/check_changelog_section.sh
 
 test-bash32:
 	@bash scripts/local_test_bash32.sh
