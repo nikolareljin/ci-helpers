@@ -85,7 +85,10 @@
   the strict parser instead would mean comparing it against a lowercase API
   answer and calling every such pin stale; caught here it fails `--check` as
   unreadable, and normalising it is a one-line edit that puts it back under the
-  real audit. Verified both ways: a corrupted
+  real audit. The last line of a file is read even when it has no trailing
+  newline: `read` fails on that line after filling the variable, so a pin
+  written there was reached by neither pattern and `--check` passed with
+  `0 warnings`. Verified both ways: a corrupted
   `- uses:` SHA is now reported STALE with exit 1, and a pin missing its
   `@ <date>` comment raises the new warning.
 

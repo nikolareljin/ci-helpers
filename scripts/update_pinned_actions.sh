@@ -156,7 +156,10 @@ for file in "${files[@]}"; do
   # Supported patterns:
   #   uses: owner/repo@<sha40> # <ref> @ <date>
   #   uses: owner/repo/subdir@<sha40> # <ref> @ <date>
-  while IFS= read -r line; do
+  # `|| [[ -n "$line" ]]`: a file whose last line has no trailing newline makes
+  # that final `read` fail after filling `line`, so without it the last line --
+  # a pin like any other -- was never looked at and never warned about.
+  while IFS= read -r line || [[ -n "$line" ]]; do
     # Must match: uses: <path>@<40hex> # <ref> @ <YYYY-MM-DD>
     # Ref may be a branch (master/main), a tag (v1, v1.2.3), or similar.
     # The `- ` is optional because both spellings are valid YAML and both are
