@@ -356,6 +356,9 @@ Versioning and releases
 - `VERSION` file holds the current semantic version.
 - Tags use plain semver (`X.Y.Z`) without a `v` prefix. Use `scripts/tag_release.sh` to create and push an annotated tag for the current commit.
 - Use `scripts/bump_version.sh` or `version_bump` (from `lib/version.sh`) to increment the version file.
+- `scripts/check_changelog_section.sh` refuses a release whose version has no CHANGELOG section, and
+  `scripts/release_notes.sh` turns that section into the release body (falling back to the commits since
+  the previous tag).
 - GitHub Actions:
   - Auto tag + release (`.github/workflows/auto-tag-release.yml`): on merge of a `release/X.Y.Z` PR into `main`, reuses the shared ci-helpers workflows to detect the version, create the semver tag, and publish the GitHub Release.
   - Production pinning: the same workflow run fast-forwards the `production` branch to the new tag commit.

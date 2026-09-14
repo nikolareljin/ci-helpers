@@ -63,22 +63,48 @@ function changelog_extract {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "changelog_extract: not found: $File" }
         return $null
     }
-    $bare = $Version -replace '^v',''
-    $inside = $false
-    $body = New-Object System.Collections.Generic.List[string]
-    foreach ($line in (Get-Content $File)) {
-        if ($line -match '^##\s') {
-            if ($inside) { break }
-            if ($line.Contains($bare)) { $inside = $true }
-            continue
-        }
-        if ($inside) { $body.Add($line) }
-    }
-    if (-not $inside) {
+    $body = _changelog__section -File $File -Version $Version
+    if ($null -eq $body) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "changelog_extract: no section for $Version in $File" }
         return $null
     }
     return (($body -join "`n").Trim())
+}
+
+# $true when $Text -- a section body as changelog_extract returns it -- has a
+# line that is neither blank nor a markdown heading. The empty `###` template
+# changelog_new_section writes is a section, not a write-up.
+function changelog_has_entries {
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if (-not $Text) { return $false }
+    foreach ($line in ($Text -split "`r?`n")) {
+        if ($line -match '^\s*$') { continue }
+        if ($line -match '^\s*#+(\s|$)') { continue }
+        return $true
+    }
+    return $false
+}
+
+# The lines of the section whose header names $Version, or $null when there is
+# none. The one place a header is matched, as in lib/changelog.sh: the version
+# must match whole, so 0.2.0 selects neither `v10.2.0` (it used to, through a
+# plain Contains) nor `v0.2.0-rc.1`.
+function _changelog__section {
+    param([string]$File, [string]$Version)
+    $bare = $Version -replace '^v',''
+    $want = '(?<![0-9.])' + [regex]::Escape($bare) + '(?![0-9A-Za-z.+-])'
+    $found = $false
+    $body = New-Object System.Collections.Generic.List[string]
+    foreach ($line in (Get-Content $File)) {
+        if ($line -match '^##\s') {
+            if ($found) { break }
+            if (($line -replace '^##\s+','') -match $want) { $found = $true }
+            continue
+        }
+        if ($found) { $body.Add($line) }
+    }
+    if (-not $found) { return $null }
+    return ,$body
 }
 
 # Insert a new release section at the top, above the newest existing one and
@@ -104,8 +130,9 @@ function changelog_new_section {
     }
 
     $lines = @(Get-Content $File)
-    $escaped = [regex]::Escape($bare)
-    if ($lines | Where-Object { $_ -match "^##\s.*$escaped(\D|$)" }) {
+    # The same whole-version rule as changelog_extract. `.*0\.2\.0(\D|$)` had no
+    # leading boundary, so a v10.2.0 section made 0.2.0 look present.
+    if ($null -ne (_changelog__section -File $File -Version $bare)) {
         if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "changelog: $File already has a section for $bare" }
         return $true
     }

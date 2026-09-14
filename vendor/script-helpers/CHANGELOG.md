@@ -2,6 +2,104 @@ Changelog
 
 This project uses Keep a Changelog style and aims to follow Semantic Versioning for tagged releases.
 
+## 2026-09-12 — v0.28.0
+
+### Fixed
+- **`changelog_extract` returned the wrong version's section.** The header match
+  was `index(line, want) > 0`, a plain substring test, so asking for `0.2.0`
+  selected a `## 2026-09-10 — v10.2.0` header — `10.2.0` contains `0.2.0` — and
+  the release notes for one version were silently the body of another. A version
+  now has to match whole: the character before it must not be a digit or a dot,
+  and the character after it must not be anything a version continues with — a
+  digit, a letter, `.`, `-` or `+` — so `0.2.0` also no longer selects a
+  `v0.2.0-rc.1` section. Every regex metacharacter in the version is escaped, not
+  only the dots, so `1.0.0+build.1` matches its own header. The pattern reaches
+  awk through `ENVIRON` rather than `-v`, because `-v` processes escape sequences
+  and turned `0\.2\.0` back into `0.2.0` — unescaped, plus a warning on every run.
+  `YYYY-MM-DD — vX.Y.Z`, `[X.Y.Z] - YYYY-MM-DD` and a bare version all still
+  match.
+
+  Finding a section and extracting it are now one awk pass. They were two
+  regexes, and the second only accepted a bare `## X.Y.Z` header because GNU grep
+  lets `^` match mid-pattern.
+
+- **`changelog_new_section` skipped a version it was a substring of.** Its "already
+  has a section" test was the same substring match, so with a `v10.2.0` section
+  present, adding `0.2.0` logged success, returned 0 and wrote nothing. It uses the
+  same whole-version rule as `changelog_extract`.
+
+- **The PowerShell mirror had both bugs, and CI could not see them.**
+  `ps/lib/changelog.ps1` still matched with `$line.Contains($bare)`, and its
+  `changelog_new_section` check had no leading boundary, so `0.2.0` selected and
+  was shadowed by `v10.2.0` there too. It now uses the same whole-version rule.
+  CI only parsed and imported the PowerShell files, so it now also runs
+  `ps/tests/*_test.ps1`; `ps/tests/changelog_test.ps1` fails on the old mirror.
+
+### Added
+- **`scripts/release_notes.sh` — one implementation of the release body.**
+  The CHANGELOG section for the version if there is one; otherwise the commit
+  subjects since the **previous** tag; otherwise, for a first release, the whole
+  history.
+
+  The previous tag is found with `git describe --tags --abbrev=0 --exclude
+  "$TAG"`, restricted to version-shaped tags, and that `--exclude` is the whole
+  point. `ci-helpers` inlined the same generator into three workflows, each
+  resolving the start of the range with a bare `git describe --tags --abbrev=0`
+  run from a checkout **of the tag being released** — which returns the tag it is
+  standing on. The range was always
+  `X..X`, always empty, and every release body was the literal
+  `* No changes listed.`; nine repositories and four years of releases say so.
+  The composite action those three were inlined from took a `since_tag` input and
+  did not have the bug. `--exclude` rather than `"$TAG^"`: `^` fails on a tag at a
+  root commit and silently follows only the first parent of a merge.
+
+  There is no bare placeholder. When nothing is found the body names the version
+  and the source that was consulted, because "this release changed nothing", "the
+  range was computed wrongly" and "nobody wrote a changelog entry" must not print
+  the same sentence.
+
+  The ways the range could still come out empty or wrong are closed too. Floating
+  tags such as `production`, which sit on the release commit, are not taken for
+  the previous release. A `vX.Y.Z` tag is used when `--tag` is not given. A
+  shallow clone, which `actions/checkout` produces by default, makes the commit
+  fallback exit 1 and name `fetch-depth: 0` instead of presenting one commit as a
+  first release, and a failing `git log` is an error rather than an empty body.
+  `--output` is relative to the caller, not to `--repo`. An option with no value
+  or a malformed `--version` returns 2 with a message, in both scripts.
+
+  A CHANGELOG section with no entries is not used as the body; the commits are,
+  with a warning. For a final release, pre-release tags are not the previous
+  release, so `0.2.0` is described from `0.1.0` rather than from `0.2.0-rc.1`; a
+  pre-release is still described from the nearest version tag. A clone with no
+  tags other than the release tag lists the whole history with a warning that
+  the tags may not have been fetched, instead of calling it a first release.
+
+- **`changelog_has_entries` — a section existing is not a release written up.**
+  Returns 0 only when a section body has a line that is neither blank nor a
+  heading. The template `changelog_new_section` writes, a header over four empty
+  `###` headings, returns 1. That template is what `./dev release X` produces in
+  consumer repositories.
+
+- **`scripts/check_changelog_section.sh` — a release must have been written up.**
+  On a `release/X.Y.Z` branch, fail when the CHANGELOG has no section for that
+  version, or a section with no entries; a no-op anywhere else, so it is safe on
+  every pull request. Checked only for existence, the untouched template passed
+  and was then published as the release body: four headings and nothing else. Wired into
+  `make lint-docs` beside `changelog_check_header`, which only ever inspected the
+  newest header and so passed a release branch whose version was never described.
+
+- **`tests/release_notes_test.sh`.** Fixture repositories covering a tag on HEAD
+  (the regression, pinned directly), notes generated before the tag exists, the
+  changelog winning over the range, a version absent from the changelog falling
+  back, the prefix collision in both directions, a first release, an empty result,
+  `--output` (including a relative path with `--repo`), floating tags, `v`-prefixed
+  tags, a shallow clone, a clone without tags, pre-release tags before a final
+  release, an empty template section, a failing `git log` (through a `git` shim,
+  since nothing else reaches that branch), malformed arguments, and the gate's
+  states including a pre-release section offered for the final version. Each
+  guard was reverted in turn and the suite confirmed to fail on it; the `git log`
+  guard had survived that until the shim test was added.
+
 ## 2026-09-10 — v0.27.0
 
 ### Fixed

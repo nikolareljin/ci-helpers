@@ -23,7 +23,12 @@ Functions
 
 - `changelog_extract <file> <version>`
   - Purpose: Print the body of the section for `version`, without its header, for use as release notes. The `v` prefix is optional on both sides.
+  - Matching: the version must match whole. `0.2.0` does not select `v10.2.0` or `v0.2.0-rc.1`.
   - Returns: 0 and the body; 2 for missing arguments or a missing file; 1 when there is no such section.
+
+- `changelog_has_entries <text>`
+  - Purpose: Tell a written section from an empty one. `text` is a section body as `changelog_extract` prints it.
+  - Returns: 0 when it has a line that is neither blank nor a heading; 1 otherwise. The template `changelog_new_section` writes (empty `###` headings) returns 1.
 
 - `changelog_new_section <file> <version> [--date YYYY-MM-DD] [--section <name>]...`
   - Purpose: Insert a new release section at the top, above the newest existing one and below any `## [Unreleased]` placeholder. Creates the file with a title when it does not exist.
@@ -51,6 +56,7 @@ shlib_import changelog
 changelog_check_header CHANGELOG.md || exit 1
 changelog_new_section CHANGELOG.md 1.4.0
 notes="$(changelog_extract CHANGELOG.md 1.4.0)"
+changelog_has_entries "$notes" || echo "1.4.0 has not been written up yet"
 ```
 
 PowerShell
