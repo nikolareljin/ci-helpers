@@ -642,11 +642,56 @@ jobs:
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
+      # This job only downloads artifacts; check out the source (into a subpath
+      # so the collected installers are untouched) so release_notes.sh can read
+      # the CHANGELOG and history.
+      - name: Checkout source for release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+          path: .source
+          fetch-depth: 0
+
+      - name: Checkout script-helpers for release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: df62393602dbd4d628bc29235ff11f544edd16fe # 0.28.0
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        env:
+          RN_VERSION: ${{ steps.rel.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+          version="${RN_VERSION:-}"
+          if ! printf '%s' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+            echo "release notes: '$version' is not a version; skipping (no body)."
+            exit 0
+          fi
+          producer="${GITHUB_WORKSPACE}/.script-helpers/scripts/release_notes.sh"
+          if [ ! -f "$producer" ]; then
+            echo "release notes: $producer not found (script-helpers checkout failed)" >&2
+            exit 1
+          fi
+          # Best-effort: never fail the release because the notes could not be
+          # produced. Publish without a body and say so instead.
+          if bash "$producer" --version "$version" --repo "${GITHUB_WORKSPACE}/.source" --output "$notes_file"; then
+            echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::release notes generation failed; publishing without a body."
+          fi
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: tauri-*-artifacts/*
           overwrite_files: true
         env:
@@ -658,6 +703,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
           DIST_REPO: ${{ inputs.dist_repo }}
           VERSION: ${{ steps.rel.outputs.tag }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
         shell: bash
         run: |
           set -euo pipefail
@@ -665,11 +711,18 @@ jobs:
             echo "::error::dist_repo is set but DIST_REPO_TOKEN secret is missing. Provide a PAT with write access to '${DIST_REPO}'." >&2
             exit 1
           fi
+          # Same notes as the main release; fall back to a generic line only if
+          # note generation was skipped (e.g. a non-version tag).
+          if [ -n "${NOTES_FILE:-}" ] && [ -f "${NOTES_FILE}" ]; then
+            notes_args=(--notes-file "${NOTES_FILE}")
+          else
+            notes_args=(--notes "Tauri installer bundles for ${VERSION}.")
+          fi
           # Ensure the release exists in the dist repo (idempotent — race-safe)
           if ! gh release view "${VERSION}" --repo "${DIST_REPO}" >/dev/null 2>&1; then
             gh release create "${VERSION}" --repo "${DIST_REPO}" \
               --title "Release ${VERSION}" \
-              --notes "Tauri installer bundles for ${VERSION}." \
+              "${notes_args[@]}" \
               || true
           fi
           # --clobber makes uploads idempotent across parallel jobs and reruns

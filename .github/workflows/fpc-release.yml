@@ -709,11 +709,55 @@ jobs:
           fi
           printf 'skip=false\n' >> "$GITHUB_OUTPUT"
 
+      # Generate the notes once, on the Linux leg. The release body is identical
+      # for every matrix leg (same tag, same CHANGELOG), and the primary "Upload
+      # to GitHub release" step below runs on this leg, so one leg sets the body
+      # and the others upload their artifacts with an empty body_path (a no-op).
+      # Restricting to Linux also avoids the Windows leg, where $RUNNER_TEMP under
+      # Git Bash is a C:\ path that release_notes.sh --output would misread.
+      - name: Checkout script-helpers for release notes
+        if: runner.os == 'Linux' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: df62393602dbd4d628bc29235ff11f544edd16fe # 0.28.0
+          path: .script-helpers
+          fetch-depth: 1
+
+      - name: Generate release notes
+        id: notes
+        if: runner.os == 'Linux' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        shell: bash
+        env:
+          RN_VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+          version="${RN_VERSION:-}"
+          if ! printf '%s' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+            echo "release notes: '$version' is not a version; skipping (no body)."
+            exit 0
+          fi
+          producer="${GITHUB_WORKSPACE}/.script-helpers/scripts/release_notes.sh"
+          if [ ! -f "$producer" ]; then
+            echo "release notes: $producer not found (script-helpers checkout failed)" >&2
+            exit 1
+          fi
+          # Best-effort: never fail the release because the notes could not be
+          # produced (e.g. a shallow build checkout with no CHANGELOG section).
+          # Publish without a body and say so instead.
+          if bash "$producer" --version "$version" --repo "$GITHUB_WORKSPACE" --output "$notes_file"; then
+            echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::release notes generation failed; publishing without a body."
+          fi
+
       - name: Upload to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/${{ steps.asset.outputs.asset }}
           overwrite_files: true
         env:
@@ -724,6 +768,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/dist_extra/*
           overwrite_files: true
         env:
@@ -734,6 +779,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/dist/${{ inputs.bin_name }}-${{ steps.tag.outputs.tag }}-${{ matrix.label }}.dmg
           overwrite_files: true
         env:
@@ -744,6 +790,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/${{ steps.pkg_win.outputs.exe_asset }}
           overwrite_files: true
         env:
