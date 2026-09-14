@@ -60,7 +60,7 @@ fi
 
 DEST_DIR="$ROOT_DIR/vendor/script-helpers"
 
-# Skip if already at this commit.
+# Skip only if already at this commit with identical files (checked below).
 current_sha=""
 if [[ -f "${ROOT_DIR}/vendor/.script-helpers-sha" ]]; then
   current_sha="$(cat "${ROOT_DIR}/vendor/.script-helpers-sha")"
@@ -83,9 +83,13 @@ fi
 
 COMMIT_HASH="$(git -C "$TMP_DIR/script-helpers" rev-parse HEAD)"
 
-if [[ "$COMMIT_HASH" == "$current_sha" && -d "$DEST_DIR" ]]; then
-  log_info "Already up to date at ${REF} (${COMMIT_HASH}). Nothing to do."
-  exit 0
+# For explicit-ref syncs record the pinned ref; for auto-detected "latest" syncs
+# record the literal "latest" so the drift check re-resolves the newest semver tag
+# on each run rather than pinning to a now-stale resolved tag.
+if [[ -n "${REF_WAS_EXPLICIT:-}" ]]; then
+  REF_LABEL="$REF"
+else
+  REF_LABEL="latest"
 fi
 
 mkdir -p "$ROOT_DIR/vendor"
@@ -101,19 +105,27 @@ VENDOR_EXCLUDES=(".git" ".github")
 for excluded in "${VENDOR_EXCLUDES[@]}"; do
   rm -rf "${STAGE_DIR:?}/${excluded}"
 done
+
+# "Up to date" means the vendored files, not just the SHA lockfile. Comparing
+# the lockfile alone let a hand-edited file under vendor/ survive every re-sync
+# (the fix for it was the one command that refused to run), and never rewrote
+# the ref lock when the same commit was re-synced under a different ref.
+current_ref=""
+if [[ -f "${ROOT_DIR}/vendor/.script-helpers-ref" ]]; then
+  current_ref="$(tr -d '[:space:]' < "${ROOT_DIR}/vendor/.script-helpers-ref")"
+fi
+if [[ "$COMMIT_HASH" == "$current_sha" && "$REF_LABEL" == "$current_ref" && -d "$DEST_DIR" ]] \
+   && diff -r "$STAGE_DIR" "$DEST_DIR" >/dev/null 2>&1; then
+  log_info "Already up to date at ${REF} (${COMMIT_HASH}). Nothing to do."
+  exit 0
+fi
+
 rm -rf "$DEST_DIR"
 mv "$STAGE_DIR" "$DEST_DIR"
 
 # Write SHA and ref lockfiles so vendor-drift checks can compare against upstream.
-# For explicit-ref syncs record the pinned ref; for auto-detected "latest" syncs
-# record the literal "latest" so the drift check re-resolves the newest semver tag
-# on each run rather than pinning to a now-stale resolved tag.
 echo "$COMMIT_HASH" > "$ROOT_DIR/vendor/.script-helpers-sha"
-if [[ -n "${REF_WAS_EXPLICIT:-}" ]]; then
-  echo "$REF"    > "$ROOT_DIR/vendor/.script-helpers-ref"
-else
-  echo "latest"  > "$ROOT_DIR/vendor/.script-helpers-ref"
-fi
+echo "$REF_LABEL"   > "$ROOT_DIR/vendor/.script-helpers-ref"
 
 # vendor/ is gitignored (only the two lockfiles are re-included), yet the
 # vendored tree is committed. A plain `git add` therefore updates files that are
