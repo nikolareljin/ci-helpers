@@ -678,8 +678,13 @@ jobs:
             echo "release notes: $producer not found (script-helpers checkout failed)" >&2
             exit 1
           fi
-          bash "$producer" --version "$version" --repo "${GITHUB_WORKSPACE}/.source" --output "$notes_file"
-          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          # Best-effort: never fail the release because the notes could not be
+          # produced. Publish without a body and say so instead.
+          if bash "$producer" --version "$version" --repo "${GITHUB_WORKSPACE}/.source" --output "$notes_file"; then
+            echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::release notes generation failed; publishing without a body."
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10

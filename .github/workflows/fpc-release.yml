@@ -709,8 +709,14 @@ jobs:
           fi
           printf 'skip=false\n' >> "$GITHUB_OUTPUT"
 
+      # Generate the notes once, on the Linux leg. The release body is identical
+      # for every matrix leg (same tag, same CHANGELOG), and the primary "Upload
+      # to GitHub release" step below runs on this leg, so one leg sets the body
+      # and the others upload their artifacts with an empty body_path (a no-op).
+      # Restricting to Linux also avoids the Windows leg, where $RUNNER_TEMP under
+      # Git Bash is a C:\ path that release_notes.sh --output would misread.
       - name: Checkout script-helpers for release notes
-        if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        if: runner.os == 'Linux' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
@@ -720,7 +726,7 @@ jobs:
 
       - name: Generate release notes
         id: notes
-        if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
+        if: runner.os == 'Linux' && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
         shell: bash
         env:
           RN_VERSION: ${{ steps.tag.outputs.tag }}
@@ -737,8 +743,14 @@ jobs:
             echo "release notes: $producer not found (script-helpers checkout failed)" >&2
             exit 1
           fi
-          bash "$producer" --version "$version" --repo "$GITHUB_WORKSPACE" --output "$notes_file"
-          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          # Best-effort: never fail the release because the notes could not be
+          # produced (e.g. a shallow build checkout with no CHANGELOG section).
+          # Publish without a body and say so instead.
+          if bash "$producer" --version "$version" --repo "$GITHUB_WORKSPACE" --output "$notes_file"; then
+            echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::release notes generation failed; publishing without a body."
+          fi
 
       - name: Upload to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
