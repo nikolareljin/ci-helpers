@@ -48,8 +48,9 @@ Inputs:
 - `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
 
 This workflow declares a `concurrency` group keyed on the caller workflow, the
-**working directory**, and the ref, with `cancel-in-progress: true`, so a
-superseding push cancels the run it replaces.
+**working directory**, the runner and toolchain version inputs, and the ref,
+with `cancel-in-progress: true`, so a superseding push cancels the run it
+replaces.
 
 The working directory is in the key because a caller may invoke this workflow
 from several jobs at once — backend and frontend, or one job per module. Those
@@ -58,10 +59,16 @@ them in a single group and `cancel-in-progress` made whichever started second
 destroy the first. The victim reported `cancelled` after 0 seconds with no
 steps, which reads as an infrastructure hiccup rather than lost coverage.
 
-- `concurrency_key` (string, default `""`) — overrides the working directory in
-  that key. Set it when two concurrent calls genuinely share a directory, which
-  in practice means matrix legs. Leave it empty otherwise: one job per component
-  is already distinguished by its directory.
+The runner and the toolchain versions (`node_version`, `java_version`,
+`dotnet_version`, `python_version`, `go_version`, `flutter_version` with
+`flutter_channel`, `php_version`, `rust_toolchain`) are in the default key for
+the same reason: a matrix over versions or runners reaches this workflow with a
+single working directory, and its legs cancelled each other too.
+
+- `concurrency_key` (string, default `""`) — replaces the working directory,
+  runner and toolchain versions in that key. Set it when two concurrent calls
+  still share all of those, such as matrix legs over something else. Leave it
+  empty otherwise. A caller that sets it keeps exactly the group it had.
 
 Example (Flutter mobile CI):
 
@@ -636,7 +643,7 @@ Inputs (selected):
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
 - `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
-- `lint_laravel_command` (string, default `vendor/bin/pint`)
+- `lint_laravel_command` (string, default `vendor/bin/pint --test`; without `--test` pint rewrites files and always succeeds)
 - `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
 - `wp_root` (string, default `wp-cli-site`)
 
@@ -728,7 +735,7 @@ Inputs:
 - `java_version` (string, default `17`)
 - `lint_command` (string, default `mvn -B -DskipTests checkstyle:check`)
 - `test_command` (string, default `mvn -B test`)
-- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:check`)
+- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7`; the plugin's own default threshold of 11 never fails)
 
 Example:
 
@@ -750,7 +757,7 @@ Inputs:
 - `dotnet_version` (string, default `8.0.x`)
 - `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
 - `test_command` (string, default `dotnet restore && dotnet test`)
-- `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
+- `vuln_command` (string, default runs `dotnet list package --vulnerable --include-transitive` and fails when it lists vulnerable packages, since that command exits 0 either way)
 
 Example:
 
