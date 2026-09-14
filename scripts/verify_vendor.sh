@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # SCRIPT: verify_vendor.sh
-# DESCRIPTION: Verify vendor/script-helpers is usable and free of upstream CI config; online, that it matches its recorded ref.
+# DESCRIPTION: Verify vendor/script-helpers is usable and free of upstream CI config; online, that it matches its recorded ref and that its files match upstream at the recorded SHA.
 # USAGE: ./scripts/verify_vendor.sh [--offline] [-h|--help]
 # PARAMETERS:
-#   --offline   Skip the recorded-ref comparison (no network / no gh); it is reported as SKIP, not as a pass.
+#   --offline   Skip the recorded-ref and file-content comparisons (no network / no gh); both are reported as SKIP, not as a pass.
 #   -h, --help  Show this help message.
+# ENVIRONMENT:
+#   SCRIPT_HELPERS_REPO_URL  Upstream to compare file contents against (default: https://github.com/nikolareljin/script-helpers.git).
 # EXIT_CODES:
-#   0  Vendored copy is usable; it also matches its recorded ref unless a SKIP line says that was not checked.
+#   0  Vendored copy is usable; it also matches its recorded ref and upstream's files unless a SKIP line says that was not checked.
 #   1  A check failed. The failing check is named on stderr.
 #   2  Bad arguments.
 #
@@ -23,16 +25,18 @@ VENDOR_DIR="$ROOT_DIR/vendor/script-helpers"
 SHA_LOCK="$ROOT_DIR/vendor/.script-helpers-sha"
 REF_LOCK="$ROOT_DIR/vendor/.script-helpers-ref"
 UPSTREAM_REPO="nikolareljin/script-helpers"
+UPSTREAM_URL="${SCRIPT_HELPERS_REPO_URL:-https://github.com/${UPSTREAM_REPO}.git}"
 
 # Paths that must never appear in the vendored tree. Keep in step with
-# VENDOR_EXCLUDES in sync_script_helpers.sh.
+# VENDOR_EXCLUDES in sync_script_helpers.sh; the content comparison below also
+# removes exactly these from upstream's tree before comparing.
 FORBIDDEN_PATHS=(".git" ".github")
 
 OFFLINE=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --offline) OFFLINE=true; shift ;;
-    -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -155,6 +159,51 @@ else
     ok "vendored copy is current with $ref ($upstream)"
   else
     bad "vendored copy is behind $ref: have $pinned, upstream $upstream - run scripts/sync_script_helpers.sh"
+  fi
+fi
+
+# 6) Contents ------------------------------------------------------------------
+# The lockfiles are text anyone can edit, so a matching SHA proves nothing about
+# the files next to it: a hand-edited lib/logging.sh passed every check above.
+# Check out upstream at the recorded SHA, drop what the sync drops, and require
+# the vendored tree to be identical to what is left.
+pinned_sha="$(tr -d '[:space:]' < "$SHA_LOCK" 2>/dev/null || true)"
+if [[ "$OFFLINE" == "true" ]]; then
+  skip "vendored file contents not compared with upstream (--offline)"
+elif [[ -z "$pinned_sha" ]]; then
+  skip "vendored file contents not compared: no recorded SHA"
+elif [[ ! "$pinned_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  bad "$(basename "$SHA_LOCK") is not a full commit SHA ('$pinned_sha'); cannot compare vendored files"
+else
+  contents_tmp="$(mktemp -d)"
+  trap 'rm -rf "$contents_tmp"' EXIT
+  upstream_tree="$contents_tmp/script-helpers"
+  git init -q "$upstream_tree"
+  fetched=false
+  # A shallow fetch of one commit is enough where the server allows it (GitHub
+  # does); otherwise fetch every branch and tag and look for the commit there.
+  if GIT_TERMINAL_PROMPT=0 git -C "$upstream_tree" fetch -q --depth 1 "$UPSTREAM_URL" "$pinned_sha" >/dev/null 2>&1; then
+    fetched=true
+  elif GIT_TERMINAL_PROMPT=0 git -C "$upstream_tree" fetch -q "$UPSTREAM_URL" \
+         '+refs/heads/*:refs/remotes/upstream/*' '+refs/tags/*:refs/tags/*' >/dev/null 2>&1; then
+    fetched=true
+  fi
+  if [[ "$fetched" != "true" ]]; then
+    skip "vendored file contents not compared: could not fetch $UPSTREAM_URL"
+  elif ! git -C "$upstream_tree" cat-file -e "${pinned_sha}^{commit}" 2>/dev/null; then
+    bad "recorded SHA $pinned_sha does not exist in $UPSTREAM_URL - run scripts/sync_script_helpers.sh"
+  elif ! git -C "$upstream_tree" -c advice.detachedHead=false checkout -q "$pinned_sha" 2>/dev/null; then
+    skip "vendored file contents not compared: could not check out $pinned_sha"
+  else
+    for excluded in "${FORBIDDEN_PATHS[@]}"; do
+      rm -rf "${upstream_tree:?}/${excluded}"
+    done
+    if content_diff="$(diff -rq "$upstream_tree" "$VENDOR_DIR" 2>&1)"; then
+      ok "vendored files match upstream at $pinned_sha"
+    else
+      bad "vendored files differ from upstream at $pinned_sha - run scripts/sync_script_helpers.sh"
+      printf '%s\n' "$content_diff" | sed "s|$contents_tmp/||; s|$ROOT_DIR/||g" | head -20 >&2
+    fi
   fi
 fi
 
