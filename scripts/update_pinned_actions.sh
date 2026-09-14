@@ -116,28 +116,28 @@ url_encode_path_segment() {
   python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
 }
 
-# Fetch SHA for repo+ref, with caching
+# Fetch SHA for repo+ref, with caching. The result is returned in `fetched_sha`
+# rather than on stdout: a `$(fetch_sha ...)` caller runs it in a subshell,
+# where the cache write is thrown away, so every pin paid for its own API call.
+fetched_sha=""
 fetch_sha() {
   local repo="$1" ref="$2"
   local cache_key="${repo}@${ref}"
+  fetched_sha=""
 
   if [[ "${sha_cache["$cache_key"]+_}" ]]; then
-    echo "${sha_cache["$cache_key"]}"
+    fetched_sha="${sha_cache["$cache_key"]}"
     return
   fi
 
   local encoded_ref sha
   encoded_ref="$(url_encode_path_segment "$ref")"
-  sha="$(gh api "repos/${repo}/commits/${encoded_ref}" --jq '.sha' 2>/dev/null)" || {
-    echo ""
-    return 1
-  }
+  sha="$(gh api "repos/${repo}/commits/${encoded_ref}" --jq '.sha' 2>/dev/null)" || return 1
   if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
-    echo ""
     return 1
   fi
   sha_cache["$cache_key"]="$sha"
-  echo "$sha"
+  fetched_sha="$sha"
 }
 
 # Find all YAML files under dir
@@ -183,11 +183,21 @@ for file in "${files[@]}"; do
       fi
       repo="${path_parts[0]}/${path_parts[1]}"
 
-      new_sha="$(fetch_sha "$repo" "$ref")" || {
+      # An annotation that names a commit rather than a branch or tag resolves
+      # to itself, so the pin could never be reported stale: it would count as
+      # OK forever without anything having been compared.
+      if [[ "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        echo "WARN  $file: ${action_path} is annotated with a commit SHA (${ref}), not a branch or tag, so it cannot be audited — skipping" >&2
+        warn_count=$((warn_count + 1))
+        continue
+      fi
+
+      if ! fetch_sha "$repo" "$ref"; then
         echo "WARN  $file: could not fetch SHA for ${repo}@${ref} — skipping" >&2
         warn_count=$((warn_count + 1))
         continue
-      }
+      fi
+      new_sha="$fetched_sha"
 
       if [[ -z "$new_sha" ]]; then
         echo "WARN  $file: empty SHA returned for ${repo}@${ref} — skipping" >&2
@@ -213,7 +223,7 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
-    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+    elif [[ "$line" =~ (^[[:space:]]*(-[[:space:]]+)?|[{,][[:space:]]*)uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable
@@ -223,6 +233,8 @@ for file in "${files[@]}"; do
       # A quoted scalar -- `uses: 'owner/action@<sha>'` -- is valid YAML that
       # GitHub runs, and the strict parser above does not accept it, so it too
       # must land here rather than pass unseen. Same reasoning as uppercase hex.
+      # So is a flow mapping -- `- { uses: owner/action@<sha> }` -- where `uses:`
+      # follows `{` or `,` instead of starting the line.
       # Uppercase hex is deliberate here and not above: git and the GitHub API
       # resolve an uppercase object id, so `@ABCDEF...` is a pin that really
       # runs, and matching it only in the strict parser would mean comparing it
