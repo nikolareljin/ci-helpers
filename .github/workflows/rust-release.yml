@@ -174,25 +174,48 @@ jobs:
       - name: Collect binary links
         id: binaries
         shell: bash
+        env:
+          INPUT_BINARY_LINKS: ${{ inputs.binary_links }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_BUILD_WINDOWS: ${{ inputs.build_windows }}
+          INPUT_BUILD_LINUX_GNU: ${{ inputs.build_linux_gnu }}
+          INPUT_LINUX_GNU_ALIASES: ${{ inputs.linux_gnu_aliases }}
+          INPUT_BUILD_LINUX_MUSL: ${{ inputs.build_linux_musl }}
+          INPUT_BUILD_MACOS: ${{ inputs.build_macos }}
         run: |
           set -euo pipefail
-          binary_links="${{ inputs.binary_links }}"
+          # A fixed delimiter such as EOF ends the output early when a line of
+          # the value is exactly that word, and the rest is parsed as more outputs.
+          write_multiline_output() {
+            local key="$1"
+            local value="$2"
+            local delimiter
+            delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$value" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
+            {
+              printf '%s<<%s\n' "$key" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          binary_links="${INPUT_BINARY_LINKS}"
           if [ -n "$binary_links" ]; then
-            echo "links<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$binary_links" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
+            write_multiline_output "links" "$binary_links"
             exit 0
           fi
 
           links=()
-          bin="${{ inputs.bin_name }}"
+          bin="${INPUT_BIN_NAME}"
 
-          if [ "${{ inputs.build_windows }}" = "true" ]; then
+          if [ "${INPUT_BUILD_WINDOWS}" = "true" ]; then
             links+=("Windows (.exe)|${bin}-windows.exe")
           fi
-          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+          if [ "${INPUT_BUILD_LINUX_GNU}" = "true" ]; then
             links+=("Linux GNU|${bin}-linux")
-            aliases="${{ inputs.linux_gnu_aliases }}"
+            aliases="${INPUT_LINUX_GNU_ALIASES}"
             if [ -n "$aliases" ]; then
               IFS=',' read -r -a alias_list <<< "$aliases"
               for alias in "${alias_list[@]}"; do
@@ -207,16 +230,14 @@ jobs:
               done
             fi
           fi
-          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+          if [ "${INPUT_BUILD_LINUX_MUSL}" = "true" ]; then
             links+=("Linux MUSL|${bin}-musl")
           fi
-          if [ "${{ inputs.build_macos }}" = "true" ]; then
+          if [ "${INPUT_BUILD_MACOS}" = "true" ]; then
             links+=("macOS|${bin}-mac")
           fi
 
-          echo "links<<EOF" >> "$GITHUB_OUTPUT"
-          printf "%s\n" "${links[@]}" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          write_multiline_output "links" "$(printf "%s\n" "${links[@]}")"
 
       # Check out script-helpers only when the producer is actually needed --
       # not when the caller supplied its own release_notes. Pinned to the commit
@@ -241,7 +262,9 @@ jobs:
           RN_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
           RN_RELEASE_TAG: ${{ inputs.release_tag }}
           RN_OVERRIDE: ${{ inputs.release_notes }}
-          RN_BINARY_LINKS: ${{ inputs.binary_links }}
+          # The collected table, not the raw input: it equals binary_links when
+          # one was given and is generated from the build targets otherwise.
+          RN_BINARY_LINKS: ${{ steps.binaries.outputs.links }}
           RN_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
           RN_REPOSITORY: ${{ github.repository }}
           RN_REF_NAME: ${{ github.ref_name }}
@@ -305,7 +328,11 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3 @ 2026-09-10
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
-          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          # The action's input is `name`; it never had a `release_name`, so this
+          # was ignored and every release was named after its tag. An empty
+          # release_name keeps that (the action falls back to the existing
+          # release's name, then the tag).
+          name: ${{ inputs.release_name }}
           body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
           overwrite_files: true

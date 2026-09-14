@@ -183,7 +183,9 @@ jobs:
           RN_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
           RN_RELEASE_TAG: ${{ inputs.release_tag }}
           RN_OVERRIDE: ${{ inputs.release_notes }}
-          RN_BINARY_LINKS: ${{ inputs.binary_links }}
+          # The collected table, not the raw input: it equals binary_links when
+          # one was given and is generated from the build targets otherwise.
+          RN_BINARY_LINKS: ${{ steps.binaries.outputs.links }}
           RN_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
           RN_REPOSITORY: ${{ github.repository }}
           RN_REF_NAME: ${{ github.ref_name }}
@@ -247,7 +249,11 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
-          release_name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', github.ref_name) }}
+          # The action's input is `name`; it never had a `release_name`, so this
+          # was ignored and every release was named after its tag. An empty
+          # release_name keeps that (the action falls back to the existing
+          # release's name, then the tag).
+          name: ${{ inputs.release_name }}
           body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
           overwrite_files: true
