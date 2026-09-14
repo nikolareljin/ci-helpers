@@ -1,4 +1,45 @@
 # Changelog
+## 2026-09-14 — 0.25.0
+
+### Added
+
+- **Release bodies say what changed.** A single producer,
+  `release_notes.sh` (vendored from `script-helpers` 0.28.0), builds a release
+  body from the `CHANGELOG.md` section for the version, or from the commits
+  since the previous release tag when there is none — never the placeholder
+  `* No changes listed.` `release-build.yml`, `go-release.yml` and
+  `rust-release.yml` drop their inlined generators (each resolved the range
+  with a bare `git describe --tags --abbrev=0` from a checkout of the tag being
+  released, so the range was always empty), and `deb-build.yml`,
+  `fpc-release.yml`, `rust-release-tarballs.yml` and `tauri-release.yml` — which
+  published no body at all — now carry one too. The body reaches the release
+  step as a file (`body_path` / `--notes-file`), never an interpolated string.
+- **`release-tag-gate.yml` requires a written CHANGELOG section.** A
+  `release/X.Y.Z` pull request whose CHANGELOG has a header but nothing under it
+  (the empty template) now fails before merge. A repository with no
+  `CHANGELOG.md` is not blocked — it gets the commit list at release time.
+
+### Changed
+
+- **`vendor/script-helpers` updated to 0.28.0** (`df62393`), which carries the
+  release-notes producer, the changelog-section gate and the whole-version
+  fixes to `lib/changelog.sh`.
+- **Dependabot action bumps, bundled here:** `actions/setup-java`
+  6.0.0 → 6.0.1, `pnpm/action-setup` 6.0.10 → 6.1.0, and
+  `github/codeql-action/upload-sarif` 4.37.9 → 4.38.0. All are minor/patch
+  bumps of actions used inside these workflows, not of any reusable-workflow
+  input, so consumers are unaffected.
+
+### Fixed
+
+- **The FPC Windows release leg no longer fails on note generation.** Notes are
+  now generated once, on the Linux matrix leg, where `RUNNER_TEMP` is a POSIX
+  path the producer can write; other legs upload their artifacts with an empty
+  body (a no-op). Note generation is best-effort everywhere: a failure warns
+  and publishes without a body rather than failing the release.
+- **`release-tag-gate.yml` reads every branch name from the environment**
+  instead of interpolating the fork-controllable head ref into `run:`.
+
 ## 2026-09-10 — 0.24.2
 
 ### Changed
