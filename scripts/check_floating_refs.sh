@@ -26,11 +26,19 @@ done
 
 [[ -d "$dir" ]] || { echo "Error: directory '$dir' does not exist." >&2; exit 1; }
 
+# One pattern for the whole `uses:` value rather than a chain of exclusions:
+#   - the value may be quoted ("owner/action@main") or sit inside a flow
+#     mapping ({uses: owner/action@main}) -- both are valid YAML GitHub runs;
+#   - the channel must follow the action path directly and end the value
+#     (quote, space, `}`, `,` or end of line), so a 40-hex SHA pin never
+#     matches, and neither does a line that merely mentions a SHA elsewhere,
+#     such as in a trailing comment. Excluding every line containing a SHA
+#     anywhere used to hide `uses: x@main # was x@<sha>`.
+channel_re='uses:[[:space:]]*["'"'"']?[^"'"'"'[:space:]#@{},]+@(master|main|latest|stable)(["'"'"'[:space:]},]|$)'
 floating=$(grep -rn --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
   | grep -vE ':[0-9]+:[[:space:]]*#' \
-  | grep -v 'uses:[[:space:]]*\./\.' \
-  | grep -vE '@[0-9a-f]{40}' \
-  | grep -E '@(master|main|latest|stable)([[:space:]]|$)' \
+  | grep -v 'uses:[[:space:]]*["'"'"']\{0,1\}\./\.' \
+  | grep -E "$channel_re" \
   || true)
 
 if [[ -n "$floating" ]]; then
