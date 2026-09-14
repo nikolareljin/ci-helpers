@@ -3,11 +3,11 @@
 # DESCRIPTION: Point the production tag AND branch at a specific version tag and push both.
 # USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch]
 # PARAMETERS:
-#   -t, --tag <tag>         Required. Tag to point the production tag at.
-#   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set.
+#   -t, --tag <tag>         Required. Tag to point the production tag at. It must exist on the remote at the same commit as locally.
+#   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set. main, master and HEAD are refused.
 #   --remote <name>         Remote name to push to (default: origin).
 #   --repo <path>           Repository path (default: GITHUB_WORKSPACE or cwd).
-#   --fetch-tags            Fetch tags before updating the production tag.
+#   --fetch-tags            Fetch tags from the remote before updating; exits 1 if the fetch fails.
 #   --no-branch             Skip updating the production branch (tag-only update).
 #   -h, --help              Show this help message.
 # ----------------------------------------------------
@@ -71,8 +71,22 @@ if [[ -z "$tag" ]]; then
   exit 2
 fi
 
+# Moving the production ref by hand onto a branch that other work lands on
+# would force-push over it. Refuse the names that are never a production alias.
+case "$prod_tag" in
+  main|master|HEAD)
+    log_error_safe "Refusing --name ${prod_tag}: it would force-move the ${prod_tag} branch"
+    exit 2
+    ;;
+esac
+
+# A failed fetch used to be ignored, so the run continued on whatever tags the
+# checkout happened to have. When fetching was asked for, not fetching is fatal.
 if $fetch_tags; then
-  git -C "$repo_dir" fetch --tags --prune --force >/dev/null 2>&1 || true
+  if ! fetch_err=$(git -C "$repo_dir" fetch "$remote" --tags --prune --force 2>&1); then
+    log_error_safe "Failed to fetch tags from ${remote}: ${fetch_err}"
+    exit 1
+  fi
 fi
 
 if ! git -C "$repo_dir" rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
@@ -81,6 +95,41 @@ if ! git -C "$repo_dir" rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
 fi
 
 target_sha=$(git -C "$repo_dir" rev-parse "refs/tags/$tag^{}")
+
+# The local tag is only a copy. Production must point at the release the remote
+# published, so resolve the tag there too and refuse to move anything when it
+# is missing or names a different commit (a tag re-cut locally, or never pushed).
+# The verification at the end compares against target_sha, so without this it
+# would confirm a wrong commit against itself.
+if ! remote_src_out=$(git -C "$repo_dir" ls-remote "$remote" "refs/tags/${tag}" "refs/tags/${tag}^{}"); then
+  log_error_safe "Failed to query remote ${remote} for tag ${tag}"
+  exit 1
+fi
+# ls-remote patterns match on trailing path components, so compare names exactly.
+remote_src_sha=$(printf '%s\n' "$remote_src_out" | awk -v r="refs/tags/${tag}^{}" '$2 == r {print $1; exit}')
+[[ -z "$remote_src_sha" ]] && remote_src_sha=$(printf '%s\n' "$remote_src_out" | awk -v r="refs/tags/${tag}" '$2 == r {print $1; exit}')
+if [[ -z "$remote_src_sha" ]]; then
+  log_error_safe "Tag $tag not found on remote ${remote}; push it before pointing ${prod_tag} at it"
+  exit 1
+fi
+if [[ "$remote_src_sha" != "$target_sha" ]]; then
+  log_error_safe "Tag $tag differs between $repo_dir (${target_sha:0:8}) and remote ${remote} (${remote_src_sha:0:8}); refusing to move ${prod_tag}"
+  exit 1
+fi
+
+# Record where the production branch is on the remote BEFORE pushing anything,
+# and lease the branch push on exactly that value. A bare --force-with-lease
+# compares against the remote-tracking ref, and fetching that ref immediately
+# before the push made the lease agree with whatever was there -- including a
+# concurrent move it exists to catch. An empty value means the branch does not
+# exist yet, and the lease then requires that it still does not.
+if $update_branch; then
+  if ! observed_branch_out=$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/${prod_tag}"); then
+    log_error_safe "Failed to query remote ${remote} for branch ${prod_tag}"
+    exit 1
+  fi
+  observed_branch_sha=$(printf '%s\n' "$observed_branch_out" | awk -v r="refs/heads/${prod_tag}" '$2 == r {print $1; exit}')
+fi
 
 log_info_safe "Updating ${prod_tag} tag to ${tag}"
 git -C "$repo_dir" tag -f "$prod_tag" "$tag"
@@ -91,13 +140,8 @@ log_info_safe "Production tag ${prod_tag} now points to ${tag}"
 
 if $update_branch; then
   log_info_safe "Advancing ${prod_tag} branch to ${tag} (${target_sha:0:8})"
-  fetch_err=$(git -C "$repo_dir" fetch "$remote" "refs/heads/${prod_tag}:refs/remotes/${remote}/${prod_tag}" 2>&1) || {
-    case "$fetch_err" in
-      *"couldn't find remote ref"*) ;;
-      *) log_warn_safe "Failed to fetch ${prod_tag} branch: ${fetch_err}" ;;
-    esac
-  }
-  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" --force-with-lease
+  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" \
+    "--force-with-lease=refs/heads/${prod_tag}:${observed_branch_sha}"
   log_info_safe "Production branch ${prod_tag} now points to ${tag}"
 fi
 
