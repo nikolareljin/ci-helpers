@@ -75,24 +75,91 @@ runs:
         esac
 
         archive="gitleaks_${ver}_${os}_${arch}.${ext}"
-        mkdir -p /tmp/gl-dl
+        checksums="gitleaks_${ver}_checksums.txt"
+        # A private directory per run: fixed /tmp paths are shared by every job
+        # on a self-hosted runner, so one job could swap another's binary.
+        if [ -n "${RUNNER_TEMP:-}" ]; then
+          work=$(mktemp -d "${RUNNER_TEMP}/gitleaks.XXXXXX")
+        else
+          work=$(mktemp -d)
+        fi
 
         # Direct download from GitHub Releases — no API auth needed for public repos.
         # Using curl avoids the 401 that gh-cli triggers when github.token is scoped
         # to a different repo than the one being downloaded from.
-        curl -fsSL \
-          "https://github.com/gitleaks/gitleaks/releases/download/${tag}/${archive}" \
-          -o "/tmp/gl-dl/${archive}"
+        base_url="https://github.com/gitleaks/gitleaks/releases/download/${tag}"
+        curl -fsSL "${base_url}/${archive}" -o "${work}/${archive}"
+        curl -fsSL "${base_url}/${checksums}" -o "${work}/${checksums}"
+
+        # Verify the archive against the checksums file published with the same
+        # release before anything from it is executed.
+        expected=$(awk -v f="${archive}" '$2 == f { print $1 }' "${work}/${checksums}")
+        if [ -z "${expected}" ]; then
+          echo "::error::${checksums} has no entry for ${archive}; refusing to run an unverified binary." >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual=$(sha256sum "${work}/${archive}" | awk '{ print $1 }')
+        elif command -v shasum >/dev/null 2>&1; then
+          actual=$(shasum -a 256 "${work}/${archive}" | awk '{ print $1 }')
+        else
+          echo "::error::Neither sha256sum nor shasum is available to verify ${archive}." >&2
+          exit 1
+        fi
+        if [ "${actual}" != "${expected}" ]; then
+          echo "::error::Checksum mismatch for ${archive}: expected ${expected}, got ${actual}." >&2
+          exit 1
+        fi
+        echo "Verified ${archive} (sha256 ${actual})"
 
         if [ "${ext}" = "zip" ]; then
-          unzip -q "/tmp/gl-dl/${archive}" -d /tmp/gl-bin
-          GL_BIN="/tmp/gl-bin/gitleaks.exe"
+          unzip -q "${work}/${archive}" -d "${work}/bin"
+          GL_BIN="${work}/bin/gitleaks.exe"
         else
-          tar -xzf "/tmp/gl-dl/${archive}" -C /tmp gitleaks
-          GL_BIN="/tmp/gitleaks"
+          mkdir -p "${work}/bin"
+          tar -xzf "${work}/${archive}" -C "${work}/bin" gitleaks
+          GL_BIN="${work}/bin/gitleaks"
           chmod +x "${GL_BIN}"
         fi
         echo "GL_BIN=${GL_BIN}" >> "${GITHUB_ENV}"
+
+    # Without config_path, gitleaks loads .gitleaks.toml and .gitleaksignore
+    # from the checked-out tree, so on a pull request those files come from the
+    # PR itself and can allowlist the very secret it adds. Flag such changes for
+    # the reviewer. Advisory only: this step never fails the job, including when
+    # a shallow checkout lacks the base commit to diff against.
+    - name: Check pull request for scanner config changes
+      if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config_path }}
+      run: |
+        set -uo pipefail
+        base=$(python3 -c 'import json, os; print(((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("pull_request") or {}).get("base") or {}).get("sha") or "")' 2>/dev/null) || base=""
+        if [ -z "${base}" ] || ! git rev-parse --git-dir >/dev/null 2>&1; then
+          echo "Scanner config check skipped: no pull request base or no git checkout."
+          exit 0
+        fi
+        if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+          GIT_TERMINAL_PROMPT=0 git fetch --no-tags --depth=1 origin "${base}" >/dev/null 2>&1 || true
+        fi
+        if ! changed=$(git diff --name-only "${base}...HEAD" 2>/dev/null) \
+          && ! changed=$(git diff --name-only "${base}" HEAD 2>/dev/null); then
+          echo "::notice::Could not diff against the pull request base (shallow checkout?); scanner config changes were not checked."
+          exit 0
+        fi
+        hits=""
+        while IFS= read -r f; do
+          [ -z "${f}" ] && continue
+          case "${f##*/}" in
+            .gitleaks.toml|.gitleaksignore) hits="${hits}${hits:+, }${f}" ;;
+            *) if [ -n "${CONFIG_PATH}" ] && [ "${f}" = "${CONFIG_PATH#./}" ]; then hits="${hits}${hits:+, }${f}"; fi ;;
+          esac
+        done <<< "${changed}"
+        if [ -n "${hits}" ]; then
+          echo "::warning::This pull request changes gitleaks configuration read by this scan (${hits}). Allowlist or ignore entries added here apply to the scan of this same pull request; review them before trusting a clean result."
+        fi
+        exit 0
 
     - name: Run gitleaks scan
       shell: bash
@@ -103,7 +170,9 @@ runs:
         REPORT_FMT: ${{ inputs.report_format }}
       run: |
         set -euo pipefail
-        args=(detect --source "${SCAN_PATH}" --report-format "${REPORT_FMT}" --report-path "${OUTPUT}" --exit-code 0)
+        # --redact keeps secret values out of the report, which is uploaded as an
+        # artifact or SARIF; findings and their count are unchanged.
+        args=(detect --source "${SCAN_PATH}" --report-format "${REPORT_FMT}" --report-path "${OUTPUT}" --exit-code 0 --redact)
         [ -n "${CONFIG_PATH}" ] && args+=(--config "${CONFIG_PATH}")
         "${GL_BIN}" "${args[@]}"
     - name: Evaluate findings
