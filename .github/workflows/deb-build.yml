@@ -143,11 +143,44 @@ jobs:
           printf 'skip=false\n'    >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout script-helpers for release notes
+        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: df62393602dbd4d628bc29235ff11f544edd16fe # 0.28.0
+          path: .script-helpers
+          fetch-depth: 1
+      - name: Generate release notes
+        id: notes
+        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        shell: bash
+        env:
+          RN_VERSION: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+          version="${RN_VERSION:-}"
+          # A non-version ref has no release to describe -- skip with no body
+          # rather than fail the job (GitHub then uses its default).
+          if ! printf '%s' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+            echo "release notes: '$version' is not a version; skipping (no body)."
+            exit 0
+          fi
+          producer="${GITHUB_WORKSPACE}/.script-helpers/scripts/release_notes.sh"
+          if [ ! -f "$producer" ]; then
+            echo "release notes: $producer not found (script-helpers checkout failed)" >&2
+            exit 1
+          fi
+          bash "$producer" --version "$version" --repo "$GITHUB_WORKSPACE" --output "$notes_file"
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
+
       - name: Upload .deb to GitHub release
         if: inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
           files: ${{ inputs.artifact_glob }}
           overwrite_files: true
         env:
