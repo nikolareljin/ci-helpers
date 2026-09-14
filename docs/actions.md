@@ -121,6 +121,9 @@ Example:
     fail_on_findings: "true"
 ```
 
+With `upload_sarif: "true"` the SARIF is uploaded even when the scan step fails
+on findings, so a failing run still shows its results in the Security tab.
+
 ## gitleaks-scan
 
 Path: `.github/actions/gitleaks-scan`
@@ -134,12 +137,23 @@ Inputs:
 - `scan_path` (default `"."`)
 - `report_format` (default `sarif`)
 - `output` (default `results.sarif`)
+- `gitleaks_version` (default `v8.30.1`)
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"false"`)
 - `upload_artifact` (default `"false"`)
 - `artifact_name` (default `gitleaks-report`)
 
-Note: `gitleaks-action` emits SARIF only; other `report_format` values are ignored, and `scan_path`/`config_path` are not honored (it auto-detects `.gitleaks.toml`).
+Notes:
+- The gitleaks release archive is verified against the `checksums.txt` published
+  with the same release before it runs; a mismatch fails the step.
+- Reports are written with `--redact`: findings, rule IDs, files, lines and
+  fingerprints are kept, secret values are not.
+- With `config_path` empty, gitleaks reads `.gitleaks.toml` (and, always,
+  `.gitleaksignore`) from the checked-out tree. On `pull_request` events those
+  files come from the PR, so the action emits a warning when the PR changes a
+  `.gitleaks.toml`, `.gitleaksignore` or the `config_path` file. The check never
+  fails the step; on a shallow checkout where the base cannot be diffed it emits
+  a notice instead.
 
 Example:
 
@@ -175,6 +189,8 @@ Example:
 The action reports each matching JSON file as a workflow error and fails when it
 finds any of these keys: `api_key`, `api_secret`, `password`, `passwd`, `token`,
 `secret`, `auth`, `cookie`, `session`, `credential`, or `private_key`.
+A JSON file it cannot read is reported and fails the scan with exit code 2,
+rather than counting as clean.
 
 ## macos-sign
 
@@ -357,6 +373,10 @@ services:
 Without that, the stack builds whatever its own default is and `php_version`
 affects only the standalone steps.
 
+`bundle_src` is resolved to an absolute path and exported as `bundle_src_env`
+for the rest of the job, so every later `docker compose` call, including the
+Cleanup `down`, can interpolate a compose file that requires it.
+
 ## wp-plugin-check
 
 Path: `.github/actions/wp-plugin-check`
@@ -390,3 +410,7 @@ Example:
     phpunit_command: "vendor/bin/phpunit"
     fail_on_findings: "true"
 ```
+
+`plugin_src` is resolved from the workspace (not from the compose file's
+directory) to an absolute path and exported as `plugin_src_env` for the rest of
+the job, so every later `docker compose` call, including Cleanup, sees it.

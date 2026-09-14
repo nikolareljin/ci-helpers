@@ -11,6 +11,18 @@ Related docs:
 Use a preset if you want a fast setup with minimal inputs, and override any
 command or version as needed.
 
+A preset calls `ci.yml` (Laravel: `php.yml`, then `ci.yml`) by relative path,
+so it runs the `ci.yml` from the same ref you pinned the preset to: pinning
+`node.yml@<tag>` pins the job it runs as well.
+
+Concurrency: `ci.yml` cancels a superseded run in the same group. Without a
+`concurrency_key`, the group is keyed on the caller workflow, the ref, the
+working directory, the runner and the toolchain versions (`node_version`,
+`java_version`, `dotnet_version`, `python_version`, `go_version`,
+`flutter_version`/`flutter_channel`, `php_version`, `rust_toolchain`). Two jobs
+in one workflow that share all of those still cancel each other; give each a
+distinct `concurrency_key` (every preset, Laravel included, passes it through).
+
 ## Node
 
 Workflow: `.github/workflows/node.yml`
