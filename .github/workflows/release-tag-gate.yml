@@ -56,11 +56,19 @@ jobs:
       - name: Decide whether to check release tag
         id: gate
         shell: bash
+        env:
+          # Through the environment, not spliced into the script: release_branch
+          # comes from the PR head ref, which a fork author controls, and a git
+          # ref may contain $, backticks and parentheses -- and it is read here
+          # before the release-branch regex below can reject it.
+          DEFAULT_BRANCH: ${{ steps.branches.outputs.default_branch }}
+          BASE_BRANCH: ${{ steps.branches.outputs.base_branch }}
+          RELEASE_BRANCH: ${{ steps.branches.outputs.release_branch }}
         run: |
           set -euo pipefail
-          default_branch="${{ steps.branches.outputs.default_branch }}"
-          base_branch="${{ steps.branches.outputs.base_branch }}"
-          release_branch="${{ steps.branches.outputs.release_branch }}"
+          default_branch="${DEFAULT_BRANCH:-}"
+          base_branch="${BASE_BRANCH:-}"
+          release_branch="${RELEASE_BRANCH:-}"
           if [[ -z "$base_branch" ]]; then
             echo "Base branch is missing; skipping release tag check."
             echo "run_check=false" >> "$GITHUB_OUTPUT"
