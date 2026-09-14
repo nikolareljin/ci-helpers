@@ -32,18 +32,19 @@ env:
 
 jobs:
   open_pr:
-    # on:create  — only act on release/* branches
-    # workflow_call — caller already filtered; always proceed
-    if: ${{ github.event_name == 'workflow_call' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/')) }}
+    # github.event_name is never 'workflow_call': a called workflow sees the
+    # caller's event. create (ci-helpers itself, or a caller's create wrapper)
+    # carries ref_type, so filter it here. Any other event can only be a caller
+    # (this file has no other trigger) -- proceed; the script skips a ref that
+    # is not a release branch.
+    if: ${{ github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       HEAD_BRANCH: ${{ github.ref_name }}
-      # workflow_call: inputs.base_branch carries the caller-supplied value (default "main").
-      # on:create: the inputs context is undefined; use the explicit guard so the
-      #   empty-string fallback is intentional rather than accidental.
-      #   The script then falls back to context.payload.repository.default_branch.
-      BASE_BRANCH: ${{ github.event_name == 'workflow_call' && inputs.base_branch || '' }}
+      # Called: the caller's base_branch (default "main"). Run directly on
+      # create: the inputs context is empty, so this is "". The script decides.
+      BASE_BRANCH: ${{ inputs.base_branch }}
     steps:
       - name: Create PR to default branch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9 @ 2026-05-23
@@ -67,12 +68,17 @@ jobs:
               return;
             }
 
-            // workflow_call: base_branch input (default "main") is in BASE_BRANCH.
-            // on:create:     BASE_BRANCH is empty; fall back to the event payload,
-            //                then hard-code "main" as last resort.
-            const base = process.env.BASE_BRANCH ||
-                         context.payload.repository?.default_branch ||
-                         'main';
+            // A base_branch other than "main" is an explicit choice: use it.
+            // "main" is also the input's default, so it cannot tell a caller who
+            // chose it from one who passed nothing; both get the repository's
+            // default branch from the event payload, as every caller did before
+            // base_branch was honoured. Run directly on create, BASE_BRANCH is
+            // empty and the payload decides. "main" is the last resort.
+            const inputBase = process.env.BASE_BRANCH || '';
+            const payloadDefault = context.payload.repository?.default_branch || '';
+            const base = (inputBase && inputBase !== 'main')
+              ? inputBase
+              : (payloadDefault || inputBase || 'main');
 
             const existing = await github.rest.pulls.list({
               owner, repo, state: 'open',

@@ -81,7 +81,7 @@ If your default branch is not `main`, pass the `base_branch` input:
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `base_branch` | string | `main` | Branch the PR targets. Pass `master` or another name to override. For `on:create` the actual default branch is always read from the event payload. |
+| `base_branch` | string | `main` | Branch the PR targets. Any value other than `main` is used as given. `main` -- also the default, so it cannot be told apart from passing nothing -- uses the repository's default branch from the event payload. |
 
 ## Secrets (workflow_call)
 
@@ -95,14 +95,17 @@ If your default branch is not `main`, pass the `base_branch` input:
 
 - **Trigger (internal):** `on: create` event — fires once when a branch is
   first pushed, not on subsequent commits to that branch.
-- **Trigger (callers):** `workflow_call` from a caller's `on: create` wrapper.
+- **Trigger (callers):** `workflow_call` from a caller's wrapper -- `on: create`
+  (filtered to `release/*` branches) or any other event, e.g. `on: push` to
+  `release/*`.
 - **Filter:** only acts on branches matching `release/[v]X.Y.Z`,
   `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 - **Idempotent:** if a PR already exists for that head/base pair, it does nothing.
 - **Default branch detection:**
-  - `workflow_call`: reads the `base_branch` input (default `main`).
-  - `on:create`: reads `context.payload.repository.default_branch` from the
-    event payload (no API call needed).
+  - `workflow_call` with a `base_branch` other than `main`: that branch.
+  - Otherwise (`base_branch` is `main`, or ci-helpers' own `on: create`):
+    `context.payload.repository.default_branch` from the event payload (no API
+    call needed), then `main`.
 
 ---
 
