@@ -452,6 +452,11 @@ Inputs:
 Secrets:
 - `tap_token` (GitHub token with write access to the tap repo)
 
+`VERSION` (in `working_directory`) must hold a single version -- letters, digits
+and `. + _ -`, e.g. `1.2.3`; a trailing Windows line ending is dropped. Anything
+else (a second line, spaces, `=`) fails the job with an error rather than being
+exported to later steps.
+
 Example:
 
 ```yaml
@@ -911,6 +916,8 @@ Permissions: needs only `contents: write` + `pull-requests: read`. **No `actions
 
 Inputs: `runner`, `fetch_depth`, `default_branch`, `update_production_tag` (same meaning as in `auto-tag-release.yml`). Output: `version`.
 
+Only a release branch in the repository itself counts: a merged PR whose `release/X.Y.Z` head branch lives in a fork is logged and skipped (no tag, `production` untouched, `version` empty).
+
 ```yaml
 name: Auto Tag
 on:
@@ -1075,6 +1082,8 @@ Inputs:
 - `base_branch` (string, default `""`, uses PR base)
 - `default_branch` (string, default `""`, uses repo default)
 
+A non-empty input takes precedence over the value read from the event.
+
 Example:
 
 ```yaml
@@ -1105,7 +1114,7 @@ Inputs (selected):
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `release-artifacts`)
 - `release_tag` (string, default `""`)
-- `release_name` (string, default `""`)
+- `release_name` (string, default `""`; empty names the release after its tag)
 - `release_notes` (string, default `""`)
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line)
@@ -1164,9 +1173,9 @@ Inputs (selected):
 - `apt_packages` (string, default `build-essential mingw-w64 musl-tools`)
 - `build_windows`, `build_linux_gnu`, `build_linux_musl`, `build_macos` (booleans, default `true`)
 - `linux_gnu_aliases` (string, default `""`, comma-delimited)
-- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
 - `generate_release_notes` (boolean, default `true`)
-- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
 
 Example:
@@ -1198,9 +1207,9 @@ Inputs (selected):
 - `go_version` (string, default `1.24`)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
-- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
 - `generate_release_notes` (boolean, default `true`)
-- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
 
 Example:
@@ -1649,7 +1658,9 @@ Inputs (workflow_call):
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `base_branch` | `main` | Branch the PR targets. Override with `master` or any other branch name if your default branch differs. |
+| `base_branch` | `main` | Branch the PR targets. Any value other than `main` is used as given; `main` (also the default, so indistinguishable from not passing it) uses the repository's default branch from the event payload. |
+
+The caller may trigger it from `create` (filtered to `release/*` branches) or from any other event such as `push` to `release/*`; a ref that is not `release/[v]X.Y.Z[-rcN|-rc.N]` is skipped.
 
 Secrets (workflow_call):
 
