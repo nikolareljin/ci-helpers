@@ -16,6 +16,12 @@ invalid: its heredoc bodies were written at column 0 inside an indented
 own. Both PyYAML and Ruby's Psych refused the file, while the repository's own
 PR gate -- a release-tag check and a secret scan -- had nothing to say about it.
 
+Parsing is stricter than PyYAML's default in three ways, each of which a
+plain `yaml.safe_load` accepts without a word: a mapping that repeats a key
+(PyYAML keeps the last value, so the earlier `run:` or `with:` silently
+vanishes), a file with no document in it, and a document whose top level is
+not a mapping. None of those is a workflow, an action or a dependabot config.
+
 Reports every file that fails, not just the first, so one run names all of
 them. A file that cannot be read or decoded counts as a failure too -- it is
 just as broken for a consumer as one that will not parse. Exits non-zero if
@@ -33,6 +39,36 @@ except ImportError:  # pragma: no cover
     sys.exit("pyyaml is required: pip install pyyaml")
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a mapping which repeats a key."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # `<<: *anchor`; construct_mapping flattens those
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in seen
+        except TypeError:  # an unhashable key; the base constructor reports it
+            break
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
 
 PATTERNS = (
     ".github/workflows/*.yml",
@@ -58,7 +94,9 @@ def main() -> int:
     failed = []
     for path in paths:
         try:
-            yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+            document = yaml.load(  # noqa: S506 -- a SafeLoader subclass
+                Path(path).read_text(encoding="utf-8"), Loader=_UniqueKeyLoader
+            )
         except yaml.YAMLError as exc:
             failed.append((path, "is not valid YAML", exc))
         except (OSError, UnicodeDecodeError) as exc:
@@ -67,6 +105,17 @@ def main() -> int:
             # would end the run in a traceback and report nothing, which is
             # the opposite of naming every bad file in one pass.
             failed.append((path, "could not be read", exc))
+        else:
+            if document is None:
+                failed.append((path, "has no YAML document", "the file is empty"))
+            elif not isinstance(document, dict):
+                failed.append(
+                    (
+                        path,
+                        "is not a mapping",
+                        f"top level is a {type(document).__name__}",
+                    )
+                )
 
     for path, problem, exc in failed:
         rel = Path(path).relative_to(ROOT)
