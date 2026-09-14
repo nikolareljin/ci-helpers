@@ -20,9 +20,12 @@ on:
       test_command:
         type: string
         default: "mvn -B test"
+      # The plugin is pinned (an unversioned goal resolves to whatever is newest)
+      # and failBuildOnCVSS is set: the plugin's own default of 11 is above the
+      # CVSS maximum of 10, so it never failed the build.
       dependency_check_command:
         type: string
-        default: "mvn -B org.owasp:dependency-check-maven:check"
+        default: "mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7"
 
 jobs:
   scan:
