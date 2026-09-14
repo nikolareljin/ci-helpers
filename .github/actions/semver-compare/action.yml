@@ -14,8 +14,13 @@ runs:
   using: composite
   steps:
     - shell: bash
+      # Versions arrive through env, never pasted into the script: they are
+      # often read from a branch name or a file a PR can change.
+      env:
+        INPUT_VERSION_A: ${{ inputs.version_a }}
+        INPUT_VERSION_B: ${{ inputs.version_b }}
       run: |
         set -euo pipefail
         ROOT_DIR="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
-        result="$($ROOT_DIR/scripts/semver_compare.sh "${{ inputs.version_a }}" "${{ inputs.version_b }}")"
+        result="$("$ROOT_DIR/scripts/semver_compare.sh" "$INPUT_VERSION_A" "$INPUT_VERSION_B")"
         echo "result=$result" >> "$GITHUB_OUTPUT"
