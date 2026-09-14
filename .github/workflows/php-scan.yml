@@ -26,9 +26,11 @@ on:
       lint_drupal_command:
         type: string
         default: "vendor/bin/phpcs --standard=Drupal --extensions=php"
+      # --test reports style violations and exits non-zero; without it pint
+      # rewrites the files in the runner's checkout and always succeeds.
       lint_laravel_command:
         type: string
-        default: "vendor/bin/pint"
+        default: "vendor/bin/pint --test"
       lint_pimcore_command:
         type: string
         default: "vendor/bin/phpcs --standard=PSR12 --extensions=php src/"
@@ -199,7 +201,21 @@ jobs:
           set -euo pipefail
           wp_root="${INPUT_WP_ROOT}"
 
-          curl -sSLo wp-cli.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          # -f: an HTTP error must fail here, not leave an error page to run as
+          # PHP. The published SHA-512 catches a truncated or corrupted download.
+          wp_cli_url="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+          curl -fsSLo wp-cli.phar "$wp_cli_url"
+          curl -fsSLo wp-cli.phar.sha512 "${wp_cli_url}.sha512"
+          expected=$(tr -d '[:space:]' < wp-cli.phar.sha512)
+          if command -v sha512sum >/dev/null 2>&1; then
+            actual=$(sha512sum wp-cli.phar | awk '{ print $1 }')
+          else
+            actual=$(shasum -a 512 wp-cli.phar | awk '{ print $1 }')
+          fi
+          if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::wp-cli.phar checksum mismatch: expected '${expected}', got '${actual}'" >&2
+            exit 1
+          fi
           php wp-cli.phar --info
 
           mkdir -p -- "$wp_root"
