@@ -174,16 +174,88 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.artifact_paths }}
 
+      # Check out script-helpers only when the producer is actually needed --
+      # not when the caller supplied its own release_notes. Pinned to the commit
+      # vendored at vendor/.script-helpers-sha (tag 0.28.0); keep the two in step.
+      - name: Checkout script-helpers for release notes
+        if: ${{ inputs.generate_release_notes && inputs.release_notes == '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: df62393602dbd4d628bc29235ff11f544edd16fe # 0.28.0
+          path: .script-helpers
+          fetch-depth: 1
+
       - name: Generate release notes
         id: notes
         if: ${{ inputs.generate_release_notes || inputs.release_notes != '' }}
-        uses: ./.github/actions/release-notes
-        with:
-          version: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
-          release_tag: ${{ inputs.release_tag }}
-          override: ${{ inputs.release_notes }}
-          binary_links: ${{ inputs.binary_links }}
-          binary_base_url: ${{ inputs.binary_base_url }}
+        shell: bash
+        env:
+          # Everything reaches the shell through the environment, never spliced
+          # into the script: a CHANGELOG line or commit subject carrying ${{ }}
+          # or a backtick cannot execute.
+          RN_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+          RN_RELEASE_TAG: ${{ inputs.release_tag }}
+          RN_OVERRIDE: ${{ inputs.release_notes }}
+          RN_BINARY_LINKS: ${{ inputs.binary_links }}
+          RN_BINARY_BASE_URL: ${{ inputs.binary_base_url }}
+          RN_REPOSITORY: ${{ github.repository }}
+          RN_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP:-/tmp}/release-notes.md"
+
+          release_tag="${RN_RELEASE_TAG:-}"
+          [ -n "$release_tag" ] || release_tag="${RN_REF_NAME:-}"
+          version="${RN_VERSION:-}"
+          [ -n "$version" ] || version="$release_tag"
+
+          if [ -n "${RN_OVERRIDE:-}" ]; then
+            # Caller-supplied body, verbatim (binary links still appended below).
+            printf '%s\n' "$RN_OVERRIDE" > "$notes_file"
+          else
+            # A non-version ref (a branch, or workflow_dispatch with no
+            # release_tag) has no release to describe. Skip with no body rather
+            # than fail the job -- GitHub then uses its own default.
+            if ! printf '%s' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'; then
+              echo "release notes: '$version' is not a version; skipping (no body)."
+              exit 0
+            fi
+            producer="${GITHUB_WORKSPACE}/.script-helpers/scripts/release_notes.sh"
+            if [ ! -f "$producer" ]; then
+              echo "release notes: $producer not found (script-helpers checkout failed)" >&2
+              exit 1
+            fi
+            bash "$producer" --version "$version" --repo "$GITHUB_WORKSPACE" --output "$notes_file"
+          fi
+
+          binary_base_url="${RN_BINARY_BASE_URL:-}"
+          if [ -z "$binary_base_url" ] && [ -n "$release_tag" ]; then
+            binary_base_url="https://github.com/${RN_REPOSITORY}/releases/download/${release_tag}"
+          fi
+          if [ -n "${RN_BINARY_LINKS:-}" ] && [ -n "$binary_base_url" ]; then
+            {
+              echo ""
+              echo "## Download Binaries"
+              echo ""
+              echo "| Platform | Binary |"
+              echo "|----------|--------|"
+            } >> "$notes_file"
+            while IFS= read -r line; do
+              trimmed="${line#"${line%%[![:space:]]*}"}"
+              [ -n "$trimmed" ] || continue
+              label="${trimmed%%|*}"
+              filename="${trimmed#*|}"
+              if [ -z "$label" ] || [ -z "$filename" ] || [ "$label" = "$filename" ]; then
+                continue
+              fi
+              printf "| %s | [%s](%s/%s) |\n" "$label" "$filename" "$binary_base_url" "$filename" >> "$notes_file"
+            done <<< "$RN_BINARY_LINKS"
+          fi
+
+          # A single-line path only -- the body itself never passes through an
+          # output, so no heredoc and no delimiter to collide with.
+          echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release (with files)
         if: ${{ inputs.artifact_paths != '' }}
