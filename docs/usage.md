@@ -445,12 +445,34 @@ on:
       - "*.*.*"
       - "v*.*.*"
 
+permissions:
+  contents: write
+
 jobs:
-  production:
+  security-gate:
     if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: 0
+      - name: Check stale SHA pins
+        run: bash scripts/update_pinned_actions.sh --check
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Detect floating action refs
+        run: bash scripts/check_floating_refs.sh
+
+  production:
+    needs: [security-gate]
+    if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -458,11 +480,33 @@ jobs:
         run: ./scripts/create_production.sh -t "${GITHUB_REF_NAME}" --fetch-tags
 ```
 
+This mirrors `.github/workflows/production-branch.yml` (which additionally
+bootstraps `vendor/script-helpers` when the repository carries it as a
+submodule). `contents: write` is granted only to the job that pushes; the gate
+reads.
+
+What `create_production.sh` checks before it moves anything:
+
+- the tag exists on the remote and names the same commit as the local tag --
+  a tag that was never pushed, or was re-cut locally, is refused;
+- with `--fetch-tags`, a fetch that fails stops the run (exit 1) instead of
+  continuing on whatever tags the checkout had;
+- `--name main`, `master` and `HEAD` are refused (exit 2);
+- the production branch is pushed with a lease on the value the script read
+  from the remote before it pushed anything, so a concurrent move of that
+  branch makes the push fail instead of being overwritten.
+
 Manual override (point production at an older tag):
 
 ```bash
-./scripts/create_production.sh -t 1.2.2
+./scripts/create_production.sh -t 1.2.2 --fetch-tags
 ```
+
+**This force-moves a shared ref.** The `production` tag is pushed with
+`--force` and the `production` branch with a lease, so every consumer pinned to
+`@production` picks up the target on its next run. Nothing prevents moving it
+backwards -- that is what a rollback is -- so run it only as a deliberate
+release decision, and prefer letting the tag workflow above do it.
 
 Release build (generic):
 
