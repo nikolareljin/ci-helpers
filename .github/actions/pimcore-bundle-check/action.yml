@@ -205,7 +205,26 @@ runs:
         bundle_src_env="${{ inputs.bundle_src_env }}"
         bundle_src="${{ inputs.bundle_src }}"
 
-        export "$bundle_src_env"="$(realpath "$bundle_src")"
+        bundle_src_abs="$(realpath "$bundle_src")"
+        # Later steps run `docker compose` against the same file, and Cleanup's
+        # `down` fails when that variable is unset, leaving the
+        # stack running. Export the validated absolute path once, for the rest
+        # of the job, instead of only inside this step.
+        if [[ ! "$bundle_src_env" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+          echo "::error::bundle_src_env must be a valid environment variable name; got '${bundle_src_env}'" >&2
+          exit 1
+        fi
+        if [[ "$bundle_src_abs" == *$'\n'* || "$bundle_src_abs" == *$'\r'* ]]; then
+          echo "::error::bundle_src must not contain newlines" >&2
+          exit 1
+        fi
+        delimiter="bundle_src_$(date +%s%N)_${RANDOM}"
+        {
+          printf '%s<<%s\n' "$bundle_src_env" "$delimiter"
+          printf '%s\n' "$bundle_src_abs"
+          printf '%s\n' "$delimiter"
+        } >> "$GITHUB_ENV"
+        export "$bundle_src_env"="$bundle_src_abs"
         docker compose -f "$compose_file" up -d "$db_service" "$php_service"
         echo "Test stack started."
 
