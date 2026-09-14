@@ -70,6 +70,10 @@ runs:
 
         # Decode certificate to a temp file with strict permissions
         CERT_FILE="$(mktemp /tmp/build-cert-XXXXXX.p12)"
+        # Removed on every exit, not only after a successful import: with set -e
+        # a failed decode or `security import` would otherwise leave the
+        # certificate on a runner that may be self-hosted and reused.
+        trap 'rm -f "${CERT_FILE}"' EXIT
         chmod 600 "${CERT_FILE}"
         printf '%s' "${CERT_B64}" | base64 -d > "${CERT_FILE}"
 
