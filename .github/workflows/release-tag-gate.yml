@@ -56,11 +56,19 @@ jobs:
       - name: Decide whether to check release tag
         id: gate
         shell: bash
+        env:
+          # Through the environment, not spliced into the script: release_branch
+          # comes from the PR head ref, which a fork author controls, and a git
+          # ref may contain $, backticks and parentheses -- and it is read here
+          # before the release-branch regex below can reject it.
+          DEFAULT_BRANCH: ${{ steps.branches.outputs.default_branch }}
+          BASE_BRANCH: ${{ steps.branches.outputs.base_branch }}
+          RELEASE_BRANCH: ${{ steps.branches.outputs.release_branch }}
         run: |
           set -euo pipefail
-          default_branch="${{ steps.branches.outputs.default_branch }}"
-          base_branch="${{ steps.branches.outputs.base_branch }}"
-          release_branch="${{ steps.branches.outputs.release_branch }}"
+          default_branch="${DEFAULT_BRANCH:-}"
+          base_branch="${BASE_BRANCH:-}"
+          release_branch="${RELEASE_BRANCH:-}"
           if [[ -z "$base_branch" ]]; then
             echo "Base branch is missing; skipping release tag check."
             echo "run_check=false" >> "$GITHUB_OUTPUT"
@@ -83,16 +91,38 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 1bb1977070c1a21016a20c7fdab728d1f68f1b55
+          # 0.28.0 -- carries check_changelog_section.sh (used below) as well as
+          # check_release_tag.sh; matches vendor/.script-helpers-sha.
+          ref: df62393602dbd4d628bc29235ff11f544edd16fe
           path: .script-helpers
           fetch-depth: 1
 
       - name: Check release tag availability
         if: ${{ steps.gate.outputs.run_check == 'true' }}
         shell: bash
+        env:
+          RELEASE_BRANCH: ${{ steps.branches.outputs.release_branch }}
         run: |
           set -euo pipefail
-          version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ steps.branches.outputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
+          version="$(./.script-helpers/scripts/check_release_tag.sh --branch "$RELEASE_BRANCH" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
           if [[ -n "$version" ]]; then
             echo "Resolved release version: $version"
           fi
+
+      - name: Check the CHANGELOG has a section for this release
+        if: ${{ steps.gate.outputs.run_check == 'true' }}
+        shell: bash
+        env:
+          RELEASE_BRANCH: ${{ steps.branches.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          # The release body is the CHANGELOG section for the version. A release
+          # branch whose CHANGELOG has a header but nothing under it (the empty
+          # template) would ship as the body, so it fails here before merge.
+          # A repository with no CHANGELOG.md is not blocked -- it gets the commit
+          # list at release time -- so say so and pass.
+          if [ ! -f "${GITHUB_WORKSPACE}/CHANGELOG.md" ]; then
+            echo "::notice::No CHANGELOG.md; the release body will be the commit list. Not blocking this release."
+            exit 0
+          fi
+          ./.script-helpers/scripts/check_changelog_section.sh --branch "$RELEASE_BRANCH" --repo "${GITHUB_WORKSPACE}"
