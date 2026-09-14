@@ -14,8 +14,9 @@ on:
         description: >
           Distinguishes concurrent calls to this workflow that share a caller
           workflow, ref and working directory -- matrix legs, most often.
-          Defaults to working_directory, which already separates the common
-          case of one job per component.
+          Defaults to working_directory plus the runner and toolchain version
+          inputs, which already separates one job per component and matrix
+          legs over runners or toolchain versions.
       fetch_depth:
         type: number
         default: 0
@@ -118,8 +119,14 @@ env:
 # second destroy the first: 0 seconds, no steps, reported as "cancelled"
 # rather than failed. A repository doing that silently lost half its CI on
 # every push, and greyed-out runs raise no alarm.
+#
+# Without a concurrency_key the default key also carries the runner and every
+# toolchain version, for the same reason: a matrix over node/python/php/...
+# versions (or over runners) reaches this workflow with one working_directory,
+# and those legs cancelled each other too. A caller that passes concurrency_key
+# keeps exactly the group it had.
 concurrency:
-  group: ci-helpers-ci-${{ github.workflow }}-${{ inputs.concurrency_key || inputs.working_directory }}-${{ github.ref }}
+  group: ci-helpers-ci-${{ github.workflow }}-${{ inputs.concurrency_key || format('{0}-{1}-node{2}-java{3}-dotnet{4}-py{5}-go{6}-flutter{7}{8}-php{9}-rust{10}', inputs.working_directory, inputs.runner, inputs.node_version, inputs.java_version, inputs.dotnet_version, inputs.python_version, inputs.go_version, inputs.flutter_version, inputs.flutter_channel, inputs.php_version, inputs.rust_toolchain) }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
