@@ -27,6 +27,25 @@ is_semver() {
   [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
+# Compare two non-negative decimal integers of any length as strings.
+# Bash arithmetic reads a leading zero as octal (1.010.0 compared below 1.9.0,
+# and 1.08.0 was an arithmetic error that still printed "eq") and wraps past
+# 64 bits, so neither is used: strip leading zeros, then the longer number is
+# larger, and equal-length digit strings order the same as their values.
+compare_component() {
+  local x="$1" y="$2"
+  x="${x#"${x%%[!0]*}"}"; x="${x:-0}"
+  y="${y#"${y%%[!0]*}"}"; y="${y:-0}"
+  if (( ${#x} != ${#y} )); then
+    (( ${#x} > ${#y} )) && echo "gt" || echo "lt"
+  elif [[ "$x" == "$y" ]]; then
+    echo "eq"
+  else
+    local LC_ALL=C
+    [[ "$x" > "$y" ]] && echo "gt" || echo "lt"
+  fi
+}
+
 compare_semver() {
   local a b a1 a2 a3 b1 b2 b3
   a="$(normalize "$1")"
@@ -44,25 +63,11 @@ compare_semver() {
   IFS='.' read -r a1 a2 a3 <<< "$a"
   IFS='.' read -r b1 b2 b3 <<< "$b"
 
-  if (( a1 > b1 )); then
-    echo "gt"; return 0
-  elif (( a1 < b1 )); then
-    echo "lt"; return 0
-  fi
-
-  if (( a2 > b2 )); then
-    echo "gt"; return 0
-  elif (( a2 < b2 )); then
-    echo "lt"; return 0
-  fi
-
-  if (( a3 > b3 )); then
-    echo "gt"; return 0
-  elif (( a3 < b3 )); then
-    echo "lt"; return 0
-  fi
-
-  echo "eq"
+  local r
+  r="$(compare_component "$a1" "$b1")"
+  [[ "$r" == "eq" ]] && r="$(compare_component "$a2" "$b2")"
+  [[ "$r" == "eq" ]] && r="$(compare_component "$a3" "$b3")"
+  echo "$r"
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
