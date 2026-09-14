@@ -372,8 +372,11 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet "${TAP_DIR}/${BIN_NAME}.rb"; then
-            git add "${TAP_DIR}/${BIN_NAME}.rb"
+          # Stage first: `git diff --quiet <file>` compares the work tree with the
+          # index, so a formula the tap has never had is invisible to it and the
+          # first release would never be committed.
+          git add "${TAP_DIR}/${BIN_NAME}.rb"
+          if ! git diff --cached --quiet -- "${TAP_DIR}/${BIN_NAME}.rb"; then
             git commit -m "Update ${BIN_NAME} to ${TAG}"
             # The loop alone ends green when every push fails: the failing
             # commands sit inside && lists, where set -e does not apply.
