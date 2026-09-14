@@ -143,6 +143,15 @@ jobs:
           fi
 
           version="$(cat "$repo/VERSION")"
+          # Every value below becomes a KEY=value line in GITHUB_ENV, so a VERSION
+          # carrying a newline would add lines of its own (any variable, PATH
+          # included). Drop a Windows line ending, then accept version
+          # characters only -- anything else fails here instead.
+          version="${version%$'\r'}"
+          if [[ ! "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]]; then
+            echo "::error::$repo/VERSION must hold one version (letters, digits, . + _ -), e.g. 1.2.3; refusing to export it."
+            exit 1
+          fi
           tarball_path="$dist_dir/${name}-${version}.tar.gz"
           helper_scripts="$repo/vendor/script-helpers/scripts"
           tarball_url="${{ inputs.tarball_url }}"
@@ -164,10 +173,16 @@ jobs:
             echo "BREW_TARBALL_URL=$tarball_url"
             echo "BREW_HELPER_SCRIPTS=$helper_scripts"
           } >> "$GITHUB_ENV"
+          # A random delimiter: a glob line reading exactly EOF would otherwise
+          # end the value early and the rest would be parsed as more variables.
+          delimiter="GH_ENV_${RANDOM}_${RANDOM}_$(date +%s)"
+          while [[ "$artifact_glob" == *"$delimiter"* ]]; do
+            delimiter="GH_ENV_${RANDOM}_${RANDOM}_$(date +%s)"
+          done
           {
-            echo "BREW_ARTIFACT_GLOB<<EOF"
+            echo "BREW_ARTIFACT_GLOB<<$delimiter"
             echo "$artifact_glob"
-            echo "EOF"
+            echo "$delimiter"
           } >> "$GITHUB_ENV"
 
       - name: Build Homebrew tarball
@@ -242,6 +257,9 @@ jobs:
           HOMEBREW_TAP_REPO: ${{ inputs.tap_repo }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.tap_token }}
           HOMEBREW_TAP_BRANCH: ${{ inputs.tap_branch }}
+          # Through env, not pasted into the script: a commit message is free
+          # text and often built from another commit's message.
+          BREW_COMMIT_MESSAGE: ${{ inputs.commit_message }}
         run: |
           set -euo pipefail
           args=(--formula "$BREW_FORMULA_PATH")
@@ -254,7 +272,7 @@ jobs:
           if [[ -n "${{ inputs.tap_dir }}" ]]; then
             args+=(--tap-dir "${{ inputs.tap_dir }}")
           fi
-          if [[ -n "${{ inputs.commit_message }}" ]]; then
-            args+=(--commit-message "${{ inputs.commit_message }}")
+          if [[ -n "$BREW_COMMIT_MESSAGE" ]]; then
+            args+=(--commit-message "$BREW_COMMIT_MESSAGE")
           fi
           bash "$BREW_HELPER_SCRIPTS/publish_homebrew.sh" "${args[@]}"
