@@ -226,7 +226,7 @@ for file in "${files[@]}"; do
         fi
       fi
     elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]] ||
-         [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?\{[^}]*uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+         [[ "$line" =~ (^[[:space:]]*(-[[:space:]]*)?|[:[,][[:space:]]*)\{[^}]*uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable
@@ -236,8 +236,10 @@ for file in "${files[@]}"; do
       # A quoted scalar -- `uses: 'owner/action@<sha>'` -- is valid YAML that
       # GitHub runs, and the strict parser above does not accept it, so it too
       # must land here rather than pass unseen. Same reasoning as uppercase hex.
-      # So is a flow mapping -- `- { uses: owner/action@<sha> }` -- where `uses:`
-      # follows `{` or `,` instead of starting the line.
+      # So is a flow mapping -- `- { uses: owner/action@<sha> }`, `job: { uses: ... }`
+      # or `steps: [ { uses: ... } ]` -- where the `{` starts the line or follows
+      # `:`, `[` or `,`. A `{` inside a quoted string (`run: echo "{uses: ...}"`)
+      # or a comment line is not a mapping and is not read as a pin.
       # Uppercase hex is deliberate here and not above: git and the GitHub API
       # resolve an uppercase object id, so `@ABCDEF...` is a pin that really
       # runs, and matching it only in the strict parser would mean comparing it

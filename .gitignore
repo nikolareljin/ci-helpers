@@ -11,6 +11,10 @@ vendor/
 .DS_Store
 Thumbs.db
 
+# Python bytecode caches (created when a script is imported, e.g. in tests)
+__pycache__/
+*.pyc
+
 # Temporary files
 *.tmp
 *.bak

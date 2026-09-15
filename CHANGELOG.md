@@ -26,9 +26,11 @@ input or output was removed or renamed.
   so never checked.
 - **`homebrew-package.yml`** drops trailing spaces from `VERSION` before
   validating it.
-- **`update_pinned_actions.sh`** skips comment lines and matches a flow-mapping
-  pin only where the mapping starts, so a pin quoted in a comment or a `run:`
-  string no longer counts as an unreadable pin (which failed `--check`).
+- **`update_pinned_actions.sh`** skips comment lines and reads a flow-mapping
+  pin only where a mapping can start (line start, or after `:`, `[` or `,`), so
+  a pin quoted in a comment or a `run:` string no longer counts as an unreadable
+  pin (which failed `--check`), while `job: { uses: ... }` and
+  `steps: [ { uses: ... } ]` are still reported.
 - **`check_workflow_yaml.py`** compares keys as written, so `on:` and `yes:` in
   one mapping are no longer reported as duplicates.
 - **`verify_vendor.sh` and `version_bump.sh` run under bash 3.2** (macOS): both
