@@ -163,6 +163,10 @@ else
 fi
 
 # 6) Contents ------------------------------------------------------------------
+# Executable regular files under a directory, as sorted relative paths.
+executable_files() {
+  (cd "$1" && find . -type f -perm -u+x | LC_ALL=C sort)
+}
 # The lockfiles are text anyone can edit, so a matching SHA proves nothing about
 # the files next to it: a hand-edited lib/logging.sh passed every check above.
 # Check out upstream at the recorded SHA, drop what the sync drops, and require
@@ -198,8 +202,14 @@ else
     for excluded in "${FORBIDDEN_PATHS[@]}"; do
       rm -rf "${upstream_tree:?}/${excluded}"
     done
-    if content_diff="$(diff -rq "$upstream_tree" "$VENDOR_DIR" 2>&1)"; then
+    # diff -r compares contents only; a script that lost (or gained) its
+    # execute bit is a different file to anyone running it, so compare modes too.
+    exec_diff="$(diff <(executable_files "$upstream_tree") <(executable_files "$VENDOR_DIR") 2>&1)" || true
+    if content_diff="$(diff -rq "$upstream_tree" "$VENDOR_DIR" 2>&1)" && [[ -z "$exec_diff" ]]; then
       ok "vendored files match upstream at $pinned_sha"
+    elif [[ -n "$exec_diff" && -z "$content_diff" ]]; then
+      bad "vendored file modes differ from upstream at $pinned_sha (execute bit) - run scripts/sync_script_helpers.sh"
+      printf '%s\n' "$exec_diff" | head -20 >&2
     else
       bad "vendored files differ from upstream at $pinned_sha - run scripts/sync_script_helpers.sh"
       printf '%s\n' "$content_diff" | sed "s|$contents_tmp/||; s|$ROOT_DIR/||g" | head -20 >&2

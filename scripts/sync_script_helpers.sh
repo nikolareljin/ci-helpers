@@ -114,8 +114,14 @@ current_ref=""
 if [[ -f "${ROOT_DIR}/vendor/.script-helpers-ref" ]]; then
   current_ref="$(tr -d '[:space:]' < "${ROOT_DIR}/vendor/.script-helpers-ref")"
 fi
+# Executable regular files under a directory, as sorted relative paths: diff -r
+# ignores modes, and a vendored script that lost its execute bit is not current.
+executable_files() {
+  (cd "$1" && find . -type f -perm -u+x | LC_ALL=C sort)
+}
 if [[ "$COMMIT_HASH" == "$current_sha" && "$REF_LABEL" == "$current_ref" && -d "$DEST_DIR" ]] \
-   && diff -r "$STAGE_DIR" "$DEST_DIR" >/dev/null 2>&1; then
+   && diff -r "$STAGE_DIR" "$DEST_DIR" >/dev/null 2>&1 \
+   && diff <(executable_files "$STAGE_DIR") <(executable_files "$DEST_DIR") >/dev/null 2>&1; then
   log_info "Already up to date at ${REF} (${COMMIT_HASH}). Nothing to do."
   exit 0
 fi

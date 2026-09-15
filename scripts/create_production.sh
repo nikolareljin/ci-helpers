@@ -134,15 +134,21 @@ fi
 log_info_safe "Updating ${prod_tag} tag to ${tag}"
 git -C "$repo_dir" tag -f "$prod_tag" "$tag"
 # `--force-with-lease` is reliable for branches, but Git rejects it for moving
-# an existing tag ref even after a fresh tag fetch. Use `--force` for tag alias updates.
-git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force
-log_info_safe "Production tag ${prod_tag} now points to ${tag}"
-
+# an existing tag ref even after a fresh tag fetch, so the tag is force-updated
+# (`+` refspec) and only the branch is leased.
 if $update_branch; then
-  log_info_safe "Advancing ${prod_tag} branch to ${tag} (${target_sha:0:8})"
-  git -C "$repo_dir" push "$remote" "${target_sha}:refs/heads/${prod_tag}" \
+  log_info_safe "Advancing ${prod_tag} tag and branch to ${tag} (${target_sha:0:8})"
+  # One atomic push: when the branch lease is refused (someone moved the branch
+  # since it was read), the tag is not moved either, rather than leaving the
+  # production tag on the new release and the branch on the old one.
+  git -C "$repo_dir" push --atomic "$remote" \
+    "+refs/tags/${prod_tag}:refs/tags/${prod_tag}" \
+    "${target_sha}:refs/heads/${prod_tag}" \
     "--force-with-lease=refs/heads/${prod_tag}:${observed_branch_sha}"
-  log_info_safe "Production branch ${prod_tag} now points to ${tag}"
+  log_info_safe "Production tag and branch ${prod_tag} now point to ${tag}"
+else
+  git -C "$repo_dir" push "$remote" "refs/tags/${prod_tag}:refs/tags/${prod_tag}" --force
+  log_info_safe "Production tag ${prod_tag} now points to ${tag}"
 fi
 
 # Verify both refs on remote now point to target_sha.
