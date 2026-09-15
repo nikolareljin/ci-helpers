@@ -20,9 +20,10 @@ will notice.
 - **`auto-tag.yml` ignores release branches that live in a fork.** A merged
   fork PR whose branch was named `release/99.0.0` created tag `99.0.0` and moved
   `production`. Only a head branch in the same repository counts now.
-- **`gitleaks-scan` verifies what it downloads and keeps secrets out of its
-  reports.** The gitleaks archive is checked against the checksums file from
-  the same release before it runs, and it is unpacked into a private
+- **`gitleaks-scan` checks what it downloads and keeps secrets out of its
+  reports.** The gitleaks archive is checked against the checksums file
+  published with the same release before it runs (this catches a corrupted or
+  swapped archive; it is not a signature check), and it is unpacked into a private
   `$RUNNER_TEMP` directory instead of fixed `/tmp` paths. Reports are written
   with `--redact`, so the SARIF and JSON artifacts no longer carry the secret
   itself; finding counts are unchanged. On pull requests the action warns when
@@ -73,23 +74,36 @@ will notice.
   `release_branch` inputs.** They always read as empty. Callers whose inputs
   match the pull request payload see no difference.
 - **`release-rc-pr.yml` runs for callers on events other than `create`, and
-  honours `base_branch`.** It tested `github.event_name == 'workflow_call'`,
+  honours a `base_branch` other than `main`** (`main` and an empty value use the
+  repository's default branch, as before). It tested `github.event_name == 'workflow_call'`,
   which is never true inside a called workflow.
-- **`rust-release-tarballs.yml` commits a formula the tap has never had, and
-  fails when every push to the tap fails.**
-- **`ci.yml` matrix legs no longer cancel each other.** Without a
+- **`rust-release-tarballs.yml` commits a formula the tap has never had,** and
+  says why when every push to the tap fails (the step already failed, silently).
+- **`ci.yml` and `pr-gate.yml` calls no longer cancel each other.** Without a
   `concurrency_key`, the default group now also carries the runner and every
-  toolchain version input. A caller that passes `concurrency_key` keeps the
+  toolchain version input, so two jobs in one caller that share a working
+  directory (or matrix legs over versions) get separate groups. A caller that passes `concurrency_key` keeps the
   group it had.
 - **Presets (including `docker.yml`) call `ci.yml` (and Laravel calls `php.yml`) from the same commit,**
   by relative path, so pinning a preset pins what it runs.
 - **`trivy-scan` uploads SARIF when the scan fails,** which is exactly when the
-  results matter, and uses `upload-sarif` v4. Dependabot now also covers the
+  results matter, but only when a report was written and the run was not
+  cancelled, and uses `upload-sarif` v4. Dependabot now also covers the
   composite actions under `.github/actions/`.
 - **`pimcore-bundle-check` and `wp-plugin-check` export the source path for the
   whole job,** so their cleanup step can stop the stack.
-- **`data-safety-scan` fails when it cannot read a file** instead of counting it
-  as clean.
+- **`data-safety-scan` fails when it cannot read a file or a directory** instead
+  of counting it as clean.
+- **`check-release-tag` and `semver-compare` outputs are set.** Neither mapped
+  its step's output, so `version` and `result` were always empty and steps
+  gated on them never ran.
+- **`csharp-scan.yml`'s default vulnerability check runs the .NET CLI in
+  English,** so the line it looks for is not translated away on a non-English
+  runner.
+- **`update_pinned_actions.sh` and `check_workflow_yaml.py`** no longer read a
+  pin quoted in a comment or a `run:` string, or treat `on:` and `yes:` as the
+  same key. `verify_vendor.sh` and `version_bump.sh` run under bash 3.2
+  (macOS), and `verify_vendor.sh` ignores `.DS_Store`.
 - **`check_release_tag.sh`** (run by the `check-release-tag` action) fails when
   `--fetch-tags` cannot fetch, and treats an existing `vX.Y.Z` tag as taking
   `X.Y.Z` (and the reverse). `pr-gate.yml` and `release-tag-gate.yml` run
@@ -128,6 +142,22 @@ What a caller may notice:
   `v`-tag of the same version.
 - **`create_production.sh`** refuses a tag that is not on the remote at the same
   commit.
+- **Steps gated on `check-release-tag`'s `version` output now run** (it was
+  always empty).
+- **gitleaks reports and uploaded artifacts are redacted,** and pull requests
+  that change `.gitleaks.toml` or `.gitleaksignore` get a warning.
+- **`homebrew-package.yml` fails on a `VERSION` file** that is empty or holds
+  anything but one version (a trailing Windows line ending or trailing spaces
+  are dropped first).
+- **`release-tag-gate.yml` obeys its inputs,** and **`release-rc-pr.yml`** runs
+  for callers on events other than `create` (the script still skips a ref that
+  is not a release branch).
+- **`wp-plugin-check` resolves a relative `plugin_src` from the workspace,** not
+  from the compose file's directory, and fails on a directory that does not
+  exist.
+- **`tauri.yml` / `tauri-scan.yml` commands** that read an unset variable, or
+  end a pipeline with `grep -q` on large output, now fail (`nounset`,
+  `pipefail`).
 
 ## 2026-09-14 — 0.25.0
 
