@@ -96,7 +96,10 @@ env:
 # workflow twice from a single file and were losing half their gate on every
 # pull request, reported as "cancelled" rather than failed.
 concurrency:
-  group: ci-helpers-pr-gate-${{ github.workflow }}-${{ inputs.concurrency_key || inputs.working_directory }}-${{ github.ref }}
+  # Without a concurrency_key the default also carries the runner and toolchain
+  # versions, as ci.yml's does: two gate jobs in one caller sharing a working
+  # directory otherwise cancelled each other.
+  group: ci-helpers-pr-gate-${{ github.workflow }}-${{ inputs.concurrency_key || format('{0}-{1}-node{2}-java{3}-dotnet{4}-py{5}-go{6}-flutter{7}{8}-php{9}-rust{10}', inputs.working_directory, inputs.runner, inputs.node_version, inputs.java_version, inputs.dotnet_version, inputs.python_version, inputs.go_version, inputs.flutter_version, inputs.flutter_channel, inputs.php_version, inputs.rust_toolchain) }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -10,10 +10,14 @@ inputs:
 outputs:
   result:
     description: lt, eq, or gt
+    # A composite action's output needs a value mapped from a step; without it
+    # `steps.<id>.outputs.result` was always empty.
+    value: ${{ steps.compare.outputs.result }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: compare
+      shell: bash
       # Versions arrive through env, never pasted into the script: they are
       # often read from a branch name or a file a PR can change.
       env:

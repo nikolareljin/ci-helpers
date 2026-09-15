@@ -6,10 +6,10 @@ on:
     inputs:
       base_branch:
         description: >
-          Branch the PR targets. Defaults to main — override with master or
-          any other branch name when your repo's default differs.
-          For the on:create trigger (ci-helpers internal), the actual default
-          branch is always read from the repository object in the event payload.
+          Branch the PR targets. A value other than "main" is used as given;
+          "main" (the default) and an empty value use the repository's default
+          branch from the event payload, so a repository whose default is not
+          main needs no input.
         type: string
         default: "main"
     secrets:

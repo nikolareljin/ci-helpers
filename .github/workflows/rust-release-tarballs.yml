@@ -378,8 +378,8 @@ jobs:
           git add "${TAP_DIR}/${BIN_NAME}.rb"
           if ! git diff --cached --quiet -- "${TAP_DIR}/${BIN_NAME}.rb"; then
             git commit -m "Update ${BIN_NAME} to ${TAG}"
-            # The loop alone ends green when every push fails: the failing
-            # commands sit inside && lists, where set -e does not apply.
+            # The step already failed when every push failed (the loop is its
+            # last command), but silently; say why.
             pushed=false
             for i in 1 2 3; do
               if git push; then

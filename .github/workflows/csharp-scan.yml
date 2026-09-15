@@ -22,11 +22,12 @@ on:
         default: "dotnet restore && dotnet test"
       # `dotnet list package --vulnerable` exits 0 even when it lists vulnerable
       # packages, so the default fails on its "has the following vulnerable
-      # packages" line.
+      # packages" line. The CLI language is forced to English because that line
+      # is translated, and on a non-English runner the check would never match.
       vuln_command:
         type: string
         default: >-
-          dotnet list package --vulnerable --include-transitive 2>&1 | tee "$RUNNER_TEMP/dotnet-vulnerable.txt";
+          DOTNET_CLI_UI_LANGUAGE=en dotnet list package --vulnerable --include-transitive 2>&1 | tee "$RUNNER_TEMP/dotnet-vulnerable.txt";
           if grep -q 'has the following vulnerable packages' "$RUNNER_TEMP/dotnet-vulnerable.txt"; then
           echo "::error::Vulnerable NuGet packages found (listed above)"; exit 1; fi
 

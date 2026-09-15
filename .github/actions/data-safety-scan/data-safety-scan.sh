@@ -15,6 +15,17 @@ fi
 
 found=0
 unreadable=0
+# The file list is written first so find's own exit status is checked: a
+# directory it could not enter was otherwise skipped without a word, and every
+# file inside it passed unchecked.
+file_list="$(mktemp)"
+trap 'rm -f "$file_list"' EXIT
+find_rc=0
+find "$scan_path" -type f -name '*.json' -print0 > "$file_list" || find_rc=$?
+if [[ "$find_rc" -ne 0 ]]; then
+  echo "::error::Could not list every file under $scan_path (find exited $find_rc); some were not checked."
+  unreadable=1
+fi
 while IFS= read -r -d '' file; do
   # grep exits 0 on a match, 1 on none, and 2 when it could not read the file.
   # A file that could not be read has not been checked, so it must not pass.
@@ -27,7 +38,7 @@ while IFS= read -r -d '' file; do
     echo "::error::Could not read $file; it was not checked."
     unreadable=1
   fi
-done < <(find "$scan_path" -type f -name '*.json' -print0)
+done < "$file_list"
 
 [[ "$unreadable" -eq 0 ]] || exit 2
 [[ "$found" -eq 0 ]] || exit 1

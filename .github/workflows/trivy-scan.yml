@@ -61,8 +61,10 @@ jobs:
           vuln-type: ${{ inputs.vuln_type }}
           exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
 
+      # Also after a failed scan (findings are what fail it), but only when a
+      # report was written and the run was not cancelled.
       - name: Upload SARIF
-        if: ${{ always() && inputs.upload_sarif && inputs.format == 'sarif' }}
+        if: ${{ !cancelled() && hashFiles(inputs.output) != '' && inputs.upload_sarif && inputs.format == 'sarif' }}
         uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0 @ 2026-09-14
         with:
           sarif_file: ${{ inputs.output }}
