@@ -48,14 +48,17 @@ will notice.
 - **`verify_vendor.sh` compares the vendored files.** It compared only the text
   of `vendor/.script-helpers-sha`, so an edited file under `vendor/` passed every
   check. Online, it now fetches upstream at that SHA and requires an identical
-  tree. `--offline` reports the comparison as SKIP, never as a pass.
+  tree, execute bits included. `--offline` reports the comparison as SKIP, never
+  as a pass.
 - **`create_production.sh` checks the tag on the remote and leases the branch
   on what it saw.** It trusted the local tag and verified against that same
   value, a failed `--fetch-tags` was ignored, and `--force-with-lease` compared
   against a ref fetched immediately before the push, so it never caught a
   concurrent move. It now refuses a tag that is missing on the remote or points
   elsewhere, fails on a fetch error, leases on the remote value read before
-  pushing, and refuses `--name main`, `master` or `HEAD`.
+  pushing, moves the production tag and branch in one atomic push (a refused
+  lease no longer leaves the tag moved and the branch behind), and refuses
+  `--name main`, `master` or `HEAD`.
 
 ### Fixed
 
@@ -78,7 +81,7 @@ will notice.
   `concurrency_key`, the default group now also carries the runner and every
   toolchain version input. A caller that passes `concurrency_key` keeps the
   group it had.
-- **Presets call `ci.yml` (and Laravel calls `php.yml`) from the same commit,**
+- **Presets (including `docker.yml`) call `ci.yml` (and Laravel calls `php.yml`) from the same commit,**
   by relative path, so pinning a preset pins what it runs.
 - **`trivy-scan` uploads SARIF when the scan fails,** which is exactly when the
   results matter, and uses `upload-sarif` v4. Dependabot now also covers the
@@ -87,8 +90,11 @@ will notice.
   whole job,** so their cleanup step can stop the stack.
 - **`data-safety-scan` fails when it cannot read a file** instead of counting it
   as clean.
-- **`check_release_tag.sh`** fails when `--fetch-tags` cannot fetch, and treats
-  an existing `vX.Y.Z` tag as taking `X.Y.Z` (and the reverse).
+- **`check_release_tag.sh`** (run by the `check-release-tag` action) fails when
+  `--fetch-tags` cannot fetch, and treats an existing `vX.Y.Z` tag as taking
+  `X.Y.Z` (and the reverse). `pr-gate.yml` and `release-tag-gate.yml` run
+  script-helpers' copy of this check, which does not yet treat a `v`-tag that
+  way.
 - **`check_floating_refs.sh`** catches quoted refs, flow mappings and a channel
   ref followed by a comment that mentions a SHA.
 - **`semver_compare.sh`** compares components as decimal numbers of any length;
@@ -98,8 +104,8 @@ will notice.
   mapping instead of reporting it as up to date or skipping it.
 - **`check_workflow_yaml.py`** rejects duplicate keys, empty files and documents
   that are not a mapping.
-- **`sync_script_helpers.sh`** re-syncs when vendored files differ and always
-  records the ref lock.
+- **`sync_script_helpers.sh`** re-syncs when vendored files or their execute bits
+  differ, and always records the ref lock.
 - **`version_bump.sh`** moves only this repository's own pins and leaves
   `CHANGELOG.md` alone.
 - **`rust_release_build.sh`** exports the macOS linker under the variable name
@@ -114,12 +120,12 @@ What a caller may notice:
   `dependency_check_command` pins the plugin and fails at CVSS 7 (the plugin's
   own threshold, 11, is above the scale); `php-scan.yml`'s
   `lint_laravel_command` is `pint --test`, which reports instead of rewriting;
-  `tauri.yml` and `tauri-scan.yml` run commands with `errexit` and `pipefail`,
-  as `ci.yml` does. Each is still an input a caller can override.
+  `tauri.yml` and `tauri-scan.yml` run commands with `errexit`, `nounset` and
+  `pipefail`, as `ci.yml` does. Each is still an input a caller can override.
 - **Release titles.** A caller that passes `release_name` gets that title from
   its next release on.
-- **The release-tag checks fail on a fetch error** and on an existing `v`-tag of
-  the same version.
+- **The `check-release-tag` action fails on a fetch error** and on an existing
+  `v`-tag of the same version.
 - **`create_production.sh`** refuses a tag that is not on the remote at the same
   commit.
 
