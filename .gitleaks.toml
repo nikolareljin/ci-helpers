@@ -3,11 +3,14 @@ useDefault = true
 
 # Suppress false positives in vendored third-party scripts that are not
 # modifiable (git submodule). Empty string defaults are not real credentials.
-# NOTE: Use [allowlist] (a map/struct), NOT [[allowlist]] (array) — gitleaks
-# expects a single global allowlist struct; the double-bracket TOML syntax
-# produces a slice and causes a fatal config decode error at startup.
-[allowlist]
+# condition = "AND" makes the entry match only a line that is BOTH in that file
+# AND an empty db_password default. With the default (OR), the path alone
+# matched, which excluded the whole file from every rule. [[allowlists]] (plural,
+# an array) is the gitleaks >= 8.25 form that accepts condition; the older
+# singular [allowlist] table has no condition and is always OR.
+[[allowlists]]
 description = "Empty password defaults in vendored script-helpers (not real credentials)"
+condition = "AND"
 paths = [
   '''vendor/script-helpers/scripts/ci_pimcore_bundle_check\.sh'''
 ]

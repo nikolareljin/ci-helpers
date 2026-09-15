@@ -115,7 +115,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
         run: |
           set -euo pipefail
-          bash -c "$FRONTEND_INSTALL_CMD"
+          bash -euo pipefail -c "$FRONTEND_INSTALL_CMD"
 
       - name: Frontend build
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' && inputs.frontend_build_command != '' }}
@@ -125,7 +125,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}/${{ inputs.frontend_dir }}
         run: |
           set -euo pipefail
-          bash -c "$FRONTEND_BUILD_CMD"
+          bash -euo pipefail -c "$FRONTEND_BUILD_CMD"
 
       - name: Lint
         if: ${{ inputs.lint_command != '' }}
@@ -135,7 +135,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          bash -c "$LINT_CMD"
+          bash -euo pipefail -c "$LINT_CMD"
 
       - name: Test
         if: ${{ inputs.test_command != '' }}
@@ -145,7 +145,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          bash -c "$TEST_CMD"
+          bash -euo pipefail -c "$TEST_CMD"
 
       - name: Build
         if: ${{ inputs.build_command != '' }}
@@ -155,4 +155,4 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          bash -c "$BUILD_CMD"
+          bash -euo pipefail -c "$BUILD_CMD"

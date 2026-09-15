@@ -16,25 +16,34 @@ inputs:
 outputs:
   version:
     description: Parsed version from release branch
+    value: ${{ steps.check.outputs.version }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: check
+      shell: bash
+      # Inputs arrive through env, never pasted into the script: a branch name
+      # is chosen by whoever pushed it (github.head_ref on a fork PR), and git
+      # accepts `$(...)` in one.
+      env:
+        INPUT_RELEASE_BRANCH: ${{ inputs.release_branch }}
+        INPUT_REPO_DIR: ${{ inputs.repo_dir }}
+        INPUT_FETCH_TAGS: ${{ inputs.fetch_tags }}
       run: |
         set -euo pipefail
         ROOT_DIR="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"
-        repo_dir_input="${{ inputs.repo_dir }}"
+        repo_dir_input="$INPUT_REPO_DIR"
         if [[ -z "$repo_dir_input" ]]; then
           repo_dir_input="${GITHUB_WORKSPACE:-$(pwd)}"
         fi
         args=("--repo" "$repo_dir_input")
-        if [[ -n "${{ inputs.release_branch }}" ]]; then
-          args+=("--branch" "${{ inputs.release_branch }}")
+        if [[ -n "$INPUT_RELEASE_BRANCH" ]]; then
+          args+=("--branch" "$INPUT_RELEASE_BRANCH")
         fi
-        if [[ "${{ inputs.fetch_tags }}" == "true" ]]; then
+        if [[ "$INPUT_FETCH_TAGS" == "true" ]]; then
           args+=("--fetch-tags")
         fi
-        version="$($ROOT_DIR/scripts/check_release_tag.sh "${args[@]}" --print-version)"
+        version="$("$ROOT_DIR/scripts/check_release_tag.sh" "${args[@]}" --print-version)"
         if [[ -n "$version" ]]; then
           echo "version=$version" >> "$GITHUB_OUTPUT"
         fi

@@ -154,7 +154,32 @@ runs:
         plugin_src_env="${{ inputs.plugin_src_env }}"
         plugin_src="${{ inputs.plugin_src }}"
 
-        export "$plugin_src_env"="$plugin_src"
+        # Absolute, resolved from the workspace like the wp-plugin-check
+        # workflow's script does: Compose would otherwise resolve a relative
+        # value against the compose file's directory.
+        if ! plugin_src_abs="$(cd "$plugin_src" && pwd -P)"; then
+          echo "::error::Unable to resolve plugin_src directory: ${plugin_src}" >&2
+          exit 1
+        fi
+        # Later steps run `docker compose` against the same file, and Cleanup's
+        # `down` fails when that variable is unset, leaving the
+        # stack running. Export the validated absolute path once, for the rest
+        # of the job, instead of only inside this step.
+        if [[ ! "$plugin_src_env" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+          echo "::error::plugin_src_env must be a valid environment variable name; got '${plugin_src_env}'" >&2
+          exit 1
+        fi
+        if [[ "$plugin_src_abs" == *$'\n'* || "$plugin_src_abs" == *$'\r'* ]]; then
+          echo "::error::plugin_src must not contain newlines" >&2
+          exit 1
+        fi
+        delimiter="plugin_src_$(date +%s%N)_${RANDOM}"
+        {
+          printf '%s<<%s\n' "$plugin_src_env" "$delimiter"
+          printf '%s\n' "$plugin_src_abs"
+          printf '%s\n' "$delimiter"
+        } >> "$GITHUB_ENV"
+        export "$plugin_src_env"="$plugin_src_abs"
         docker compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
     - name: Wait for DB

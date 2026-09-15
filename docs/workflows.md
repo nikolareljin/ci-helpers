@@ -48,8 +48,9 @@ Inputs:
 - `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
 
 This workflow declares a `concurrency` group keyed on the caller workflow, the
-**working directory**, and the ref, with `cancel-in-progress: true`, so a
-superseding push cancels the run it replaces.
+**working directory**, the runner and toolchain version inputs, and the ref,
+with `cancel-in-progress: true`, so a superseding push cancels the run it
+replaces.
 
 The working directory is in the key because a caller may invoke this workflow
 from several jobs at once — backend and frontend, or one job per module. Those
@@ -58,10 +59,16 @@ them in a single group and `cancel-in-progress` made whichever started second
 destroy the first. The victim reported `cancelled` after 0 seconds with no
 steps, which reads as an infrastructure hiccup rather than lost coverage.
 
-- `concurrency_key` (string, default `""`) — overrides the working directory in
-  that key. Set it when two concurrent calls genuinely share a directory, which
-  in practice means matrix legs. Leave it empty otherwise: one job per component
-  is already distinguished by its directory.
+The runner and the toolchain versions (`node_version`, `java_version`,
+`dotnet_version`, `python_version`, `go_version`, `flutter_version` with
+`flutter_channel`, `php_version`, `rust_toolchain`) are in the default key for
+the same reason: a matrix over versions or runners reaches this workflow with a
+single working directory, and its legs cancelled each other too.
+
+- `concurrency_key` (string, default `""`) — replaces the working directory,
+  runner and toolchain versions in that key. Set it when two concurrent calls
+  still share all of those, such as matrix legs over something else. Leave it
+  empty otherwise. A caller that sets it keeps exactly the group it had.
 
 Example (Flutter mobile CI):
 
@@ -452,6 +459,11 @@ Inputs:
 Secrets:
 - `tap_token` (GitHub token with write access to the tap repo)
 
+`VERSION` (in `working_directory`) must hold a single version -- letters, digits
+and `. + _ -`, e.g. `1.2.3`; a trailing Windows line ending is dropped. Anything
+else (a second line, spaces, `=`) fails the job with an error rather than being
+exported to later steps.
+
 Example:
 
 ```yaml
@@ -631,7 +643,7 @@ Inputs (selected):
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
 - `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
-- `lint_laravel_command` (string, default `vendor/bin/pint`)
+- `lint_laravel_command` (string, default `vendor/bin/pint --test`; without `--test` pint rewrites files and always succeeds)
 - `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
 - `wp_root` (string, default `wp-cli-site`)
 
@@ -723,7 +735,7 @@ Inputs:
 - `java_version` (string, default `17`)
 - `lint_command` (string, default `mvn -B -DskipTests checkstyle:check`)
 - `test_command` (string, default `mvn -B test`)
-- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:check`)
+- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7`; the plugin's own default threshold of 11 never fails)
 
 Example:
 
@@ -745,7 +757,7 @@ Inputs:
 - `dotnet_version` (string, default `8.0.x`)
 - `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
 - `test_command` (string, default `dotnet restore && dotnet test`)
-- `vuln_command` (string, default `dotnet list package --vulnerable --include-transitive`)
+- `vuln_command` (string, default runs `dotnet list package --vulnerable --include-transitive` and fails when it lists vulnerable packages, since that command exits 0 either way)
 
 Example:
 
@@ -911,6 +923,8 @@ Permissions: needs only `contents: write` + `pull-requests: read`. **No `actions
 
 Inputs: `runner`, `fetch_depth`, `default_branch`, `update_production_tag` (same meaning as in `auto-tag-release.yml`). Output: `version`.
 
+Only a release branch in the repository itself counts: a merged PR whose `release/X.Y.Z` head branch lives in a fork is logged and skipped (no tag, `production` untouched, `version` empty).
+
 ```yaml
 name: Auto Tag
 on:
@@ -1075,6 +1089,8 @@ Inputs:
 - `base_branch` (string, default `""`, uses PR base)
 - `default_branch` (string, default `""`, uses repo default)
 
+A non-empty input takes precedence over the value read from the event.
+
 Example:
 
 ```yaml
@@ -1105,7 +1121,7 @@ Inputs (selected):
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `release-artifacts`)
 - `release_tag` (string, default `""`)
-- `release_name` (string, default `""`)
+- `release_name` (string, default `""`; empty names the release after its tag)
 - `release_notes` (string, default `""`)
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line)
@@ -1164,9 +1180,9 @@ Inputs (selected):
 - `apt_packages` (string, default `build-essential mingw-w64 musl-tools`)
 - `build_windows`, `build_linux_gnu`, `build_linux_musl`, `build_macos` (booleans, default `true`)
 - `linux_gnu_aliases` (string, default `""`, comma-delimited)
-- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
 - `generate_release_notes` (boolean, default `true`)
-- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
 
 Example:
@@ -1198,9 +1214,9 @@ Inputs (selected):
 - `go_version` (string, default `1.24`)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
-- `release_tag`, `release_name`, `release_notes` (string, optional)
+- `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
 - `generate_release_notes` (boolean, default `true`)
-- `binary_links` (string, default `""`, `label|filename` per line)
+- `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
 
 Example:
@@ -1649,7 +1665,9 @@ Inputs (workflow_call):
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `base_branch` | `main` | Branch the PR targets. Override with `master` or any other branch name if your default branch differs. |
+| `base_branch` | `main` | Branch the PR targets. Any value other than `main` is used as given; `main` (also the default, so indistinguishable from not passing it) uses the repository's default branch from the event payload. |
+
+The caller may trigger it from `create` (filtered to `release/*` branches) or from any other event such as `push` to `release/*`; a ref that is not `release/[v]X.Y.Z[-rcN|-rc.N]` is skipped.
 
 Secrets (workflow_call):
 

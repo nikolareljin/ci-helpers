@@ -121,9 +121,13 @@ jobs:
       - name: Check release tag availability
         if: ${{ inputs.check_release_tag }}
         shell: bash
+        # Through env, not pasted into the script: callers pass github.head_ref,
+        # which a fork PR's author chooses, and git accepts `$(...)` in a name.
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
           set -euo pipefail
-          version="$(./.script-helpers/scripts/check_release_tag.sh --branch "${{ inputs.release_branch }}" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
+          version="$(./.script-helpers/scripts/check_release_tag.sh --branch "$RELEASE_BRANCH" --repo "${GITHUB_WORKSPACE}" --fetch-tags --print-version)"
           if [[ -n "$version" ]]; then
             echo "Resolved release version: $version"
           fi

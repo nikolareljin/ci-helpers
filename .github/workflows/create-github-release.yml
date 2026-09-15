@@ -80,10 +80,16 @@ jobs:
             ' CHANGELOG.md)
           fi
           if [[ -n "$body" ]]; then
+            # A random delimiter: a fixed one ends the body at any CHANGELOG line
+            # that happens to spell it, and the rest is parsed as more outputs.
+            delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            while [[ "$body" == *"$delimiter"* ]]; do
+              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
+            done
             {
-              printf 'body<<__CHANGELOG_EOF__\n'
+              printf 'body<<%s\n' "$delimiter"
               printf '%s\n' "$body"
-              printf '__CHANGELOG_EOF__\n'
+              printf '%s\n' "$delimiter"
             } >> "$GITHUB_OUTPUT"
           else
             # No CHANGELOG section found; fall back to GitHub auto-generated notes

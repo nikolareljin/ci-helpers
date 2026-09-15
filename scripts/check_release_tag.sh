@@ -6,7 +6,7 @@
 # PARAMETERS:
 #   --branch <branch>    Release branch name (defaults to GITHUB_REF_NAME/GITHUB_HEAD_REF).
 #   --repo <path>        Repository path (default: GITHUB_WORKSPACE or cwd).
-#   --fetch-tags         Fetch tags before checking.
+#   --fetch-tags         Fetch tags before checking; exits 1 if the fetch fails.
 #   --print-version      Print the parsed version if eligible.
 #   -h, --help           Show this help message.
 # ----------------------------------------------------
@@ -68,14 +68,26 @@ fi
 
 version="${BASH_REMATCH[1]}"
 
+# A fetch that fails leaves only the local tags to look at, which is exactly
+# the case where a tag pushed from elsewhere is missing -- and the check would
+# then report the version as available. When fetching was asked for, not being
+# able to fetch is a failure, not a pass.
 if $fetch_tags; then
-  git -C "$repo_dir" fetch --tags --prune --force >/dev/null 2>&1 || true
+  if ! fetch_err=$(git -C "$repo_dir" fetch --tags --prune --force 2>&1); then
+    log_error_safe "Failed to fetch tags in $repo_dir; cannot tell whether $version is already tagged: ${fetch_err}"
+    exit 1
+  fi
 fi
 
-if git -C "$repo_dir" show-ref --tags -q "refs/tags/$version"; then
-  log_error_safe "Tag $version already exists for release branch $branch"
-  exit 1
-fi
+# Release branches accept an optional leading v, and so do the tags this
+# repository and its consumers cut, so either spelling means the version is
+# taken: release/2.0.0 must not pass while v2.0.0 exists, nor the reverse.
+for candidate in "$version" "v$version"; do
+  if git -C "$repo_dir" show-ref --tags -q "refs/tags/$candidate"; then
+    log_error_safe "Tag $candidate already exists for release branch $branch"
+    exit 1
+  fi
+done
 
 log_info_safe "Tag $version is available for release branch $branch"
 if $print_version; then

@@ -25,6 +25,10 @@ on:
       working_directory:
         type: string
         default: "."
+      # Passed through to ci.yml; see its description there.
+      concurrency_key:
+        type: string
+        default: ""
       fetch_depth:
         type: number
         default: 0
@@ -75,10 +79,11 @@ on:
 
 jobs:
   laravel:
-    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
+    uses: ./.github/workflows/php.yml
     with:
       runner: ${{ inputs.runner }}
       working_directory: ${{ inputs.working_directory }}
+      concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       php_version: ${{ inputs.php_version }}
       node_version: ${{ inputs.node_version }}

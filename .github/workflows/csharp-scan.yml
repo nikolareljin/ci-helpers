@@ -20,9 +20,15 @@ on:
       test_command:
         type: string
         default: "dotnet restore && dotnet test"
+      # `dotnet list package --vulnerable` exits 0 even when it lists vulnerable
+      # packages, so the default fails on its "has the following vulnerable
+      # packages" line.
       vuln_command:
         type: string
-        default: "dotnet list package --vulnerable --include-transitive"
+        default: >-
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee "$RUNNER_TEMP/dotnet-vulnerable.txt";
+          if grep -q 'has the following vulnerable packages' "$RUNNER_TEMP/dotnet-vulnerable.txt"; then
+          echo "::error::Vulnerable NuGet packages found (listed above)"; exit 1; fi
 
 jobs:
   scan:

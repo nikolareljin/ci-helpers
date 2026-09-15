@@ -110,7 +110,7 @@ for target in "${target_list[@]}"; do
       ;;
     macos)
       if command -v x86_64-apple-darwin-gcc >/dev/null 2>&1; then
-        export CARGO_BUILD_TARGET_X86_64_APPLE_DARWIN_LINKER=x86_64-apple-darwin-gcc
+        export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER=x86_64-apple-darwin-gcc
         cargo build --release --target=x86_64-apple-darwin
         build_target \
           "macos" \

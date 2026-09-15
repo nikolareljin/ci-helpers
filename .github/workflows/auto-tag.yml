@@ -91,6 +91,21 @@ jobs:
             const defaultBranch = inputDefault || payloadDefault || 'main';
             const releaseHeadPattern = /^release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
             const mergeMessagePattern = /^Merge pull request #(\d+) from (?:.+\/)?release\/v?(\d+\.\d+\.\d+(?:-rc\.?\d+)?)$/;
+            // A fork can name its branch release/X.Y.Z too. Only a release
+            // branch that lives in this repository counts; a merged fork PR
+            // must never create a tag or move production.
+            const thisRepo = `${owner}/${repo}`.toLowerCase();
+            const fromThisRepo = (pr) => {
+              const headRepo = String(pr?.head?.repo?.full_name || '').toLowerCase();
+              if (headRepo === thisRepo) {
+                return true;
+              }
+              core.info(
+                `PR #${pr?.number} head ${pr?.head?.ref} comes from ${headRepo || 'a deleted repository'}, ` +
+                `not ${owner}/${repo}. Not treating it as a release.`
+              );
+              return false;
+            };
 
             if (refName !== defaultBranch) {
               core.info(`Push landed on ${refName}; default branch is ${defaultBranch}. Skipping.`);
@@ -114,7 +129,7 @@ jobs:
               );
               if (merged) {
                 const match = String(merged.head.ref || '').match(releaseHeadPattern);
-                if (match) {
+                if (match && fromThisRepo(merged)) {
                   version = match[1];
                   core.info(`Resolved release version ${version} from PR #${merged.number}.`);
                 }
@@ -156,7 +171,8 @@ jobs:
                       prData.base?.ref === defaultBranch &&
                       prData.merge_commit_sha === sha &&
                       headMatch &&
-                      headMatch[1] === fallbackVersion
+                      headMatch[1] === fallbackVersion &&
+                      fromThisRepo(prData)
                     ) {
                       version = fallbackVersion;
                       core.info(`Resolved release version ${version} from validated merge commit message fallback for PR #${prNumber}.`);
@@ -186,9 +202,11 @@ jobs:
                         prData.merge_commit_sha === sha &&
                         headMatch
                       ) {
-                        version = headMatch[1];
-                        core.info(`Resolved release version ${version} from squash-merge fallback for PR #${prNumber}.`);
-                      } else if (prData.merged_at && prData.base?.ref === defaultBranch && headMatch) {
+                        if (fromThisRepo(prData)) {
+                          version = headMatch[1];
+                          core.info(`Resolved release version ${version} from squash-merge fallback for PR #${prNumber}.`);
+                        }
+                      } else if (prData.merged_at && prData.base?.ref === defaultBranch && headMatch && fromThisRepo(prData)) {
                         core.warning(
                           `PR #${prNumber} is a release/* squash-merge but merge_commit_sha does not match push SHA yet. ` +
                           `Re-run this workflow to retry.`
@@ -218,9 +236,11 @@ jobs:
       - name: Check tag availability
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
+          version="$AUTO_TAG_VERSION"
           if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
             echo "Tag $version already exists."
             exit 1
@@ -229,16 +249,20 @@ jobs:
       - name: Create and push tag
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
+          version="$AUTO_TAG_VERSION"
           git tag "$version"
           git push origin "$version"
 
       - name: Update production tag ref
         if: ${{ steps.release.outputs.version != '' && inputs.update_production_tag }}
         shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.release.outputs.version }}"
+          version="$AUTO_TAG_VERSION"
           ./scripts/create_production.sh -t "$version" --fetch-tags

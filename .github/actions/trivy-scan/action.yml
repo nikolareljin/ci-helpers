@@ -47,8 +47,10 @@ runs:
         ignore-unfixed: ${{ inputs.ignore_unfixed }}
         vuln-type: ${{ inputs.vuln_type }}
         exit-code: ${{ inputs.fail_on_findings == 'true' && '1' || '0' }}
+    # always(): with fail_on_findings the scan step fails exactly when there are
+    # findings, and those are the results the Security tab needs to show.
     - name: Upload SARIF
-      if: ${{ inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
-      uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3 @ 2026-09-10
+      if: ${{ always() && inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0 @ 2026-09-14
       with:
         sarif_file: ${{ inputs.output }}

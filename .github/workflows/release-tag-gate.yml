@@ -35,6 +35,13 @@ jobs:
       - name: Resolve branches
         id: branches
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
+        # core.getInput reads INPUT_<NAME>, which the runner sets only for this
+        # step's own `with:` keys -- never for the workflow's inputs. Without
+        # these three lines every input below read as "" and was ignored.
+        env:
+          INPUT_DEFAULT_BRANCH: ${{ inputs.default_branch }}
+          INPUT_BASE_BRANCH: ${{ inputs.base_branch }}
+          INPUT_RELEASE_BRANCH: ${{ inputs.release_branch }}
         with:
           script: |
             const inputDefault = core.getInput("default_branch");

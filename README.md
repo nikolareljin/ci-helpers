@@ -352,9 +352,9 @@ Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.
 ## Notes
 
 - The PR gate only blocks if your branch protection requires its status checks.
-- `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
+- `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`. A tag spelled either way (`X.Y.Z` or `vX.Y.Z`) counts as taken, and with `fetch_tags` (the default) a failed tag fetch fails the step rather than reporting the version as available.
 - `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
-- `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
+- `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It also rejects a mapping that repeats a key (PyYAML would silently keep the last one), an empty file, and a file whose top level is not a mapping. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
 
 ### Runner floor
 
@@ -483,11 +483,16 @@ back, so it reads as a second, stale definition of our CI.
 `verify_vendor.sh` checks structure, the exclusions, that every module
 `scripts/` imports is present and loads, that each dependent script still runs,
 and — when online — that the copy matches the ref recorded in
-`vendor/.script-helpers-ref`. It runs on every pull request via
+`vendor/.script-helpers-ref` and that every vendored file is identical to
+upstream at the SHA recorded in `vendor/.script-helpers-sha` (after removing the
+same excluded paths the sync removes; the upstream URL can be overridden with
+`SCRIPT_HELPERS_REPO_URL`). The lockfiles alone prove nothing about the files
+next to them. It runs on every pull request via
 `vendor-check.yml`, with `--offline` there so an upstream release does not turn
 unrelated pull requests red; a check that did not run prints as `SKIP` and the
-closing line then does not say "current". `security-weekly.yml`'s drift job
-makes the same comparison weekly: against the *recorded ref*, so with an
+closing line then does not say "current" (offline, neither the ref nor the file
+contents are compared). `security-weekly.yml`'s drift job makes the ref
+comparison weekly -- SHAs only, not file contents -- against the *recorded ref*, so with an
 explicit tag pinned it catches a tree that no longer matches its own pin and
 says nothing about whether a newer upstream release exists. Nothing automated
 answers that while the ref is pinned; re-vendoring is a decision.
@@ -495,7 +500,11 @@ answers that while the ref is pinned; re-vendoring is a decision.
 Without `--ref`, `sync_script_helpers.sh` records the literal `latest`, which
 the drift job treats as "re-resolve the newest tag every week" — every upstream
 release then fails the weekly here until someone re-vendors. Pass `--ref` to
-make the pin explicit.
+make the pin explicit. The ref lock is rewritten on every sync, including one
+that lands on the commit already vendored, so re-running with `--ref X.Y.Z` is
+enough to turn a `latest` pin into an explicit one. A sync reports "Already up
+to date" only when the commit, the ref lock and every vendored file already
+match; a hand-edited file under `vendor/` is restored.
 
 - Optional overrides: `SCRIPT_HELPERS_REPO_URL=...` and `SCRIPT_HELPERS_REF=...`
 - Source repo: `https://github.com/nikolareljin/script-helpers`

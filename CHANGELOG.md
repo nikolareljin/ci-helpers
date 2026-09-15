@@ -1,4 +1,134 @@
 # Changelog
+## 2026-09-14 — 0.26.0
+
+A security and correctness pass over the workflows, composite actions and
+scripts. No input or output was removed or renamed. One input was added
+(`laravel.yml` `concurrency_key`). Several scan defaults now fail where they
+used to pass; those are listed under **Changed** so a caller can see what it
+will notice.
+
+### Security
+
+- **A branch name can no longer run commands in the release-tag checks.**
+  `check-release-tag`, `semver-compare` and `pr-gate.yml` pasted
+  `inputs.release_branch` (callers pass `github.head_ref`, which a fork PR's
+  author chooses) and other inputs straight into `run:`. git accepts `$(...)`
+  in a branch name, so a pull request named
+  `release/1.0.0$(curl …|sh)` ran that command in the gate. Every such value now
+  reaches the script through `env:`. `auto-tag.yml` and `homebrew-package.yml`
+  (`commit_message`) got the same treatment.
+- **`auto-tag.yml` ignores release branches that live in a fork.** A merged
+  fork PR whose branch was named `release/99.0.0` created tag `99.0.0` and moved
+  `production`. Only a head branch in the same repository counts now.
+- **`gitleaks-scan` verifies what it downloads and keeps secrets out of its
+  reports.** The gitleaks archive is checked against the checksums file from
+  the same release before it runs, and it is unpacked into a private
+  `$RUNNER_TEMP` directory instead of fixed `/tmp` paths. Reports are written
+  with `--redact`, so the SARIF and JSON artifacts no longer carry the secret
+  itself; finding counts are unchanged. On pull requests the action warns when
+  the PR changes `.gitleaks.toml` or `.gitleaksignore`, which gitleaks reads
+  from the PR's own tree.
+- **`.gitleaks.toml` no longer exempts a whole vendored file.** Its allowlist
+  matched on the path alone, so any secret in that file went unreported. It now
+  requires both the path and the empty-password pattern.
+- **`homebrew-package.yml` validates `VERSION` before writing it to
+  `GITHUB_ENV`.** A `VERSION` file with a newline in it could set arbitrary
+  variables for later steps.
+- **Multi-line outputs use random delimiters.** A CHANGELOG line reading
+  `__CHANGELOG_EOF__` (in `create-github-release.yml`) or a line reading `EOF`
+  (in `rust-release.yml` and `homebrew-package.yml`) ended the value early and
+  the rest was parsed as further outputs.
+- **`go-deploy.yml` no longer turns shell tracing on.** A `set -x` meant to
+  restore tracing after writing the SSH key switched it on instead, so every
+  later command, the post-deploy command included, was echoed to the log.
+- **`macos-sign` removes the decoded certificate on every exit,** not only after
+  a successful import.
+- **`php-scan.yml` fails an HTTP error when downloading WP-CLI and checks the
+  published SHA-512.** An error page used to be saved as `wp-cli.phar` and run.
+- **`verify_vendor.sh` compares the vendored files.** It compared only the text
+  of `vendor/.script-helpers-sha`, so an edited file under `vendor/` passed every
+  check. Online, it now fetches upstream at that SHA and requires an identical
+  tree, execute bits included. `--offline` reports the comparison as SKIP, never
+  as a pass.
+- **`create_production.sh` checks the tag on the remote and leases the branch
+  on what it saw.** It trusted the local tag and verified against that same
+  value, a failed `--fetch-tags` was ignored, and `--force-with-lease` compared
+  against a ref fetched immediately before the push, so it never caught a
+  concurrent move. It now refuses a tag that is missing on the remote or points
+  elsewhere, fails on a fetch error, leases on the remote value read before
+  pushing, moves the production tag and branch in one atomic push (a refused
+  lease no longer leaves the tag moved and the branch behind), and refuses
+  `--name main`, `master` or `HEAD`.
+
+### Fixed
+
+- **Rust and Go releases have their download table again.** Since 0.25.0 the
+  notes step read `inputs.binary_links` instead of the collected table, so a
+  caller that did not pass `binary_links` got none.
+- **`release_name` is applied.** `release-build.yml`, `go-release.yml` and
+  `rust-release.yml` passed it to the release action as `release_name`, an input
+  that action does not have, so every release was titled with its tag. It is now
+  passed as `name`. An empty `release_name` still gives the tag-based title.
+- **`release-tag-gate.yml` reads its `default_branch`, `base_branch` and
+  `release_branch` inputs.** They always read as empty. Callers whose inputs
+  match the pull request payload see no difference.
+- **`release-rc-pr.yml` runs for callers on events other than `create`, and
+  honours `base_branch`.** It tested `github.event_name == 'workflow_call'`,
+  which is never true inside a called workflow.
+- **`rust-release-tarballs.yml` commits a formula the tap has never had, and
+  fails when every push to the tap fails.**
+- **`ci.yml` matrix legs no longer cancel each other.** Without a
+  `concurrency_key`, the default group now also carries the runner and every
+  toolchain version input. A caller that passes `concurrency_key` keeps the
+  group it had.
+- **Presets (including `docker.yml`) call `ci.yml` (and Laravel calls `php.yml`) from the same commit,**
+  by relative path, so pinning a preset pins what it runs.
+- **`trivy-scan` uploads SARIF when the scan fails,** which is exactly when the
+  results matter, and uses `upload-sarif` v4. Dependabot now also covers the
+  composite actions under `.github/actions/`.
+- **`pimcore-bundle-check` and `wp-plugin-check` export the source path for the
+  whole job,** so their cleanup step can stop the stack.
+- **`data-safety-scan` fails when it cannot read a file** instead of counting it
+  as clean.
+- **`check_release_tag.sh`** (run by the `check-release-tag` action) fails when
+  `--fetch-tags` cannot fetch, and treats an existing `vX.Y.Z` tag as taking
+  `X.Y.Z` (and the reverse). `pr-gate.yml` and `release-tag-gate.yml` run
+  script-helpers' copy of this check, which does not yet treat a `v`-tag that
+  way.
+- **`check_floating_refs.sh`** catches quoted refs, flow mappings and a channel
+  ref followed by a comment that mentions a SHA.
+- **`semver_compare.sh`** compares components as decimal numbers of any length;
+  `1.010.0` sorted below `1.9.0`, and `1.08.0` printed `eq`.
+- **`update_pinned_actions.sh`** caches lookups (every pin made its own API
+  call), and warns on a pin annotated with a commit SHA or written as a flow
+  mapping instead of reporting it as up to date or skipping it.
+- **`check_workflow_yaml.py`** rejects duplicate keys, empty files and documents
+  that are not a mapping.
+- **`sync_script_helpers.sh`** re-syncs when vendored files or their execute bits
+  differ, and always records the ref lock.
+- **`version_bump.sh`** moves only this repository's own pins and leaves
+  `CHANGELOG.md` alone.
+- **`rust_release_build.sh`** exports the macOS linker under the variable name
+  Cargo reads.
+
+### Changed
+
+What a caller may notice:
+
+- **Scan defaults that could not fail now can.** `csharp-scan.yml`'s
+  `vuln_command` fails when vulnerable packages are listed; `java-scan.yml`'s
+  `dependency_check_command` pins the plugin and fails at CVSS 7 (the plugin's
+  own threshold, 11, is above the scale); `php-scan.yml`'s
+  `lint_laravel_command` is `pint --test`, which reports instead of rewriting;
+  `tauri.yml` and `tauri-scan.yml` run commands with `errexit`, `nounset` and
+  `pipefail`, as `ci.yml` does. Each is still an input a caller can override.
+- **Release titles.** A caller that passes `release_name` gets that title from
+  its next release on.
+- **The `check-release-tag` action fails on a fetch error** and on an existing
+  `v`-tag of the same version.
+- **`create_production.sh`** refuses a tag that is not on the remote at the same
+  commit.
+
 ## 2026-09-14 — 0.25.0
 
 ### Added

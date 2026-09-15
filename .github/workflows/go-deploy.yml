@@ -120,10 +120,11 @@ jobs:
           TMP_KEY=$(mktemp)
           trap 'rm -f "$TMP_KEY"' EXIT
 
-          # Write SSH key without tracing to avoid leaking it.
+          # Write SSH key without tracing to avoid leaking it. Tracing is never
+          # turned back on: it was never on, and `set -x` here would trace every
+          # later command, the post-deploy command included.
           set +x
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$TMP_KEY"
-          set -x
           chmod 600 "$TMP_KEY"
 
           # Use an array so word-splitting on the key path is never a concern.
