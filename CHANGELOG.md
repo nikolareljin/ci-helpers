@@ -1,4 +1,65 @@
 # Changelog
+## 2026-09-15 — 0.26.1
+
+Fixes from a further review of 0.26.0, and corrections to its release notes. No
+input or output was removed or renamed.
+
+### Fixed
+
+- **`check-release-tag` and `semver-compare` outputs are set.** 0.26.0 mapped
+  `check-release-tag`'s `version` output; `semver-compare` still had no `value:`
+  on `result`, so `steps.<id>.outputs.result` was always empty. It is mapped now.
+- **`pr-gate.yml` jobs no longer cancel each other.** Its default concurrency
+  group was keyed on the working directory alone, so two gate jobs in one caller
+  sharing a directory cancelled each other. Without a `concurrency_key` it now
+  also carries the runner and toolchain versions, as `ci.yml`'s does since
+  0.26.0; a caller that passes `concurrency_key` keeps its group.
+- **`csharp-scan.yml`'s default vulnerability check runs the .NET CLI in
+  English.** The line it looks for is translated, so on a runner with a
+  non-English locale vulnerable packages passed.
+- **`trivy-scan` uploads SARIF only when a report was written** and the run was
+  not cancelled. 0.26.0 made the upload run after a failed scan; a scan that
+  failed before writing a report then gained a second, misleading error. The
+  composite action checks for the file in a step of its own.
+- **`data-safety-scan` fails when it cannot enter a directory,** not only when
+  it cannot read a file: files under an unreadable directory were never listed,
+  so never checked.
+- **`homebrew-package.yml`** drops trailing spaces from `VERSION` before
+  validating it.
+- **`update_pinned_actions.sh`** skips comment lines and reads a flow-mapping
+  pin only where a mapping can start (line start, or after `:`, `[` or `,`), so
+  a pin quoted in a comment or a `run:` string no longer counts as an unreadable
+  pin (which failed `--check`), while `job: { uses: ... }` and
+  `steps: [ { uses: ... } ]` are still reported.
+- **`check_workflow_yaml.py`** compares keys as written, so `on:` and `yes:` in
+  one mapping are no longer reported as duplicates.
+- **`verify_vendor.sh` and `version_bump.sh` run under bash 3.2** (macOS): both
+  used `mapfile`. `verify_vendor.sh` ignores `.DS_Store` when comparing trees.
+
+### Corrections to the 0.26.0 notes
+
+- `rust-release-tarballs.yml` did not "end green" when every push to the tap
+  failed: the step already failed, without saying why. 0.26.0 added the message
+  (and, as stated, commits a formula the tap never had).
+- `release-rc-pr.yml` honours a `base_branch` other than `main`; `main` and an
+  empty value use the repository's default branch.
+- `homebrew-package.yml` routes `commit_message` through `env:`; its other
+  inputs are the caller's own values and still reach `run:` directly.
+- The gitleaks archive is checked against the checksums file published with the
+  same release. That catches a corrupted or swapped archive; it is not a
+  signature check.
+- Composite actions have no same-commit form, so `gitleaks-scan.yml` and
+  `tauri-release.yml` still run their actions at `@production`: pinning those
+  workflows does not pin the action (now in `docs/presets.md`).
+- What a caller of 0.26.0 may also notice: steps gated on `check-release-tag`'s
+  `version` output now run; gitleaks reports and artifacts are redacted;
+  `homebrew-package.yml` fails on a `VERSION` that is not a single version;
+  `wp-plugin-check` resolves a relative `plugin_src` from the workspace and
+  fails on a missing directory; `release-tag-gate.yml` obeys its inputs;
+  `release-rc-pr.yml` runs for callers on events other than `create`;
+  `tauri.yml`/`tauri-scan.yml` commands that read an unset variable, or end a
+  pipeline with `grep -q` on large output, fail.
+
 ## 2026-09-14 — 0.26.0
 
 A security and correctness pass over the workflows, composite actions and

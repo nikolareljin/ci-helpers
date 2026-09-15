@@ -47,10 +47,25 @@ runs:
         ignore-unfixed: ${{ inputs.ignore_unfixed }}
         vuln-type: ${{ inputs.vuln_type }}
         exit-code: ${{ inputs.fail_on_findings == 'true' && '1' || '0' }}
-    # always(): with fail_on_findings the scan step fails exactly when there are
-    # findings, and those are the results the Security tab needs to show.
+    # Not only on success: with fail_on_findings the scan step fails exactly when
+    # there are findings, and those are the results the Security tab needs. But
+    # only when a report was written -- a scan that failed before producing one
+    # (database download, bad input) must not gain a second, misleading upload
+    # error -- and not on cancellation.
+    - name: Check for SARIF report
+      id: sarif
+      if: ${{ !cancelled() && inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
+      shell: bash
+      env:
+        SARIF_OUTPUT: ${{ inputs.output }}
+      run: |
+        if [ -s "$SARIF_OUTPUT" ]; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::No SARIF report at $SARIF_OUTPUT; skipping the upload."
+        fi
     - name: Upload SARIF
-      if: ${{ always() && inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
+      if: ${{ !cancelled() && steps.sarif.outputs.exists == 'true' }}
       uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0 @ 2026-09-14
       with:
         sarif_file: ${{ inputs.output }}

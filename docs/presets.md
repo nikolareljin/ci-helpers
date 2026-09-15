@@ -15,6 +15,11 @@ A preset calls `ci.yml` (Laravel: `php.yml`, then `ci.yml`) by relative path,
 so it runs the `ci.yml` from the same ref you pinned the preset to: pinning
 `node.yml@<tag>` pins the job it runs as well.
 
+Composite actions have no same-commit form, so the workflows that use one
+still call it at `@production`: `gitleaks-scan.yml` (the `gitleaks-scan`
+action) and `tauri-release.yml` (`macos-sign`, `windows-sign`). Pinning those
+workflows does not pin the action they run.
+
 Concurrency: `ci.yml` cancels a superseded run in the same group. Without a
 `concurrency_key`, the group is keyed on the caller workflow, the ref, the
 working directory, the runner and the toolchain versions (`node_version`,

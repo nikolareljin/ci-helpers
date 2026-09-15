@@ -50,7 +50,13 @@ def _construct_unique_mapping(loader, node, deep=False):
     for key_node, _ in node.value:
         if key_node.tag == "tag:yaml.org,2002:merge":
             continue  # `<<: *anchor`; construct_mapping flattens those
-        key = loader.construct_object(key_node, deep=deep)
+        # A scalar key is compared as written, with its tag: `on:` and `yes:`
+        # both construct to True under YAML 1.1 but are different keys to
+        # GitHub, which does not apply those conversions.
+        if isinstance(key_node, yaml.ScalarNode):
+            key = (key_node.tag, key_node.value)
+        else:
+            key = loader.construct_object(key_node, deep=deep)
         try:
             duplicate = key in seen
         except TypeError:  # an unhashable key; the base constructor reports it

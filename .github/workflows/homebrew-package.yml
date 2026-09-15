@@ -148,6 +148,8 @@ jobs:
           # included). Drop a Windows line ending, then accept version
           # characters only -- anything else fails here instead.
           version="${version%$'\r'}"
+          # Trailing spaces or tabs are editor noise, not part of the version.
+          version="${version%"${version##*[![:space:]]}"}"
           if [[ ! "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]]; then
             echo "::error::$repo/VERSION must hold one version (letters, digits, . + _ -), e.g. 1.2.3; refusing to export it."
             exit 1

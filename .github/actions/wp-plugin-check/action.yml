@@ -154,9 +154,8 @@ runs:
         plugin_src_env="${{ inputs.plugin_src_env }}"
         plugin_src="${{ inputs.plugin_src }}"
 
-        # Absolute, resolved from the workspace like the wp-plugin-check
-        # workflow's script does: Compose would otherwise resolve a relative
-        # value against the compose file's directory.
+        # Absolute, resolved from the workspace: Compose would otherwise resolve a
+        # relative value against the compose file's directory, not the repository.
         if ! plugin_src_abs="$(cd "$plugin_src" && pwd -P)"; then
           echo "::error::Unable to resolve plugin_src directory: ${plugin_src}" >&2
           exit 1

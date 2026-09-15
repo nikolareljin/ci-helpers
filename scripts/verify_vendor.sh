@@ -97,7 +97,11 @@ fi
 # script here is enough to extend the check.
 # This script's own shlib_import is a variable expansion, not a literal module
 # list, so exclude it or it lands in the set as a bogus module name.
-mapfile -t modules < <(
+# A read loop rather than mapfile, which bash 3.2 (macOS) does not have.
+modules=()
+while IFS= read -r m; do
+  [[ -n "$m" ]] && modules+=("$m")
+done < <(
   grep -h '^\s*shlib_import ' scripts/*.sh 2>/dev/null \
     | grep -v 'modules\[@\]' \
     | sed 's/^\s*shlib_import //' | tr ' ' '\n' \
@@ -165,7 +169,7 @@ fi
 # 6) Contents ------------------------------------------------------------------
 # Executable regular files under a directory, as sorted relative paths.
 executable_files() {
-  (cd "$1" && find . -type f -perm -u+x | LC_ALL=C sort)
+  (cd "$1" && find . -type f -perm -u+x ! -name .DS_Store | LC_ALL=C sort)
 }
 # The lockfiles are text anyone can edit, so a matching SHA proves nothing about
 # the files next to it: a hand-edited lib/logging.sh passed every check above.
@@ -205,7 +209,8 @@ else
     # diff -r compares contents only; a script that lost (or gained) its
     # execute bit is a different file to anyone running it, so compare modes too.
     exec_diff="$(diff <(executable_files "$upstream_tree") <(executable_files "$VENDOR_DIR") 2>&1)" || true
-    if content_diff="$(diff -rq "$upstream_tree" "$VENDOR_DIR" 2>&1)" && [[ -z "$exec_diff" ]]; then
+    # .DS_Store is Finder litter on a maintainer's Mac, ignored by .gitignore.
+    if content_diff="$(diff -rq -x .DS_Store "$upstream_tree" "$VENDOR_DIR" 2>&1)" && [[ -z "$exec_diff" ]]; then
       ok "vendored files match upstream at $pinned_sha"
     elif [[ -n "$exec_diff" && -z "$content_diff" ]]; then
       bad "vendored file modes differ from upstream at $pinned_sha (execute bit) - run scripts/sync_script_helpers.sh"
