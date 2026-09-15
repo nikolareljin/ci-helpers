@@ -58,7 +58,7 @@ jobs:
     secrets: inherit          # passes GH_PAT if you set it; falls back to github.token
 ```
 
-If your default branch is not `main`, pass the `base_branch` input:
+The PR targets the repository's default branch. To target a different branch, pass `base_branch` (any value other than `main` is used as given):
 
 ```yaml
     uses: nikolareljin/ci-helpers/.github/workflows/release-rc-pr.yml@production
