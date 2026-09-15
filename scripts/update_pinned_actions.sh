@@ -160,6 +160,8 @@ for file in "${files[@]}"; do
   # that final `read` fail after filling `line`, so without it the last line --
   # a pin like any other -- was never looked at and never warned about.
   while IFS= read -r line || [[ -n "$line" ]]; do
+    # A YAML comment is not a pin, whatever text it quotes.
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
     # Must match: uses: <path>@<40hex> # <ref> @ <YYYY-MM-DD>
     # Ref may be a branch (master/main), a tag (v1, v1.2.3), or similar.
     # The `- ` is optional because both spellings are valid YAML and both are
@@ -223,7 +225,8 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
-    elif [[ "$line" =~ (^[[:space:]]*(-[[:space:]]+)?|[{,][[:space:]]*)uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]] ||
+         [[ "$line" =~ ^[[:space:]]*(-[[:space:]]*)?\{[^}]*uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable
