@@ -26,6 +26,7 @@ There are two common approaches to signing:
 
 ### 1) Create App Store Connect API Key
 In App Store Connect → Users and Access → Keys:
+
 - Create a new API key
 - Save:
   - Key ID
@@ -137,18 +138,22 @@ team_id("XXXXXXXXXX")
 
 ## Workflow Alignment (ci-helpers)
 This repository ships a reusable Flutter workflow:
+
 - `.github/workflows/flutter-release.yml`
 
 That workflow:
+
 - Builds Android/iOS artifacts
 - Can deploy to App Store and Google Play using Fastlane
 - Requires a macOS runner for iOS uploads
 
 Inputs for App Store deploy:
+
 - `deploy_app_store: true`
 - `fastlane_ios_lane` (defaults to `ios_release`)
 
 Secrets for App Store deploy:
+
 - `APP_STORE_CONNECT_API_KEY_BASE64`
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
@@ -158,14 +163,17 @@ Secrets for App Store deploy:
 ## Troubleshooting
 
 **Upload fails: Invalid Signature**
+
 - Verify cert/provisioning profile match the bundle ID
 - Ensure correct Team ID in Appfile
 
 **App Store Connect auth error**
+
 - Verify Key ID / Issuer ID
 - Verify .p8 file is correct and base64 encoded
 
 **Fastlane not found**
+
 - Ensure `bundle exec fastlane` or `gem install fastlane` is used
 
 ---

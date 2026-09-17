@@ -552,11 +552,13 @@ jobs:
 ```
 
 Required secrets for PPA publish:
+
 - `PPA_GPG_PRIVATE_KEY`: armored private key used to sign the source package.
 - `PPA_GPG_PASSPHRASE`: passphrase for the signing key.
 - `PPA_GPG_KEY_ID`: key ID or fingerprint (passed as an input).
 - `PPA_SSH_PRIVATE_KEY`: SSH key registered with Launchpad for uploads.
 Optional inputs:
+
 - `series`: distro codename override for `debian/changelog` (uses `dch`).
 
 Debian package build:

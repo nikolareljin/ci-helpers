@@ -32,6 +32,7 @@ https://console.cloud.google.com/iam-admin/serviceaccounts
 Download the JSON key for the service account and store it as a GitHub secret.
 
 Required secret (per workflow):
+
 - `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`
 
 ---

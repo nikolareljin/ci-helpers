@@ -21,6 +21,7 @@ workflows and composite actions in this repository.
 Consumers pin workflows via the floating `@production` tag; see the repository [Releases](https://github.com/nikolareljin/ci-helpers/releases) for the current version (tracked in [`VERSION`](https://github.com/nikolareljin/ci-helpers/blob/main/VERSION)).
 
 Start here:
+
 - [Reusable workflows](workflows.md) — CI, PR gate, deploy, scan, release, Tauri, WinGet, Docker multi-arch, manifest versioning, and release-rc-pr.
 - [Presets](presets.md) — stack-specific presets (Java/Gradle/Kotlin/Rust/Node/React/PHP/Pimcore/Playwright/Cypress).
 - [Composite actions](actions.md) — semver compare, release tag guard, release notes, scan helpers, macOS signing, Windows signing.
