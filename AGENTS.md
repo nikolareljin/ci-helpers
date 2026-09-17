@@ -75,3 +75,23 @@ There is no Makefile in this repository, deliberately: every entry point here is
 `docs/about.md` is hand-maintained and must never be generated. It lists public,
 non-fork repositories only, and nothing outside this repository may be read at
 build time.
+
+## Bash version policy
+
+Scripts here source the vendored `script-helpers`, so they inherit its floor:
+**write for bash 3.2, which then also runs on 4 and 5.** No `mapfile`, no
+associative arrays, no namerefs, no `${var^^}`, no `shopt -s globstar`; and no
+GNU-only tool flags (`sed -i`/`-r`, `readlink -f`, `realpath`, `grep -P`,
+`date -d`, `find -printf`, `xargs -r`, `base64 -w`, `md5sum`/`sha256sum`, and
+`\s` or `\b` in a grep or sed pattern), because macOS ships BSD versions.
+
+This applies to `run:` blocks in workflows too, wherever one might execute on a
+macOS runner.
+
+`actionlint` runs shellcheck over every `run:` block at warning level, which
+catches a good deal of this — but **not** the version-specific parts. Those are
+caught by the sibling library's `portability_test.sh`, which does not run here.
+A green actionlint is not evidence that a script is portable.
+
+The reasoning, the full list, and what to write instead of each construct:
+<https://nikolareljin.github.io/script-helpers/bash-compatibility/>
