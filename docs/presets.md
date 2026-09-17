@@ -826,6 +826,193 @@ jobs:
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
 ```
 
+## Cloudflare Workers
+
+Workflows: `.github/workflows/cloudflare-deploy.yml`, `.github/workflows/cloudflare-build.yml`
+
+Two workflows, not one, and no orchestrator wrapping them. `cloudflare-build.yml`
+declares no secrets at all; `cloudflare-deploy.yml` declares the token and the
+Environment. GitHub validates a called workflow's declared permissions and
+secrets when the run starts — before any job-level `if:` — so a single combined
+workflow would put a live deploy credential in scope on pull-request runs, while
+npm postinstall scripts and build plugins execute. Splitting them is the only
+way a caller can decline that.
+
+This differs from `pages.yml`, which *does* ship an orchestrator. There, the
+deploy half is useless alone, so an orchestrator earns its place. Here the
+deploy workflow is already self-sufficient, and an orchestrator would force
+`secrets: inherit` onto every event it handles.
+
+### Before anything deploys
+
+1. Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with
+   **Account → Workers Scripts → Edit** on the account that owns the Worker.
+   Add **Workers KV Storage → Edit** only if your own deploy command writes KV;
+   binding a namespace does not need it.
+2. Add it as `CLOUDFLARE_API_TOKEN`, on the Environment you are deploying to.
+3. Add `CLOUDFLARE_ACCOUNT_ID` as a repository or environment **variable**. It
+   is an identifier, not a credential, and a readable one in the log is what
+   tells you a deploy landed on the wrong account. A secret of the same name
+   also works.
+4. Set the repository variable `CLOUDFLARE_DEPLOY_ENABLED` to `true`. Until you
+   do, every run is a visible no-op that explains itself in the job summary.
+5. On a production Environment, add a required reviewer. The workflow puts the
+   Environment on its own deploy job, which is what makes the reviewer apply.
+
+### 1. A release tag deploys production
+
+```yaml
+name: deploy
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+      smoke_version_path: /api/status
+```
+
+No `environment:` is needed: a bare-SemVer tag push resolves to
+`production_environment`, which defaults to `production`. An rc tag does not —
+`1.2.3-rc1` is rejected by the same check, so a release candidate cannot reach
+production by accident.
+
+### 2. A dispatch picks its environment
+
+```yaml
+name: deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: ${{ inputs.environment }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+```
+
+### 3. Validate on pull requests, deploy from tags
+
+The shape that keeps the token out of pull-request runs entirely.
+
+```yaml
+name: worker
+on:
+  pull_request:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-build.yml@production
+    permissions:
+      contents: read
+    with:
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+
+  deploy:
+    if: ${{ github.event_name == 'push' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+      smoke_version_path: /api/status
+```
+
+The pull-request run writes no `secrets:` line, so no Cloudflare credential is
+in scope for it.
+
+### 4. Keep one deploy definition, shared with your laptop
+
+If the repository already has a deploy script — a `./dev deploy`, say — point
+`deploy_command` at it. Every gate still runs: the kill switch, the Environment
+and its reviewer, the credential preflight, the version string, the smoke test
+and the summary. Only the mechanism becomes yours.
+
+```yaml
+      deploy_command: ./dev deploy cloudflare --env "$CLOUDFLARE_ENV" --yes
+```
+
+The resolved values reach the command as environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | the secret |
+| `CLOUDFLARE_ACCOUNT_ID` | variable first, secret second, already proven non-empty |
+| `CLOUDFLARE_ENV` | the resolved environment |
+| `CF_DEPLOY_COMMAND` | `deploy` / `versions upload` / `pages deploy` |
+| `CF_DEPLOY_VERSION` | the version string |
+| `CF_DEPLOY_REF` | the checked-out ref |
+| `CF_DEPLOY_BASE_URL` | the resolved smoke base |
+| `CF_DEPLOY_ARGS` | `deploy_args`, verbatim |
+
+This is what stops the version string being defined twice. A script that reads
+`CF_DEPLOY_VERSION` when it is set, and computes its own only when it is not,
+has one live definition per run — CI's in CI, its own on a laptop.
+`script-helpers`' `cloudflare` module does exactly that.
+
+### Cloudflare Pages
+
+Pages is reachable as an input combination, **not** a separate code path. The
+Workers lane is the one that has been exercised end to end; this is documented
+so it can be used, not claimed to be at parity.
+
+```yaml
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: staging
+      command: "pages deploy"
+      wrangler_env: none          # `wrangler pages deploy` rejects --env
+      version_var: ""             # and it has no --var either
+      build_command: "npm run build"
+      deploy_args: "dist --project-name example-site"
+```
+
+The token needs **Account → Cloudflare Pages → Edit** instead of the Workers
+scope.
+
+### Things worth knowing before you rely on this
+
+- **`deployed` is a string.** `if: needs.deploy.outputs.deployed` is truthy for
+  `"false"` too — every non-empty string is. Compare it against `'true'`.
+- **`--dry-run` proves less than it looks.** It validates the config and bundles
+  the Worker. It does not check bindings, routes, or account access.
+- **`npx --yes wrangler@<version>` fetches from npm at deploy time**, which is an
+  unpinned-integrity dependency inside an otherwise SHA-pinned toolchain. For
+  anything you care about, set `wrangler_command: "pnpm exec wrangler"` so your
+  lockfile pins it. The default is convenience, and says so.
+- **Set `smoke_version_path`.** Without it the smoke test proves something
+  answered, which passes just as happily against the release that was already
+  live. The summary says so rather than reporting a clean pass.
+
 ## Overriding defaults
 
 All presets accept the same inputs as `ci.yml`. For example, to add Docker and

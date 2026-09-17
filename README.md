@@ -20,6 +20,7 @@ Includes:
 - Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
 - `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
+- Cloudflare deploys: `cloudflare-deploy.yml` (disabled until a kill switch is armed, deploys through a GitHub Environment, refuses an empty account id, and asserts the deployed version is the one now live) and `cloudflare-build.yml` (dry-run validation declaring no secrets, so pull requests hold no deploy credential).
 - `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
 - `release-rc-pr.yml` as a reusable `workflow_call` workflow — add 10 lines to any repo to get automatic release PRs on `release/*` branch pushes.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
@@ -75,6 +76,8 @@ jobs:
 - `.github/workflows/ci.yml`: reusable CI workflow (lint/test/build/docker/extra)
 - `.github/workflows/pr-gate.yml`: reusable PR gate workflow with optional release tag checks
 - `.github/workflows/deploy.yml`: reusable deploy workflow
+- `.github/workflows/cloudflare-deploy.yml`: reusable Cloudflare deploy workflow (kill switch, GitHub Environment, credential preflight, version smoke test)
+- `.github/workflows/cloudflare-build.yml`: reusable Cloudflare build + `wrangler deploy --dry-run` validation, declaring no secrets
 - `.github/workflows/php-scan.yml`: reusable PHP scan workflow (unit, framework lint, WP-CLI scan)
 - `.github/workflows/python-scan.yml`: reusable Python scan workflow (lint + unit + Django)
 - `.github/workflows/go-scan.yml`: reusable Go scan workflow (lint + tests + gosec)

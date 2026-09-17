@@ -1,4 +1,83 @@
 # Changelog
+## 2026-09-17 — 0.27.0
+
+Cloudflare deploys, as two workflows rather than one. Nothing existing changed:
+no input or output was removed or renamed.
+
+### Added
+
+- **`cloudflare-deploy.yml` and `cloudflare-build.yml`.** `deploy.yml` could
+  never do this job: it declares no `secrets:` block, so a Cloudflare token
+  cannot be passed to it at all, and every repository deploying a Worker has had
+  to keep its own copy of the workflow. These two accept the token and are
+  callable from anywhere.
+
+  They are two files for the same reason `pages-build.yml` and `pages-deploy.yml`
+  are two files. GitHub validates a called workflow's declared permissions **and
+  secrets** when the run starts, before any job-level `if:` is evaluated, so a
+  single workflow holding both halves would put a live deploy credential in
+  scope on pull-request runs — while npm postinstall scripts and build plugins
+  execute. `cloudflare-build.yml` declares no secrets at all, so a caller can
+  decline them.
+
+  Unlike Pages, there is no orchestrator wrapping the two. In Pages the deploy
+  half is useless alone and an orchestrator earns its place; here the deploy
+  workflow is already self-sufficient, and an orchestrator would force
+  `secrets: inherit` onto every event it handles, which is the one thing the
+  split exists to make optional.
+
+- **Disabled until armed, and visibly so.** Nothing deploys until a kill switch
+  reads the string `true`. While it is off, a `disabled-notice` job writes a job
+  summary naming the environment that was not deployed and how to arm it. A
+  workflow whose every job is skipped looks exactly like one whose conditions
+  are wrong; a deliberate no-op should say that it is one.
+
+- **A `deploy_command` passthrough.** A repository that already has a deploy
+  script can point this at it and keep one implementation for the laptop and for
+  CI. Every gate still runs — kill switch, Environment and its reviewer,
+  credential preflight, version string, smoke test, summary — and the resolved
+  values reach the command as `CF_DEPLOY_*` environment variables. A script that
+  reads `CF_DEPLOY_VERSION` when set and computes its own only when not has one
+  live definition per run, rather than two kept in step by hand.
+
+### Fixed before it shipped
+
+Two defects were found in a working copy of this pattern and are designed out
+here rather than carried forward. Both are the same shape: a value that looks
+false but reads as valid, producing a green run that did the wrong thing.
+
+- **A job output is a string, so `"false"` is truthy.** `if: needs.x.outputs.flag`
+  passes for every non-empty string, `"false"` included — which is how a step
+  that was meant to be skipped runs anyway. The `resolve` job emits an enum
+  (`deploy` / `disabled`) rather than a boolean, so no output value can be a
+  fake boolean, and a `case` guard stops the enum quietly becoming a free string
+  later. The `deployed` output's description says to compare it, never test it
+  for truth, and `docs/workflows.md` states the rule once.
+
+- **An empty account id is not an error to wrangler.** It resolves the account
+  from the token instead, which is correct for a token scoped to one account and
+  a coin toss otherwise — so a deploy that lands on the wrong account looks
+  exactly like a deploy that worked. The id is read from `vars` first and
+  `secrets` second, so either place works, and a preflight step that runs before
+  any toolchain setup fails loudly when both are empty.
+
+### Notes
+
+- The API token reaches wrangler through the environment and never through argv.
+- `wrangler deploy --dry-run` validates the configuration and bundles the Worker.
+  It does not check bindings, routes, or account access, and the build workflow's
+  header says so — a green build means "this would compile", not "this would
+  deploy".
+- The `npx --yes wrangler@<version>` default is an unpinned-integrity fetch
+  inside an otherwise SHA-pinned toolchain. `wrangler_command: "pnpm exec
+  wrangler"` pins it through a lockfile; the docs recommend that and call the
+  default what it is.
+- Cloudflare Pages is reachable as an input combination (`command: "pages
+  deploy"`), not a separate code path. Documented so it can be used, not claimed
+  to be at parity with the Workers lane.
+- No new third-party action was introduced. wrangler runs in a `run:` step, so
+  there is nothing further to SHA-pin.
+
 ## 2026-09-15 — 0.26.1
 
 Fixes from a further review of 0.26.0, and corrections to its release notes. No

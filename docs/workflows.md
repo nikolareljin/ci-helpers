@@ -181,6 +181,93 @@ jobs:
       deploy_command: "./scripts/deploy.sh"
 ```
 
+## cloudflare-deploy.yml
+
+Workflow: `.github/workflows/cloudflare-deploy.yml`
+
+Purpose: Deploy to Cloudflare with wrangler, behind a kill switch and a GitHub Environment.
+
+**Disabled by default.** Nothing deploys until the kill switch reads the string `true` — either the `enabled` input, or the repository variable `CLOUDFLARE_DEPLOY_ENABLED` when that input is empty. While it is off, a `disabled-notice` job writes a job summary explaining how to arm it, so a switched-off repository does not look like a broken workflow.
+
+**The caller must use `secrets: inherit`** when the token lives on an Environment. A job that calls a reusable workflow cannot declare `environment:`, and `on.workflow_call` has no `environment` keyword, so an environment-scoped secret cannot be passed explicitly. It is resolved by the `environment:` declared on this workflow's deploy job, and `secrets: inherit` is what makes that possible. An explicit `secrets:` block still works for a repository-level secret.
+
+Inputs:
+- `command` (string, default `deploy`) — one of `deploy`, `versions upload`, `pages deploy`; checked against that allowlist before wrangler runs
+- `environment` (string, default `""`) — required, except on a bare-SemVer tag push
+- `wrangler_env` (string, default `""`) — overrides the wrangler `--env` name; the literal `none` omits `--env` entirely
+- `ref` (string, default `""`)
+- `production_environment` (string, default `production`)
+- `enabled` (string, default `""`) — the kill switch
+- `runner` (string, default `ubuntu-latest`), `timeout_minutes` (number, default `30`), `fetch_depth` (number, default `1`), `working_directory` (string, default `"."`)
+- `node_version` (string, default `""`), `package_manager` (string, default `npm`), `install_command` (string, default `""`), `build_command` (string, default `""`), `artifact_name` (string, default `""`)
+- `config_path` (string, default `""`), `config_glob` (string, default `""`)
+- `version` (string, default `""`), `version_file` (string, default `VERSION`), `version_suffix` (string, default `sha7`), `version_var` (string, default `VERSION`)
+- `deploy_args` (string, default `""`), `wrangler_version` (string, default `4.42.0`), `wrangler_command` (string, default `""`)
+- `deploy_command` (string, default `""`) — the passthrough lane
+- `base_url` (string, default `""`), `smoke_path` (string, default `/health`), `smoke_version_path` (string, default `""`), `smoke_version_field` (string, default `version`)
+- `concurrency_key` (string, default `""`)
+
+Secrets:
+- `CLOUDFLARE_API_TOKEN` (optional) — Account > Workers Scripts > Edit for the Workers lane; Account > Cloudflare Pages > Edit for the Pages lane. Declared optional so a disabled run does not require one; a run that reaches the deploy step without it fails at an explicit preflight.
+- `CLOUDFLARE_ACCOUNT_ID` (optional) — only if you would rather not keep the account id in a variable.
+
+Outputs: `deployed`, `environment`, `version`, `url`.
+
+### Two rules worth stating once
+
+**A job output is a string.** `deployed` is `"true"` or `"false"`, and `if: needs.deploy.outputs.deployed` is truthy for **both** — every non-empty string is. Compare it: `if: needs.deploy.outputs.deployed == 'true'`. This workflow avoids the trap internally by having its `resolve` job emit an enum (`deploy` / `disabled`) rather than a boolean, so no output value can be a fake boolean.
+
+**An empty account id is not an error to wrangler.** It resolves the account from the token instead, which is correct for a token scoped to one account and a coin toss otherwise — so a deploy that lands on the wrong account looks exactly like one that worked. The account id is read from `vars` first and `secrets` second, and a preflight step fails loudly when both are empty.
+
+The concurrency group is `ci-helpers-cloudflare-deploy-<environment>`. Do not name your own group the same thing: a caller's group is evaluated alongside the called workflow's, and a shared name leaves the deploy job queued behind the run that started it, permanently.
+
+Example:
+
+```yaml
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: staging
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+      smoke_version_path: /api/status
+```
+
+## cloudflare-build.yml
+
+Workflow: `.github/workflows/cloudflare-build.yml`
+
+Purpose: Build a Worker and validate it with `wrangler deploy --dry-run`, deploying nothing.
+
+It declares **no secrets** and no write scope, so a caller that checks its Worker on pull requests never writes `secrets: inherit` and no deploy credential is in scope while build code runs. That is the reason it is a separate file: GitHub validates a called workflow's declared permissions and secrets at run start, before any job-level `if:`.
+
+What the dry run proves: the configuration is valid and the Worker bundles. What it does **not** prove: bindings, routes, or that the token can reach the account — none of that is reachable without calling the API. A green build means "this would compile", not "this would deploy".
+
+Inputs: `runner`, `timeout_minutes`, `fetch_depth`, `working_directory`, `node_version`, `package_manager`, `install_command`, `build_command`, `config_path`, `config_glob`, `version_file`, `version_suffix`, `wrangler_version`, `wrangler_command`, `dry_run` (boolean, default `true`), `upload` (boolean, default `false`), `artifact_name` (string, default `cloudflare-build`), `artifact_paths` (string, default `""`), `artifact_retention_days` (number, default `1`).
+
+Outputs: `version`, `config_path`, `artifact_name`.
+
+Example:
+
+```yaml
+jobs:
+  build:
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-build.yml@production
+    permissions:
+      contents: read
+    with:
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+```
+
 ## Release Build Overview
 
 Workflow: `.github/workflows/release-build.yml`

@@ -1,0 +1,772 @@
+name: cloudflare-deploy
+#
+# Deploys to Cloudflare with wrangler, behind a kill switch and a GitHub
+# Environment. Workers is the path this was built and exercised against; Pages
+# is an input combination (command: "pages deploy"), documented in
+# docs/presets.md, not a separate code path.
+#
+# DISABLED BY DEFAULT. Nothing deploys until the kill switch reads the string
+# 'true' — either the `enabled` input, or the repository variable
+# CLOUDFLARE_DEPLOY_ENABLED when that input is empty. While it is off the
+# `disabled-notice` job writes a job summary saying which environment was not
+# deployed and how to arm it. A deliberate no-op should be visible; a workflow
+# that silently skips every job looks identical to one that is broken.
+#
+# THE CALLER MUST USE `secrets: inherit` when the token lives on an Environment.
+# A job that calls a reusable workflow cannot declare `environment:`, and
+# `on.workflow_call` has no `environment` keyword, so an environment-scoped
+# secret cannot be passed explicitly — it is resolved by the `environment:`
+# declared on the deploy job below. `secrets: inherit` is what makes that
+# resolution possible. An explicit `secrets:` block still works for a
+# repository-level secret.
+#
+# Pair it with cloudflare-build.yml when a repository validates its Worker on
+# pull requests: that workflow declares no secrets at all, so a pull-request
+# caller never writes `secrets: inherit` and no deploy credential is in scope
+# while third-party build code runs.
+#
+# There is deliberately no orchestrator workflow wrapping the two, unlike
+# pages.yml. In Pages the deploy half is useless alone, so an orchestrator earns
+# its place; here this workflow is already self-sufficient, and an orchestrator
+# would force `secrets: inherit` onto every event it handles — which is the one
+# thing the split exists to make optional.
+
+on:
+  workflow_call:
+    inputs:
+      # --- what, and where ---------------------------------------------------
+      command:
+        type: string
+        default: deploy
+        description: >
+          One of: deploy, versions upload, pages deploy. Checked against that
+          allowlist before wrangler runs — an allowlist rather than a free
+          string because this value becomes argv.
+      environment:
+        type: string
+        default: ""
+        description: >
+          The GitHub Environment to deploy through, and the wrangler --env name.
+          Required, except on a bare-SemVer tag push, which resolves to
+          production_environment. There is no un-environmented mode: the
+          Environment is what carries the token, the variables and the reviewer.
+      wrangler_env:
+        type: string
+        default: ""
+        description: >
+          Overrides the wrangler --env name when it differs from the GitHub
+          Environment name. The literal 'none' omits --env entirely, which is
+          what the Pages lane needs — `wrangler pages deploy` rejects it.
+      ref:
+        type: string
+        default: ""
+        description: Git ref to check out. Empty checks out the ref the run is on.
+      production_environment:
+        type: string
+        default: production
+        description: The environment a bare-SemVer tag push deploys to.
+
+      # --- kill switch -------------------------------------------------------
+      enabled:
+        type: string
+        default: ""
+        description: >
+          Pass the repository variable that arms deploys — an expression
+          reading vars.CLOUDFLARE_DEPLOY_ENABLED from the caller. Empty falls
+          back to reading that same variable here. Compared against the string
+          'true'; anything else, including unset, disables.
+
+      # --- build -------------------------------------------------------------
+      runner:
+        type: string
+        default: ubuntu-latest
+      timeout_minutes:
+        type: number
+        default: 30
+      fetch_depth:
+        type: number
+        default: 1
+        description: >
+          1 by default: the version string reads a file and the commit sha, not
+          history. Set 0 if your build_command reads git tags or dates.
+      working_directory:
+        type: string
+        default: "."
+      node_version:
+        type: string
+        default: ""
+        description: Set to install Node before building.
+      package_manager:
+        type: string
+        default: npm
+        description: >
+          npm, pnpm, yarn or none. Selects the dependency cache and the default
+          install command.
+      install_command:
+        type: string
+        default: ""
+        description: Overrides the package_manager default install when set.
+      build_command:
+        type: string
+        default: ""
+        description: >
+          Runs before wrangler, with CLOUDFLARE_ENV and the CF_DEPLOY_*
+          contract exported. Leave empty when artifact_name is set, or when
+          there is nothing to build.
+      artifact_name:
+        type: string
+        default: ""
+        description: >
+          Download this artifact instead of building, so the thing deployed is
+          the thing that was reviewed. build_command is ignored when set.
+
+      # --- the wrangler invocation -------------------------------------------
+      config_path:
+        type: string
+        default: ""
+        description: Path to the wrangler config to deploy, relative to working_directory.
+      config_glob:
+        type: string
+        default: ""
+        description: >
+          Alternative to config_path for builds that generate their deploy
+          config. Must match exactly one file; zero, or two or more, is an
+          error naming what it found.
+      version:
+        type: string
+        default: ""
+        description: Overrides the version string entirely.
+      version_file:
+        type: string
+        default: VERSION
+      version_suffix:
+        type: string
+        default: sha7
+        description: >
+          sha7 appends -<7-char commit sha>, so a version identifies a commit.
+          none uses the file verbatim.
+      version_var:
+        type: string
+        default: VERSION
+        description: >
+          The name in `--var <name>:<version>`. Empty passes no --var at all.
+      deploy_args:
+        type: string
+        default: ""
+        description: >
+          Extra arguments appended verbatim. This is where the Pages lane
+          lives: command "pages deploy", deploy_args "dist --project-name
+          example-site".
+      wrangler_version:
+        type: string
+        default: "4.42.0"
+        description: Version used by the npx fallback. Ignored when wrangler_command is set.
+      wrangler_command:
+        type: string
+        default: ""
+        description: >
+          Overrides how wrangler is run, e.g. "pnpm exec wrangler" so a
+          lockfile pins it rather than npx fetching wrangler_version at deploy
+          time. Recommended for anything you care about.
+
+      # --- the layered escape hatch ------------------------------------------
+      deploy_command:
+        type: string
+        default: ""
+        description: >
+          Run this one command instead of the built-in build-and-wrangler
+          steps. Everything else — kill switch, environment gate, credential
+          preflight, version string, smoke test, summary — still runs, and the
+          resolved values reach the command as CF_DEPLOY_* environment
+          variables. This is how a repository with its own ./dev deploy keeps
+          one implementation for the laptop and for CI. Leave empty (the
+          default) and this workflow needs nothing but the typed inputs above.
+
+      # --- smoke test --------------------------------------------------------
+      base_url:
+        type: string
+        default: ""
+        description: Empty falls back to the environment's BASE_URL variable.
+      smoke_path:
+        type: string
+        default: /health
+        description: Fetched and required to return 2xx. Empty skips the smoke test entirely.
+      smoke_version_path:
+        type: string
+        default: ""
+        description: >
+          A JSON endpoint whose version field must equal the version just
+          deployed. Empty means the smoke test only proves something answered —
+          which is the failure this exists to catch, so the summary says so out
+          loud rather than reporting a clean pass.
+      smoke_version_field:
+        type: string
+        default: version
+
+      concurrency_key:
+        type: string
+        default: ""
+
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+        description: >
+          Account API token. Scope for the Workers lane: Account > Workers
+          Scripts > Edit, on the account that owns the Worker. Add Account >
+          Workers KV Storage > Edit only if your deploy_command writes KV —
+          binding a namespace does not need it. The Pages lane needs Account >
+          Cloudflare Pages > Edit instead. Create one at
+          https://dash.cloudflare.com/profile/api-tokens.
+          Declared optional so a run with the kill switch off does not require
+          it; a run that reaches the deploy step without one fails at an
+          explicit preflight naming this secret.
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+        description: >
+          Only if you would rather not keep the account id in a variable. The
+          variable CLOUDFLARE_ACCOUNT_ID is read first and is the documented
+          home — it is an identifier, not a credential, and a readable one in
+          the log is what tells you a deploy landed on the wrong account.
+
+    outputs:
+      deployed:
+        description: >
+          The string 'true' or 'false'. Compare it; never test it for truth. A
+          job output is a string, and every non-empty string — "false"
+          included — is truthy in an `if:`.
+        value: ${{ jobs.deploy.outputs.deployed }}
+      environment:
+        description: The environment this run resolved to.
+        value: ${{ jobs.resolve.outputs.environment }}
+      version:
+        description: The version string that was deployed.
+        value: ${{ jobs.deploy.outputs.version }}
+      url:
+        description: The base URL the smoke test used.
+        value: ${{ jobs.deploy.outputs.url }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Normalises the event into typed outputs so no later job reads the event
+  # payload, and decides — once — whether this run deploys at all.
+  #
+  # No `environment:` here on purpose: declaring one would put this job behind
+  # the production environment's required reviewer, so someone would have to
+  # approve a run before we could even tell them deploys are switched off.
+  resolve:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      environment: ${{ steps.decide.outputs.environment }}
+      ref: ${{ steps.decide.outputs.ref }}
+    steps:
+      - name: Decide what this run deploys
+        id: decide
+        shell: bash
+        env:
+          IN_ENABLED: ${{ inputs.enabled }}
+          VAR_ENABLED: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+          IN_ENVIRONMENT: ${{ inputs.environment }}
+          IN_PRODUCTION_ENVIRONMENT: ${{ inputs.production_environment }}
+          IN_REF: ${{ inputs.ref }}
+          IN_COMMAND: ${{ inputs.command }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Checked here, before a checkout and before the kill switch, so a
+          # typo costs five seconds and fails saying what it is.
+          case "${IN_COMMAND}" in
+            "deploy"|"versions upload"|"pages deploy") ;;
+            *)
+              echo "::error::command must be 'deploy', 'versions upload' or 'pages deploy', not '${IN_COMMAND}'"
+              exit 1 ;;
+          esac
+
+          environment="${IN_ENVIRONMENT}"
+          if [ -z "${environment}" ]; then
+            # A bare-SemVer tag is a release. Anything else — a branch push, an
+            # rc tag, a dispatch — must name its environment.
+            if [ "${EVENT_NAME}" = "push" ] && [ "${REF_TYPE}" = "tag" ]; then
+              case "${REF_NAME}" in
+                [0-9]*.[0-9]*.[0-9]*)
+                  # The glob above still admits "1.2.3-rc1"; this rejects it.
+                  if printf '%s' "${REF_NAME}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                    environment="${IN_PRODUCTION_ENVIRONMENT}"
+                  fi ;;
+              esac
+            fi
+          fi
+
+          # Before the kill-switch decision, deliberately: a caller who forgot
+          # `environment:` should be told that, not told deploys are off.
+          if [ -z "${environment}" ]; then
+            echo "::error::no environment to deploy to — pass environment:, or push a bare-SemVer tag to deploy production_environment"
+            exit 1
+          fi
+
+          enabled="${IN_ENABLED}"
+          if [ -z "${enabled}" ]; then
+            enabled="${VAR_ENABLED:-}"
+          fi
+          # Compared against the literal string. Anything else, unset included,
+          # leaves deploys off.
+          if [ "${enabled}" = "true" ]; then
+            mode="deploy"
+          else
+            mode="disabled"
+          fi
+
+          ref="${IN_REF}"
+          if [ -z "${ref}" ]; then
+            ref="${REF_NAME}"
+          fi
+
+          # An enum, not a boolean. A job output is a string, so a boolean
+          # crossing a job boundary arrives as "true"/"false" and `if: needs.x`
+          # is truthy for both — which is how a deploy that was supposed to be
+          # skipped runs anyway. Two named states cannot be misread that way,
+          # and this guard stops the enum quietly becoming a free string later.
+          case "${mode}" in
+            deploy|disabled) ;;
+            *) echo "::error::internal: mode '${mode}' is not one of deploy, disabled"; exit 1 ;;
+          esac
+
+          {
+            echo "mode=${mode}"
+            echo "environment=${environment}"
+            echo "ref=${ref}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # A visible no-op. Without this a repository with deploys switched off shows
+  # a green run with every job skipped, which is indistinguishable from a
+  # workflow whose `if:` conditions are wrong.
+  disabled-notice:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.mode == 'disabled' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    steps:
+      - name: Explain why nothing was deployed
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Cloudflare deploy is switched off"
+            echo
+            echo "Nothing was deployed to \`${ENVIRONMENT}\`."
+            echo
+            echo "This workflow is disabled until a kill switch reads the string \`true\`."
+            echo "Set the repository variable \`CLOUDFLARE_DEPLOY_ENABLED\` to \`true\`,"
+            echo "or pass \`enabled:\` explicitly from the calling workflow."
+            echo
+            echo "Settings → Secrets and variables → Actions → Variables."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.mode == 'deploy' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    # The Environment is what carries the token, the variables and the required
+    # reviewer. It is declared here, on the called workflow's job, because a
+    # calling job cannot declare one — which is also why the caller must use
+    # `secrets: inherit` for an environment-scoped token.
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+      url: ${{ steps.smoke.outputs.url }}
+    # Namespaced, and keyed on the environment rather than the ref: two runs
+    # deploying the same environment must not race, while staging and
+    # production may proceed independently. cancel-in-progress stays false —
+    # a half-finished deploy is worse than a queued one.
+    concurrency:
+      group: ci-helpers-cloudflare-deploy-${{ inputs.concurrency_key || needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      deployed: ${{ steps.result.outputs.deployed }}
+      version: ${{ steps.version.outputs.value }}
+      url: ${{ steps.smoke.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      # First, before any toolchain setup: a missing credential should cost
+      # seconds, not a full dependency install.
+      #
+      # The account id is the reason this step exists at all. wrangler treats an
+      # empty accountId as "resolve it from the token", which is correct for a
+      # token scoped to one account and a coin toss otherwise — so a deploy that
+      # lands on the wrong account looks exactly like a deploy that worked.
+      # Reading `vars` first and `secrets` second means putting it in either
+      # place works; reading only one silently yields an empty string from the
+      # other.
+      - name: Preflight credentials
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          DEPLOY_COMMAND: ${{ inputs.deploy_command }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ -z "${CF_TOKEN}" ]; then
+            echo "::error::no CLOUDFLARE_API_TOKEN for environment '${ENVIRONMENT}'. Add it as an Environment secret and call this workflow with 'secrets: inherit', or as a repository secret passed explicitly"
+            failed=1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "::error::no CLOUDFLARE_ACCOUNT_ID for environment '${ENVIRONMENT}'. Set the variable (preferred — it is an identifier, not a credential) or the secret of that name. wrangler does not fail on an empty account id; it picks one, which is why this is checked here"
+            failed=1
+          fi
+          [ "${failed}" = "0" ] || exit 1
+          # Length only. A secret-sourced id would be masked anyway, and the
+          # point is to prove it is non-empty, not to print it.
+          echo "account id is set (${#CF_ACCOUNT_ID} characters)"
+          if [ -n "${DEPLOY_COMMAND}" ]; then
+            echo "deploy_command is set: this run replaces the built-in build and wrangler steps"
+          fi
+
+      - name: Setup pnpm
+        if: ${{ inputs.package_manager == 'pnpm' && inputs.artifact_name == '' }}
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 @ 2026-09-14
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ (inputs.package_manager != 'none' && inputs.artifact_name == '') && inputs.package_manager || '' }}
+          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/**/*lock*', inputs.working_directory) || '' }}
+
+      - name: Install
+        if: ${{ inputs.artifact_name == '' && (inputs.install_command != '' || inputs.package_manager != 'none') }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        # eval, not `bash -c`: a caller command is usually a chain, and
+        # `bash -c` runs it in a fresh shell that does not inherit
+        # `set -euo pipefail`, so a failure in everything but the last command
+        # is swallowed and a stale build gets deployed on a green run.
+        run: |
+          set -euo pipefail
+          if [ -n "${INSTALL_COMMAND}" ]; then
+            eval "${INSTALL_COMMAND}"
+          else
+            case "${PACKAGE_MANAGER}" in
+              npm)  npm ci ;;
+              pnpm) pnpm install --frozen-lockfile ;;
+              yarn) yarn install --immutable ;;
+              none) : ;;
+              *)
+                echo "::error::package_manager must be npm, pnpm, yarn or none, not '${PACKAGE_MANAGER}'"
+                exit 1 ;;
+            esac
+          fi
+
+      - name: Download the reviewed build
+        if: ${{ inputs.artifact_name != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1 @ 2026-09-10
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.working_directory }}
+
+      - name: Resolve the version string
+        id: version
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          VERSION_FILE: ${{ inputs.version_file }}
+          VERSION_SUFFIX: ${{ inputs.version_suffix }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${IN_VERSION}" ]; then
+            value="${IN_VERSION}"
+          else
+            if [ ! -r "${VERSION_FILE}" ]; then
+              echo "::error::version_file '${VERSION_FILE}' is not readable. Set version: explicitly, or point version_file at the right path"
+              exit 1
+            fi
+            value="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+            if [ -z "${value}" ]; then
+              echo "::error::version_file '${VERSION_FILE}' is empty"
+              exit 1
+            fi
+            if [ "${VERSION_SUFFIX}" = "sha7" ]; then
+              value="${value}-$(printf '%s' "${COMMIT_SHA}" | cut -c1-7)"
+            fi
+          fi
+          echo "value=${value}" >> "${GITHUB_OUTPUT}"
+          echo "version: ${value}"
+
+      # Runs before the build so the build can read them, and after the version
+      # so the version is in them. This is the contract a deploy_command reads,
+      # and it is what stops the version being computed twice — once here and
+      # once in whatever script the repository already had.
+      - name: Export the deploy contract
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          IN_COMMAND: ${{ inputs.command }}
+          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
+          RESOLVED_REF: ${{ needs.resolve.outputs.ref }}
+          IN_BASE_URL: ${{ inputs.base_url }}
+          VAR_BASE_URL: ${{ vars.BASE_URL }}
+          IN_DEPLOY_ARGS: ${{ inputs.deploy_args }}
+        run: |
+          set -euo pipefail
+          base="${IN_BASE_URL}"
+          if [ -z "${base}" ]; then
+            base="${VAR_BASE_URL:-}"
+          fi
+          {
+            echo "CLOUDFLARE_ENV=${ENVIRONMENT}"
+            echo "CF_DEPLOY_COMMAND=${IN_COMMAND}"
+            echo "CF_DEPLOY_VERSION=${DEPLOY_VERSION}"
+            echo "CF_DEPLOY_REF=${RESOLVED_REF}"
+            echo "CF_DEPLOY_BASE_URL=${base}"
+            echo "CF_DEPLOY_ARGS=${IN_DEPLOY_ARGS}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Build
+        if: ${{ inputs.artifact_name == '' && inputs.build_command != '' && inputs.deploy_command == '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        # eval, for the same reason as the install step.
+        run: |
+          set -euo pipefail
+          eval "${BUILD_COMMAND}"
+
+      # Resolved after the build, because a build is what generates the config
+      # this looks for.
+      - name: Resolve the deploy config
+        id: config
+        if: ${{ inputs.deploy_command == '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+          CONFIG_GLOB: ${{ inputs.config_glob }}
+        run: |
+          set -euo pipefail
+          path=""
+          if [ -n "${CONFIG_PATH}" ]; then
+            path="${CONFIG_PATH}"
+            if [ ! -r "${path}" ]; then
+              echo "::error::config_path '${path}' does not exist. If it is generated by the build, use config_glob instead"
+              exit 1
+            fi
+          elif [ -n "${CONFIG_GLOB}" ]; then
+            # Word splitting and globbing are the point here: CONFIG_GLOB is a
+            # pattern, supplied as workflow configuration, and must expand.
+            # shellcheck disable=SC2086
+            set -- ${CONFIG_GLOB}
+            # An unmatched glob expands to itself, so a single argument that is
+            # not a readable file means nothing matched.
+            if [ "$#" -eq 1 ] && [ ! -r "$1" ]; then
+              echo "::error::config_glob '${CONFIG_GLOB}' matched nothing. The build may not have produced it"
+              exit 1
+            fi
+            if [ "$#" -gt 1 ]; then
+              echo "::error::config_glob '${CONFIG_GLOB}' matched $# files, and exactly one is required:"
+              for m in "$@"; do echo "::error::  ${m}"; done
+              exit 1
+            fi
+            path="$1"
+          fi
+          echo "path=${path}" >> "${GITHUB_OUTPUT}"
+          if [ -n "${path}" ]; then
+            echo "deploy config: ${path}"
+          else
+            echo "no deploy config resolved; wrangler will use its own default"
+          fi
+
+      - name: Deploy
+        id: deploy
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          # The token reaches wrangler through the environment and never
+          # through argv, where every other process on the runner could read it.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_COMMAND: ${{ inputs.deploy_command }}
+          IN_COMMAND: ${{ inputs.command }}
+          CONFIG_PATH: ${{ steps.config.outputs.path }}
+          WRANGLER_ENV: ${{ inputs.wrangler_env }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          VERSION_VAR: ${{ inputs.version_var }}
+          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
+          DEPLOY_ARGS: ${{ inputs.deploy_args }}
+          WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
+          WRANGLER_VERSION: ${{ inputs.wrangler_version }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${DEPLOY_COMMAND}" ]; then
+            # The passthrough lane. Every gate above still ran, and the
+            # CF_DEPLOY_* contract is in the environment; only the mechanism is
+            # the caller's.
+            eval "${DEPLOY_COMMAND}"
+            exit 0
+          fi
+
+          runner="${WRANGLER_COMMAND}"
+          if [ -z "${runner}" ]; then
+            runner="npx --yes wrangler@${WRANGLER_VERSION}"
+          fi
+
+          # IN_COMMAND is two words for "versions upload" and "pages deploy",
+          # and was checked against the allowlist in the resolve job.
+          # shellcheck disable=SC2086
+          set -- ${IN_COMMAND}
+
+          if [ "${IN_COMMAND}" != "pages deploy" ]; then
+            if [ -n "${CONFIG_PATH}" ]; then
+              set -- "$@" --config "${CONFIG_PATH}"
+            fi
+            # 'none' is how the Pages lane and a single-environment Worker opt
+            # out of --env entirely.
+            env_name="${WRANGLER_ENV}"
+            if [ -z "${env_name}" ]; then
+              env_name="${ENVIRONMENT}"
+            fi
+            if [ "${env_name}" != "none" ]; then
+              set -- "$@" --env "${env_name}"
+            fi
+            if [ -n "${VERSION_VAR}" ]; then
+              set -- "$@" --var "${VERSION_VAR}:${DEPLOY_VERSION}"
+            fi
+          fi
+
+          if [ -n "${DEPLOY_ARGS}" ]; then
+            # Caller-supplied extra arguments, split on purpose.
+            # shellcheck disable=SC2086
+            set -- "$@" ${DEPLOY_ARGS}
+          fi
+
+          echo "wrangler $*"
+          # shellcheck disable=SC2086
+          ${runner} "$@"
+
+      - name: Smoke test
+        id: smoke
+        if: ${{ inputs.smoke_path != '' }}
+        shell: bash
+        env:
+          IN_BASE_URL: ${{ inputs.base_url }}
+          VAR_BASE_URL: ${{ vars.BASE_URL }}
+          SMOKE_PATH: ${{ inputs.smoke_path }}
+          SMOKE_VERSION_PATH: ${{ inputs.smoke_version_path }}
+          SMOKE_VERSION_FIELD: ${{ inputs.smoke_version_field }}
+          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          base="${IN_BASE_URL}"
+          if [ -z "${base}" ]; then
+            base="${VAR_BASE_URL:-}"
+          fi
+          if [ -z "${base}" ]; then
+            echo "::error::smoke_path is set but there is no base URL. Pass base_url:, or set the BASE_URL variable on the environment"
+            exit 1
+          fi
+          base="${base%/}"
+          echo "url=${base}" >> "${GITHUB_OUTPUT}"
+
+          # Retries: a deploy that has just landed may not be reachable
+          # everywhere yet, and failing on that is a false alarm.
+          echo "checking ${base}${SMOKE_PATH}"
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 \
+            -o /dev/null "${base}${SMOKE_PATH}"
+
+          if [ -z "${SMOKE_VERSION_PATH}" ]; then
+            echo "::warning::reachability only — something answered, but nothing proved it is the version just deployed. Set smoke_version_path to assert it"
+            exit 0
+          fi
+
+          body="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors --max-time 30 \
+            "${base}${SMOKE_VERSION_PATH}")"
+          actual="$(printf '%s' "${body}" | jq -r --arg k "${SMOKE_VERSION_FIELD}" '.[$k] // empty')"
+          if [ -z "${actual}" ]; then
+            echo "::error::no '${SMOKE_VERSION_FIELD}' field in the response from ${base}${SMOKE_VERSION_PATH}"
+            exit 1
+          fi
+          if [ "${actual}" != "${DEPLOY_VERSION}" ]; then
+            # The failure this exists to catch: the service answers, with the
+            # release that was already live.
+            echo "::error::live version is '${actual}', expected '${DEPLOY_VERSION}' — the deploy did not take effect"
+            exit 1
+          fi
+          echo "live version is ${actual}"
+
+      - name: Record the result
+        id: result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "${DEPLOY_OUTCOME}" = "success" ]; then
+            echo "deployed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "deployed=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          RESOLVED_REF: ${{ needs.resolve.outputs.ref }}
+          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
+          IN_COMMAND: ${{ inputs.command }}
+          CONFIG_PATH: ${{ steps.config.outputs.path }}
+          SMOKE_URL: ${{ steps.smoke.outputs.url }}
+          SMOKE_VERSION_PATH: ${{ inputs.smoke_version_path }}
+          SMOKE_PATH: ${{ inputs.smoke_path }}
+          DEPLOYED: ${{ steps.result.outputs.deployed }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Cloudflare deploy"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Deployed | \`${DEPLOYED}\` |"
+            echo "| Environment | \`${ENVIRONMENT}\` |"
+            echo "| Ref | \`${RESOLVED_REF}\` |"
+            echo "| Version | \`${DEPLOY_VERSION}\` |"
+            echo "| Command | \`${IN_COMMAND}\` |"
+            if [ -n "${CONFIG_PATH}" ]; then
+              echo "| Config | \`${CONFIG_PATH}\` |"
+            fi
+            if [ -n "${SMOKE_URL}" ]; then
+              echo "| URL | ${SMOKE_URL} |"
+            fi
+            echo
+            if [ -z "${SMOKE_PATH}" ]; then
+              echo "No smoke test ran."
+            elif [ -z "${SMOKE_VERSION_PATH}" ]; then
+              echo "**Version not asserted.** The smoke test proved something answered, not that it is"
+              echo "the version above. Set \`smoke_version_path\` to assert it."
+            else
+              echo "Version asserted against \`${SMOKE_VERSION_PATH}\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
