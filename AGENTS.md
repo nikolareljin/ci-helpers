@@ -14,9 +14,9 @@
 
 ## Build, Test, and Development Commands
 
-- `make examples`: runs safe, non-interactive demos in `scripts/example_*.sh`.
-- `RUN_INTERACTIVE=1 make examples`: includes dialog-based prompts.
-- `RUN_NETWORK=1 make examples`: enables download demo for network paths.
+- `bash scripts/docs_site.sh check`: runs safe, non-interactive demos in `scripts/example_*.sh`.
+- `RUN_INTERACTIVE=1 bash scripts/docs_site.sh check`: includes dialog-based prompts.
+- `RUN_NETWORK=1 bash scripts/docs_site.sh check`: enables download demo for network paths.
 - `shellcheck lib/*.sh scripts/*.sh`: lint Bash scripts (add suppressions inline only when justified).
 
 ## Coding Style & Naming Conventions
@@ -39,7 +39,7 @@
 
 - Bash examples in `scripts/` serve as regression coverage; add a demo when behavior changes.
 - Keep interactive or network demos opt-in via `RUN_INTERACTIVE`/`RUN_NETWORK`.
-- Run `make examples` and `shellcheck` before PRs; note skipped paths in the PR.
+- Run `bash scripts/docs_site.sh check` and `shellcheck` before PRs; note skipped paths in the PR.
 
 ## Commit & Pull Request Guidelines
 
@@ -52,3 +52,26 @@
 
 - Update `docs/` when adding new presets, inputs, or behaviors.
 - Keep README examples aligned with workflow inputs and default order (E2E runs after Docker).
+
+## Documentation site
+
+The site is built from `docs/` in place by MkDocs Material. There is no second
+copy of the content.
+
+- `bash scripts/docs_site.sh serve` — live reload while writing.
+- `bash scripts/docs_site.sh preview` — build, then serve the built output. Use
+  this to check anything involving search: lunr fetches its index over HTTP, so
+  a site opened from `file://` silently finds nothing.
+- `bash scripts/docs_site.sh check` — `mkdocs build --strict` into a temp
+  directory. Run it before opening a PR.
+
+`--strict` is the link checker. A moved page, a dead anchor, or a `docs/*.md`
+that no `nav:` entry points at all fail the build. **Adding a page to `docs/`
+means adding it to `nav:` in `mkdocs.yml`.**
+
+There is no Makefile in this repository, deliberately: every entry point here is
+`bash scripts/*.sh`, which is how the workflows invoke them.
+
+`docs/about.md` is hand-maintained and must never be generated. It lists public,
+non-fork repositories only, and nothing outside this repository may be read at
+build time.

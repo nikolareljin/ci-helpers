@@ -1,0 +1,72 @@
+name: docs-site
+#
+# REPO-LOCAL. This is NOT a reusable workflow — it declares no workflow_call
+# trigger and nothing outside this repository should call it. It is listed in
+# README.md under Layout alongside the other repo-local workflows for exactly
+# that reason: a new file in a directory of seventy reusable ones reads as a
+# preset unless something says otherwise.
+#
+# It publishes this repository's own documentation through pages.yml — the same
+# preset every consumer calls. That is the point. The preset is exercised on
+# every documentation change by the repository that ships it, so a regression in
+# pages.yml, pages-build.yml or pages-deploy.yml breaks our site before it
+# breaks anyone else's.
+#
+# `uses: ./.github/workflows/pages.yml` resolves inside THIS repository at the
+# commit under test, not at @production. A pull request that edits
+# pages-build.yml therefore builds this site with the edited file, which is the
+# only thing that makes the dogfooding worth anything. A relative uses: needs no
+# SHA pin and is excluded from scripts/check_floating_refs.sh by design.
+#
+# Pull requests are handled by docs-site-pr.yml, which calls pages-build.yml
+# directly and so grants no write scope at all. Keeping them in separate files
+# is the only way to do that: GitHub validates a called workflow's declared
+# permissions when the run starts, before any job-level `if:` is evaluated, so
+# calling pages.yml on a pull request would force `pages: write` and
+# `id-token: write` to be live while pip and mkdocs plugins execute.
+#
+# No `concurrency:` block here on purpose. pages.yml already sets
+# `ci-helpers-pages-<ref>`, and a caller's group is evaluated alongside the
+# called workflow's — a group named the same thing would leave the called jobs
+# queued behind the run that started them, permanently. pages-deploy.yml's own
+# header explains that trap at length.
+#
+# Pages must be enabled for this repository with source = GitHub Actions before
+# the first run, or actions/configure-pages fails with a Pages API error.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs-site.yml'
+      - '.github/workflows/pages.yml'
+      - '.github/workflows/pages-build.yml'
+      - '.github/workflows/pages-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  site:
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      python_version: "3.12"
+      requirements_file: requirements-docs.txt
+      build_command: "mkdocs build --strict"
+      pages_path: site
+      # 1, not the default 0: nothing here reads git history. No
+      # git-revision-date plugin, no Hugo .Lastmod. Cloning this repository's
+      # full history to render markdown is wasted minutes.
+      fetch_depth: 1
+      deploy: true
+      timeout_minutes: 15

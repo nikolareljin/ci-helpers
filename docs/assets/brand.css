@@ -1,0 +1,12 @@
+/* ci-helpers accent — the ONLY visual difference from script-helpers.
+ *
+ * CI-pass green, taken from this repository's logo. Do not copy this file to
+ * the sibling repository; extra.css is the part that is mirrored.
+ *
+ * Two values, not one, because a single accent cannot pass contrast on both
+ * canvases: #3fb950 on white is about 2.4:1 and fails WCAG AA for text, while
+ * the darkened variant on #0b0e14 is muddy. Contrast checked against the two
+ * backgrounds extra.css defines.
+ */
+[data-md-color-scheme="default"] { --nr-accent: #1a7f37; }  /* 4.9:1 on #ffffff */
+[data-md-color-scheme="slate"]   { --nr-accent: #3fb950; }  /* 7.4:1 on #0b0e14 */

@@ -1,0 +1,15 @@
+# Documentation site only. Not a runtime or packaging dependency of this
+# repository, and not installed by anything but scripts/docs_site.sh and the
+# Pages build.
+#
+# Pinned exactly. This file is also the pip cache key in ci-helpers'
+# pages-build.yml, and an unpinned generator means the published site can change
+# without a commit — an unpinned dependency inside an otherwise pinned pipeline.
+# Bump it deliberately.
+#
+# It lives at the repository root, NOT under docs/. MkDocs copies every
+# non-markdown file inside docs_dir verbatim into the built site, so a
+# docs/requirements.txt would be published and search-indexed.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+pymdown-extensions==12.0.1

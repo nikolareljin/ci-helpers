@@ -1,4 +1,60 @@
 # Changelog
+## 2026-09-17 — 0.26.2
+
+A documentation site for this repository, built with its own Pages preset. No
+reusable workflow, input or output changed.
+
+### Added
+
+- **<https://nikolareljin.github.io/ci-helpers/>, built from `docs/` in place.**
+  MkDocs Material renders the existing markdown; there is no second copy of the
+  content to drift. `scripts/docs_site.sh serve | preview | check | build`.
+
+- **The site is published by this repository's own `pages.yml`.** `docs-site.yml`
+  calls it by relative path, so it resolves inside this repository at the commit
+  under test — a pull request that edits `pages-build.yml` builds this site with
+  the edited file. The preset is now exercised on every documentation change by
+  the repository that ships it, rather than only by consumers, so a regression
+  breaks our site before it breaks anyone else's.
+
+- **`docs-site-pr.yml` is a separate file, and that is the point.** It calls
+  `pages-build.yml` directly with `upload: false`, so a pull-request run declares
+  no `pages: write` and no `id-token: write` at all. Calling `pages.yml` instead
+  would force both to be live while pip and mkdocs plugins execute, because
+  GitHub validates a called workflow's declared permissions when the run starts,
+  before any job-level `if:`. Between them the two files exercise all three Pages
+  workflows on every docs change.
+
+### Fixed
+
+- **`docs/README.md` linked to `../VERSION`,** outside `docs_dir`, which a site
+  build cannot resolve. It points at the file on GitHub now.
+- **`AGENTS.md` claimed `make examples` works here.** There is no Makefile in
+  this repository and never was; the text was inherited from the sibling library.
+  It now names the script that does exist.
+
+### Notes
+
+- `mkdocs build --strict` is the link checker: a moved page, a dead anchor, or a
+  `docs/*.md` that no `nav:` entry points at all fail the build. `AGENTS.md` says
+  so, because that is the one way a new page can silently go missing.
+- `docs/workflows.md` and `docs/presets.md` were **not** split. Material's search
+  indexes per heading — `manifest-version` deep-links to
+  `workflows/#manifest-versionyml` — so the long pages stay navigable, and
+  splitting would have broken the anchors that `pages-deploy.yml`'s own header
+  comment and several consumer repositories link to.
+- Nothing unpublishable can reach the site: MkDocs copies every file inside
+  `docs_dir` verbatim, so `scripts/docs_site.sh` and `requirements-docs.txt` live
+  outside it. `pymdownx.snippets` is deliberately not enabled — it is the one
+  extension that can pull an arbitrary file from disk into the output.
+- No third-party requests at build time or page-load time: no webfonts, no
+  analytics, no social-card plugin. Search is Material's bundled offline index.
+- `docs/assets/extra.css` is duplicated by hand with the sibling library, with a
+  version marker and a header comment explaining why. A submodule cannot work —
+  `pages-build.yml`'s checkout passes no `submodules:` input — and every other
+  mechanism makes a public site's build depend on a second repository being
+  reachable.
+
 ## 2026-09-15 — 0.26.1
 
 Fixes from a further review of 0.26.0, and corrections to its release notes. No

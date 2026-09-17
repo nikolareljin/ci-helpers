@@ -1,15 +1,31 @@
 # Documentation
 
+<div class="nr-hero" markdown>
+
+```console
+$ cat .github/workflows/ci.yml
+jobs:
+  ci:
+    uses: nikolareljin/ci-helpers/.github/workflows/node.yml@production
+    with:
+      node_version: "22"
+$ git push
+lint · test · build · docker · e2e · scan      all green, no CI written
+```
+
+</div>
+
 This directory contains detailed guidance for using and extending the reusable
 workflows and composite actions in this repository.
 
-Consumers pin workflows via the floating `@production` tag; see the repository [Releases](https://github.com/nikolareljin/ci-helpers/releases) for the current version (tracked in [`VERSION`](../VERSION)).
+Consumers pin workflows via the floating `@production` tag; see the repository [Releases](https://github.com/nikolareljin/ci-helpers/releases) for the current version (tracked in [`VERSION`](https://github.com/nikolareljin/ci-helpers/blob/main/VERSION)).
 
 Start here:
 - [Reusable workflows](workflows.md) — CI, PR gate, deploy, scan, release, Tauri, WinGet, Docker multi-arch, manifest versioning, and release-rc-pr.
 - [Presets](presets.md) — stack-specific presets (Java/Gradle/Kotlin/Rust/Node/React/PHP/Pimcore/Playwright/Cypress).
 - [Composite actions](actions.md) — semver compare, release tag guard, release notes, scan helpers, macOS signing, Windows signing.
 - [Examples](examples.md) — common usage patterns (monorepos, E2E servers, Docker + E2E).
+- [About](about.md) — the rest of this author's public work.
 - [Usage guide](usage.md) — consuming workflows and actions from other repos, plus automation for the `production` tag and branch.
 - Local release safety hook: configure `git config core.hooksPath .githooks` to enable the tracked pre-commit guard that verifies `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`.
 - [Release RC PR workflow](RELEASE_RC_PR.md) — auto-opening PRs from release candidate branches; also a reusable `workflow_call` workflow for caller repos.

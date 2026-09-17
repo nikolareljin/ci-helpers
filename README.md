@@ -29,6 +29,8 @@ Includes:
 
 ## Docs
 
+**Documentation site: <https://nikolareljin.github.io/ci-helpers/>** — the same pages as below, with search.
+
 See detailed usage, inputs, and examples in:
 - [Docs index](docs/README.md)
 - [Reusable workflows](docs/workflows.md)
@@ -38,6 +40,7 @@ See detailed usage, inputs, and examples in:
 - [Usage guide](docs/usage.md)
 - [App Store (Fastlane)](docs/APPLE_FASTLANE_PUBLISH.md)
 - [Google Play (Fastlane)](docs/GOOGLE_PLAY_PUBLISH.md)
+- [About](docs/about.md) — the rest of this author's public work
 
 ## Quick Start
 
@@ -110,6 +113,9 @@ jobs:
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
+- `.github/workflows/docs-site.yml`: **repo-local, not reusable** — publishes this repository's own docs through its own `pages.yml` preset
+- `.github/workflows/docs-site-pr.yml`: **repo-local, not reusable** — validates the docs site on pull requests, granting no write scope
+- `mkdocs.yml`, `requirements-docs.txt`, `scripts/docs_site.sh`: the documentation site build (see `scripts/docs_site.sh --help`)
 - `scripts/`: bash utilities used by actions
 - `vendor/script-helpers/scripts/ppa_upload.sh`: helper to build and upload a Debian source package to Launchpad
 - `vendor/script-helpers`: vendored helper scripts from [`script-helpers`](https://github.com/nikolareljin/script-helpers) (sync via `scripts/sync_script_helpers.sh`)
