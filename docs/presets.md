@@ -999,6 +999,66 @@ so it can be used, not claimed to be at parity.
 The token needs **Account → Cloudflare Pages → Edit** instead of the Workers
 scope.
 
+### Pushing KV entries or seed data
+
+**This is deliberately not automated, and there is no input for it.** If a
+deploy needs to write KV entries, seed a namespace, or upload data alongside the
+Worker, do it from your own `deploy_command`. Read this section first — the
+failure modes here are quieter than the ones in a deploy.
+
+Why it is not built in:
+
+- **It needs a wider token.** Deploying a Worker needs *Workers Scripts → Edit*.
+  Writing KV needs *Workers KV Storage → Edit* as well; binding a namespace does
+  not. Folding a data push into a shared workflow would push every consumer
+  toward minting the broader token whether or not they write data.
+- **It is not one operation.** "Push the data" means something different per
+  project — a whole namespace replaced, a few keys upserted, a file uploaded, a
+  migration applied. Any input surface general enough to cover that is a shell
+  command with extra steps, which is what `deploy_command` already is.
+- **It is the step that is hardest to undo.** A Worker deploy is replaced by the
+  next deploy. Overwritten data is gone.
+
+Four things to get right, in the order they bite:
+
+1. **Guard it with a string comparison, never a bare truthiness test.** A job
+   output is a string, so `if: needs.resolve.outputs.push_data` is true even
+   when that output is the literal `"false"` — every non-empty string is truthy.
+   A data push guarded that way runs on *every* deploy, tag-driven production
+   ones included, and the symptom is silent data loss on a green run. Write
+   `== 'true'`, and prefer an enum over a boolean where you can.
+2. **Make it idempotent, or make it refuse.** Deploys get re-run: a retried job,
+   a re-pushed tag, someone clicking *Re-run all jobs*. A push that appends or
+   overwrites unconditionally is a different outcome each time. If it cannot be
+   idempotent, have it detect existing data and stop rather than clobber.
+3. **It is not part of the deploy's atomicity.** wrangler deploying and your
+   data landing are two operations with no shared transaction. Decide which
+   order fails better for your service — data first means the new Worker meets
+   data it understands; Worker first means old code may meet new data — and
+   write the answer down next to the command.
+4. **Keep it out of the pull-request lane.** `cloudflare-build.yml` declares no
+   secrets precisely so pull requests hold no credential. Do not reach for a
+   data push there.
+
+Where it goes:
+
+```yaml
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: production
+      # One command, owned by your repository. Everything the workflow resolved
+      # is already in the environment: CLOUDFLARE_API_TOKEN,
+      # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ENV, CF_DEPLOY_VERSION,
+      # CF_DEPLOY_CONFIG, CF_DEPLOY_REF.
+      deploy_command: ./scripts/deploy-with-data.sh
+```
+
+The kill switch, the Environment and its required reviewer, the credential
+preflight, the version string, the smoke test and the summary all still run.
+Only the mechanism is yours — which is the point: the part that can destroy data
+stays in the repository that owns the data, where it is reviewed against that
+project's rules rather than a shared workflow's defaults.
+
 ### Things worth knowing before you rely on this
 
 - **`deployed` is a string.** `if: needs.deploy.outputs.deployed` is truthy for
