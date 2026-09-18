@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
+  <title id="t">ci-helpers</title>
+  <desc id="d">Shared GitHub Actions workflows and Bash helpers for CI/CD. 65 reusable workflows, 22 stack presets, 9 composite actions. Consumers pin the floating production tag.</desc>
+  <!--
+    Hero banner for the README and the documentation site.
+
+    Built from docs/assets/logo.svg — same mark, same gradient, same dark
+    ground as the site header (#0b0e14), so the README, the site and the
+    favicon read as one thing.
+
+    Fixed width/height as well as a viewBox, unlike logo.svg: GitHub renders a
+    README image at its intrinsic size, and a bare viewBox leaves that
+    undefined. The viewBox still lets the docs site scale it fluidly.
+
+    The numbers are real and were counted at 0.27.0. They are the kind of
+    detail that rots quietly, so they are stated as facts in the desc above
+    too — if they drift, both need updating.
+
+    No <style> block and no external font file: SVG text is rendered with the
+    viewer's own fonts, so the stacks below name generic families that exist
+    everywhere rather than something that would silently fall back.
+  -->
+  <defs>
+    <linearGradient id="ch-hero-grad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0"   stop-color="#F09030"/>
+      <stop offset="0.5" stop-color="#C05080"/>
+      <stop offset="1"   stop-color="#8040C0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Card. Rounded so it sits well on both GitHub themes. -->
+  <rect x="0" y="0" width="1200" height="340" rx="16" fill="#0b0e14"/>
+  <rect x="0.5" y="0.5" width="1199" height="339" rx="15.5" fill="none" stroke="#222a36"/>
+
+  <!-- The mark, from logo.svg on a 64 grid, scaled 2.6x and centred left. -->
+  <g transform="translate(74 86) scale(2.6)">
+    <g fill="none" stroke="url(#ch-hero-grad)" stroke-width="5"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 32 C 28 24, 24 21, 19 21 A 11 11 0 1 0 19 43 C 24 43, 28 40, 32 32"/>
+      <path d="M32 32 C 36 24, 40 21, 45 21 A 11 11 0 1 1 45 43 C 40 43, 36 40, 32 32"/>
+      <path d="M40 32.5 L43.5 36 L50 28.5" stroke-width="4.5"/>
+    </g>
+    <path d="M12.5 21 L21.5 16.6 L21.5 25.4 Z" fill="url(#ch-hero-grad)"/>
+  </g>
+
+  <!-- Name -->
+  <text x="290" y="130" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="58" font-weight="700" fill="#e6edf3" letter-spacing="-1">ci-helpers</text>
+
+  <!-- Accent rule: the same green the site uses, so the two match. -->
+  <rect x="290" y="150" width="86" height="3" rx="1.5" fill="#3fb950"/>
+
+  <!-- What it is -->
+  <text x="290" y="196" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="25" fill="#c9d1d9">Shared GitHub Actions workflows for CI/CD.</text>
+  <text x="290" y="231" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="25" fill="#8b98a8">Four lines in your repository; the pipeline lives here.</text>
+
+  <!-- Facts. Counted at 0.27.0. Chip widths are derived from the monospace
+       advance (0.6em) rather than eyeballed: the first label overflowed its
+       box and was clipped mid-word. -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
+    <rect x="290" y="258" width="241" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
+    <text x="304" y="281" fill="#3fb950">65</text>
+    <text x="333" y="281" fill="#8b98a8">reusable workflows</text>
+
+    <rect x="545" y="258" width="190" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
+    <text x="559" y="281" fill="#3fb950">22</text>
+    <text x="588" y="281" fill="#8b98a8">stack presets</text>
+
+    <rect x="749" y="258" width="221" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
+    <text x="763" y="281" fill="#3fb950">9</text>
+    <text x="782" y="281" fill="#8b98a8">composite actions</text>
+  </g>
+
+  <!-- How you consume it -->
+  <text x="1126" y="281" text-anchor="end"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="17" fill="#6e7681">@production</text>
+</svg>

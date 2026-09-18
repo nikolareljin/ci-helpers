@@ -1,5 +1,7 @@
 # Documentation
 
+![ci-helpers](assets/hero.svg)
+
 <div class="nr-hero" markdown>
 
 ```console
