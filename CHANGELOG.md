@@ -1,16 +1,11 @@
 # Changelog
-## [Unreleased]
 
-<!--
-  Deliberately not a version header. This work ships in the same release as
-  whatever else is unreleased, and inventing a number here produced a section
-  numbered BELOW the one already on main -- so release_notes.sh, which extracts
-  the section for the version being released, would have omitted all of it. The
-  release branch owns the number and the date.
--->
+## 2026-09-17 — 0.27.0
 
-A documentation site for this repository, built with its own Pages preset. No
-reusable workflow, input or output changed.
+Two new reusable workflows for deploying to Cloudflare, and a documentation site
+for this repository built with its own Pages preset. Nothing existing changed:
+no input, output or secret was removed or renamed, and every previously
+published workflow behaves as it did.
 
 ### Added
 
@@ -32,42 +27,6 @@ reusable workflow, input or output changed.
   GitHub validates a called workflow's declared permissions when the run starts,
   before any job-level `if:`. Between them the two files exercise all three Pages
   workflows on every docs change.
-
-### Fixed
-
-- **`docs/README.md` linked to `../VERSION`,** outside `docs_dir`, which a site
-  build cannot resolve. It points at the file on GitHub now.
-- **`AGENTS.md` claimed `make examples` works here.** There is no Makefile in
-  this repository and never was; the text was inherited from the sibling library.
-  It now names the script that does exist.
-
-### Notes
-
-- `mkdocs build --strict` is the link checker: a moved page, a dead anchor, or a
-  `docs/*.md` that no `nav:` entry points at all fail the build. `AGENTS.md` says
-  so, because that is the one way a new page can silently go missing.
-- `docs/workflows.md` and `docs/presets.md` were **not** split. Material's search
-  indexes per heading — `manifest-version` deep-links to
-  `workflows/#manifest-versionyml` — so the long pages stay navigable, and
-  splitting would have broken the anchors that `pages-deploy.yml`'s own header
-  comment and several consumer repositories link to.
-- Nothing unpublishable can reach the site: MkDocs copies every file inside
-  `docs_dir` verbatim, so `scripts/docs_site.sh` and `requirements-docs.txt` live
-  outside it. `pymdownx.snippets` is deliberately not enabled — it is the one
-  extension that can pull an arbitrary file from disk into the output.
-- No third-party requests at build time or page-load time: no webfonts, no
-  analytics, no social-card plugin. Search is Material's bundled offline index.
-- `docs/assets/extra.css` is duplicated by hand with the sibling library, with a
-  version marker and a header comment explaining why. A submodule cannot work —
-  `pages-build.yml`'s checkout passes no `submodules:` input — and every other
-  mechanism makes a public site's build depend on a second repository being
-  reachable.
-## 2026-09-17 — 0.27.0
-
-Cloudflare deploys, as two workflows rather than one. Nothing existing changed:
-no input or output was removed or renamed.
-
-### Added
 
 - **`cloudflare-deploy.yml` and `cloudflare-build.yml`.** `deploy.yml` could
   never do this job: it declares no `secrets:` block, so a Cloudflare token
@@ -102,6 +61,14 @@ no input or output was removed or renamed.
   values reach the command as `CF_DEPLOY_*` environment variables. A script that
   reads `CF_DEPLOY_VERSION` when set and computes its own only when not has one
   live definition per run, rather than two kept in step by hand.
+
+### Fixed
+
+- **`docs/README.md` linked to `../VERSION`,** outside `docs_dir`, which a site
+  build cannot resolve. It points at the file on GitHub now.
+- **`AGENTS.md` claimed `make examples` works here.** There is no Makefile in
+  this repository and never was; the text was inherited from the sibling library.
+  It now names the script that does exist.
 
 ### Fixed before it shipped
 
@@ -151,7 +118,6 @@ rather than shipped.
   unreadable version file rather than warning — tolerating a condition the
   deploy lane refuses is what makes a green build a false assurance.
 
-
 Two defects were found in a working copy of this pattern and are designed out
 here rather than carried forward. Both are the same shape: a value that looks
 false but reads as valid, producing a green run that did the wrong thing.
@@ -172,6 +138,26 @@ false but reads as valid, producing a green run that did the wrong thing.
   any toolchain setup fails loudly when both are empty.
 
 ### Notes
+
+- `mkdocs build --strict` is the link checker: a moved page, a dead anchor, or a
+  `docs/*.md` that no `nav:` entry points at all fail the build. `AGENTS.md` says
+  so, because that is the one way a new page can silently go missing.
+- `docs/workflows.md` and `docs/presets.md` were **not** split. Material's search
+  indexes per heading — `manifest-version` deep-links to
+  `workflows/#manifest-versionyml` — so the long pages stay navigable, and
+  splitting would have broken the anchors that `pages-deploy.yml`'s own header
+  comment and several consumer repositories link to.
+- Nothing unpublishable can reach the site: MkDocs copies every file inside
+  `docs_dir` verbatim, so `scripts/docs_site.sh` and `requirements-docs.txt` live
+  outside it. `pymdownx.snippets` is deliberately not enabled — it is the one
+  extension that can pull an arbitrary file from disk into the output.
+- No third-party requests at build time or page-load time: no webfonts, no
+  analytics, no social-card plugin. Search is Material's bundled offline index.
+- `docs/assets/extra.css` is duplicated by hand with the sibling library, with a
+  version marker and a header comment explaining why. A submodule cannot work —
+  `pages-build.yml`'s checkout passes no `submodules:` input — and every other
+  mechanism makes a public site's build depend on a second repository being
+  reachable.
 
 - The API token reaches wrangler through the environment and never through argv.
 - `wrangler deploy --dry-run` validates the configuration and bundles the Worker.
@@ -809,7 +795,6 @@ What a caller may notice:
 
 - `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.
 
-
 ## 2026-09-01 — 0.21.3
 
 ### Changed
@@ -821,7 +806,6 @@ What a caller may notice:
 ### Fixed
 
 - **RPM and Homebrew packaging helper scripts no longer require executable bits.** The reusable workflows invoke the helper scripts through Bash, so a caller whose script-helpers checkout retains non-executable file modes no longer fails with exit 126, and subdirectory callers resolve helpers from their configured working directory.
-
 
 ## 2026-08-24 — 0.21.1
 
