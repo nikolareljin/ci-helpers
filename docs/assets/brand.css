@@ -1,6 +1,7 @@
 /* ci-helpers accent — the ONLY visual difference from script-helpers.
  *
- * CI-pass green, taken from this repository's logo. Do not copy this file to
+ * CI-pass green, from GitHub's own success palette -- NOT from this repository's
+ * logo, whose gradient is orange to violet. Do not copy this file to
  * the sibling repository; extra.css is the part that is mirrored.
  *
  * Two values, not one, because a single accent cannot pass contrast on both

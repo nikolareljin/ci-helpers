@@ -24,6 +24,7 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'requirements-docs.txt'
+      - 'scripts/docs_site.sh'
       - '.github/workflows/docs-site.yml'
       - '.github/workflows/docs-site-pr.yml'
       - '.github/workflows/pages.yml'

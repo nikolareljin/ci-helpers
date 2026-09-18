@@ -13,6 +13,10 @@ site_dir: site
 
 theme:
   name: material
+  # Only to supply overrides/partials/source.html, which is empty on purpose —
+  # see that file. Without it Material's header widget fetches api.github.com
+  # on every first page load.
+  custom_dir: overrides
   language: en
   # No webfont request. Material otherwise emits a <link> to fonts.googleapis.com
   # on every page, which is a third-party connection and a visitor-IP disclosure
@@ -65,8 +69,10 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/nikolareljin
       name: GitHub
-  # No analytics key and no consent key, on purpose. There is nothing to
-  # consent to, which is the point.
+  # No analytics key and no consent key. There is nothing to consent to,
+  # because the one third-party request Material would otherwise make — the
+  # repo star/fork fetch to api.github.com — is suppressed by an empty
+  # overrides/partials/source.html rather than gated behind a cookie banner.
 
 plugins:
   # Material's bundled lunr index, built into site/search/search_index.json at
@@ -129,6 +135,12 @@ validation:
 exclude_docs: |
   requirements*.txt
   *.tmp
+  *.bak
+  *.orig
+  *.rej
+  *.swp
+  *.swo
+  *~
 
 nav:
   - Home: README.md

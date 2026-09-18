@@ -14,10 +14,14 @@
 
 ## Build, Test, and Development Commands
 
-- `bash scripts/docs_site.sh check`: runs safe, non-interactive demos in `scripts/example_*.sh`.
-- `RUN_INTERACTIVE=1 bash scripts/docs_site.sh check`: includes dialog-based prompts.
-- `RUN_NETWORK=1 bash scripts/docs_site.sh check`: enables download demo for network paths.
-- `shellcheck lib/*.sh scripts/*.sh`: lint Bash scripts (add suppressions inline only when justified).
+- `python3 scripts/check_workflow_yaml.py`: parse every workflow and action.
+- `bash scripts/check_floating_refs.sh`: reject `@master`/`@main`/`@latest`/`@stable`.
+- `bash scripts/update_pinned_actions.sh --check`: every third-party action SHA-pinned.
+- `bash scripts/docs_site.sh check`: build the documentation site with `--strict`.
+- `shellcheck scripts/*.sh`: lint the Bash entry points.
+
+There is no `Makefile` and no `lib/` in this repository; every entry point is
+`bash scripts/*.sh`, which is how the workflows invoke them.
 
 ## Coding Style & Naming Conventions
 
@@ -37,16 +41,17 @@
 
 ## Testing Guidelines
 
-- Bash examples in `scripts/` serve as regression coverage; add a demo when behavior changes.
-- Keep interactive or network demos opt-in via `RUN_INTERACTIVE`/`RUN_NETWORK`.
-- Run `bash scripts/docs_site.sh check` and `shellcheck` before PRs; note skipped paths in the PR.
+- There is no unit-test suite here. The gates are static: `actionlint` (which
+  shellchecks every `run:` block at warning level), the YAML parse check, the
+  floating-ref scan, and the SHA-pin audit.
+- Run the four commands above before opening a PR; note anything skipped.
 
 ## Commit & Pull Request Guidelines
 
 - Use Conventional-style prefixes (`feat:`, `fix:`, `docs:`) with concise summaries.
 - PRs should include: overview, test commands with outputs, notes on interactive/manual steps,
-  and links to related issues. Update `CHANGELOG.md`/`RELEASE_CHECKLIST.md` when behavior or
-  release steps change.
+  and links to related issues. Update `CHANGELOG.md` when behavior or release
+  steps change.
 
 ## Documentation
 
@@ -63,7 +68,14 @@ copy of the content.
   this to check anything involving search: lunr fetches its index over HTTP, so
   a site opened from `file://` silently finds nothing.
 - `bash scripts/docs_site.sh check` — `mkdocs build --strict` into a temp
-  directory. Run it before opening a PR.
+  directory, then assert the built output contains nothing but web assets. Run
+  it before opening a PR.
+
+**CI does not run this script.** The workflows call `mkdocs build --strict`
+directly, so a change that breaks `docs_site.sh` itself ships green. The site is
+still gated; the convenience wrapper around it is not. Editing it does trigger
+the docs workflows, because it is in their `paths:` filters — but that only
+proves the site still builds, not that the script still works.
 
 `--strict` is the link checker. A moved page, a dead anchor, or a `docs/*.md`
 that no `nav:` entry points at all fail the build. **Adding a page to `docs/`

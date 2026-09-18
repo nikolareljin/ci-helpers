@@ -1,5 +1,13 @@
 # Changelog
-## 2026-09-17 — 0.26.2
+## [Unreleased]
+
+<!--
+  Deliberately not a version header. This work ships in the same release as
+  whatever else is unreleased, and inventing a number here produced a section
+  numbered BELOW the one already on main -- so release_notes.sh, which extracts
+  the section for the version being released, would have omitted all of it. The
+  release branch owns the number and the date.
+-->
 
 A documentation site for this repository, built with its own Pages preset. No
 reusable workflow, input or output changed.

@@ -55,13 +55,22 @@ venv_dir="${DOCS_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/ci-helpers}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     serve|build|preview|check|deps|clean) mode="$1"; shift ;;
+    # Validated BEFORE the shift. `shift 2` with only one positional left
+    # returns non-zero, and under `set -e` that killed the script before the
+    # check below could say anything -- a trailing `--port` exited 1 in silence
+    # while the header promised 2 and a message.
     --port)
-      port="${2:-}"; shift 2
-      if [[ ! "$port" =~ ^[0-9]+$ ]]; then
-        log_error "docs_site: --port expects a number, got '${port}'"
+      if [[ $# -lt 2 || ! "${2:-}" =~ ^[0-9]+$ ]]; then
+        log_error "docs_site: --port expects a number, got '${2:-<nothing>}'"
         exit 2
-      fi ;;
-    --venv) venv_dir="${2:-}"; shift 2 ;;
+      fi
+      port="$2"; shift 2 ;;
+    --venv)
+      if [[ $# -lt 2 || -z "${2:-}" || "${2}" == -* ]]; then
+        log_error "docs_site: --venv expects a directory, got '${2:-<nothing>}'"
+        exit 2
+      fi
+      venv_dir="$2"; shift 2 ;;
     -h|--help) display_help "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "docs_site: unknown argument '$1' (try -h)"; exit 2 ;;
   esac
@@ -86,8 +95,12 @@ ensure_venv() {
     log_error "docs_site: could not create a virtualenv at ${venv_dir}"
     exit 3
   fi
+  # >&2: this function's stdout IS its return value (the mkdocs path), so
+  # anything pip prints there would be prepended to it and produce a nonsense
+  # path with a confusing "command not found". pip is quiet today; this makes it
+  # structural rather than lucky.
   "$venv_py" -m pip install --quiet --disable-pip-version-check \
-    -r "${ROOT_DIR}/requirements-docs.txt"
+    -r "${ROOT_DIR}/requirements-docs.txt" >&2
   printf '%s' "${venv_dir}/bin/mkdocs"
 }
 
@@ -123,6 +136,20 @@ case "$mode" in
     fi
     if [[ ! -s "$out/search/search_index.json" ]]; then
       log_error "docs_site: no search index was produced; search would silently find nothing"
+      exit 1
+    fi
+    # MkDocs copies every file inside docs_dir into the output verbatim, so a
+    # stray .bak, an editor swapfile or a script dropped in docs/ is published.
+    # exclude_docs filters the names we thought of; this checks what actually
+    # came out, which is the only version that catches the ones we did not.
+    stray="$(cd "$out" && find . -type f \
+      ! -name '*.html' ! -name '*.css' ! -name '*.js' ! -name '*.svg' \
+      ! -name '*.png' ! -name '*.jpg' ! -name '*.gif' ! -name '*.ico' \
+      ! -name '*.woff' ! -name '*.woff2' ! -name '*.json' ! -name '*.map' \
+      ! -name '*.xml' ! -name '*.xml.gz' ! -name '*.txt')"
+    if [[ -n "$stray" ]]; then
+      log_error "docs_site: unexpected files in the built site — anything under docs/ is published verbatim:"
+      printf '%s\n' "$stray" >&2
       exit 1
     fi
     log_info "docs_site: site builds clean ($(find "$out" -type f | wc -l | tr -d ' ') files)"
