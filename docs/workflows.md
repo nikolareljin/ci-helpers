@@ -878,7 +878,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
-- `lint_command` (string, default `npm run lint`)
+- `lint_command` (string, default `npm run --if-present lint`)
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `""`)
@@ -902,7 +902,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
-- `lint_command` (string, default `npm run lint`)
+- `lint_command` (string, default `npm run --if-present lint`)
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `npm run build`)
@@ -926,7 +926,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
-- `lint_command` (string, default `npm run lint`)
+- `lint_command` (string, default `npm run --if-present lint`)
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `npm run build`)
@@ -1240,7 +1240,7 @@ jobs:
   release:
     uses: nikolareljin/ci-helpers/.github/workflows/release-build.yml@production
     with:
-      lint_command: "npm ci && npm run lint"
+      lint_command: "npm ci && npm run --if-present lint"
       test_command: "npm test -- --runInBand"
       build_command: "npm run build"
       artifact_paths: "dist/*"
