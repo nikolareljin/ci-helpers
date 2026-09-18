@@ -1,0 +1,174 @@
+/* ============================================================================
+ * nr-docs shared visual system — SHARED_CSS_VERSION 1
+ *
+ * MIRRORED BY HAND between:
+ *   nikolareljin/ci-helpers      docs/assets/extra.css
+ *   nikolareljin/script-helpers  docs/assets/extra.css
+ *
+ * These two files must stay byte-identical. Everything repository-specific
+ * lives in brand.css, which is four declarations, so:
+ *
+ *   diff ci-helpers/docs/assets/extra.css script-helpers/docs/assets/extra.css
+ *
+ * must print nothing. Bump SHARED_CSS_VERSION above whenever this file changes.
+ *
+ * Why duplicated rather than shared: a git submodule cannot work, because
+ * ci-helpers' pages-build.yml checks out with no `submodules:` input, so the
+ * file simply would not be present in the CI build. Every other mechanism — a
+ * published package, a build-time fetch, reading the other repository's copy —
+ * makes one public site's build depend on a second repository being reachable,
+ * and both sites must build from a clean clone of one repository alone. Two
+ * files and one maintainer is cheaper than that dependency.
+ * ========================================================================== */
+
+/* --- type -------------------------------------------------------------------
+ * theme.font is false in mkdocs.yml, so no Google Fonts request is made and
+ * these stacks are what actually renders. Monospace-forward: mono for the
+ * chrome (brand, nav, tabs, headings), a system sans for prose — long prose set
+ * in monospace is slower to read, and these repositories have a lot of it.
+ */
+:root {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                  "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --md-code-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+                  "Cascadia Mono", "JetBrains Mono", "Roboto Mono", Consolas,
+                  "Liberation Mono", "DejaVu Sans Mono", monospace;
+
+  --nr-bar: #0b0e14;          /* header and footer, identical in both schemes */
+}
+
+.md-header__topic,
+.md-header__title,
+.md-nav__title,
+.md-nav__link,
+.md-tabs__link,
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset table th,
+.md-typeset .admonition-title,
+.md-typeset summary,
+.md-search__input,
+.md-footer__title {
+  font-family: var(--md-code-font);
+  font-weight: 600;
+}
+
+.md-typeset h1,
+.md-typeset h2 { letter-spacing: -0.015em; }
+.md-typeset h1 { font-size: 1.6rem; }
+.md-nav__link, .md-tabs__link { font-weight: 500; font-size: .74rem; }
+
+/* Reads as a prompt marker in front of every section. One rule, and it is most
+   of what makes the page feel like a terminal rather than a generic docs theme. */
+.md-typeset h2::before {
+  content: "› ";
+  color: var(--nr-accent);
+}
+
+/* --- chrome -----------------------------------------------------------------
+ * One black bar in BOTH schemes. That single choice does most of the work:
+ * the two sites read as siblings from the header down, and only the accent
+ * tells them apart.
+ */
+.md-header,
+.md-footer {
+  background-color: var(--nr-bar);
+  color: #c9d1d9;
+}
+.md-header { border-bottom: 1px solid var(--nr-accent); }
+.md-search__form { background-color: rgba(255, 255, 255, .08); }
+.md-search__form:hover { background-color: rgba(255, 255, 255, .14); }
+.md-header__button.md-logo :is(img, svg) { height: 1.4rem; width: auto; }
+
+/* --- surfaces --------------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #ffffff;
+  --md-default-fg-color: #1f2328;
+  --md-code-bg-color: #f4f6f8;
+  --md-code-fg-color: #24292f;
+  --md-typeset-a-color: var(--nr-accent);
+  --md-accent-fg-color: var(--nr-accent);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 216;                            /* cools Material's slate greys */
+  --md-default-bg-color: #0b0e14;
+  --md-default-bg-color--light: #11161f;
+  --md-default-fg-color: #c9d1d9;
+  --md-default-fg-color--light: #a5adb8;
+  --md-default-fg-color--lighter: #6e7681;
+  --md-default-fg-color--lightest: #222a36;
+  --md-code-bg-color: #11161f;
+  --md-code-fg-color: #c9d1d9;
+  --md-typeset-a-color: var(--nr-accent);
+  --md-accent-fg-color: var(--nr-accent);
+}
+
+/* --- code blocks are the hero element --------------------------------------- */
+.md-typeset pre > code { font-size: .76rem; line-height: 1.55; }
+.md-typeset code { border-radius: .15rem; }
+.md-typeset .highlight { border-left: 2px solid var(--nr-accent); }
+.md-typeset .highlighttable .linenos { user-select: none; }
+
+[data-md-color-scheme="slate"] {
+  --md-code-hl-comment-color: #6b7a8d;
+  --md-code-hl-keyword-color: #c792ea;
+  --md-code-hl-string-color: #a8d06a;
+  --md-code-hl-number-color: #f78c6c;
+  --md-code-hl-function-color: #82aaff;
+  --md-code-hl-constant-color: #ffcb6b;
+  --md-code-hl-operator-color: #89ddff;
+  --md-code-hl-punctuation-color: #8b98a8;
+}
+
+/* Pygments Generic.Prompt and Generic.Output inside a ```console block.
+   user-select: none on the prompt so that copying an example — with the copy
+   button or by hand — yields the command without the "$ ". */
+.md-typeset .highlight .gp { color: var(--nr-accent); user-select: none; }
+.md-typeset .highlight .go { color: var(--md-default-fg-color--light); }
+
+/* --- terminal hero (index pages) --------------------------------------------
+ * Pure CSS and markdown, no JavaScript. On GitHub the wrapper div loses its
+ * class and the fenced block renders normally, which is why the hero content is
+ * real commands rather than decoration.
+ */
+.md-typeset .nr-hero {
+  margin: 1.2rem 0 2rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: .4rem;
+  overflow: hidden;
+  background: var(--md-code-bg-color);
+}
+.md-typeset .nr-hero::before {
+  content: "";
+  display: block;
+  height: 1.7rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  background:
+    radial-gradient(circle 4px at 14px 13px, #ff5f57 98%, transparent 0),
+    radial-gradient(circle 4px at 32px 13px, #febc2e 98%, transparent 0),
+    radial-gradient(circle 4px at 50px 13px, #28c840 98%, transparent 0),
+    var(--md-default-bg-color--light, #eef1f4);
+}
+.md-typeset .nr-hero > .highlight { margin: 0; border-left: 0; }
+.md-typeset .nr-hero pre > code { background: transparent; padding: .9rem 1rem; }
+
+/* --- in-page anchor index (long reference pages) ----------------------------- */
+.md-typeset .nr-index ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  columns: 3;
+  column-gap: 1.2rem;
+}
+.md-typeset .nr-index li { margin: 0 0 .2rem; break-inside: avoid; }
+.md-typeset .nr-index a { font-family: var(--md-code-font); font-size: .74rem; }
+
+@media screen and (max-width: 76.1875em) {
+  .md-typeset .nr-index ul { columns: 2; }
+}
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .nr-index ul { columns: 1; }
+}

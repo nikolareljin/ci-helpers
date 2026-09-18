@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ci-helpers">
+  <title>ci-helpers</title>
+  <!--
+    The continuous loop, with a check where it closes: pipelines that run, and
+    come back green.
+
+    Referenced by mkdocs.yml as theme.logo, which renders an <img>. It is NOT
+    wired through Material's icon mechanism (theme.icon.logo), which inlines a
+    glyph and recolours it with currentColor — that is built for single-colour
+    icons and would flatten this gradient. It costs nothing here: the site
+    header is #0b0e14 in both the light and the dark scheme, so this mark
+    always sits on the same dark ground and never needs to adapt.
+
+    Sibling of script-helpers' mark: same 64 grid, same stroke weight, same
+    construction. Only the gradient differs, which is the whole visual system —
+    one identity, one accent per repository.
+  -->
+  <defs>
+    <!-- Namespaced id: two inline SVGs sharing a gradient id would collide. -->
+    <linearGradient id="ch-grad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0"   stop-color="#F09030"/>
+      <stop offset="0.5" stop-color="#C05080"/>
+      <stop offset="1"   stop-color="#8040C0"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="none" stroke="url(#ch-grad)" stroke-width="5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!--
+      A lemniscate drawn as two arcs joined through the centre. Left loop opens
+      at the top so an arrowhead can sit on it; the right loop is closed and
+      carries the check.
+    -->
+    <path d="M32 32 C 28 24, 24 21, 19 21 A 11 11 0 1 0 19 43 C 24 43, 28 40, 32 32"/>
+    <path d="M32 32 C 36 24, 40 21, 45 21 A 11 11 0 1 1 45 43 C 40 43, 36 40, 32 32"/>
+    <!-- The check, inside the right loop. -->
+    <path d="M40 32.5 L43.5 36 L50 28.5" stroke-width="4.5"/>
+  </g>
+
+  <!-- Direction of travel, at the top of the left loop where the path turns.
+       It must be TANGENT to the curve and point the way the loop runs
+       (counterclockwise here, so leftward at the top) — an arrowhead set at
+       any other angle reads as a separate object stuck on top of the mark
+       rather than part of it.
+
+       A filled triangle, not a stroked chevron: at 16px a chevron loses its
+       point and the loop stops reading as a cycle. The base overlaps the
+       stroke so the two join cleanly instead of showing a seam. -->
+  <g fill="url(#ch-grad)">
+    <path d="M12.5 21 L21.5 16.6 L21.5 25.4 Z"/>
+  </g>
+</svg>

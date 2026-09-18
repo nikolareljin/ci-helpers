@@ -3,6 +3,7 @@
 These composite actions are intended for reuse inside your workflows.
 
 Related docs:
+
 - [Reusable workflows](workflows.md)
 - [Examples](examples.md)
 
@@ -13,10 +14,12 @@ Path: `.github/actions/semver-compare`
 Purpose: Compare two semver strings and return `lt`, `eq`, or `gt`.
 
 Inputs:
+
 - `version_a` (required)
 - `version_b` (required)
 
 Outputs:
+
 - `result` (`lt`, `eq`, or `gt`)
 
 Example:
@@ -40,11 +43,13 @@ Path: `.github/actions/check-release-tag`
 Purpose: Fail if a `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N` branch already has a tag.
 
 Inputs:
+
 - `release_branch` (optional, defaults to `GITHUB_HEAD_REF`/`GITHUB_REF_NAME`)
 - `repo_dir` (optional, defaults to `GITHUB_WORKSPACE`)
 - `fetch_tags` (optional, default `"true"`)
 
 Outputs:
+
 - `version` (parsed from the release branch, e.g. `1.2.3` or `1.2.3-rc.1`)
 
 Example:
@@ -62,6 +67,7 @@ Example:
 ```
 
 Notes:
+
 - The guard expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
 
 ## release-notes
@@ -71,6 +77,7 @@ Path: `.github/actions/release-notes`
 Purpose: Generate release notes from git history with optional binary links.
 
 Inputs:
+
 - `repo_dir` (default `GITHUB_WORKSPACE`)
 - `since_tag` (default `""`, uses latest tag when omitted)
 - `release_tag` (default `GITHUB_REF_NAME`)
@@ -78,6 +85,7 @@ Inputs:
 - `binary_base_url` (default `""`, uses repo releases/download/<tag>)
 
 Outputs:
+
 - `notes` (generated markdown)
 
 Example:
@@ -102,6 +110,7 @@ Path: `.github/actions/trivy-scan`
 Purpose: Run Trivy filesystem scans with optional SARIF upload.
 
 Inputs:
+
 - `scan_path` (default `"."`)
 - `format` (default `sarif`)
 - `output` (default `trivy-results.sarif`)
@@ -134,6 +143,7 @@ Note: When findings are detected, the action prints Leak-Lock links for help
 removing leaked credentials.
 
 Inputs:
+
 - `scan_path` (default `"."`)
 - `report_format` (default `sarif`)
 - `output` (default `results.sarif`)
@@ -144,6 +154,7 @@ Inputs:
 - `artifact_name` (default `gitleaks-report`)
 
 Notes:
+
 - The gitleaks release archive is verified against the `checksums.txt` published
   with the same release before it runs; a mismatch fails the step.
 - Reports are written with `--redact`: findings, rule IDs, files, lines and
@@ -174,6 +185,7 @@ Purpose: Reject sensitive-key fields in JSON data files before they ship with
 application data.
 
 Inputs:
+
 - `scan_path` (required): Directory to scan recursively for `*.json` files.
 
 Example:
@@ -236,6 +248,7 @@ Example (inside `tauri-release.yml` or any macOS build job):
 ```
 
 Notes:
+
 - All secret inputs are masked with `::add-mask::` before any output.
 - **Keychain cleanup is the caller's responsibility.** Composite actions have
   no `post:` hook, so any cleanup step inside the action would run immediately
@@ -306,6 +319,7 @@ Example — paid PFX Authenticode:
 ```
 
 Notes:
+
 - All secret inputs are masked with `::add-mask::` before any output.
 - **PFX cert cleanup is the caller's responsibility.** Composite actions have
   no `post:` hook; cleanup inside the action would delete the cert before your
@@ -338,6 +352,7 @@ For most repositories the [`pimcore.yml` preset](presets.md#pimcore) is the
 better entry point — it wraps this action and adds a PHP version matrix.
 
 Inputs (selected):
+
 - `compose_file` (default `test/docker-compose.yml`)
 - `bundle_src` (default `"."`), `bundle_src_env` (default `BUNDLE_SRC`)
 - `php_service` (default `php`), `db_service` (default `db`), `db_wait_seconds` (default `"20"`)
@@ -386,6 +401,7 @@ Purpose: Run WordPress plugin-check in Docker and optional standalone PHPUnit.
 Note: Requires Docker on the runner and a compose file that mounts the plugin.
 
 Inputs (selected):
+
 - `compose_file` (default `test/docker-compose.yml`)
 - `plugin_slug` (required)
 - `plugin_src` (default `"."`)

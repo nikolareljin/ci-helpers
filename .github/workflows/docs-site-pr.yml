@@ -1,0 +1,53 @@
+name: docs-site-pr
+#
+# REPO-LOCAL. Not a reusable workflow.
+#
+# Builds the documentation site on pull requests and publishes nothing. It calls
+# pages-build.yml directly rather than pages.yml so that no job in the run
+# declares `pages: write` or `id-token: write` — which is the exact reason
+# pages-build.yml exists as a separate file, and the shape its own header
+# recommends. `upload: false` means no artifact is stored for a deploy that
+# never happens.
+#
+# Together with docs-site.yml this exercises all three Pages workflows on every
+# documentation change: pages.yml end to end on main (which calls
+# pages-build.yml and pages-deploy.yml), and pages-build.yml standalone in its
+# no-write configuration here.
+#
+# Do NOT make this a required status check while the paths filter is present: a
+# pull request touching no documentation would report "expected but not
+# received" forever.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - 'scripts/docs_site.sh'
+      - '.github/workflows/docs-site.yml'
+      - '.github/workflows/docs-site-pr.yml'
+      - '.github/workflows/pages.yml'
+      - '.github/workflows/pages-build.yml'
+      - '.github/workflows/pages-deploy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/pages-build.yml
+    permissions:
+      contents: read
+      pages: read
+    with:
+      python_version: "3.12"
+      requirements_file: requirements-docs.txt
+      build_command: "mkdocs build --strict"
+      pages_path: site
+      fetch_depth: 1
+      # Off: it calls the Pages API, and nothing here needs the site's own
+      # address — mkdocs builds relative links.
+      configure_pages: false
+      upload: false
+      timeout_minutes: 15

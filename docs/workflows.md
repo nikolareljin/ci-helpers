@@ -4,6 +4,7 @@ This repo exposes reusable workflows via `workflow_call`. You consume them from
 your own repo by referencing this repo path and a tag or commit SHA.
 
 Related docs:
+
 - [Presets](presets.md)
 - [Composite actions](actions.md)
 - [Examples](examples.md)
@@ -26,6 +27,7 @@ Execution order:
 6) Extra
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -127,6 +129,7 @@ Execution order:
 7) Extra
 
 Inputs:
+
 - All CI inputs (same as `ci.yml`)
 - `check_release_tag` (boolean, default `false`)
 - `release_branch` (string, default `""`)
@@ -159,6 +162,7 @@ Workflow: `.github/workflows/deploy.yml`
 Purpose: Run a deployment command with optional runtime setup.
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -283,11 +287,13 @@ Workflow: `.github/workflows/flutter-release.yml`
 Purpose: Build Flutter Android/iOS artifacts and optionally deploy to Google Play and Apple App Store via Fastlane.
 
 Notes:
+
 - iOS builds/uploads require a macOS runner.
 - For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
 - This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -312,6 +318,7 @@ Inputs:
   cold Flutter and Fastlane builds, including expensive macOS runners.
 
 Secrets:
+
 - `android_keystore_base64` (optional)
 - `android_keystore_password` (optional)
 - `android_key_alias` (optional)
@@ -325,6 +332,7 @@ Secrets:
 - `match_git_basic_authorization` (optional, Base64-encoded Git Basic authorization credentials for fastlane `match`)
 
 Additional notes:
+
 - The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
 - When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
 - The optional `match_*` secrets are exposed to that lane as `MATCH_GIT_URL`, `MATCH_PASSWORD`, and `MATCH_GIT_BASIC_AUTHORIZATION` so it can sync signing certificates and provisioning profiles.
@@ -334,6 +342,7 @@ Additional notes:
 - **Signing secrets are required only when `deploy_google_play: true`.** When `build_android: true` without `deploy_google_play`, omitting signing secrets emits a warning and skips `key.properties` setup — the build uses the project's own signing config (e.g. debug signing). This allows CI/test builds without keystore credentials.
 
 Security notes:
+
 - The workflow masks secrets via `::add-mask::` before use.
 - Secret-handling steps temporarily disable shell tracing (`set +x`).
 
@@ -381,6 +390,7 @@ Workflow: `.github/workflows/trivy-scan.yml`
 Purpose: Run Trivy filesystem scan with optional SARIF upload.
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `scan_path` (string, default `"."`)
 - `format` (string, default `sarif`)
@@ -415,6 +425,7 @@ Note: When findings are detected, the workflow prints Leak-Lock links for help
 removing leaked credentials.
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `scan_path` (string, default `"."`)
 - `report_format` (string, default `sarif`)
@@ -445,6 +456,7 @@ Workflow: `.github/workflows/ppa-deb.yml`
 Purpose: Build a Debian source package and upload it to a Launchpad PPA.
 
 Inputs:
+
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -458,6 +470,7 @@ Inputs:
 - `extra_packages` (string, default `""`)
 
 Secrets:
+
 - `gpg_private_key` (armored private key)
 - `gpg_passphrase` (GPG key passphrase)
 - `launchpad_ssh_private_key` (SSH key registered with Launchpad)

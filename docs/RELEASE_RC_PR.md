@@ -25,6 +25,7 @@ This lets the built-in `GITHUB_TOKEN` create PRs.  No secrets required.
 
 If the repo setting above is disabled (e.g. org policy blocks it), add a
 repository secret named **`GH_PAT`** containing either:
+
 - a classic PAT with `repo` scope, or
 - a fine-grained PAT with **Pull requests: Read and write** access.
 

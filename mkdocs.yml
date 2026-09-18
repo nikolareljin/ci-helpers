@@ -1,0 +1,161 @@
+site_name: ci-helpers
+site_description: >-
+  Shared GitHub Actions workflows and Bash helpers for CI across repositories —
+  reusable workflows, stack presets, composite actions.
+site_url: https://nikolareljin.github.io/ci-helpers/
+repo_url: https://github.com/nikolareljin/ci-helpers
+repo_name: nikolareljin/ci-helpers
+edit_uri: edit/main/docs/
+copyright: MIT licensed.
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  # Only to supply overrides/partials/source.html, which is empty on purpose —
+  # see that file. Without it Material's header widget fetches api.github.com
+  # on every first page load.
+  custom_dir: overrides
+  language: en
+  # No webfont request. Material otherwise emits a <link> to fonts.googleapis.com
+  # on every page, which is a third-party connection and a visitor-IP disclosure
+  # on a site whose whole premise is that it phones nobody. Type comes from the
+  # system stacks in docs/assets/extra.css.
+  font: false
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.tooltips
+  palette:
+    # Dark first, deliberately: this is CI tooling, and Material falls back to
+    # the first entry when no media query matches.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+
+extra_css:
+  - assets/extra.css    # shared, byte-identical with script-helpers
+  - assets/brand.css    # this repository's accent, and nothing else
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nikolareljin
+      name: GitHub
+  # No analytics key and no consent key. There is nothing to consent to,
+  # because the one third-party request Material would otherwise make — the
+  # repo star/fork fetch to api.github.com — is suppressed by an empty
+  # overrides/partials/source.html rather than gated behind a cookie banner.
+
+plugins:
+  # Material's bundled lunr index, built into site/search/search_index.json at
+  # build time. No service, no network, no key.
+  - search:
+      lang: en
+      # The default separator does not split on "." or "/", so `ci.yml`,
+      # `pnpm-pages.yml` and `.github/workflows/...` are indexed as single
+      # opaque tokens and a search for "pages" misses every one of them. This
+      # splits on "." (but not inside a decimal), on "/", and at camelCase
+      # boundaries — which is the whole vocabulary of these docs.
+      separator: '[\s​\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html            # required by the terminal hero wrapper
+  - tables
+  - toc:
+      permalink: "#"
+      toc_depth: 3
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+      # linenums is deliberately NOT global: nearly every block here is a
+      # copy-paste-ready workflow snippet, where numbers are noise. Opt in per
+      # block with ```yaml linenums="1".
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  # pymdownx.snippets is deliberately absent. It is the one markdown extension
+  # that can pull an arbitrary file from disk into the published site, and
+  # nothing here needs it.
+
+# Every one of these is a warning by default and an ERROR under --strict, which
+# is what the build command uses. This IS the link checker: a moved page, a dead
+# anchor, or a docs/*.md that no nav entry points at all fail the build.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+  nav:
+    omitted_files: warn
+    not_found: warn
+
+# Belt-and-braces only. The real mechanism is that nothing unpublishable lives
+# in docs/ in the first place — scripts/ and requirements-docs.txt are outside
+# docs_dir and so cannot be copied into the site at all.
+exclude_docs: |
+  requirements*.txt
+  *.tmp
+  *.bak
+  *.orig
+  *.rej
+  *.swp
+  *.swo
+  *~
+
+nav:
+  - Home: README.md
+  - Quick start:
+      - Usage guide: usage.md
+      - Examples: examples.md
+  - Reference:
+      - Reusable workflows: workflows.md
+      - Presets: presets.md
+      - Composite actions: actions.md
+  - Guides:
+      - Private-repo CI strategy: private-repo-ci-strategy.md
+      - Release RC PRs: RELEASE_RC_PR.md
+      - Apple App Store (Fastlane): APPLE_FASTLANE_PUBLISH.md
+      - Google Play (Fastlane): GOOGLE_PLAY_PUBLISH.md
+      - Security: SECURITY.md
+  - About: about.md
+  - script-helpers ↗: https://nikolareljin.github.io/script-helpers/

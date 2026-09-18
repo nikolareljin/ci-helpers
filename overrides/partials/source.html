@@ -1,0 +1,16 @@
+{# Deliberately empty.
+
+   Material's default source partial renders data-md-component="source", and
+   its bundled JS then fetches https://api.github.com/repos/<owner>/<repo> and
+   .../releases/latest on first page load to show star and fork counts. That is
+   a third-party request carrying every visitor's IP and User-Agent — on a site
+   whose stated design goal, in mkdocs.yml and in the CHANGELOG, is that it
+   phones nobody. The claim was false until this file existed.
+
+   Material gates that fetch behind its own `extra.consent` mechanism, but
+   enabling that means a cookie banner, which is a worse answer than not making
+   the request.
+
+   repo_url stays set, because edit_uri and content.action.edit need it — the
+   "edit this page" link still works. Only the header's repo widget is gone.
+#}
