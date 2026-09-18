@@ -1,16 +1,11 @@
 # Changelog
-## [Unreleased]
 
-<!--
-  Deliberately not a version header. This work ships in the same release as
-  whatever else is unreleased, and inventing a number here produced a section
-  numbered BELOW the one already on main -- so release_notes.sh, which extracts
-  the section for the version being released, would have omitted all of it. The
-  release branch owns the number and the date.
--->
+## 2026-09-17 — 0.27.0
 
-A documentation site for this repository, built with its own Pages preset. No
-reusable workflow, input or output changed.
+Two new reusable workflows for deploying to Cloudflare, and a documentation site
+for this repository built with its own Pages preset. Nothing existing changed:
+no input, output or secret was removed or renamed, and every previously
+published workflow behaves as it did.
 
 ### Added
 
@@ -62,10 +57,6 @@ reusable workflow, input or output changed.
   `pages-build.yml`'s checkout passes no `submodules:` input — and every other
   mechanism makes a public site's build depend on a second repository being
   reachable.
-## 2026-09-17 — 0.27.0
-
-Cloudflare deploys, as two workflows rather than one. Nothing existing changed:
-no input or output was removed or renamed.
 
 ### Added
 
@@ -150,7 +141,6 @@ rather than shipped.
   nothing declare `permissions: {}`, and the build lane now errors on an
   unreadable version file rather than warning — tolerating a condition the
   deploy lane refuses is what makes a green build a false assurance.
-
 
 Two defects were found in a working copy of this pattern and are designed out
 here rather than carried forward. Both are the same shape: a value that looks
@@ -809,7 +799,6 @@ What a caller may notice:
 
 - `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.
 
-
 ## 2026-09-01 — 0.21.3
 
 ### Changed
@@ -821,7 +810,6 @@ What a caller may notice:
 ### Fixed
 
 - **RPM and Homebrew packaging helper scripts no longer require executable bits.** The reusable workflows invoke the helper scripts through Bash, so a caller whose script-helpers checkout retains non-executable file modes no longer fails with exit 126, and subdirectory callers resolve helpers from their configured working directory.
-
 
 ## 2026-08-24 — 0.21.1
 
