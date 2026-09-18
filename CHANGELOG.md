@@ -55,6 +55,26 @@
   regression fixture overrides `lint_command` and imports a declared dependency,
   which fails with `ModuleNotFoundError` under the old arrangement.
 
+  **This changes behaviour for existing callers of `python.yml`, and the change
+  is not cosmetic.** The preset had no `install_command` before, so every caller
+  installed inside its own `lint_command` override — and all of them do. They
+  now get an install step that did not run previously:
+
+  - where the project has a `requirements.txt`, the new default repeats what
+    their override already does. Redundant, and slower by the length of one
+    install.
+  - where it has only a `pyproject.toml`, the new default runs `pip install .`
+    — a package **build** that never ran in CI before. For a caller whose lint
+    override also builds the package (`pip install -e '.[dev]'`, say) this is
+    merely duplicated work. For one whose lint delegates to a script, it is
+    untested, and a project that does not build cleanly will now fail a step it
+    never reached.
+
+  The fix for a caller is to drop the install from its `lint_command` and let
+  `install_command` do it — which is the arrangement this input exists for. Ship
+  this through a release candidate and exercise it on a caller of each shape
+  before moving `production`.
+
 - **The React preset's test default could not pass on any consumer it targets.**
   `react.yml` and `react-scan.yml` defaulted `test_command` to
   `npm test -- --watchAll=false`. `--watchAll` is Create React App and jest
