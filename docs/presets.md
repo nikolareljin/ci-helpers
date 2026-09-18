@@ -826,6 +826,265 @@ jobs:
       e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
 ```
 
+## Cloudflare Workers
+
+Workflows: `.github/workflows/cloudflare-deploy.yml`, `.github/workflows/cloudflare-build.yml`
+
+Two workflows, not one, and no orchestrator wrapping them. `cloudflare-build.yml`
+declares no secrets at all; `cloudflare-deploy.yml` declares the token and the
+Environment. GitHub validates a called workflow's declared permissions and
+secrets when the run starts — before any job-level `if:` — so a single combined
+workflow would put a live deploy credential in scope on pull-request runs, while
+npm postinstall scripts and build plugins execute. Splitting them is the only
+way a caller can decline that.
+
+This differs from `pages.yml`, which *does* ship an orchestrator. There, the
+deploy half is useless alone, so an orchestrator earns its place. Here the
+deploy workflow is already self-sufficient, and an orchestrator would force
+`secrets: inherit` onto every event it handles.
+
+### Before anything deploys
+
+1. Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with
+   **Account → Workers Scripts → Edit** on the account that owns the Worker.
+   Add **Workers KV Storage → Edit** only if your own deploy command writes KV;
+   binding a namespace does not need it.
+2. Add it as `CLOUDFLARE_API_TOKEN`, on the Environment you are deploying to.
+3. Add `CLOUDFLARE_ACCOUNT_ID` as a repository or environment **variable**. It
+   is an identifier, not a credential, and a readable one in the log is what
+   tells you a deploy landed on the wrong account. A secret of the same name
+   also works.
+4. Add a `BASE_URL` variable on that Environment — the host the smoke test
+   checks. `smoke_path` defaults to `/health`, so **without this the deploy
+   succeeds and the run then goes red at the smoke step**. Set `base_url:`
+   instead if you would rather pass it as an input, or `smoke_path: ""` to turn
+   the check off (and lose the only thing that proves the deploy took effect).
+5. Set the repository variable `CLOUDFLARE_DEPLOY_ENABLED` to `true`. Until you
+   do, every run is a visible no-op that explains itself in the job summary.
+6. On a production Environment, add a required reviewer. The workflow puts the
+   Environment on its own deploy job, which is what makes the reviewer apply.
+
+### 1. A release tag deploys production
+
+```yaml
+name: deploy
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+      smoke_version_path: /api/status
+```
+
+No `environment:` is needed: a bare-SemVer tag push resolves to
+`production_environment`, which defaults to `production`. An rc tag does not:
+`1.2.3-rc1` is rejected by the same check, so a release candidate cannot reach
+production by accident.
+
+**Keep the tag filter above.** A tag that is not bare SemVer resolves to no
+environment, and that is a hard error — the run goes **red**, it is not skipped.
+That is the right behaviour for a caller who forgot `environment:`, but with
+`tags: ['*']` it means every rc tag reports a failure. Either filter the trigger
+as shown, or pass `environment:` explicitly.
+
+### 2. A dispatch picks its environment
+
+```yaml
+name: deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+
+jobs:
+  deploy:
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: ${{ inputs.environment }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+```
+
+### 3. Validate on pull requests, deploy from tags
+
+The shape that keeps the token out of pull-request runs entirely.
+
+```yaml
+name: worker
+on:
+  pull_request:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-build.yml@production
+    permissions:
+      contents: read
+    with:
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+
+  deploy:
+    if: ${{ github.event_name == 'push' }}
+    uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      node_version: "22"
+      build_command: "npm run build"
+      config_glob: "dist/*/wrangler.json"
+      smoke_version_path: /api/status
+```
+
+The pull-request run writes no `secrets:` line, so no Cloudflare credential is
+in scope for it.
+
+### 4. Keep one deploy definition, shared with your laptop
+
+If the repository already has a deploy script — a `./dev deploy`, say — point
+`deploy_command` at it. Every gate still runs: the kill switch, the Environment
+and its reviewer, the credential preflight, the version string, the smoke test
+and the summary. Only the mechanism becomes yours.
+
+```yaml
+      deploy_command: ./dev deploy cloudflare --env "$CF_DEPLOY_ENV" --yes
+```
+
+The resolved values reach the command as environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | the secret |
+| `CLOUDFLARE_ACCOUNT_ID` | variable first, secret second, already proven non-empty |
+| `CLOUDFLARE_ENV` | the resolved environment — this is **wrangler's own** environment selector, so a command that runs wrangler inherits it |
+| `CF_DEPLOY_ENV` | the same value, under a name wrangler does not read |
+| `CF_DEPLOY_COMMAND` | `deploy` / `versions upload` / `pages deploy` |
+| `CF_DEPLOY_VERSION` | the version string |
+| `CF_DEPLOY_REF` | the checked-out ref |
+| `CF_DEPLOY_BASE_URL` | the resolved smoke base |
+| `CF_DEPLOY_ARGS` | `deploy_args`, verbatim |
+
+This is what stops the version string being defined twice. A script that reads
+`CF_DEPLOY_VERSION` when it is set, and computes its own only when it is not,
+has one live definition per run — CI's in CI, its own on a laptop.
+`script-helpers`' `cloudflare` module does exactly that.
+
+### Cloudflare Pages
+
+Pages is reachable as an input combination, **not** a separate code path. The
+Workers lane is the one that has been exercised end to end; this is documented
+so it can be used, not claimed to be at parity.
+
+```yaml
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: staging
+      command: "pages deploy"
+      wrangler_env: none          # `wrangler pages deploy` rejects --env
+      version_var: ""             # and it has no --var either
+      build_command: "npm run build"
+      deploy_args: "dist --project-name example-site"
+```
+
+The token needs **Account → Cloudflare Pages → Edit** instead of the Workers
+scope.
+
+### Pushing KV entries or seed data
+
+**This is deliberately not automated, and there is no input for it.** If a
+deploy needs to write KV entries, seed a namespace, or upload data alongside the
+Worker, do it from your own `deploy_command`. Read this section first — the
+failure modes here are quieter than the ones in a deploy.
+
+Why it is not built in:
+
+- **It needs a wider token.** Deploying a Worker needs *Workers Scripts → Edit*.
+  Writing KV needs *Workers KV Storage → Edit* as well; binding a namespace does
+  not. Folding a data push into a shared workflow would push every consumer
+  toward minting the broader token whether or not they write data.
+- **It is not one operation.** "Push the data" means something different per
+  project — a whole namespace replaced, a few keys upserted, a file uploaded, a
+  migration applied. Any input surface general enough to cover that is a shell
+  command with extra steps, which is what `deploy_command` already is.
+- **It is the step that is hardest to undo.** A Worker deploy is replaced by the
+  next deploy. Overwritten data is gone.
+
+Four things to get right, in the order they bite:
+
+1. **Guard it with a string comparison, never a bare truthiness test.** A job
+   output is a string, so `if: needs.resolve.outputs.push_data` is true even
+   when that output is the literal `"false"` — every non-empty string is truthy.
+   A data push guarded that way runs on *every* deploy, tag-driven production
+   ones included, and the symptom is silent data loss on a green run. Write
+   `== 'true'`, and prefer an enum over a boolean where you can.
+2. **Make it idempotent, or make it refuse.** Deploys get re-run: a retried job,
+   a re-pushed tag, someone clicking *Re-run all jobs*. A push that appends or
+   overwrites unconditionally is a different outcome each time. If it cannot be
+   idempotent, have it detect existing data and stop rather than clobber.
+3. **It is not part of the deploy's atomicity.** wrangler deploying and your
+   data landing are two operations with no shared transaction. Decide which
+   order fails better for your service — data first means the new Worker meets
+   data it understands; Worker first means old code may meet new data — and
+   write the answer down next to the command.
+4. **Keep it out of the pull-request lane.** `cloudflare-build.yml` declares no
+   secrets precisely so pull requests hold no credential. Do not reach for a
+   data push there.
+
+Where it goes:
+
+```yaml
+    with:
+      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+      environment: production
+      # One command, owned by your repository. Everything the workflow resolved
+      # is already in the environment: CLOUDFLARE_API_TOKEN,
+      # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ENV, CF_DEPLOY_VERSION,
+      # CF_DEPLOY_CONFIG, CF_DEPLOY_REF.
+      deploy_command: ./scripts/deploy-with-data.sh
+```
+
+The kill switch, the Environment and its required reviewer, the credential
+preflight, the version string, the smoke test and the summary all still run.
+Only the mechanism is yours — which is the point: the part that can destroy data
+stays in the repository that owns the data, where it is reviewed against that
+project's rules rather than a shared workflow's defaults.
+
+### Things worth knowing before you rely on this
+
+- **`deployed` is a string.** `if: needs.deploy.outputs.deployed` is truthy for
+  `"false"` too — every non-empty string is. Compare it against `'true'`.
+- **`--dry-run` proves less than it looks.** It validates the config and bundles
+  the Worker. It does not check bindings, routes, or account access.
+- **`npx --yes wrangler@<version>` fetches from npm at deploy time**, which is an
+  unpinned-integrity dependency inside an otherwise SHA-pinned toolchain. For
+  anything you care about, set `wrangler_command: "pnpm exec wrangler"` so your
+  lockfile pins it. The default is convenience, and says so.
+- **Set `smoke_version_path`.** Without it the smoke test proves something
+  answered, which passes just as happily against the release that was already
+  live. The summary says so rather than reporting a clean pass.
+
 ## Overriding defaults
 
 All presets accept the same inputs as `ci.yml`. For example, to add Docker and
