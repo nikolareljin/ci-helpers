@@ -1,4 +1,4 @@
-# ci-helpers
+![ci-helpers — shared GitHub Actions workflows for CI/CD. 65 reusable workflows, 22 stack presets, 9 composite actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
