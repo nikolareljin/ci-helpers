@@ -27,13 +27,25 @@
 
 ### Fixed
 
-- **A binary packer was installed in the lint step of every Python repository
-  with a `pyproject.toml`.** `python.yml` had no `install_command`, so
-  dependency installation lived in the default value of `lint_command` — and
-  that default ran `python -m pip install pyinstaller`, which is wrong for every
-  web service in the fleet. `python-scan.yml` carried the same string while
-  having a proper `install_command`, so the two Python workflows disagreed about
-  their own structure.
+- **A packaging tool was installed before linting every Python repository with a
+  `pyproject.toml`.** `python.yml` had no `install_command`, so dependency
+  installation lived in the default value of `lint_command` — and that default
+  ran `python -m pip install pyinstaller`. `python-scan.yml` carried the same
+  string while having a proper `install_command`, so the two Python workflows
+  disagreed about their own structure.
+
+  PyInstaller is a build tool, and this ran at install and lint time, where
+  nothing needs it: a linter and a test runner do not import a packager. It also
+  sat in the `pyproject.toml` branch, so it fired for every project with that
+  file regardless of whether the project packages anything.
+
+  Removing it takes it away from nobody. A project that needs PyInstaller either
+  **declares it** — in which case `pip install .` or `pip install -r` still
+  provides it, through the branch that is actually about dependencies — or
+  installs it in its own build script, which is the more common arrangement and
+  is already guarded (`if ! python -c "import PyInstaller"; then pip install
+  pyinstaller; fi`). Either way the packaging step is unaffected; only the lint
+  step stops paying for it.
 
   The worse half was silent: a consumer overriding `lint_command` to add a type
   checker **lost dependency installation entirely**, and found out when tests
