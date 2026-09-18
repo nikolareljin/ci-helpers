@@ -903,7 +903,7 @@ Inputs:
 - `node_version` (string, default `22`)
 - `install_command` (string, default `npm ci`)
 - `lint_command` (string, default `npm run lint`)
-- `test_command` (string, default `npm test -- --watchAll=false`)
+- `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `npm run build`)
 

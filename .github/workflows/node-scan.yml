@@ -19,7 +19,7 @@ on:
         default: "npm ci"
       lint_command:
         type: string
-        default: "npm run lint"
+        default: "npm run lint --if-present"
       test_command:
         type: string
         default: "npm test"

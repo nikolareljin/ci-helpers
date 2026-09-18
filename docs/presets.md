@@ -58,7 +58,7 @@ Defaults:
 
 - `node_version`: `22`
 - `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm ci && npm test -- --watchAll=false`
+- `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
 
 Example:

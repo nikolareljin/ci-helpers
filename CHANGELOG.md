@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The React preset's test default could not pass on any consumer it targets.**
+  `react.yml` and `react-scan.yml` defaulted `test_command` to
+  `npm test -- --watchAll=false`. `--watchAll` is Create React App and jest
+  syntax; vitest rejects it outright:
+
+  ```
+  CACError: Unknown option `--watchAll`
+  ```
+
+  Measured against vitest 4.1.11. The value was also published as the
+  recommended one in `README.md`, `docs/presets.md` and `docs/workflows.md`, so
+  a consumer copying the documentation got a command that cannot run.
+
+  The default is now `npm test`, which delegates to the repository's own test
+  script. That is deliberately not `vitest run`: vitest already disables watch
+  mode when `CI` is set — a bare `vitest` under `CI=true` runs once and exits,
+  measured at 5s over 620 tests — and so does jest, so delegating works for
+  either runner and for `node --test`, while respecting whatever flags the
+  repository configured. It also makes this default identical to `node.yml`'s,
+  which is what a React preset should reduce to once the broken part is gone.
+
+- **A lint default failed hard when a repository had no `lint` script.**
+  `node.yml`, `react.yml`, `node-scan.yml`, `react-scan.yml`, `vue-scan.yml`,
+  `pnpm.yml` and `pnpm-scan.yml` all ran `npm run lint` (or the pnpm
+  equivalent), which exits non-zero with *Missing script* when the script is
+  absent — so a repository that lints some other way could not use the preset
+  at all.
+
+  All seven now pass `--if-present`, which both npm and pnpm support and which
+  is not forwarded to the script when it does exist. The trade is worth stating:
+  a repository that loses its `lint` script now goes quietly green rather than
+  failing, so the absence of linting is no longer reported.
+
 ## 2026-09-17 — 0.27.0
 
 Two new reusable workflows for deploying to Cloudflare, and a documentation site

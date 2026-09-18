@@ -183,7 +183,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
       node_version: "22"
-      test_command: "npm test -- --watchAll=false"
+      test_command: "npm test"
       e2e_command: "npm run e2e"
 ```
 

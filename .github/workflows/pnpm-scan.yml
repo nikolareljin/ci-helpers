@@ -19,7 +19,7 @@ on:
         default: "latest"
       lint_command:
         type: string
-        default: "pnpm run lint"
+        default: "pnpm run lint --if-present"
       test_command:
         type: string
         default: "pnpm run test"
