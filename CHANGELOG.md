@@ -28,38 +28,6 @@ published workflow behaves as it did.
   before any job-level `if:`. Between them the two files exercise all three Pages
   workflows on every docs change.
 
-### Fixed
-
-- **`docs/README.md` linked to `../VERSION`,** outside `docs_dir`, which a site
-  build cannot resolve. It points at the file on GitHub now.
-- **`AGENTS.md` claimed `make examples` works here.** There is no Makefile in
-  this repository and never was; the text was inherited from the sibling library.
-  It now names the script that does exist.
-
-### Notes
-
-- `mkdocs build --strict` is the link checker: a moved page, a dead anchor, or a
-  `docs/*.md` that no `nav:` entry points at all fail the build. `AGENTS.md` says
-  so, because that is the one way a new page can silently go missing.
-- `docs/workflows.md` and `docs/presets.md` were **not** split. Material's search
-  indexes per heading — `manifest-version` deep-links to
-  `workflows/#manifest-versionyml` — so the long pages stay navigable, and
-  splitting would have broken the anchors that `pages-deploy.yml`'s own header
-  comment and several consumer repositories link to.
-- Nothing unpublishable can reach the site: MkDocs copies every file inside
-  `docs_dir` verbatim, so `scripts/docs_site.sh` and `requirements-docs.txt` live
-  outside it. `pymdownx.snippets` is deliberately not enabled — it is the one
-  extension that can pull an arbitrary file from disk into the output.
-- No third-party requests at build time or page-load time: no webfonts, no
-  analytics, no social-card plugin. Search is Material's bundled offline index.
-- `docs/assets/extra.css` is duplicated by hand with the sibling library, with a
-  version marker and a header comment explaining why. A submodule cannot work —
-  `pages-build.yml`'s checkout passes no `submodules:` input — and every other
-  mechanism makes a public site's build depend on a second repository being
-  reachable.
-
-### Added
-
 - **`cloudflare-deploy.yml` and `cloudflare-build.yml`.** `deploy.yml` could
   never do this job: it declares no `secrets:` block, so a Cloudflare token
   cannot be passed to it at all, and every repository deploying a Worker has had
@@ -93,6 +61,14 @@ published workflow behaves as it did.
   values reach the command as `CF_DEPLOY_*` environment variables. A script that
   reads `CF_DEPLOY_VERSION` when set and computes its own only when not has one
   live definition per run, rather than two kept in step by hand.
+
+### Fixed
+
+- **`docs/README.md` linked to `../VERSION`,** outside `docs_dir`, which a site
+  build cannot resolve. It points at the file on GitHub now.
+- **`AGENTS.md` claimed `make examples` works here.** There is no Makefile in
+  this repository and never was; the text was inherited from the sibling library.
+  It now names the script that does exist.
 
 ### Fixed before it shipped
 
@@ -162,6 +138,26 @@ false but reads as valid, producing a green run that did the wrong thing.
   any toolchain setup fails loudly when both are empty.
 
 ### Notes
+
+- `mkdocs build --strict` is the link checker: a moved page, a dead anchor, or a
+  `docs/*.md` that no `nav:` entry points at all fail the build. `AGENTS.md` says
+  so, because that is the one way a new page can silently go missing.
+- `docs/workflows.md` and `docs/presets.md` were **not** split. Material's search
+  indexes per heading — `manifest-version` deep-links to
+  `workflows/#manifest-versionyml` — so the long pages stay navigable, and
+  splitting would have broken the anchors that `pages-deploy.yml`'s own header
+  comment and several consumer repositories link to.
+- Nothing unpublishable can reach the site: MkDocs copies every file inside
+  `docs_dir` verbatim, so `scripts/docs_site.sh` and `requirements-docs.txt` live
+  outside it. `pymdownx.snippets` is deliberately not enabled — it is the one
+  extension that can pull an arbitrary file from disk into the output.
+- No third-party requests at build time or page-load time: no webfonts, no
+  analytics, no social-card plugin. Search is Material's bundled offline index.
+- `docs/assets/extra.css` is duplicated by hand with the sibling library, with a
+  version marker and a header comment explaining why. A submodule cannot work —
+  `pages-build.yml`'s checkout passes no `submodules:` input — and every other
+  mechanism makes a public site's build depend on a second repository being
+  reachable.
 
 - The API token reaches wrangler through the environment and never through argv.
 - `wrangler deploy --dry-run` validates the configuration and bundles the Worker.
