@@ -1,0 +1,276 @@
+name: cloudflare-build
+#
+# Builds a Worker and validates it with `wrangler deploy --dry-run`, without
+# deploying anything. It declares NO SECRETS and no write scope, so a caller
+# that checks its Worker on pull requests never writes `secrets: inherit` and
+# no deploy credential is in scope while third-party build code runs.
+#
+# That is the whole reason this workflow exists separately from
+# cloudflare-deploy.yml. GitHub validates a called workflow's declared
+# permissions and secrets when the run starts, before any job-level `if:` is
+# evaluated, so a single workflow containing both build and deploy would put
+# the Cloudflare token in scope on every event it handles — including
+# pull-request runs, where npm postinstall scripts and build plugins execute.
+#
+# Pair them like this:
+#
+#   jobs:
+#     build:
+#       if: ${{ github.event_name == 'pull_request' }}
+#       uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-build.yml@production
+#       with:
+#         node_version: "22"
+#         build_command: "npm run build"
+#         config_glob: "dist/*/wrangler.json"
+#     deploy:
+#       if: ${{ github.event_name == 'push' }}
+#       uses: nikolareljin/ci-helpers/.github/workflows/cloudflare-deploy.yml@production
+#       secrets: inherit
+#       with:
+#         enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
+#         environment: staging
+#         node_version: "22"
+#         build_command: "npm run build"
+#         config_glob: "dist/*/wrangler.json"
+#
+# The deploy lane builds again rather than consuming an artifact from the build
+# lane. That is deliberate: the two run on different events, and an artifact is
+# only visible within the run that produced it, so a handoff between them cannot
+# work without a cross-run download and a token. Building twice is the honest
+# cost of keeping the credential out of the pull-request run.
+#
+# What the dry run does and does not prove: it validates the configuration and
+# bundles the Worker, which catches a broken config, a missing entry point and
+# a build that produced nothing. It does NOT check bindings, routes, or that
+# the token can reach the account — none of that is reachable without calling
+# the API. Treat a green build as "this would compile", not "this would
+# deploy".
+#
+# `versions upload` has no dry run of its own, so the check is always
+# `deploy --dry-run` regardless of which command the deploy lane will use. It
+# validates the same config and the same bundle, which is what a pull request
+# wants to know.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      timeout_minutes:
+        type: number
+        default: 20
+      fetch_depth:
+        type: number
+        default: 1
+      working_directory:
+        type: string
+        default: "."
+      node_version:
+        type: string
+        default: ""
+        description: Set to install Node before building.
+      package_manager:
+        type: string
+        default: npm
+        description: npm, pnpm, yarn or none.
+      install_command:
+        type: string
+        default: ""
+        description: Overrides the package_manager default install when set.
+      build_command:
+        type: string
+        default: ""
+      config_path:
+        type: string
+        default: ""
+        description: Path to the wrangler config, relative to working_directory.
+      config_glob:
+        type: string
+        default: ""
+        description: >
+          Alternative to config_path for builds that generate their deploy
+          config. Must match exactly one file.
+      version_file:
+        type: string
+        default: VERSION
+      version_suffix:
+        type: string
+        default: sha7
+      wrangler_version:
+        type: string
+        default: "4.42.0"
+      wrangler_command:
+        type: string
+        default: ""
+        description: >
+          Overrides how wrangler is run, e.g. "pnpm exec wrangler" so a
+          lockfile pins it rather than npx fetching wrangler_version.
+      dry_run:
+        type: boolean
+        default: true
+        description: >
+          Run `wrangler deploy --dry-run`. Needs no credentials — it does not
+          call the Cloudflare API. Set false to build only.
+
+    outputs:
+      version:
+        description: The version string this build would deploy.
+        value: ${{ jobs.build.outputs.version }}
+      config_path:
+        description: The resolved deploy config path.
+        value: ${{ jobs.build.outputs.config_path }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      config_path: ${{ steps.config.outputs.path }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Setup pnpm
+        if: ${{ inputs.package_manager == 'pnpm' }}
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 @ 2026-09-14
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager != 'none' && inputs.package_manager || '' }}
+          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/**/*lock*', inputs.working_directory) || '' }}
+
+      - name: Install
+        if: ${{ inputs.install_command != '' || inputs.package_manager != 'none' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          PACKAGE_MANAGER: ${{ inputs.package_manager }}
+        # eval, not `bash -c`: a chained caller command must inherit
+        # `set -euo pipefail`, which a fresh shell does not.
+        run: |
+          set -euo pipefail
+          if [ -n "${INSTALL_COMMAND}" ]; then
+            eval "${INSTALL_COMMAND}"
+          else
+            case "${PACKAGE_MANAGER}" in
+              npm)  npm ci ;;
+              pnpm) pnpm install --frozen-lockfile ;;
+              yarn) yarn install --immutable ;;
+              none) : ;;
+              *)
+                echo "::error::package_manager must be npm, pnpm, yarn or none, not '${PACKAGE_MANAGER}'"
+                exit 1 ;;
+            esac
+          fi
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          BUILD_COMMAND: ${{ inputs.build_command }}
+        run: |
+          set -euo pipefail
+          eval "${BUILD_COMMAND}"
+
+      - name: Resolve the version string
+        id: version
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          VERSION_FILE: ${{ inputs.version_file }}
+          VERSION_SUFFIX: ${{ inputs.version_suffix }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # An error, not a warning. This workflow exists to catch on a pull
+          # request what would otherwise fail the tag deploy; tolerating a
+          # condition cloudflare-deploy.yml refuses would make a green build a
+          # false assurance.
+          if [ ! -r "${VERSION_FILE}" ]; then
+            echo "::error::version_file '${VERSION_FILE}' is not readable. Point version_file at the right path, or set version_suffix: none if this project has no version file"
+            exit 1
+          fi
+          value="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+          if [ -n "${value}" ] && [ "${VERSION_SUFFIX}" = "sha7" ]; then
+            value="${value}-$(printf '%s' "${COMMIT_SHA}" | cut -c1-7)"
+          fi
+          echo "value=${value}" >> "${GITHUB_OUTPUT}"
+          echo "version: ${value}"
+
+      - name: Resolve the deploy config
+        id: config
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+          CONFIG_GLOB: ${{ inputs.config_glob }}
+        run: |
+          set -euo pipefail
+          path=""
+          if [ -n "${CONFIG_PATH}" ]; then
+            path="${CONFIG_PATH}"
+            if [ ! -r "${path}" ]; then
+              echo "::error::config_path '${path}' does not exist. If it is generated by the build, use config_glob instead"
+              exit 1
+            fi
+          elif [ -n "${CONFIG_GLOB}" ]; then
+            # Word splitting and globbing are the point: CONFIG_GLOB is a
+            # pattern supplied as workflow configuration, and must expand.
+            # shellcheck disable=SC2086
+            set -- ${CONFIG_GLOB}
+            if [ "$#" -eq 1 ] && [ ! -r "$1" ]; then
+              echo "::error::config_glob '${CONFIG_GLOB}' matched nothing. The build may not have produced it"
+              exit 1
+            fi
+            if [ "$#" -gt 1 ]; then
+              echo "::error::config_glob '${CONFIG_GLOB}' matched $# files, and exactly one is required:"
+              for m in "$@"; do echo "::error::  ${m}"; done
+              exit 1
+            fi
+            path="$1"
+          fi
+          echo "path=${path}" >> "${GITHUB_OUTPUT}"
+          if [ -n "${path}" ]; then
+            echo "deploy config: ${path}"
+          fi
+
+      - name: Validate with a dry run
+        if: ${{ inputs.dry_run }}
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
+        env:
+          CONFIG_PATH: ${{ steps.config.outputs.path }}
+          WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
+          WRANGLER_VERSION: ${{ inputs.wrangler_version }}
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+        # No credentials are set in this step's environment, deliberately: a
+        # dry run must not need them, and if a future wrangler starts requiring
+        # a token here we want that to fail loudly rather than quietly consume
+        # one this workflow never promised to handle.
+        run: |
+          set -euo pipefail
+          runner="${WRANGLER_COMMAND}"
+          if [ -z "${runner}" ]; then
+            runner="npx --yes wrangler@${WRANGLER_VERSION}"
+          fi
+          set -- deploy --dry-run --outdir "${RUNNER_TEMP_DIR}/cf-dryrun"
+          if [ -n "${CONFIG_PATH}" ]; then
+            set -- "$@" --config "${CONFIG_PATH}"
+          fi
+          echo "wrangler $*"
+          # shellcheck disable=SC2086
+          ${runner} "$@"
+
