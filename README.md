@@ -138,7 +138,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/pr-gate.yml@production
     with:
       node_version: "22"
-      lint_command: "npm ci && npm run lint"
+      lint_command: "npm ci && npm run --if-present lint"
       test_command: "npm test"
       build_command: "npm run build"
       e2e_command: "npm run e2e"
@@ -183,7 +183,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/react.yml@production
     with:
       node_version: "22"
-      test_command: "npm test -- --watchAll=false"
+      test_command: "npm test"
       e2e_command: "npm run e2e"
 ```
 
@@ -547,7 +547,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/ci.yml@production
     with:
       node_version: "22"
-      lint_command: "npm ci && npm run lint"
+      lint_command: "npm ci && npm run --if-present lint"
       test_command: "npm test"
       build_command: "npm run build"
 ```

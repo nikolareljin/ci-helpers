@@ -19,10 +19,10 @@ on:
         default: "22"
       lint_command:
         type: string
-        default: "npm ci && npm run lint"
+        default: "npm ci && npm run --if-present lint"
       test_command:
         type: string
-        default: "npm ci && npm test -- --watchAll=false"
+        default: "npm ci && npm test"
       build_command:
         type: string
         default: "npm run build"

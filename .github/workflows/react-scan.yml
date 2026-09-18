@@ -19,10 +19,10 @@ on:
         default: "npm ci"
       lint_command:
         type: string
-        default: "npm run lint"
+        default: "npm run --if-present lint"
       test_command:
         type: string
-        default: "npm test -- --watchAll=false"
+        default: "npm test"
       audit_command:
         type: string
         default: "npm audit --audit-level=high"

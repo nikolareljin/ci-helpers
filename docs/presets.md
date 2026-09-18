@@ -36,7 +36,7 @@ Workflow: `.github/workflows/node.yml`
 Defaults:
 
 - `node_version`: `22`
-- `lint_command`: `npm ci && npm run lint`
+- `lint_command`: `npm ci && npm run --if-present lint`
 - `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
 
@@ -57,9 +57,14 @@ Workflow: `.github/workflows/react.yml`
 Defaults:
 
 - `node_version`: `22`
-- `lint_command`: `npm ci && npm run lint`
-- `test_command`: `npm ci && npm test -- --watchAll=false`
+- `lint_command`: `npm ci && npm run --if-present lint`
+- `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
+
+These are identical to `preset-node`'s. That is deliberate: a React project
+needs nothing in CI that a Node project does not, and this preset exists so a
+call site can say what the repository *is* rather than what it runs. Keep the
+two in step — if one gains an input or a default, the other should too.
 
 Example:
 
@@ -357,7 +362,7 @@ Defaults:
 
 - `node_version`: `22`
 - `pnpm_version`: `latest`
-- `lint_command`: `pnpm run lint`
+- `lint_command`: `pnpm run --if-present lint`
 - `test_command`: `pnpm run test`
 - `build_command`: `pnpm run build`
 

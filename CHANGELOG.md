@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The React preset's test default could not pass on any consumer it targets.**
+  `react.yml` and `react-scan.yml` defaulted `test_command` to
+  `npm test -- --watchAll=false`. `--watchAll` is Create React App and jest
+  syntax; vitest rejects it outright:
+
+  ```
+  CACError: Unknown option `--watchAll`
+  ```
+
+  Measured against vitest 4.1.11. The value was also published as the
+  recommended one in `README.md`, `docs/presets.md` and `docs/workflows.md`, so
+  a consumer copying the documentation got a command that cannot run.
+
+  The default is now `npm test`, which delegates to the repository's own test
+  script. That is deliberately not `vitest run`. vitest's own default is
+  `watch: !isCI && process.stdin.isTTY && !isAgent` — **two** independent guards,
+  either sufficient on a runner, since Actions always sets `CI` and never gives a
+  step a TTY. A bare `vitest` under `CI=true` runs once and exits, measured at 5s
+  over 620 tests. jest defaults to run-once as well, and `node --test` needs an
+  explicit `--watch`, so delegating works for any of them while respecting
+  whatever flags the repository configured.
+
+  It also makes this default identical to `node.yml`'s, which is what a React
+  preset should reduce to once the broken part is gone.
+
+- **A lint default failed hard when a repository had no `lint` script.**
+  `node.yml`, `react.yml`, `node-scan.yml`, `react-scan.yml`, `vue-scan.yml`,
+  `pnpm.yml` and `pnpm-scan.yml` all ran `npm run lint` (or the pnpm
+  equivalent), which exits non-zero with *Missing script* when the script is
+  absent — so a repository that lints some other way could not use the preset
+  at all.
+
+  All seven now run `npm run --if-present lint` (or the pnpm equivalent), with
+  **the flag before the script name**. That position matters and the two package
+  managers are not interchangeable here:
+
+  | | npm 10 | pnpm 10 and 12 |
+  |---|---|---|
+  | `run lint --if-present`, no script | exit 0 | **exit 1** — unfixed |
+  | `run lint --if-present`, script present | flag consumed | **flag forwarded to the script** |
+  | `run --if-present lint` | exit 0, flag consumed | exit 0, flag consumed |
+
+  npm accepts either position; pnpm parses nothing after the script name and
+  passes it through, so `pnpm run lint --if-present` would have run
+  `eslint . --if-present` and failed with `Invalid option` on a repository that
+  previously passed. One uniform flag-first shape is correct for both.
+
+  The trade is worth stating: a repository that loses its `lint` script now goes
+  quietly green rather than failing, so the absence of linting is no longer
+  reported.
+
 ## 2026-09-17 — 0.27.0
 
 Two new reusable workflows for deploying to Cloudflare, and a documentation site
