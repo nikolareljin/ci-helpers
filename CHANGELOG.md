@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A release candidate could move `production` with no way to say otherwise.**
+  `auto-tag.yml`'s version pattern accepts `-rcN` and `-rc.N`, and its
+  production-move step was guarded only on the version being non-empty — so
+  merging a `release/X.Y.Z-rcN` pull request tagged the candidate *and* pointed
+  `production` at it. That is usually the opposite of why a candidate is cut,
+  but whether it happens is the caller's decision, so it is now an input rather
+  than a rule.
+
+  `update_production_on_prerelease` (boolean, **default `true`**) on both
+  `auto-tag.yml` and `auto-tag-release.yml`. The default is exactly what these
+  workflows have always done, so **no existing consumer changes behaviour** —
+  a normal `X.Y.Z` release is unaffected in every combination, and a caller
+  wanting a candidate to advance `production` keeps that by doing nothing.
+
+  Set it to `false` to tag the candidate and leave `production` where it is,
+  then move it deliberately once the candidate has been exercised — with
+  `scripts/create_production.sh -t <tag>`, or by cutting the final release the
+  usual way. A skipped move emits a `::notice::` saying so, so a green run does
+  not look like a step that silently vanished.
+
+  This repository sets it to `false` for its own releases, because roughly 275
+  consumer references follow its `production` ref.
+
+  Worth recording for the next person: `production-branch.yml` has always
+  carried an rc guard, and it never helped. That workflow is triggered by a tag
+  push, and the tag is pushed by `GITHUB_TOKEN`, which does not fire workflows —
+  so on the automated path it never ran. `auto-tag-release-push.yml` already
+  duplicates two other checks for exactly this reason; this was the third in
+  that family, and the only one nobody had noticed, because no repository has
+  ever cut a tag matching the pattern.
+
 ### Added
 
 - **`ci.yml` gained an `install_command` input**, running before Lint. Every

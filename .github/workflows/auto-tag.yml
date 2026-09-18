@@ -29,6 +29,22 @@ on:
           need version tagging).
         type: boolean
         default: true
+      update_production_on_prerelease:
+        description: >
+          Whether a release candidate advances the production ref. The version
+          pattern accepts release/X.Y.Z-rcN and -rc.N, and until this input
+          existed such a merge moved production to the candidate -- which is
+          usually the opposite of why one is cut, but it is the caller's call,
+          not this workflow's.
+
+          Defaults to true, which is what this workflow has always done, so
+          adopting a newer ci-helpers changes nothing. Set it to false to tag
+          the candidate and leave production where it is; then move it
+          deliberately once the candidate has been exercised, with
+          scripts/create_production.sh -t <tag> (or the equivalent helper), or
+          by cutting the final release the usual way.
+        type: boolean
+        default: true
     outputs:
       version:
         description: >
@@ -257,8 +273,16 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
+      # Whether a release candidate advances `production` is the caller's
+      # decision, not this workflow's, so it is an input rather than a rule.
+      # The default keeps the behaviour this workflow has always had.
       - name: Update production tag ref
-        if: ${{ steps.release.outputs.version != '' && inputs.update_production_tag }}
+        if: >-
+          ${{ steps.release.outputs.version != ''
+              && inputs.update_production_tag
+              && (inputs.update_production_on_prerelease
+                  || !(contains(steps.release.outputs.version, 'rc')
+                       || contains(steps.release.outputs.version, 'RC'))) }}
         shell: bash
         env:
           AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
@@ -266,3 +290,17 @@ jobs:
           set -euo pipefail
           version="$AUTO_TAG_VERSION"
           ./scripts/create_production.sh -t "$version" --fetch-tags
+
+      - name: Note that the candidate left production alone
+        if: >-
+          ${{ steps.release.outputs.version != ''
+              && inputs.update_production_tag
+              && !inputs.update_production_on_prerelease
+              && (contains(steps.release.outputs.version, 'rc')
+                  || contains(steps.release.outputs.version, 'RC')) }}
+        shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Tagged ${AUTO_TAG_VERSION}; production left where it was because update_production_on_prerelease is false. Move it deliberately with scripts/create_production.sh when the candidate has been exercised."

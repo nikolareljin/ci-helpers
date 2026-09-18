@@ -30,6 +30,14 @@ on:
           need version tagging).
         type: boolean
         default: true
+      update_production_on_prerelease:
+        description: >
+          Forwarded to auto-tag.yml. Whether a release candidate advances the
+          production ref. Defaults to true, which is the behaviour this
+          workflow has always had; set false to tag the candidate and move
+          production deliberately afterwards.
+        type: boolean
+        default: true
       release_workflow:
         description: >
           Workflow file name (e.g. "release.yml") to dispatch via workflow_dispatch
@@ -87,6 +95,7 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       default_branch: ${{ inputs.default_branch }}
       update_production_tag: ${{ inputs.update_production_tag }}
+      update_production_on_prerelease: ${{ inputs.update_production_on_prerelease }}
 
   dispatch:
     needs: tag
