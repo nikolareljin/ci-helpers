@@ -854,9 +854,14 @@ deploy workflow is already self-sufficient, and an orchestrator would force
    is an identifier, not a credential, and a readable one in the log is what
    tells you a deploy landed on the wrong account. A secret of the same name
    also works.
-4. Set the repository variable `CLOUDFLARE_DEPLOY_ENABLED` to `true`. Until you
+4. Add a `BASE_URL` variable on that Environment — the host the smoke test
+   checks. `smoke_path` defaults to `/health`, so **without this the deploy
+   succeeds and the run then goes red at the smoke step**. Set `base_url:`
+   instead if you would rather pass it as an input, or `smoke_path: ""` to turn
+   the check off (and lose the only thing that proves the deploy took effect).
+5. Set the repository variable `CLOUDFLARE_DEPLOY_ENABLED` to `true`. Until you
    do, every run is a visible no-op that explains itself in the job summary.
-5. On a production Environment, add a required reviewer. The workflow puts the
+6. On a production Environment, add a required reviewer. The workflow puts the
    Environment on its own deploy job, which is what makes the reviewer apply.
 
 ### 1. A release tag deploys production
@@ -882,9 +887,15 @@ jobs:
 ```
 
 No `environment:` is needed: a bare-SemVer tag push resolves to
-`production_environment`, which defaults to `production`. An rc tag does not —
+`production_environment`, which defaults to `production`. An rc tag does not:
 `1.2.3-rc1` is rejected by the same check, so a release candidate cannot reach
 production by accident.
+
+**Keep the tag filter above.** A tag that is not bare SemVer resolves to no
+environment, and that is a hard error — the run goes **red**, it is not skipped.
+That is the right behaviour for a caller who forgot `environment:`, but with
+`tags: ['*']` it means every rc tag reports a failure. Either filter the trigger
+as shown, or pass `environment:` explicitly.
 
 ### 2. A dispatch picks its environment
 
@@ -958,7 +969,7 @@ and its reviewer, the credential preflight, the version string, the smoke test
 and the summary. Only the mechanism becomes yours.
 
 ```yaml
-      deploy_command: ./dev deploy cloudflare --env "$CLOUDFLARE_ENV" --yes
+      deploy_command: ./dev deploy cloudflare --env "$CF_DEPLOY_ENV" --yes
 ```
 
 The resolved values reach the command as environment variables:
@@ -967,7 +978,8 @@ The resolved values reach the command as environment variables:
 |---|---|
 | `CLOUDFLARE_API_TOKEN` | the secret |
 | `CLOUDFLARE_ACCOUNT_ID` | variable first, secret second, already proven non-empty |
-| `CLOUDFLARE_ENV` | the resolved environment |
+| `CLOUDFLARE_ENV` | the resolved environment — this is **wrangler's own** environment selector, so a command that runs wrangler inherits it |
+| `CF_DEPLOY_ENV` | the same value, under a name wrangler does not read |
 | `CF_DEPLOY_COMMAND` | `deploy` / `versions upload` / `pages deploy` |
 | `CF_DEPLOY_VERSION` | the version string |
 | `CF_DEPLOY_REF` | the checked-out ref |

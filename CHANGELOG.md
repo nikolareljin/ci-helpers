@@ -42,6 +42,53 @@ no input or output was removed or renamed.
 
 ### Fixed before it shipped
 
+Review found these in paths that had not been exercised; all are corrected here
+rather than shipped.
+
+- **`CLOUDFLARE_ENV` is wrangler's own variable, not ours to invent.** It selects
+  the active environment for every wrangler command that accepts `--env`
+  (Cloudflare added it in November 2025). Exporting it job-wide silently
+  overrode the `--env` logic and defeated `wrangler_env: none` — the documented
+  Pages opt-out — entirely. The contract variable is `CF_DEPLOY_ENV`;
+  `CLOUDFLARE_ENV` is now set only where it is wanted: on the build step, where
+  build plugins are its documented consumer, and explicitly on the deploy step,
+  where it is unset for `pages deploy` and for `none`.
+
+- **The smoke test failed every documented example.** `smoke_path` defaults to
+  `/health` but nothing in the setup checklist mentioned a base URL, so
+  following the docs exactly produced a successful deploy and then a red run.
+  The checklist now has it as a step.
+
+- **The artifact handoff between the two workflows is removed.** It could not
+  work: an artifact is visible only within the run that produced it, and the
+  advertised pairing puts build and deploy on different events. The upload also
+  did not preserve the directory layout the deploy side globbed for. The deploy
+  lane builds again, and the header says why that is the honest cost.
+
+- **`ref` defaulted to the branch name**, which resolves at clone time — so a
+  commit landing moments after the trigger was deployed while the version string
+  still stamped the triggering sha, and the run advertised a commit that was not
+  running. It could not work on a `pull_request` at all, where `ref_name` is
+  `42/merge`. It is the triggering sha now.
+
+- **`deployed` said `true` when the smoke test had just proved otherwise.** It
+  keyed only on the deploy step, so a run that printed "the deploy did not take
+  effect" still handed callers a green output. It now requires the smoke test
+  not to have failed — and the output's description states the third state,
+  empty, which is what a skipped job yields when the kill switch is off.
+
+- **`$GITHUB_ENV` writes use a random delimiter.** The values come from
+  repository variables and caller inputs, which may legally contain a newline,
+  and a newline there lets the rest be read as a further assignment in the job
+  that holds the token.
+
+- **A redirect is no longer a passing smoke test** (`curl -fsSL`), `--config` is
+  passed to `pages deploy` rather than dropped in silence, the two jobs that run
+  nothing declare `permissions: {}`, and the build lane now errors on an
+  unreadable version file rather than warning — tolerating a condition the
+  deploy lane refuses is what makes a green build a false assurance.
+
+
 Two defects were found in a working copy of this pattern and are designed out
 here rather than carried forward. Both are the same shape: a value that looks
 false but reads as valid, producing a green run that did the wrong thing.

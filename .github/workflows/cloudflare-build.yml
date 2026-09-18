@@ -29,6 +29,15 @@ name: cloudflare-build
 #       with:
 #         enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
 #         environment: staging
+#         node_version: "22"
+#         build_command: "npm run build"
+#         config_glob: "dist/*/wrangler.json"
+#
+# The deploy lane builds again rather than consuming an artifact from the build
+# lane. That is deliberate: the two run on different events, and an artifact is
+# only visible within the run that produced it, so a handoff between them cannot
+# work without a cross-run download and a token. Building twice is the honest
+# cost of keeping the credential out of the pull-request run.
 #
 # What the dry run does and does not prove: it validates the configuration and
 # bundles the Worker, which catches a broken config, a missing entry point and
@@ -103,25 +112,6 @@ on:
         description: >
           Run `wrangler deploy --dry-run`. Needs no credentials — it does not
           call the Cloudflare API. Set false to build only.
-      upload:
-        type: boolean
-        default: false
-        description: >
-          Upload the build as an artifact so cloudflare-deploy.yml can deploy
-          the reviewed bytes rather than rebuilding. Off by default: a run that
-          only validates should store nothing.
-      artifact_name:
-        type: string
-        default: cloudflare-build
-      artifact_paths:
-        type: string
-        default: ""
-        description: >
-          Newline-separated paths to upload, relative to working_directory.
-          Defaults to the directory holding the resolved deploy config.
-      artifact_retention_days:
-        type: number
-        default: 1
 
     outputs:
       version:
@@ -130,9 +120,6 @@ on:
       config_path:
         description: The resolved deploy config path.
         value: ${{ jobs.build.outputs.config_path }}
-      artifact_name:
-        description: The uploaded artifact name, or empty when nothing was uploaded.
-        value: ${{ jobs.build.outputs.artifact_name }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -146,7 +133,6 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
       config_path: ${{ steps.config.outputs.path }}
-      artifact_name: ${{ steps.artifact.outputs.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -209,10 +195,13 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # An error, not a warning. This workflow exists to catch on a pull
+          # request what would otherwise fail the tag deploy; tolerating a
+          # condition cloudflare-deploy.yml refuses would make a green build a
+          # false assurance.
           if [ ! -r "${VERSION_FILE}" ]; then
-            echo "::warning::version_file '${VERSION_FILE}' is not readable; no version resolved"
-            echo "value=" >> "${GITHUB_OUTPUT}"
-            exit 0
+            echo "::error::version_file '${VERSION_FILE}' is not readable. Point version_file at the right path, or set version_suffix: none if this project has no version file"
+            exit 1
           fi
           value="$(tr -d '[:space:]' < "${VERSION_FILE}")"
           if [ -n "${value}" ] && [ "${VERSION_SUFFIX}" = "sha7" ]; then
@@ -285,51 +274,3 @@ jobs:
           # shellcheck disable=SC2086
           ${runner} "$@"
 
-      - name: Decide what to upload
-        id: artifact
-        shell: bash
-        env:
-          DO_UPLOAD: ${{ inputs.upload }}
-          ARTIFACT_NAME: ${{ inputs.artifact_name }}
-          ARTIFACT_PATHS: ${{ inputs.artifact_paths }}
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
-          WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-          if [ "${DO_UPLOAD}" != "true" ]; then
-            echo "name=" >> "${GITHUB_OUTPUT}"
-            echo "paths=" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          paths="${ARTIFACT_PATHS}"
-          if [ -z "${paths}" ]; then
-            if [ -z "${CONFIG_PATH}" ]; then
-              echo "::error::upload is on but there is nothing to upload: set artifact_paths, or set config_path/config_glob so the config's directory can be used"
-              exit 1
-            fi
-            paths="$(dirname "${CONFIG_PATH}")"
-          fi
-          # Prefix each path with working_directory, since upload-artifact
-          # resolves from the workspace root rather than this step's cwd.
-          if [ "${WORKING_DIRECTORY}" != "." ]; then
-            prefixed=""
-            while IFS= read -r line; do
-              [ -n "${line}" ] || continue
-              prefixed="${prefixed}${WORKING_DIRECTORY}/${line}"$'\n'
-            done <<< "${paths}"
-            paths="${prefixed}"
-          fi
-          echo "name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
-          {
-            echo "paths<<PATHS_EOF"
-            printf '%s\n' "${paths}"
-            echo "PATHS_EOF"
-          } >> "${GITHUB_OUTPUT}"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
-        if: ${{ inputs.upload }}
-        with:
-          name: ${{ steps.artifact.outputs.name }}
-          path: ${{ steps.artifact.outputs.paths }}
-          retention-days: ${{ inputs.artifact_retention_days }}
-          if-no-files-found: error

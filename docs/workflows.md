@@ -199,7 +199,7 @@ Inputs:
 - `production_environment` (string, default `production`)
 - `enabled` (string, default `""`) — the kill switch
 - `runner` (string, default `ubuntu-latest`), `timeout_minutes` (number, default `30`), `fetch_depth` (number, default `1`), `working_directory` (string, default `"."`)
-- `node_version` (string, default `""`), `package_manager` (string, default `npm`), `install_command` (string, default `""`), `build_command` (string, default `""`), `artifact_name` (string, default `""`)
+- `node_version` (string, default `""`), `package_manager` (string, default `npm`), `install_command` (string, default `""`), `build_command` (string, default `""`)
 - `config_path` (string, default `""`), `config_glob` (string, default `""`)
 - `version` (string, default `""`), `version_file` (string, default `VERSION`), `version_suffix` (string, default `sha7`), `version_var` (string, default `VERSION`)
 - `deploy_args` (string, default `""`), `wrangler_version` (string, default `4.42.0`), `wrangler_command` (string, default `""`)
@@ -215,7 +215,7 @@ Outputs: `deployed`, `environment`, `version`, `url`.
 
 ### Two rules worth stating once
 
-**A job output is a string.** `deployed` is `"true"` or `"false"`, and `if: needs.deploy.outputs.deployed` is truthy for **both** — every non-empty string is. Compare it: `if: needs.deploy.outputs.deployed == 'true'`. This workflow avoids the trap internally by having its `resolve` job emit an enum (`deploy` / `disabled`) rather than a boolean, so no output value can be a fake boolean.
+**A job output is a string.** `deployed` is `"true"`, `"false"`, or **empty** — empty when the kill switch is off, because the deploy job is skipped and a skipped job has no outputs. `if: needs.deploy.outputs.deployed` is truthy for `"false"` too, since every non-empty string is. Compare it as `== 'true'`, and use `!= 'true'` for "did not deploy" — `== 'false'` misses the disabled case. This workflow avoids the trap internally by having its `resolve` job emit an enum (`deploy` / `disabled`) rather than a boolean, so no output value can be a fake boolean.
 
 **An empty account id is not an error to wrangler.** It resolves the account from the token instead, which is correct for a token scoped to one account and a coin toss otherwise — so a deploy that lands on the wrong account looks exactly like one that worked. The account id is read from `vars` first and `secrets` second, and a preflight step fails loudly when both are empty.
 
@@ -249,9 +249,9 @@ It declares **no secrets** and no write scope, so a caller that checks its Worke
 
 What the dry run proves: the configuration is valid and the Worker bundles. What it does **not** prove: bindings, routes, or that the token can reach the account — none of that is reachable without calling the API. A green build means "this would compile", not "this would deploy".
 
-Inputs: `runner`, `timeout_minutes`, `fetch_depth`, `working_directory`, `node_version`, `package_manager`, `install_command`, `build_command`, `config_path`, `config_glob`, `version_file`, `version_suffix`, `wrangler_version`, `wrangler_command`, `dry_run` (boolean, default `true`), `upload` (boolean, default `false`), `artifact_name` (string, default `cloudflare-build`), `artifact_paths` (string, default `""`), `artifact_retention_days` (number, default `1`).
+Inputs: `runner`, `timeout_minutes`, `fetch_depth`, `working_directory`, `node_version`, `package_manager`, `install_command`, `build_command`, `config_path`, `config_glob`, `version_file`, `version_suffix`, `wrangler_version`, `wrangler_command`, `dry_run` (boolean, default `true`).
 
-Outputs: `version`, `config_path`, `artifact_name`.
+Outputs: `version`, `config_path`.
 
 Example:
 
