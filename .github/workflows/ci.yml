@@ -50,6 +50,13 @@ on:
       rust_components:
         type: string
         default: ""
+      # Runs before Lint, so a caller that overrides only lint_command does not
+      # lose its dependencies. pr-gate.yml has had this since it was written;
+      # this engine did not, which is why several presets ended up installing
+      # inside their lint default.
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: ""
@@ -299,6 +306,14 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
         with:
           php-version: ${{ inputs.php_version }}
+
+      - name: Install
+        if: ${{ inputs.install_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.install_command }}
 
       - name: Lint
         if: ${{ inputs.lint_command != '' }}

@@ -17,6 +17,9 @@ on:
       dotnet_version:
         type: string
         default: "8.0.x"
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
@@ -45,6 +48,7 @@ jobs:
       concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       dotnet_version: ${{ inputs.dotnet_version }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}

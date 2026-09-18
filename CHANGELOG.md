@@ -2,7 +2,78 @@
 
 ## Unreleased
 
+### Added
+
+- **`ci.yml` gained an `install_command` input**, running before Lint. Every
+  other command input already existed there; this one did not, although
+  `pr-gate.yml` and eleven standalone workflows have had it since they were
+  written. Its absence is why several presets installed dependencies *inside*
+  their lint default — the only slot available.
+
+  Threaded through the thirteen presets that call the engine. Default is empty,
+  so no existing caller changes behaviour. `docker.yml` is deliberately left
+  out: it sets up no language toolchain and runs no lint, test or build, so an
+  install step there would have nothing to install with.
+
+- **A `self-test.yml`**, calling this repository's own presets by **relative
+  path** against committed fixtures — so a pull request editing a preset runs
+  the edited file rather than whatever `@production` holds. The pattern is
+  `docs-site.yml`'s, which already publishes this repository's site through its
+  own Pages preset.
+
+  It carries no `paths:` filter, deliberately: a filter that never matches the
+  files under test reports green without having run. Its assertion job treats a
+  **skipped** leg as a failure, because a skip is not a pass.
+
 ### Fixed
+
+- **A packaging tool was installed before linting every Python repository with a
+  `pyproject.toml`.** `python.yml` had no `install_command`, so dependency
+  installation lived in the default value of `lint_command` — and that default
+  ran `python -m pip install pyinstaller`. `python-scan.yml` carried the same
+  string while having a proper `install_command`, so the two Python workflows
+  disagreed about their own structure.
+
+  PyInstaller is a build tool, and this ran at install and lint time, where
+  nothing needs it: a linter and a test runner do not import a packager. It also
+  sat in the `pyproject.toml` branch, so it fired for every project with that
+  file regardless of whether the project packages anything.
+
+  Removing it takes it away from nobody. A project that needs PyInstaller either
+  **declares it** — in which case `pip install .` or `pip install -r` still
+  provides it, through the branch that is actually about dependencies — or
+  installs it in its own build script, which is the more common arrangement and
+  is already guarded (`if ! python -c "import PyInstaller"; then pip install
+  pyinstaller; fi`). Either way the packaging step is unaffected; only the lint
+  step stops paying for it.
+
+  The worse half was silent: a consumer overriding `lint_command` to add a type
+  checker **lost dependency installation entirely**, and found out when tests
+  failed on imports rather than when linting changed.
+
+  Installation now lives in `install_command` and `lint_command` lints. The
+  regression fixture overrides `lint_command` and imports a declared dependency,
+  which fails with `ModuleNotFoundError` under the old arrangement.
+
+  **This changes behaviour for existing callers of `python.yml`, and the change
+  is not cosmetic.** The preset had no `install_command` before, so every caller
+  installed inside its own `lint_command` override — and all of them do. They
+  now get an install step that did not run previously:
+
+  - where the project has a `requirements.txt`, the new default repeats what
+    their override already does. Redundant, and slower by the length of one
+    install.
+  - where it has only a `pyproject.toml`, the new default runs `pip install .`
+    — a package **build** that never ran in CI before. For a caller whose lint
+    override also builds the package (`pip install -e '.[dev]'`, say) this is
+    merely duplicated work. For one whose lint delegates to a script, it is
+    untested, and a project that does not build cleanly will now fail a step it
+    never reached.
+
+  The fix for a caller is to drop the install from its `lint_command` and let
+  `install_command` do it — which is the arrangement this input exists for. Ship
+  this through a release candidate and exercise it on a caller of each shape
+  before moving `production`.
 
 - **The React preset's test default could not pass on any consumer it targets.**
   `react.yml` and `react-scan.yml` defaulted `test_command` to

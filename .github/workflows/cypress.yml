@@ -17,6 +17,9 @@ on:
       node_version:
         type: string
         default: "22"
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: ""
@@ -45,6 +48,7 @@ jobs:
       concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       node_version: ${{ inputs.node_version }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}

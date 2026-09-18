@@ -20,6 +20,9 @@ on:
       rust_components:
         type: string
         default: ""
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: ""
@@ -49,6 +52,7 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       rust_toolchain: ${{ inputs.rust_toolchain }}
       rust_components: ${{ inputs.rust_components }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}
