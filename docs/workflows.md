@@ -1023,7 +1023,7 @@ Inputs: as `pimcore.yml`, minus `php_versions` — it takes one `php_version`.
 
 Workflow: `.github/workflows/auto-tag.yml`
 
-Purpose: The tag-only, least-privilege version of the release automation. On a push to the default branch that is a merged `release/[v]X.Y.Z[-rc[.]N]` PR, it creates+pushes the version tag and (by default) moves the floating `production` tag. It does **not** dispatch a follow-up workflow.
+Purpose: The tag-only, least-privilege version of the release automation. On a push to the default branch that is a merged `release/[v]X.Y.Z[-rc[.]N]` PR, it creates+pushes the version tag. It can also move the floating `production` tag — opt-in via `update_production_tag`, and only for a final `X.Y.Z`. It does **not** dispatch a follow-up workflow.
 
 Permissions: needs only `contents: write` + `pull-requests: read`. **No `actions: write`** — prefer this workflow whenever you do not need the auto-dispatch feature.
 
@@ -1066,7 +1066,9 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
-- `update_production_tag` (boolean, default `true`) — when `false`, skips the Bootstrap script-helpers and Update production tag steps. Set to `false` in repos that do not carry a floating `production` tag.
+- `update_production_tag` (boolean, default `false`) — when `true`, runs the Bootstrap script-helpers and Update production tag steps after tagging. Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
+
+**`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
 Example (tag only, no production tag, no GitHub Release) — use `auto-tag.yml`, which needs no `actions: write`:

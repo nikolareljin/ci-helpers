@@ -2,38 +2,58 @@
 
 ## Unreleased
 
-### Fixed
+### Changed — BREAKING
 
-- **A release candidate could move `production` with no way to say otherwise.**
-  `auto-tag.yml`'s version pattern accepts `-rcN` and `-rc.N`, and its
-  production-move step was guarded only on the version being non-empty — so
-  merging a `release/X.Y.Z-rcN` pull request tagged the candidate *and* pointed
-  `production` at it. That is usually the opposite of why a candidate is cut,
-  but whether it happens is the caller's decision, so it is now an input rather
-  than a rule.
+- **`production` now moves only for a final `X.Y.Z`, and only when asked.**
+  Two rules, which together make a release candidate safe to cut.
 
-  `update_production_on_prerelease` (boolean, **default `true`**) on both
-  `auto-tag.yml` and `auto-tag-release.yml`. The default is exactly what these
-  workflows have always done, so **no existing consumer changes behaviour** —
-  a normal `X.Y.Z` release is unaffected in every combination, and a caller
-  wanting a candidate to advance `production` keeps that by doing nothing.
+  **1. A candidate never moves `production`.** `auto-tag.yml`'s version pattern
+  accepts `release/X.Y.Z-rcN` and `-rc.N`, and its production-move step was
+  guarded only on the version being non-empty — so merging a candidate tagged
+  it *and* pointed `production` at it, making it live the instant it merged,
+  which is the opposite of why a candidate is cut. A merged candidate is now
+  tagged so it can be exercised on a pilot consumer, and `production` stays
+  where it is. This is a rule, not an input: there is no configuration under
+  which a candidate advances `production`.
 
-  Set it to `false` to tag the candidate and leave `production` where it is,
-  then move it deliberately once the candidate has been exercised — with
-  `scripts/create_production.sh -t <tag>`, or by cutting the final release the
-  usual way. A skipped move emits a `::notice::` saying so, so a green run does
-  not look like a step that silently vanished.
+  Promote a candidate by cutting `release/X.Y.Z` — with `CHANGELOG`, `VERSION`
+  and every other reference to the version updated to drop the `-rcN`. Merging
+  that tags `X.Y.Z` and moves `production`. A candidate merge emits a
+  `::notice::` naming the promotion branch, so a green run does not look like a
+  step that silently vanished.
 
-  This repository sets it to `false` for its own releases, because roughly 275
-  consumer references follow its `production` ref.
+  The detection step now emits an `is_prerelease` output rather than each step
+  matching `rc` in its own condition, so the rule has one definition.
 
-  Worth recording for the next person: `production-branch.yml` has always
-  carried an rc guard, and it never helped. That workflow is triggered by a tag
-  push, and the tag is pushed by `GITHUB_TOKEN`, which does not fire workflows —
-  so on the automated path it never ran. `auto-tag-release-push.yml` already
-  duplicates two other checks for exactly this reason; this was the third in
-  that family, and the only one nobody had noticed, because no repository has
-  ever cut a tag matching the pattern.
+  **2. `update_production_tag` now defaults to `false`.** Calling these
+  workflows buys you version tagging; moving a floating `production` ref is a
+  separate thing a repository asks for.
+
+  This is breaking for callers that relied on the old `true` default and want
+  the move — they must now pass `update_production_tag: true`. That line means
+  the same thing under either default, so it can land before this release does
+  and leave no window.
+
+  For most callers it is a fix. The step runs `./scripts/create_production.sh`,
+  which ci-helpers has never supplied and neither does script-helpers — it must
+  be in the consumer's own tree. Of the eight callers taking the default, five
+  ship no such script, so a `release/X.Y.Z` merge pushed the tag and then failed
+  the job at the final step; two of them hit it, five times between them, and
+  none of the five carries a `production` ref at all. It stayed unnoticed
+  because the step is reachable only on a `release/*` merge, so ordinary merges
+  skipped it and stayed green.
+
+  Since `update_production_tag: true` now asserts something checkable, the
+  Bootstrap step verifies `scripts/create_production.sh` exists and fails there
+  — seconds in, before anything is tagged — rather than after the tag has been
+  pushed and has to be deleted by hand.
+
+  Worth recording: `production-branch.yml` has always carried an rc guard, and
+  it never helped. That workflow is triggered by a tag push, and the tag is
+  pushed by `GITHUB_TOKEN`, which does not fire workflows — so on the automated
+  path it never ran. `auto-tag-release-push.yml` already duplicates two other
+  checks for exactly this reason; this was the third in that family, and the
+  only one nobody had noticed, because no repository has ever cut a candidate.
 
 ### Added
 

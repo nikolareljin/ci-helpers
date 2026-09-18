@@ -24,20 +24,13 @@ on:
         default: ""
       update_production_tag:
         description: >
-          When true (default), run the Bootstrap and Update production tag
-          steps after tagging. Set to false in repos that do not carry a
-          production floating tag (e.g. consumers of ci-helpers that only
-          need version tagging).
+          Forwarded to auto-tag.yml. Whether to move a floating production ref
+          after tagging. Defaults to false: calling this workflow buys you
+          tagging, and moving production is opted into separately by a
+          repository that carries such a ref and ships
+          scripts/create_production.sh.
         type: boolean
-        default: true
-      update_production_on_prerelease:
-        description: >
-          Forwarded to auto-tag.yml. Whether a release candidate advances the
-          production ref. Defaults to true, which is the behaviour this
-          workflow has always had; set false to tag the candidate and move
-          production deliberately afterwards.
-        type: boolean
-        default: true
+        default: false
       release_workflow:
         description: >
           Workflow file name (e.g. "release.yml") to dispatch via workflow_dispatch
@@ -95,7 +88,6 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       default_branch: ${{ inputs.default_branch }}
       update_production_tag: ${{ inputs.update_production_tag }}
-      update_production_on_prerelease: ${{ inputs.update_production_on_prerelease }}
 
   dispatch:
     needs: tag

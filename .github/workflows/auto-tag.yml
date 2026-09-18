@@ -23,28 +23,17 @@ on:
         default: ""
       update_production_tag:
         description: >
-          When true (default), run the Bootstrap and Update production tag
-          steps after tagging. Set to false in repos that do not carry a
-          production floating tag (e.g. consumers of ci-helpers that only
-          need version tagging).
-        type: boolean
-        default: true
-      update_production_on_prerelease:
-        description: >
-          Whether a release candidate advances the production ref. The version
-          pattern accepts release/X.Y.Z-rcN and -rc.N, and until this input
-          existed such a merge moved production to the candidate -- which is
-          usually the opposite of why one is cut, but it is the caller's call,
-          not this workflow's.
+          Whether to run the Bootstrap and Update production tag steps after
+          tagging. Moving a floating production ref is a thing a repository
+          opts into, so this defaults to false: tagging is what calling this
+          workflow buys you, and nothing else happens unless you ask.
 
-          Defaults to true, which is what this workflow has always done, so
-          adopting a newer ci-helpers changes nothing. Set it to false to tag
-          the candidate and leave production where it is; then move it
-          deliberately once the candidate has been exercised, with
-          scripts/create_production.sh -t <tag> (or the equivalent helper), or
-          by cutting the final release the usual way.
+          Set it to true in a repository that carries a floating production
+          tag AND ships scripts/create_production.sh, which the step runs.
+          Without that script the step cannot succeed, so a true here is a
+          claim about the repository's contents, not a preference.
         type: boolean
-        default: true
+        default: false
     outputs:
       version:
         description: >
@@ -90,6 +79,15 @@ jobs:
           fi
           if [[ ! -e "vendor/script-helpers" ]]; then
             echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+            exit 1
+          fi
+          # update_production_tag: true asserts this repository can move a
+          # production ref, and the move runs ./scripts/create_production.sh.
+          # Check that here rather than let the run tag a release and then die
+          # at the last step, which is what used to happen.
+          if [[ ! -x "scripts/create_production.sh" && ! -f "scripts/create_production.sh" ]]; then
+            echo "update_production_tag is true but scripts/create_production.sh is missing." >&2
+            echo "Either add that script, or pass update_production_tag: false to tag only." >&2
             exit 1
           fi
       - name: Detect release version
@@ -247,7 +245,17 @@ jobs:
               core.info('No release/* merge detected for this push.');
             }
 
+            // The accepted versions are X.Y.Z and X.Y.Z-rcN / X.Y.Z-rc.N, so a
+            // hyphen is exactly the pre-release marker. Decided here rather
+            // than by string-matching in a step condition, so the rule has one
+            // definition and shows up in the log.
+            const isPrerelease = version.includes('-');
+            if (isPrerelease) {
+              core.info(`${version} is a release candidate; production will not be moved.`);
+            }
+
             core.setOutput('version', version);
+            core.setOutput('is_prerelease', isPrerelease ? 'true' : 'false');
 
       - name: Check tag availability
         if: ${{ steps.release.outputs.version != '' }}
@@ -273,16 +281,16 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
-      # Whether a release candidate advances `production` is the caller's
-      # decision, not this workflow's, so it is an input rather than a rule.
-      # The default keeps the behaviour this workflow has always had.
+      # `production` moves only for a final X.Y.Z. A candidate is tagged so it
+      # can be exercised by a pilot consumer, and `production` stays where it
+      # is until the candidate is promoted by cutting release/X.Y.Z. This is a
+      # rule, not an option: a candidate that moved `production` would be live
+      # the instant it was merged, which is the opposite of cutting one.
       - name: Update production tag ref
         if: >-
           ${{ steps.release.outputs.version != ''
               && inputs.update_production_tag
-              && (inputs.update_production_on_prerelease
-                  || !(contains(steps.release.outputs.version, 'rc')
-                       || contains(steps.release.outputs.version, 'RC'))) }}
+              && steps.release.outputs.is_prerelease != 'true' }}
         shell: bash
         env:
           AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
@@ -295,12 +303,10 @@ jobs:
         if: >-
           ${{ steps.release.outputs.version != ''
               && inputs.update_production_tag
-              && !inputs.update_production_on_prerelease
-              && (contains(steps.release.outputs.version, 'rc')
-                  || contains(steps.release.outputs.version, 'RC')) }}
+              && steps.release.outputs.is_prerelease == 'true' }}
         shell: bash
         env:
           AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          echo "::notice::Tagged ${AUTO_TAG_VERSION}; production left where it was because update_production_on_prerelease is false. Move it deliberately with scripts/create_production.sh when the candidate has been exercised."
+          echo "::notice::Tagged ${AUTO_TAG_VERSION}. production was not moved: it advances only for a final X.Y.Z. Exercise this candidate on a pilot consumer, then promote it by cutting release/${AUTO_TAG_VERSION%%-*}."

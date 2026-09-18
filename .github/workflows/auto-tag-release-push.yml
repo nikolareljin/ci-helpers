@@ -37,7 +37,8 @@ jobs:
     uses: ./.github/workflows/auto-tag-release.yml
     with:
       release_workflow: create-github-release.yml
-      # This repository cuts candidates to exercise them on a few consumers
-      # before roughly 275 references follow `production`. Tag the candidate;
-      # move production deliberately once it has been exercised.
-      update_production_on_prerelease: false
+      # This repository carries a floating `production` ref that roughly 275
+      # consumer references follow, so it opts into the move. A candidate is
+      # tagged but never moves `production` -- that is a rule in auto-tag.yml,
+      # not something set here.
+      update_production_tag: true

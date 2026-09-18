@@ -422,8 +422,6 @@ permissions:
 jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
-    with:
-      update_production_tag: false
 ```
 
 Auto-tag + auto-create GitHub Release (recommended):
@@ -466,7 +464,8 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
     with:
       release_workflow: create-github-release.yml
-      # update_production_tag: false  # set this if your repo does not use a floating production tag
+      # update_production_tag: true  # set this only if your repo carries a floating production tag
+      #                              # and ships scripts/create_production.sh
 ```
 
 After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
