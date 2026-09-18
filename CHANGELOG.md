@@ -2,7 +2,46 @@
 
 ## Unreleased
 
+### Added
+
+- **`ci.yml` gained an `install_command` input**, running before Lint. Every
+  other command input already existed there; this one did not, although
+  `pr-gate.yml` and eleven standalone workflows have had it since they were
+  written. Its absence is why several presets installed dependencies *inside*
+  their lint default — the only slot available.
+
+  Threaded through the thirteen presets that call the engine. Default is empty,
+  so no existing caller changes behaviour. `docker.yml` is deliberately left
+  out: it sets up no language toolchain and runs no lint, test or build, so an
+  install step there would have nothing to install with.
+
+- **A `self-test.yml`**, calling this repository's own presets by **relative
+  path** against committed fixtures — so a pull request editing a preset runs
+  the edited file rather than whatever `@production` holds. The pattern is
+  `docs-site.yml`'s, which already publishes this repository's site through its
+  own Pages preset.
+
+  It carries no `paths:` filter, deliberately: a filter that never matches the
+  files under test reports green without having run. Its assertion job treats a
+  **skipped** leg as a failure, because a skip is not a pass.
+
 ### Fixed
+
+- **A binary packer was installed in the lint step of every Python repository
+  with a `pyproject.toml`.** `python.yml` had no `install_command`, so
+  dependency installation lived in the default value of `lint_command` — and
+  that default ran `python -m pip install pyinstaller`, which is wrong for every
+  web service in the fleet. `python-scan.yml` carried the same string while
+  having a proper `install_command`, so the two Python workflows disagreed about
+  their own structure.
+
+  The worse half was silent: a consumer overriding `lint_command` to add a type
+  checker **lost dependency installation entirely**, and found out when tests
+  failed on imports rather than when linting changed.
+
+  Installation now lives in `install_command` and `lint_command` lints. The
+  regression fixture overrides `lint_command` and imports a declared dependency,
+  which fails with `ModuleNotFoundError` under the old arrangement.
 
 - **The React preset's test default could not pass on any consumer it targets.**
   `react.yml` and `react-scan.yml` defaulted `test_command` to

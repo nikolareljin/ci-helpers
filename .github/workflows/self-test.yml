@@ -1,0 +1,47 @@
+# REPO-LOCAL. Not a reusable workflow.
+#
+# Calls this repository's own presets by RELATIVE path against committed
+# fixtures, so a pull request editing a preset runs the edited file rather than
+# whatever @production happens to hold. Same reasoning as docs-site.yml, which
+# publishes this repository's site through its own pages preset.
+#
+# No `paths:` filter, deliberately: a filter that never matches the files under
+# test reports green without having run.
+name: self-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Overrides lint_command only. If installation still lived in that default,
+  # the dependency would be missing and the import in the fixture would fail.
+  python-install-survives-lint-override:
+    uses: ./.github/workflows/python.yml
+    with:
+      working_directory: tests/fixtures/python-install
+      python_version: "3.13"
+      lint_command: "python -c 'print(\"lint overridden; install must still have run\")'"
+      test_command: "python -m pip install pytest && python -m pytest -q"
+
+  assert-ran:
+    needs: [python-install-survives-lint-override]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A skipped leg is not a pass
+        env:
+          RESULT: ${{ needs.python-install-survives-lint-override.result }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            success) echo "python install leg passed" ;;
+            skipped) echo "::error::leg was skipped; a skip is not a pass"; exit 1 ;;
+            *)       echo "::error::leg result: $RESULT"; exit 1 ;;
+          esac

@@ -16,15 +16,20 @@ All commands run inside `inputs.working_directory` (default `"."`).
 
 Workflow: `.github/workflows/ci.yml`
 
-Purpose: Run lint, test, build, optional Docker, and optional E2E commands.
+Purpose: Run install, lint, test, build, optional Docker, and optional E2E commands.
 
 Execution order:
-1) Lint
-2) Test
-3) Build
-4) Docker
-5) E2E
-6) Extra
+1) Install
+2) Lint
+3) Test
+4) Build
+5) Docker
+6) E2E
+7) Extra
+
+`install_command` runs first so a caller can override `lint_command` without
+losing its dependencies. Before it existed, several presets installed inside
+their lint default, and overriding that default silently dropped the install.
 
 Inputs:
 
@@ -41,6 +46,7 @@ Inputs:
 - `php_version` (string, default `""`)
 - `rust_toolchain` (string, default `""`)
 - `rust_components` (string, default `""`)
+- `install_command` (string, default `""`)
 - `lint_command` (string, default `""`)
 - `test_command` (string, default `""`)
 - `build_command` (string, default `""`)
@@ -765,7 +771,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `python_version` (string, default `3.13`)
-- `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi`)
+- `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
 - `django_command` (string, default `if [ -f manage.py ]; then python manage.py test; fi`, only runs when Django is detected)

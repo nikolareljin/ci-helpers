@@ -17,9 +17,12 @@ on:
       python_version:
         type: string
         default: "3.13"
+      install_command:
+        type: string
+        default: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install .; fi"
       lint_command:
         type: string
-        default: "if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install pyinstaller && python -m pip install .; fi && python -m pip install ruff && ruff check ."
+        default: "python -m pip install ruff && ruff check ."
       test_command:
         type: string
         default: "python -m pip install pytest && python -m pytest"
@@ -45,6 +48,7 @@ jobs:
       concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       python_version: ${{ inputs.python_version }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}

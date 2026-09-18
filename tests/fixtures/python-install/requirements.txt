@@ -1,0 +1,4 @@
+# One tiny, stable, pure-Python dependency. The point is not what it does but
+# that importing it proves the install step ran: this fixture overrides
+# lint_command, which is where installation used to live.
+six==1.17.0

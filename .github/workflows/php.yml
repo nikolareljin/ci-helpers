@@ -20,6 +20,9 @@ on:
       node_version:
         type: string
         default: ""
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: "composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php"
@@ -71,6 +74,7 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       php_version: ${{ inputs.php_version }}
       node_version: ${{ inputs.node_version }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}

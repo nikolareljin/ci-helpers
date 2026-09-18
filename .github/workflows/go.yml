@@ -17,6 +17,9 @@ on:
       go_version:
         type: string
         default: "1.24"
+      install_command:
+        type: string
+        default: ""
       lint_command:
         type: string
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
@@ -45,6 +48,7 @@ jobs:
       concurrency_key: ${{ inputs.concurrency_key }}
       fetch_depth: ${{ inputs.fetch_depth }}
       go_version: ${{ inputs.go_version }}
+      install_command: ${{ inputs.install_command }}
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}
