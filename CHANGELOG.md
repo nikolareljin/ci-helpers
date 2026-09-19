@@ -60,6 +60,36 @@
   standing exemption in a secret scanner. `VENDOR_EXCLUDES` and
   `FORBIDDEN_PATHS` are kept in step, as the comment on each already required.
 
+## Unreleased
+
+### Added
+
+- **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
+  `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
+  this repository often enough that the circular-reference check refuses it. The
+  two projects reference each other constantly, so that is a recurring collision,
+  not bad luck. The question it answered is still worth answering, so the sync
+  now records it next to the pin instead — the changelog entries **between the
+  previous pin and the new one**, which is the question a reviewer actually has
+  when approving a hundred-file generated diff.
+
+  It lives in `vendor/` rather than `vendor/script-helpers/`, which is what makes
+  it work: the circular check greps the vendored tree only, and the upstream file
+  comparison compares that tree only. The notes quote upstream prose — four
+  mentions of this repository at `0.31.0` — and trip neither.
+
+  It is derived, not verified. Nothing gates it against being hand-edited, and
+  the file says so in its own header.
+
+### Fixed
+
+- **The sync could not rebuild the tree it replaces.**
+  `sync_script_helpers.sh` sources `helpers.sh` from `vendor/script-helpers`, so
+  deleting that directory — the obvious move when a vendored copy looks wrong —
+  broke the script that exists to restore it, on its first line. The only way out
+  was a manual `git checkout` of the directory being replaced. It now falls back
+  to plain output when the library is absent, and bootstraps from nothing.
+
 ## 2026-09-19 — v0.28.0
 
 ### Fixed
