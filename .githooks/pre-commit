@@ -14,3 +14,11 @@ fi
 # cheaper still than after a release -- wp-plugin-check/action.yml shipped
 # invalid and nothing noticed.
 python3 "$repo_root/scripts/check_workflow_yaml.py"
+
+# A notice, never a gate. vendor-check.yml deliberately does not test currency
+# -- an upstream release would turn every open pull request red for a reason
+# unrelated to the change under review -- and the same reasoning applies to a
+# commit. This only says that script-helpers has moved on; it is throttled to
+# once a day, silent when current, silent offline, and cannot fail the commit.
+# Run `./scripts/check_vendor_currency.sh --offer` to act on it.
+"$repo_root/scripts/check_vendor_currency.sh" || true
