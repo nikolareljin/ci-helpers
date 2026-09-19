@@ -2,7 +2,48 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A release candidate would have been published as the Latest release.**
+  `create-github-release.yml` passed no `prerelease` flag, so
+  `softprops/action-gh-release` defaulted it to `false` and GitHub marked the
+  candidate as the repository's **Latest** release — the version anyone landing
+  on the releases page sees as current.
+
+  That is the same mistake as letting a candidate advance a floating
+  `production` ref, on a different surface, and it would have shown up on the
+  first candidate this repository ever cut. A tag carrying a pre-release suffix
+  is now published with `prerelease: true` and `make_latest: false`, and says so
+  with a `::notice::`.
+
+  No caller changes behaviour: a final `X.Y.Z` gets `prerelease: false` and
+  `make_latest: true`, which is what the action already defaulted to, and no
+  repository has ever cut a tag matching the candidate pattern.
+
 ### Added
+
+- **`update-production.yml` — move a floating ref onto a tag by hand.** The
+  deliberate counterpart to automatic tagging, and independent of it: a
+  repository may have either, both or neither.
+
+  | | how `production` moves | when |
+  |---|---|---|
+  | automatic | `auto-tag.yml` with `update_production_tag: true` | a `release/X.Y.Z` merge, final versions only |
+  | manual | `update-production.yml` | whenever a human runs it and names a tag |
+
+  Manual and opt-in. Nothing calls it on a push, a merge or a schedule; a
+  repository gets it only by adding a small `workflow_dispatch` wrapper of its
+  own. Release candidates are deliberately accepted, because automatic tagging
+  never moves `production` for one — so this is how an exercised candidate is
+  promoted without waiting for a final `X.Y.Z`, and how a bad move is rolled
+  back onto an earlier tag.
+
+  Inputs: `tag` (required), `ref_name` (default `production`), `update_branch`,
+  `dry_run`, `runner`. Every run writes a job summary naming the target commit,
+  what the ref points at now — read from the remote, since a moved tag does not
+  update on a plain fetch — and whether the target is a pre-release. A wrapper
+  job can be pointed at a GitHub Environment with required reviewers to gate who
+  may run it.
 
 - **`ci.yml` gained an `install_command` input**, running before Lint. Every
   other command input already existed there; this one did not, although
@@ -24,6 +65,69 @@
   It carries no `paths:` filter, deliberately: a filter that never matches the
   files under test reports green without having run. Its assertion job treats a
   **skipped** leg as a failure, because a skip is not a pass.
+
+### Changed — BREAKING
+
+- **`production` now moves only for a final `X.Y.Z`, and only when asked.**
+  Two rules, which together make a release candidate safe to cut.
+
+  **1. A candidate never moves `production`.** `auto-tag.yml`'s version pattern
+  accepts `release/X.Y.Z-rcN` and `-rc.N`, and its production-move step was
+  guarded only on the version being non-empty — so merging a candidate tagged
+  it *and* pointed `production` at it, making it live the instant it merged,
+  which is the opposite of why a candidate is cut. A merged candidate is now
+  tagged so it can be exercised on a pilot consumer, and `production` stays
+  where it is. This is a rule, not an input: there is no configuration under
+  which a candidate advances `production`.
+
+  Promote a candidate by cutting `release/X.Y.Z` — with `CHANGELOG`, `VERSION`
+  and every other reference to the version updated to drop the `-rcN`. Merging
+  that tags `X.Y.Z` and moves `production`. A candidate merge emits a
+  `::notice::` naming the promotion branch, so a green run does not look like a
+  step that silently vanished.
+
+  The detection step now emits an `is_prerelease` output rather than each step
+  matching `rc` in its own condition, so the rule has one definition.
+
+  **2. `update_production_tag` now defaults to `false`.** Calling these
+  workflows buys you version tagging; moving a floating `production` ref is a
+  separate thing a repository asks for.
+
+  This is breaking for callers that relied on the old `true` default and want
+  the move — they must now pass `update_production_tag: true`. That line means
+  the same thing under either default, so it can land before this release does
+  and leave no window.
+
+  For most callers it is a fix. The step runs `./scripts/create_production.sh`,
+  which ci-helpers has never supplied and neither does script-helpers — it must
+  be in the consumer's own tree. Of the eight callers taking the default, five
+  ship no such script, so a `release/X.Y.Z` merge pushed the tag and then failed
+  the job at the final step; two of them hit it, five times between them, and
+  none of the five carries a `production` ref at all. It stayed unnoticed
+  because the step is reachable only on a `release/*` merge, so ordinary merges
+  skipped it and stayed green.
+
+  Since `update_production_tag: true` now asserts something checkable, the
+  Bootstrap step verifies `scripts/create_production.sh` is present **and
+  executable** — the workflow invokes it as `./scripts/create_production.sh`,
+  so a non-executable file fails just as surely as a missing one, and the two
+  cases say different things about what to fix.
+
+  Bootstrap now sits between version detection and tag creation, gated exactly
+  like the move it serves. Two things were wrong with where it was. It ran on
+  `update_production_tag` alone, with no version check, so an opted-in
+  repository initialised submodules on every push to its default branch — the
+  overwhelming majority of which are not releases. And its checks decide
+  whether the production move can succeed at all, so they have to run *before*
+  the tag is pushed: failing afterwards leaves a tag behind that someone has to
+  delete by hand, which is the very failure the guard exists to prevent.
+
+  Worth recording: `production-branch.yml` has always carried an rc guard, and
+  it never helped. That workflow is triggered by a tag push, and the tag is
+  pushed by `GITHUB_TOKEN`, which does not fire workflows — so on the automated
+  path it never ran. `auto-tag-release-push.yml` already duplicates two other
+  checks for exactly this reason; this was the third in that family, and the
+  only one nobody had noticed, because no repository has ever cut a candidate.
 
 ### Fixed
 

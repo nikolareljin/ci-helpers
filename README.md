@@ -96,6 +96,7 @@ jobs:
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/auto-tag.yml`: reusable tag-only workflow for release branches (least privilege — no `actions: write`)
 - `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches (adds an optional dispatch job; requires `actions: write`)
+- `.github/workflows/update-production.yml`: reusable **manual** workflow to move a floating ref (`production`) onto a tag you pick, including a release candidate
 - `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language
@@ -422,8 +423,6 @@ permissions:
 jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
-    with:
-      update_production_tag: false
 ```
 
 Auto-tag + auto-create GitHub Release (recommended):
@@ -466,7 +465,8 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
     with:
       release_workflow: create-github-release.yml
-      # update_production_tag: false  # set this if your repo does not use a floating production tag
+      # update_production_tag: true  # set this only if your repo carries a floating production tag
+      #                              # and ships scripts/create_production.sh
 ```
 
 After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.

@@ -1,0 +1,248 @@
+name: update-production
+
+# Move a floating ref (`production` by default) onto a tag you pick, by hand.
+#
+# This is the deliberate counterpart to auto-tag.yml. Automatic tagging never
+# moves `production` for a release candidate -- that is a rule there, not an
+# option -- so this is how a candidate that has been exercised on a pilot
+# consumer gets promoted without waiting for a final X.Y.Z, and how a bad move
+# gets rolled back onto an earlier tag.
+#
+# It is MANUAL and OPT-IN. Nothing calls it on a push, a merge or a schedule.
+# A repository gets it only by adding a small workflow_dispatch wrapper of its
+# own (see docs/workflows.md), and it does nothing until a human runs it and
+# names a tag.
+#
+# Requires `scripts/create_production.sh` in the calling repository -- the same
+# script auto-tag.yml uses. ci-helpers does not supply it to consumers.
+
+on:
+  # Consumers call this from their own workflow_dispatch wrapper.
+  workflow_call:
+    inputs:
+      tag:
+        description: >
+          Tag to point the floating ref at, e.g. 1.2.3 or 1.2.3-rc1. Release
+          candidates are deliberately allowed: promoting an exercised candidate
+          by hand is the main reason this exists. The tag must already exist on
+          the remote.
+        type: string
+        required: true
+      ref_name:
+        description: >
+          Name of the floating tag and branch to move (default: production).
+          create_production.sh refuses main, master and HEAD.
+        type: string
+        default: production
+      update_branch:
+        description: >
+          Move refs/heads/<ref_name> as well as refs/tags/<ref_name> (default
+          true). Set false for a tag-only move.
+        type: boolean
+        default: true
+      dry_run:
+        description: >
+          Resolve and report what would move, without pushing anything. Worth a
+          first run whenever the target is a candidate or a rollback.
+        type: boolean
+        default: false
+      runner:
+        description: "Runner label for the job."
+        type: string
+        default: ubuntu-latest
+
+  # So this repository can move its own refs from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to point the floating ref at (e.g. 1.2.3 or 1.2.3-rc1)"
+        type: string
+        required: true
+      ref_name:
+        description: "Floating tag/branch to move"
+        type: string
+        default: production
+      update_branch:
+        description: "Also move the branch, not just the tag"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Report what would move, push nothing"
+        type: boolean
+        default: false
+      runner:
+        description: "Runner label for the job."
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: write
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Two people promoting different tags at once would race to the same ref, and
+# the loser would win silently. Serialise per ref.
+concurrency:
+  group: update-production-${{ github.repository }}-${{ inputs.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  move:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+          if [[ ! -e "vendor/script-helpers" ]]; then
+            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
+            exit 1
+          fi
+          if [[ ! -f "scripts/create_production.sh" ]]; then
+            echo "::error::scripts/create_production.sh is missing. This workflow moves a floating ref by running that script from your repository; ci-helpers does not supply it."
+            exit 1
+          fi
+          if [[ ! -x "scripts/create_production.sh" ]]; then
+            echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
+            exit 1
+          fi
+
+      # inputs.tag reaches us from a manual dispatch, so it is untrusted text.
+      # It is read from the environment and never interpolated into a command,
+      # and it is checked against the characters git actually allows in a tag
+      # before anything is done with it.
+      - name: Validate and resolve
+        id: resolve
+        shell: bash
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ inputs.ref_name }}
+          UPDATE_BRANCH: ${{ inputs.update_branch }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${TARGET_TAG// /}" ]]; then
+            echo "::error::tag is empty."
+            exit 1
+          fi
+          if ! printf '%s' "$TARGET_TAG" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
+            echo "::error::tag '${TARGET_TAG}' contains characters not allowed here."
+            exit 1
+          fi
+          # ref_name is used as an ls-remote pattern below, so a glob
+          # character changes which ref is matched. Constrain it to the
+          # characters a ref name may contain before it is used anywhere.
+          if ! printf '%s' "$REF_NAME" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
+            echo "::error::ref_name '${REF_NAME}' contains characters not allowed here."
+            exit 1
+          fi
+          case "$REF_NAME" in
+            main|master|HEAD|refs/heads/main|refs/heads/master|"")
+              echo "::error::ref_name '${REF_NAME}' is refused."
+              exit 1
+              ;;
+          esac
+
+          # Not `|| true`: this fetch exists because the checkout's tag
+          # snapshot cannot be trusted, so proceeding on it after the fetch
+          # failed would defeat the point. create_production.sh refuses here
+          # for the same reason.
+          if ! git fetch --force origin "refs/tags/*:refs/tags/*" >/dev/null 2>&1; then
+            echo "::error::Failed to fetch tags from origin; refusing to resolve '${TARGET_TAG}' against a possibly stale checkout."
+            exit 1
+          fi
+
+          if ! target="$(git rev-parse -q --verify "refs/tags/${TARGET_TAG}^{commit}")"; then
+            echo "::error::tag '${TARGET_TAG}' does not exist. Push it first."
+            exit 1
+          fi
+
+          # A moved tag does not update on a plain fetch, so ask the remote
+          # rather than trusting whatever this checkout happens to hold.
+          # An annotated tag shows twice: refs/tags/X is the tag object and
+          # refs/tags/X^{} the commit it points at. Prefer the dereferenced
+          # line, so the comparison below is commit-to-commit either way.
+          # (`production` is lightweight today, but ref_name is an input.)
+          if ! ls_out="$(git ls-remote origin "refs/tags/${REF_NAME}" "refs/tags/${REF_NAME}^{}")"; then
+            echo "::error::Failed to query origin for refs/tags/${REF_NAME}."
+            exit 1
+          fi
+          # Compare ref names exactly: ls-remote patterns match on trailing path
+          # components, so a bare catch-all would report whichever ref happened
+          # to sort last.
+          current_commit="$(printf '%s\n' "$ls_out" \
+            | awk -v d="refs/tags/${REF_NAME}^{}" '$2 == d {print $1; exit}')"
+          if [[ -z "$current_commit" ]]; then
+            current_commit="$(printf '%s\n' "$ls_out" \
+              | awk -v n="refs/tags/${REF_NAME}" '$2 == n {print $1; exit}')"
+          fi
+
+          {
+            echo "target=${target}"
+            echo "current=${current_commit}"
+          } >> "$GITHUB_OUTPUT"
+
+          prerelease="no"
+          case "$TARGET_TAG" in *-*) prerelease="yes";; esac
+
+          {
+            echo "### Move \`${REF_NAME}\`"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| target tag | \`${TARGET_TAG}\` |"
+            echo "| target commit | \`${target}\` |"
+            echo "| \`${REF_NAME}\` is now | \`${current_commit:-<unset>}\` |"
+            echo "| pre-release | ${prerelease} |"
+            echo "| branch moved too | ${UPDATE_BRANCH} |"
+            echo "| dry run | ${DRY_RUN} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$current_commit" == "$target" ]]; then
+            echo "::notice::${REF_NAME} already points at ${TARGET_TAG} (${target}). Nothing to do."
+          fi
+
+      - name: Report only (dry run)
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ inputs.ref_name }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          CURRENT: ${{ steps.resolve.outputs.current }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Dry run. Would move ${REF_NAME} from ${CURRENT:-<unset>} to ${TARGET} (${TARGET_TAG}). Nothing was pushed."
+
+      - name: Move the floating ref
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ inputs.ref_name }}
+          UPDATE_BRANCH: ${{ inputs.update_branch }}
+        run: |
+          set -euo pipefail
+          # Built as an array in bash rather than as a conditional expression in
+          # YAML: in an Actions expression the empty string is falsy, so the
+          # obvious `x && '' || '--no-branch'` returns the flag in both cases.
+          args=(-t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags)
+          [[ "$UPDATE_BRANCH" == "true" ]] || args+=(--no-branch)
+          ./scripts/create_production.sh "${args[@]}"
+          echo "::notice::${REF_NAME} now points at ${TARGET_TAG}."
