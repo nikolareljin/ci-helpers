@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2026-09-19 — v0.28.0-rc1
 
 ### Fixed
 
