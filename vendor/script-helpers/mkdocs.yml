@@ -1,0 +1,195 @@
+site_name: script-helpers
+site_description: >-
+  Reusable Bash and PowerShell helpers — logging, docker, dialog, files, JSON,
+  ports, devices, packaging. Runs unchanged on macOS bash 3.2.
+site_url: https://nikolareljin.github.io/script-helpers/
+repo_url: https://github.com/nikolareljin/script-helpers
+repo_name: nikolareljin/script-helpers
+edit_uri: edit/main/docs/
+copyright: MIT licensed.
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  # No webfont request. Material otherwise emits a <link> to fonts.googleapis.com
+  # on every page, which is a third-party connection and a visitor-IP disclosure
+  # on a site whose whole premise is that it phones nobody. Type comes from the
+  # system stacks in docs/assets/extra.css.
+  font: false
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.tooltips
+  palette:
+    # Dark first, deliberately: this is command-line tooling, and Material falls
+    # back to the first entry when no media query matches.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+
+extra_css:
+  - assets/extra.css    # shared, byte-identical with ci-helpers
+  - assets/brand.css    # this repository's accent, and nothing else
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nikolareljin
+      name: GitHub
+  # No analytics key and no consent key, on purpose. There is nothing to
+  # consent to, which is the point.
+
+plugins:
+  # Material's bundled lunr index, built into site/search/search_index.json at
+  # build time. No service, no network, no key.
+  - search:
+      lang: en
+      # The default separator does not split on "." or "/", so `ci_defaults.sh`,
+      # `modules/adb.md` and `svg_rasterize_sizes` are indexed as single opaque
+      # tokens and a search for "rasterize" misses every one of them. This
+      # splits on "." (but not inside a decimal), on "/", and at camelCase
+      # boundaries — which is the whole vocabulary of these docs.
+      separator: '[\s​\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html            # required by the terminal hero wrapper
+  - tables
+  - toc:
+      permalink: "#"
+      toc_depth: 3
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+      # linenums is deliberately NOT global: nearly every block here is a
+      # copy-paste-ready command, where numbers are noise. Opt in per block
+      # with ```bash linenums="1".
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  # pymdownx.snippets is deliberately absent. It is the one markdown extension
+  # that can pull an arbitrary file from disk into the published site, and
+  # nothing here needs it.
+
+# Every one of these is a warning by default and an ERROR under --strict, which
+# is what the build command uses. This IS the link checker: a moved page, a dead
+# anchor, or a new docs/modules/*.md that nobody added to nav all fail the build.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+  nav:
+    omitted_files: warn
+    not_found: warn
+
+# Belt-and-braces only. The real mechanism is that nothing unpublishable lives
+# in docs/ in the first place — scripts/ and requirements-docs.txt are outside
+# docs_dir and so cannot be copied into the site at all.
+exclude_docs: |
+  requirements*.txt
+  *.tmp
+  *.bak
+  *.orig
+  *.rej
+  *.swp
+  *.swo
+  *~
+
+nav:
+  - Home: README.md
+  - Getting started:
+      - Installation: installation.md
+      - Usage: usage.md
+      - CI default versions: ci_defaults.md
+      - Packaging: packaging.md
+      - Bash compatibility: bash-compatibility.md
+  - Modules:
+      - api.md
+      - Loader and output:
+          - helpers: modules/helpers.md
+          - logging: modules/logging.md
+          - help: modules/help.md
+          - dialog: modules/dialog.md
+          - traps: modules/traps.md
+      - System and environment:
+          - os: modules/os.md
+          - env: modules/env.md
+          - file: modules/file.md
+          - deps: modules/deps.md
+          - ports: modules/ports.md
+          - hosts: modules/hosts.md
+          - certs: modules/certs.md
+          - clipboard: modules/clipboard.md
+          - browser: modules/browser.md
+          - serve: modules/serve.md
+      - Containers:
+          - docker: modules/docker.md
+          - docker_install: modules/docker_install.md
+      - Languages and build:
+          - python: modules/python.md
+          - rust: modules/rust.md
+          - gradle: modules/gradle.md
+          - flutter: modules/flutter.md
+          - json: modules/json.md
+      - Devices:
+          - adb: modules/adb.md
+          - android: modules/android.md
+          - ios: modules/ios.md
+          - screencap: modules/screencap.md
+      - Release and packaging:
+          - version: modules/version.md
+          - manifest: modules/manifest.md
+          - changelog: modules/changelog.md
+          - packaging: modules/packaging.md
+          - package_publish: modules/package_publish.md
+          - git_branches: modules/git_branches.md
+          - ci_defaults (module): modules/ci_defaults.md
+      - Media and services:
+          - svg: modules/svg.md
+          - ollama: modules/ollama.md
+          - hub: modules/hub.md
+          - cloudflare: modules/cloudflare.md
+  - About: about.md
+  - ci-helpers ↗: https://nikolareljin.github.io/ci-helpers/
