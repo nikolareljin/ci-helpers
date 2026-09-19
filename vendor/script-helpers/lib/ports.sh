@@ -3,9 +3,54 @@
 
 PORT_DETECTION_ALLOW_SUDO=${PORT_DETECTION_ALLOW_SUDO:-false}
 
+# The awk programs below run under whatever awk the system has: mawk on
+# Debian/Ubuntu, BSD awk on macOS. They used gawk's three-argument match(),
+# which the others reject as a syntax error -- on stderr, discarded -- so the
+# ss path found nothing and a port in use was reported free. POSIX match()
+# with RSTART/RLENGTH and split()'s return value work everywhere.
+#
+# ss: users:(("name",pid=123,fd=4)) -> "name (PID 123)".
+# The $ fields are awk's, not the shell's.
+# shellcheck disable=SC2016
+_PORTS_SS_DETAILS_AWK='$4 ~ ":" port "$" {
+  if (match($0, /users:\(\("[^"]+",pid=[0-9]+/)) {
+    s = substr($0, RSTART + 9, RLENGTH - 9)
+    name = s; sub(/",pid=.*/, "", name)
+    pid = s; sub(/.*,pid=/, "", pid)
+    printf "%s (PID %s)\n", name, pid
+  } else { print "unknown process" }
+}'
+# ss: every pid=N on a matching line (a socket shared by several processes).
+# shellcheck disable=SC2016
+_PORTS_SS_PID_AWK='$4 ~ ":" port "$" {
+  rest = $0
+  while (match(rest, /pid=[0-9]+/)) {
+    print substr(rest, RSTART + 4, RLENGTH - 4)
+    rest = substr(rest, RSTART + RLENGTH)
+  }
+}'
+# netstat -ltnp: column 7 is PID/name, or "-" when not visible.
+# shellcheck disable=SC2016
+_PORTS_NETSTAT_DETAILS_AWK='$4 ~ port "$" {
+  n = split($7, parts, "/")
+  if (parts[1] != "-" && parts[1] != "") {
+    if (n > 1) { printf "%s (PID %s)\n", parts[2], parts[1] } else { printf "PID %s\n", parts[1] }
+  }
+}'
+
+# Internal: is $1 a single TCP port, 1-65535? A range such as 1-65535, or an
+# empty string, reaches lsof as -iTCP:1-65535 / -iTCP: and matches every
+# listener on the machine -- which a kill-port caller would then kill.
+_ports__valid_port() {
+  [[ "${1:-}" =~ ^0*[0-9]{1,5}$ ]] || return 1
+  (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
 # Usage: list_port_usage_details <port>; prints process/user details for listeners.
 list_port_usage_details() {
-  local port="$1" line
+  local port="${1:-}" line
+  _ports__valid_port "$port" || return 1
+  port=$((10#$port))
   local -a details=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
@@ -22,22 +67,22 @@ list_port_usage_details() {
 
   if [[ ${#details[@]} -eq 0 ]] && command -v ss >/dev/null 2>&1; then
     while IFS= read -r line; do details+=("$line"); done < <(
-      ss -Hltpn 2>/dev/null | awk -v port="$port" '$4 ~ ":" port "$" { if (match($0, /users:\(\("([^\"]+)",pid=([0-9]+)/, arr)) { printf "%s (PID %s)\n", arr[1], arr[2]; } else { print "unknown process"; } }'
+      ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_DETAILS_AWK"
     )
     if [[ ${#details[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r line; do details+=("$line"); done < <(
-        run_with_optional_sudo true ss -Hltpn 2>/dev/null | awk -v port="$port" '$4 ~ ":" port "$" { if (match($0, /users:\(\("([^\"]+)",pid=([0-9]+)/, arr)) { printf "%s (PID %s)\n", arr[1], arr[2]; } else { print "unknown process"; } }'
+        run_with_optional_sudo true ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_DETAILS_AWK"
       )
     fi
   fi
 
   if [[ ${#details[@]} -eq 0 ]] && command -v netstat >/dev/null 2>&1; then
     while IFS= read -r line; do details+=("$line"); done < <(
-      netstat -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" { split($7, parts, "/"); if (parts[1] != "-" && parts[1] != "") { if (length(parts) > 1) { printf "%s (PID %s)\n", parts[2], parts[1]; } else { printf "PID %s\n", parts[1]; } } }'
+      netstat -ltnp 2>/dev/null | awk -v port=":$port" "$_PORTS_NETSTAT_DETAILS_AWK"
     )
     if [[ ${#details[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r line; do details+=("$line"); done < <(
-        run_with_optional_sudo true netstat -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" { split($7, parts, "/"); if (parts[1] != "-" && parts[1] != "") { if (length(parts) > 1) { printf "%s (PID %s)\n", parts[2], parts[1]; } else { printf "PID %s)\n", parts[1]; } } }'
+        run_with_optional_sudo true netstat -ltnp 2>/dev/null | awk -v port=":$port" "$_PORTS_NETSTAT_DETAILS_AWK"
       )
     fi
   fi
@@ -51,7 +96,9 @@ list_port_usage_details() {
 
 # Usage: list_port_listener_pids <port>; prints unique listener PIDs.
 list_port_listener_pids() {
-  local port="$1"; local -a pids=()
+  local port="${1:-}"; local -a pids=()
+  _ports__valid_port "$port" || return 1
+  port=$((10#$port))
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
   if command -v lsof >/dev/null 2>&1; then
@@ -67,11 +114,11 @@ list_port_listener_pids() {
 
   if [[ ${#pids[@]} -eq 0 ]] && command -v ss >/dev/null 2>&1; then
     while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-      ss -Hltpn 2>/dev/null | awk -v port="$port" '$4 ~ ":" port "$" { if (match($0, /pid=([0-9]+)/, arr)) { print arr[1]; } }'
+      ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_PID_AWK"
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-        run_with_optional_sudo true ss -Hltpn 2>/dev/null | awk -v port="$port" '$4 ~ ":" port "$" { if (match($0, /pid=([0-9]+)/, arr)) { print arr[1]; } }'
+        run_with_optional_sudo true ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_PID_AWK"
       )
     fi
   fi
@@ -88,12 +135,13 @@ list_port_listener_pids() {
   fi
 
   if [[ ${#pids[@]} -eq 0 ]] && command -v fuser >/dev/null 2>&1; then
+    # fuser prints every PID on one line; one per element, not one element.
     while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-      fuser "${port}/tcp" 2>/dev/null
+      fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
-        run_with_optional_sudo true fuser "${port}/tcp" 2>/dev/null
+        run_with_optional_sudo true fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
       )
     fi
   fi

@@ -18,3 +18,11 @@ __pycache__/
 # Ignore Claude memory files outside the repo root
 CLAUDE.md
 !/CLAUDE.md
+
+# MkDocs documentation site build output.
+# The toolchain virtualenv lives in the user cache by default (see
+# scripts/docs_site.sh); this covers the case where DOCS_VENV points it back
+# into the tree.
+/site/
+/.cache/
+/.venv-docs/

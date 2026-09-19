@@ -54,9 +54,11 @@ git_branches_default_branch() {
 #              is already in base -- a squash or rebase merge, or a cherry-pick
 #   unmerged   the branch carries work base does not have
 #   unrelated  the two share no history at all
-#   unknown    the squash probe could not be built, so the question was not
-#              answered. Deliberately distinct from `unmerged`: both keep the
-#              branch, but only one of them means "I checked".
+#   unknown    the squash probe could not be built, or `git cherry` matched
+#              the patch but the byte-exact confirmation did not (or could not
+#              run), so the question was not answered. Deliberately distinct
+#              from `unmerged`: both keep the branch, but only one of them
+#              means "I checked and base lacks this work".
 #
 # Returns 2 on bad arguments. Prints to stdout and nothing else, so it can be
 # used in a command substitution without a subshell swallowing a diagnostic.
@@ -117,11 +119,120 @@ git_branches_merge_state() {
   cherry="$(git cherry "$base" "$synth" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
   [[ -n "$cherry" ]] || { printf 'unknown\n'; return 0; }
 
-  if printf '%s\n' "$cherry" | grep -q '^-'; then
+  if ! printf '%s\n' "$cherry" | grep -q '^-'; then
+    printf 'unmerged\n'; return 0
+  fi
+
+  # `git cherry` said the patch is upstream, but its patch-ids ignore
+  # whitespace. A branch that landed and then received a whitespace-only commit
+  # -- a re-indent, which in Python or YAML changes what the code does -- still
+  # matches, and would be deleted with that commit on it. Confirm the match
+  # byte for byte before calling it squashed.
+  #
+  # A cherry match the byte-exact check cannot confirm is `unknown`, not
+  # `unmerged`: the patch is upstream give or take whitespace, so "carries work
+  # the base does not have" would overstate what was checked.
+  if _git_branches__verbatim_match "$base" "$mb" "$synth"; then
     printf 'squashed\n'
   else
-    printf 'unmerged\n'
+    printf 'unknown\n'
   fi
+}
+
+# Succeed when the probe commit's patch, compared byte for byte, equals the
+# patch of a non-merge commit on base since the merge base. Fail when it does
+# not, or when the comparison cannot be made.
+#
+# Only base commits touching the probe's paths are diffed: a commit with an
+# identical patch necessarily touches exactly those paths, so the limit cannot
+# lose a match, and it keeps a repository with a long, binary-heavy base from
+# diffing every commit on it. `--full-history` so a side branch merged back
+# with a TREESAME merge is not simplified away. The names come from `-z`
+# listing and are passed as literal pathspecs, so a name with a space, a
+# newline or pathspec magic characters is matched as itself; a probe touching
+# very many paths is compared against the unlimited list instead of risking
+# the argument-length limit.
+#
+# Plumbing on both sides with the same flags, so diff configuration cannot make
+# the two patches differ. `--full-index` puts full blob ids in the patch, which
+# is what tells two different binary changes to the same path apart; no
+# `--binary`, which would inline every binary blob on base into the pipe.
+_git_branches__verbatim_match() {
+  local base="$1" mb="$2" synth="$3" path n=0
+  local -a paths
+  paths=()
+
+  while IFS= read -r -d '' path; do
+    paths[n]="$path"
+    n=$((n + 1))
+  done < <(git diff-tree -r -z --name-only --no-commit-id "$synth" 2>/dev/null)
+  # Beyond this many paths skip the limit rather than risk the argument limit.
+  if (( n > 1000 )); then n=0; paths=(); fi
+
+  if git patch-id --verbatim </dev/null >/dev/null 2>&1; then
+    _git_branches__patch_id_match "$base" "$mb" "$synth" "$n" ${paths[@]+"${paths[@]}"}
+  else
+    _git_branches__diff_hash_match "$base" "$mb" "$synth" "$n" ${paths[@]+"${paths[@]}"}
+  fi
+}
+
+# Print the non-merge commits on base since the merge base that touch the given
+# paths (all of them when no path is given).
+_git_branches__candidates() {
+  local base="$1" mb="$2" n="$3"; shift 3
+  if (( n > 0 )); then
+    git --literal-pathspecs rev-list --no-merges --full-history "${mb}..${base}" -- "$@"
+  else
+    git rev-list --no-merges "${mb}..${base}"
+  fi
+}
+
+# git 2.39+: compare `git patch-id --verbatim` ids.
+_git_branches__patch_id_match() {
+  local base="$1" mb="$2" synth="$3" n="$4" want ids
+  shift 4
+
+  want="$(git diff-tree -p --full-index "$synth" 2>/dev/null | git patch-id --verbatim 2>/dev/null)" || return 1
+  want="${want%% *}"
+  [[ -n "$want" ]] || return 1
+
+  ids="$(_git_branches__candidates "$base" "$mb" "$n" "$@" 2>/dev/null \
+         | git diff-tree -p --full-index --stdin 2>/dev/null \
+         | git patch-id --verbatim 2>/dev/null)" || return 1
+
+  printf '%s\n' "$ids" | awk -v want="$want" '$1 == want { found = 1 } END { exit !found }'
+}
+
+# Older git: no `patch-id --verbatim`, so hash each patch after removing what a
+# verbatim patch-id ignores -- the leading commit id line, hunk header line
+# numbers and function context, and the `index` line of a text change (a
+# landed change whose file differs elsewhere has other blob ids but the same
+# patch). A binary change has no patch text, so its `index` line, which holds
+# the blob ids, is kept for it.
+_git_branches__diff_hash_match() {
+  local base="$1" mb="$2" synth="$3" n="$4" want commit got list
+  shift 4
+
+  want="$(_git_branches__normalised_patch "$synth" | git hash-object --stdin 2>/dev/null)" || return 1
+  [[ -n "$want" ]] || return 1
+
+  list="$(_git_branches__candidates "$base" "$mb" "$n" "$@" 2>/dev/null)" || return 1
+  for commit in $list; do
+    got="$(_git_branches__normalised_patch "$commit" | git hash-object --stdin 2>/dev/null)" || return 1
+    [[ "$got" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+_git_branches__normalised_patch() {
+  git diff-tree -p --full-index "$1" 2>/dev/null | awk '
+    NR == 1                              { next }
+    /^index /                            { idx = $0; next }
+    /^Binary files /                     { print idx; print; next }
+    /^GIT binary patch/                  { print idx; print; next }
+    /^@@ -[0-9,]* [+][0-9,]* @@/          { print "@@"; next }
+                                         { print }
+  '
 }
 
 # True when the branch has commits its upstream does not.

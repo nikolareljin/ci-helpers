@@ -4,8 +4,32 @@
 
 $_SHLIB_HOSTS_FILE = "$env:SystemRoot\System32\drivers\etc\hosts"
 
+# Both parameters are written into the hosts file, elevated. A newline in
+# either wrote a second, unrelated entry -- any name pointed at any address --
+# so a domain is limited to hostname characters (the rule lib/hosts.sh uses)
+# and an address must parse as one. \A and \z rather than ^ and $: .NET's $
+# also matches before a trailing newline. The ValidateScript blocks throw their
+# own message because Windows PowerShell 5.1 has no ErrorMessage= on the
+# attribute.
+
 function add_hosts_entry {
-    param([string]$Domain, [string]$Ip = '127.0.0.1')
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateScript({
+            if ($_ -cmatch '\A[A-Za-z0-9_]([A-Za-z0-9._-]*[A-Za-z0-9_])?\z') { return $true }
+            throw "'$_' is not a valid hostname (letters, digits, '.', '-', '_')."
+        })]
+        [string]$Domain,
+        [ValidateScript({
+            $parsed = $null
+            $ok = [System.Net.IPAddress]::TryParse($_, [ref]$parsed) -and (
+                ($_ -cmatch '\A[0-9]{1,3}(\.[0-9]{1,3}){3}\z') -or
+                ($_ -cmatch '\A[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*\z'))
+            if ($ok) { return $true }
+            throw "'$_' is not an IPv4 or IPv6 address."
+        })]
+        [string]$Ip = '127.0.0.1'
+    )
     if (-not (Get-Command is_admin -ErrorAction SilentlyContinue) -or -not (is_admin)) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Admin elevation required to modify hosts file." }
         throw "Admin elevation required"
@@ -22,7 +46,17 @@ function add_hosts_entry {
 }
 
 function remove_hosts_entry {
-    param([string]$Domain)
+    # Mandatory and non-blank: an empty domain makes the pattern below
+    # "(^|\s)(\s|$)", which matches every aligned hosts line, and this runs
+    # elevated.
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateScript({
+            if ($_ -cmatch '\A[A-Za-z0-9_]([A-Za-z0-9._-]*[A-Za-z0-9_])?\z') { return $true }
+            throw "'$_' is not a valid hostname (letters, digits, '.', '-', '_')."
+        })]
+        [string]$Domain
+    )
     if (-not (Get-Command is_admin -ErrorAction SilentlyContinue) -or -not (is_admin)) {
         throw "Admin elevation required"
     }

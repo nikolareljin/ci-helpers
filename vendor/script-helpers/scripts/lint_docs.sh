@@ -33,9 +33,36 @@ api_index="docs/api.md"
 api_modules=""
 if [[ -f "$api_index" ]]; then
   while IFS= read -r line; do
-    # Match lines like: - name — ./modules/name.md OR - name — ./modules/name.md
-    if [[ "$line" =~ \-\ ([a-zA-Z0-9_-]+)[[:space:]]+\—?[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md ]]; then
-      mod="${BASH_REMATCH[1]}"; api_modules="${api_modules}${mod}"$'\n'
+    # Two anchored branches, not one loose pattern. The docs site needs real
+    # links; the plain-text form must keep passing while anything still uses it:
+    #
+    #   - [name](./modules/name.md)     a link, which renders on the site
+    #   - name — ./modules/name.md      plain text, the original
+    #
+    # Anchored at both ends on purpose. A single permissive pattern with
+    # optional brackets also matched a commented-out line, a line inside a
+    # fenced block, a table cell, and prose merely mentioning `./modules/x.md`
+    # -- so a worked example in this very file could satisfy the index for a
+    # module that had been dropped from it. Each branch below is stricter than
+    # the original pattern was, not looser.
+    mod=""; target=""
+    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]\[([a-zA-Z0-9_-]+)\]\(\./modules/([a-zA-Z0-9_-]+)\.md\)[[:space:]]*$ ]]; then
+      mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^[[:space:]]*-[[:space:]]([a-zA-Z0-9_-]+)[[:space:]]+—[[:space:]]+\./modules/([a-zA-Z0-9_-]+)\.md[[:space:]]*$ ]]; then
+      mod="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"
+    fi
+    if [[ -n "$mod" ]]; then
+      # The name and the page it points at must agree. Without this,
+      # `- [rust](./modules/gradle.md)` passed every gate: `rust` counted as
+      # indexed, mkdocs --strict saw two files that both exist, and the
+      # published index quietly sent the reader to the wrong page. Thirty-six
+      # near-identical bracketed lines is exactly the shape that gets
+      # copy-pasted wrong.
+      if [[ "$mod" != "$target" ]]; then
+        error "docs/api.md: '${mod}' links to ./modules/${target}.md"
+      else
+        api_modules="${api_modules}${mod}"$'\n'
+      fi
     fi
   done < "$api_index"
 fi

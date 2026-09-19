@@ -103,7 +103,13 @@ if [[ "$USE_DOCKER" == "true" ]]; then
   fi
   CMDS+=("export PATH=\"/tmp/.local/bin:\$PATH\" && $TEST_CMD")
 
-  FULL_CMD="$(IFS=' && '; echo "${CMDS[*]}")"
+  # Joined explicitly: "${CMDS[*]}" uses only the first character of IFS, so
+  # IFS=' && ' joined with a single space and every step ran as arguments to
+  # the first command.
+  FULL_CMD=""
+  for step in "${CMDS[@]}"; do
+    FULL_CMD="${FULL_CMD:+$FULL_CMD && }$step"
+  done
   log_info "$FULL_CMD"
   "${DOCKER_CMD[@]}" "$FULL_CMD"
 else

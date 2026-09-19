@@ -162,7 +162,20 @@ ollama_install_cli() {
 #   $1 - target directory (default: ./ollama-get-models)
 #   $2 - repo URL (default: webfarmer/ollama-get-models)
 # Returns: print path to models JSON on success
+#
+# Callers capture stdout as the path (json_file="$(ollama_prepare_models_index)"),
+# so the path is the ONLY thing printed there. Progress, warnings, git and the
+# generator's own output all go to stderr: on stdout they became part of the
+# "path" and every later step failed on a file that does not exist.
 ollama_prepare_models_index() {
+  local repo_dir="${1:-ollama-get-models}"
+  _ollama_prepare_models_index_work "$@" >&2 || return 1
+  echo "$repo_dir/code/ollama_models.json"
+}
+
+# Internal: the work behind ollama_prepare_models_index; its stdout is not the
+# result and is sent to stderr by the caller.
+_ollama_prepare_models_index_work() {
   local repo_dir="${1:-ollama-get-models}"
   local repo_url="${2:-$(_ollama_default_repo_url)}"
   local json_path
@@ -239,9 +252,16 @@ ollama_prepare_models_index() {
     print_error "Models JSON not found at: $json_path"
     return 1
   fi
-  # Sort deterministically by name
-  jq -S 'sort_by(.name)' "$json_path" >"$json_path.tmp" && mv "$json_path.tmp" "$json_path"
-  echo "$json_path"
+  # Sort deterministically by name, in whichever of the two shapes the
+  # validator accepts. A failed sort leaves the index as it was and fails:
+  # it used to leave a stray .tmp behind and still report success.
+  if ! jq -S 'if type == "array" then sort_by(.name) else .models |= sort_by(.name) end' \
+      "$json_path" >"$json_path.tmp"; then
+    rm -f "$json_path.tmp"
+    print_error "Failed to sort models index: $json_path"
+    return 1
+  fi
+  mv "$json_path.tmp" "$json_path" || { rm -f "$json_path.tmp"; return 1; }
 }
 
 # Return path to models JSON for a repo directory (does not generate)
@@ -511,7 +531,8 @@ ollama_runtime_type() {
 
   runtime="$(echo "$runtime" | tr '[:upper:]' '[:lower:]')"
   if [[ "$runtime" != "local" && "$runtime" != "docker" ]]; then
-    print_warning "Invalid ollama_runtime '$runtime'; defaulting to 'local'."
+    # stderr: the caller captures stdout as the runtime name.
+    print_warning "Invalid ollama_runtime '$runtime'; defaulting to 'local'." >&2
     runtime="local"
   fi
 
@@ -1065,16 +1086,41 @@ ollama_run_model() {
 }
 
 # Update key=value in .env (create or replace line); portable sed/awk approach.
+#
+# The key is compared literally (a regex test found "a.b" in "aXb=" and then
+# the literal replace wrote nothing), values travel through ENVIRON (awk -v
+# turned backslashes into escapes), a newline is refused (it would add a line
+# to a file that load_env sources), and a replaced file keeps its mode (a 0600
+# .env holding a token came back 0644) and, when it is a symlink, stays one.
 ollama_update_env() {
-  local env_file="${1:-.env}" key="$2" value="$3"
+  local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
   if [[ -z "$key" ]]; then
     print_error "env key is required"
     return 1
   fi
-  touch "$env_file"
-  if grep -qE "^${key}=" "$env_file"; then
+  case "$key$value" in
+    *$'\n'*|*$'\r'*)
+      print_error "env key and value must not contain a newline or carriage return"
+      return 1
+      ;;
+  esac
+  touch "$env_file" || return 1
+  if _OLLAMA_ENV_KEY="$key" awk 'BEGIN{FS="="; k=ENVIRON["_OLLAMA_ENV_KEY"]} $1==k{found=1; exit} END{exit !found}' "$env_file"; then
     # Replace line
-    awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' "$env_file" >"$env_file.tmp" && mv "$env_file.tmp" "$env_file"
+    local tmp
+    tmp="$(mktemp "${env_file}.XXXXXX")" || return 1
+    if ! _OLLAMA_ENV_KEY="$key" _OLLAMA_ENV_VALUE="$value" \
+        awk 'BEGIN{FS=OFS="="; k=ENVIRON["_OLLAMA_ENV_KEY"]; v=ENVIRON["_OLLAMA_ENV_VALUE"]} $1==k{$0=k"="v} {print}' \
+        "$env_file" >"$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+    # Written back through the path rather than mv'd over it, as hub_write_env
+    # does: mv replaced a symlinked .env with a regular file, and copying the
+    # mode read off the link made that file 0777. `cat >` follows the link and
+    # keeps the inode, so the link, the target and its mode all stay.
+    cat "$tmp" >"$env_file" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
   else
     printf "%s=%s\n" "$key" "$value" >>"$env_file"
   fi

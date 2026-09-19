@@ -118,17 +118,89 @@ _changelog__section() {
   # The line is padded with a space on both sides so the boundaries are plain
   # bracket expressions. `(^|[^0-9.])` needs `^` inside an alternation, which
   # not every awk and grep accept; GNU grep also matched it mid-line.
+  #
+  # Only the FIRST version in a header is the section's version. A header such as
+  # `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section, and
+  # matching anywhere in the line returned it as the notes for 0.9.0. A version
+  # is two or more dot-separated numbers (`## [1.2] - date` is a section too),
+  # and a dotted date (`## 2026.09.01 — v1.1.9`) is skipped over rather than
+  # taken as the version -- unless it is the only candidate in the header.
+  #
+  # A `##` line inside a fenced code block is content, not a header: a section
+  # documenting markdown ended at its example, and everything after the fence
+  # was silently dropped from the release notes. Fences follow CommonMark: up to
+  # three spaces of indent, then three or more backticks or tildes; a backtick
+  # fence's info string cannot contain a backtick (so ```make test``` at column
+  # 0 is inline code, not a fence); and a fence closes only on a line of the
+  # same character, at least as long as the opener, followed by nothing but
+  # spaces or tabs.
+  #
+  # One deliberate departure: CommonMark runs an unclosed fence to the end of
+  # the document. In a changelog that is a typo, and honouring it would hide
+  # every older release header -- each of those versions would silently have no
+  # section. So a fence opener with no closer after it is ordinary text. That
+  # needs lookahead, hence the whole file is read before any line is judged;
+  # changelogs are small.
   CHANGELOG_WANT="[^0-9.]${escaped}[^0-9A-Za-z.+-]" awk '
-    BEGIN { want = ENVIRON["CHANGELOG_WANT"] }
-    /^##[[:space:]]/ {
-      if (found) exit
-      line = $0
-      sub(/^##[[:space:]]+/, "", line)
-      if ((" " line " ") ~ want) found = 1
-      next
+    # Sets fch/flen and returns 1 when s opens a fence.
+    function fence_open(s,   t, ind, c, cnt) {
+      t = s; ind = 0
+      while (ind < 3 && substr(t, 1, 1) == " ") { t = substr(t, 2); ind++ }
+      c = substr(t, 1, 1)
+      if (c != "`" && c != "~") return 0
+      cnt = 0
+      while (substr(t, cnt + 1, 1) == c) cnt++
+      if (cnt < 3) return 0
+      if (c == "`" && index(substr(t, cnt + 1), "`") > 0) return 0
+      fch = c; flen = cnt
+      return 1
     }
-    found { print }
-    END { exit found ? 0 : 1 }
+    function fence_close(s, c, len,   t, ind, cnt) {
+      t = s; ind = 0
+      while (ind < 3 && substr(t, 1, 1) == " ") { t = substr(t, 2); ind++ }
+      cnt = 0
+      while (substr(t, cnt + 1, 1) == c) cnt++
+      if (cnt < 3 || cnt < len) return 0
+      return substr(t, cnt + 1) ~ /^[ \t]*$/
+    }
+    # The version a header names: its first version-like token that is not a
+    # dotted date, or its first token when every one is.
+    function header_version(line,   rest, tok, first) {
+      rest = line; first = ""
+      while (match(rest, /[0-9]+(\.[0-9]+)+[0-9A-Za-z.+-]*/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        if (first == "") first = tok
+        if (tok !~ /^[0-9][0-9][0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]$/) return tok
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      return first
+    }
+    { L[NR] = $0 }
+    END {
+      want = ENVIRON["CHANGELOG_WANT"]
+      n = NR
+      i = 1
+      while (i <= n) {
+        if (fence_open(L[i])) {
+          for (j = i + 1; j <= n; j++) if (fence_close(L[j], fch, flen)) break
+          if (j <= n) { for (k = i; k <= j; k++) infence[k] = 1; i = j + 1; continue }
+        }
+        i++
+      }
+      found = 0
+      for (i = 1; i <= n; i++) {
+        if (!(i in infence) && L[i] ~ /^##[[:space:]]/) {
+          if (found) break
+          line = L[i]
+          sub(/^##[[:space:]]+/, "", line)
+          v = header_version(line)
+          if (v != "" && (" " v " ") ~ want) found = 1
+          continue
+        }
+        if (found) print L[i]
+      }
+      exit found ? 0 : 1
+    }
   ' "$file"
 }
 
@@ -146,8 +218,12 @@ changelog_new_section() {
   local -a sections=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --date) date="${2:-}"; shift 2 ;;
-      --section) sections+=("${2:-}"); shift 2 ;;
+      --date)
+        [[ $# -ge 2 ]] || { log_error "changelog_new_section: $1 requires a value"; return 2; }
+        date="${2:-}"; shift 2 ;;
+      --section)
+        [[ $# -ge 2 ]] || { log_error "changelog_new_section: $1 requires a value"; return 2; }
+        sections+=("${2:-}"); shift 2 ;;
       -*) log_error "changelog_new_section: unknown option $1"; return 2 ;;
       *) if [[ -z "$file" ]]; then file="$1"; else version="$1"; fi; shift ;;
     esac

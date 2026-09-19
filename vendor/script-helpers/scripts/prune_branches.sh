@@ -16,6 +16,7 @@
 #   --keep <pattern>  Never touch branches matching this glob. Repeatable.
 #   --no-fetch        Skip the fetch. Faster, and wrong if the remote moved:
 #                     a stale base makes a landed branch look unmerged.
+#                     Refused with --remote --apply, as is a failed fetch.
 #   -h, --help        Show this help message.
 # EXAMPLE: bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
 # ----------------------------------------------------
@@ -75,7 +76,7 @@ while [[ $# -gt 0 ]]; do
     --remote-name)  REMOTE_NAME="${2:?--remote-name needs a name}"; shift 2 ;;
     --keep)         KEEP+=("${2:?--keep needs a pattern}"); shift 2 ;;
     --no-fetch)     DO_FETCH=false; shift ;;
-    -h|--help)      sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)      sed -n '2,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)              log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -96,13 +97,31 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 # branches look unmerged too, and a base fetched from the wrong remote is worse
 # still. The fetch is on by default and prunes, so remote-tracking refs for
 # branches deleted on the forge disappear rather than being reported as live.
+FETCHED=false
 if [[ "$DO_FETCH" == "true" ]]; then
   if git remote get-url "$REMOTE_NAME" >/dev/null 2>&1; then
     log_info "fetching $REMOTE_NAME (use --no-fetch to skip)"
-    git fetch --quiet --prune "$REMOTE_NAME" || log_warn "fetch failed; continuing with what is already local"
+    if git fetch --quiet --prune "$REMOTE_NAME"; then
+      FETCHED=true
+    else
+      log_warn "fetch failed; continuing with what is already local"
+    fi
   else
     log_warn "no remote named $REMOTE_NAME; continuing with local refs only"
   fi
+fi
+
+# Deleting remote branches from unfetched remote-tracking refs is how a branch
+# that received commits after its merge gets deleted: the stale ref still
+# says "merged". A report from stale refs is harmless; acting on one is not.
+if [[ "$DO_REMOTE" == "true" && "$APPLY" == "true" && "$FETCHED" != "true" ]] &&
+   git remote get-url "$REMOTE_NAME" >/dev/null 2>&1; then
+  if [[ "$DO_FETCH" == "true" ]]; then
+    log_error "refusing --remote --apply: the fetch from $REMOTE_NAME failed, so remote branches cannot be classified from current refs"
+  else
+    log_error "refusing --remote --apply with --no-fetch: remote branches must be classified from freshly fetched refs"
+  fi
+  exit 1
 fi
 
 if [[ -z "$BASE" ]]; then
@@ -152,6 +171,7 @@ printf -- '%s\n' "--------------------------------------------------------------
 
 deletable_local=()
 deletable_remote=()
+deletable_remote_sha=()
 kept=0
 
 # Decide one branch: print its row, and return 0 only when it is disposable.
@@ -221,8 +241,12 @@ if [[ "$DO_REMOTE" == "true" ]]; then
     [[ -n "$ref" ]] || continue
     branch="${ref#"${REMOTE_NAME}/"}"
     [[ "$branch" == "HEAD" ]] && continue
-    if classify_row "$branch" remote "refs/remotes/$ref"; then
+    # Record the tip that was classified, so the deletion can be refused if
+    # the branch moved on the remote since.
+    sha="$(git rev-parse --verify --quiet "refs/remotes/$ref")" || sha=""
+    if classify_row "$branch" remote "refs/remotes/$ref" && [[ -n "$sha" ]]; then
       deletable_remote+=("$branch")
+      deletable_remote_sha+=("$sha")
     else
       kept=$((kept + 1))
     fi
@@ -251,8 +275,15 @@ for branch in ${deletable_local[@]+"${deletable_local[@]}"}; do
   fi
 done
 
-for branch in ${deletable_remote[@]+"${deletable_remote[@]}"}; do
-  if git push --quiet "$REMOTE_NAME" --delete "$branch" 2>/dev/null; then
+i=0
+while [[ $i -lt ${#deletable_remote[@]} ]]; do
+  branch="${deletable_remote[$i]}"
+  sha="${deletable_remote_sha[$i]}"
+  i=$((i + 1))
+  # Leased on the tip that was classified: a branch that gained commits on the
+  # remote after this run looked at it is refused by the remote, not deleted.
+  if git push --quiet --force-with-lease="refs/heads/${branch}:${sha}" \
+       "$REMOTE_NAME" ":refs/heads/${branch}" 2>/dev/null; then
     log_info "deleted ${REMOTE_NAME}/$branch"
   else
     log_error "could not delete ${REMOTE_NAME}/$branch"

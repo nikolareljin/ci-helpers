@@ -230,6 +230,11 @@ if v is not None and not isinstance(v, (dict, list)):
 # exist -- an empty list is still a 200). A 401 or 403 is a wrong key, and is
 # reported as one: telling someone "the hub is not serving" when they pasted
 # the wrong key sends them to restart a hub that is fine.
+#
+# A 200 counts only with a JSON body: a single-page app or a captive portal
+# answers every path with 200 and HTML, and that is not a hub accepting a key.
+# The key reaches curl on stdin as a config line (`-K -`), never in argv,
+# where every other user on the machine could read it with ps.
 hub_check_key() {
   local url="${1:-}" key="${2:-}"
   [[ -n "$url" && -n "$key" ]] || { log_error "hub_check_key: URL and KEY required"; return 1; }
@@ -238,11 +243,26 @@ hub_check_key() {
     *$'\r'*|*$'\n'*) log_error "hub_check_key: KEY must not contain CR or LF"; return 1 ;;
   esac
   url="${url%/}"
-  local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
-    -H "X-API-Key: $key" "$url/v1/documents?limit=1" 2>/dev/null)" || return 1
+  # curl config syntax: inside double quotes, \\ and \" are the escapes.
+  local esc="${key//\\/\\\\}"
+  esc="${esc//\"/\\\"}"
+  local out code ctype
+  out="$(printf 'header = "X-API-Key: %s"\n' "$esc" \
+    | curl -sS -K - -o /dev/null -w '%{http_code} %{content_type}' --connect-timeout 5 --max-time 10 \
+      -H 'Accept: application/json' "$url/v1/documents?limit=1" 2>/dev/null)" || return 1
+  code="${out%% *}"
+  ctype="$(printf '%s' "${out#* }" | tr '[:upper:]' '[:lower:]')"
+  # The media type without its parameters; RFC 7231 allows whitespace before
+  # the `;` (`application/json ; charset=utf-8`).
+  ctype="${ctype%%;*}"
+  ctype="${ctype%"${ctype##*[![:space:]]}"}"
   case "$code" in
-    200) return 0 ;;
+    200)
+      case "$ctype" in
+        application/json|application/*+json) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
     401|403) return 2 ;;
     *) return 1 ;;
   esac
@@ -254,24 +274,50 @@ hub_check_key() {
 # dotfile-managed config is a normal setup) mv replaces the link with a
 # regular file and the real target keeps its old contents, so the write
 # appears to succeed and changes nothing anyone reads. `cat >` follows the
-# link and keeps the inode. Same reasoning as adb_wireless_write_env.
+# link and keeps the inode -- and the file's mode. Same reasoning as
+# adb_wireless_write_env. A file this creates is 0600: it holds an API key.
+#
+# The file is sourced (load_env), so a value is shell input. Values made only
+# of URL, key, id and path characters are written bare, exactly as before;
+# anything else is quoted so the shell and dotenv both read it literally --
+# single quotes, or double quotes for a value holding an apostrophe but no
+# $ ` \ or ". A value that fits neither is refused (return 1) rather than
+# written in a form some reader would expand or read differently -- which
+# includes any doubled backslash, a trailing backslash and `${`.
 hub_write_env() {
-  local file="${1:-}" key="${2:-}" value="${3:-}" tmp=""
+  local file="${1:-}" key="${2:-}" value="${3:-}" tmp="" line=""
   [[ -n "$file" && -n "$key" ]] || { log_error "hub_write_env: FILE and KEY required"; return 1; }
   [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || { log_error "hub_write_env: '$key' is not an environment variable name"; return 1; }
   case "$value" in
     *$'\n'*|*$'\r'*) log_error "hub_write_env: a value cannot contain a newline or carriage return"; return 1 ;;
   esac
+  local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
+  if [[ "$value" =~ $bare_re ]]; then
+    line="$key=$value"
+  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *"\${"* ]]; then
+    # Single quotes are not literal to python-dotenv in three cases, and each
+    # is left to the refusal below: \\ reads as one backslash; a trailing \
+    # escapes the closing quote, so the line is dropped (and docker compose
+    # rejects the whole file); ${NAME} is expanded even inside single quotes.
+    line="$key='$value'"
+  elif [[ "$value" != *[\"\$\`\\]* ]]; then
+    line="$key=\"$value\""
+  else
+    log_error "hub_write_env: the value for $key cannot be quoted so that the shell and dotenv read it the same"
+    return 1
+  fi
   if [[ ! -e "$file" ]]; then
     mkdir -p "$(dirname "$file")" || return 1
-    printf '# Local environment. Gitignored -- do not commit.\n\n' >"$file" || return 1
+    ( umask 077 && printf '# Local environment. Gitignored -- do not commit.\n\n' >"$file" ) || return 1
   fi
   tmp="$(mktemp)" || return 1
-  awk -v k="$key" -v v="$value" '
-    BEGIN { pat = "^[[:space:]]*" k "=" }
-    $0 ~ pat { print k "=" v; seen = 1; next }
+  # The line travels through ENVIRON, not -v: awk -v expands backslash
+  # escapes, so a literal \n in a value became a real newline in the file.
+  _HUB_WRITE_LINE="$line" awk -v k="$key" '
+    BEGIN { pat = "^[[:space:]]*" k "="; line = ENVIRON["_HUB_WRITE_LINE"] }
+    $0 ~ pat { print line; seen = 1; next }
     { print }
-    END { if (!seen) print k "=" v }
+    END { if (!seen) print line }
   ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
   cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
@@ -451,7 +497,16 @@ hub_setup_dialog() {
     # Beside the client's own checkout, under the name the caller gives
     # (HUB_CLONE_NAME) -- the library does not know what the hub's repository
     # is called, and must not.
-    [[ -n "$hub_dir" ]] || hub_dir="$(cd "$(dirname "$env_file")" && cd .. 2>/dev/null && pwd)/${HUB_CLONE_NAME:-hub}"
+    if [[ -z "$hub_dir" ]]; then
+      # Guarded: when the env file's directory does not exist yet, the cd
+      # failed, the substitution was empty, and the clone went to /hub.
+      local env_parent
+      if ! env_parent="$(cd "$(dirname "$env_file")" 2>/dev/null && cd .. 2>/dev/null && pwd)" || [[ -z "$env_parent" ]]; then
+        log_error "Cannot place the hub clone beside $(dirname "$env_file"): that directory does not exist. Create it, or set HUB_DIR (or pass --hub-dir)."
+        return 1
+      fi
+      hub_dir="$env_parent/${HUB_CLONE_NAME:-hub}"
+    fi
     [[ -n "$repo_url" ]] || repo_url="$(resolve_env_value HUB_REPO_URL "" "$env_file")"
     if [[ ! -d "$hub_dir" && -z "$repo_url" ]]; then
       if [[ "$ui" == "none" ]]; then
@@ -510,6 +565,18 @@ hub_setup_dialog() {
   name="$(hub_probe_field "$body" name)"
   version="$(hub_probe_field "$body" version)"
   instance_id="$(hub_probe_field "$body" instance_id)"
+  # Any 200 with a body passes hub_probe; a web app or captive portal on that
+  # port is not a hub, and nothing it says should be recorded.
+  if [[ -z "$name" && -z "$version" ]]; then
+    log_error "Something answered at $url/v1/service, but not a corpus hub (no name or version in the reply)."
+    return 1
+  fi
+  # The id comes from the remote end and lands in a file that is sourced;
+  # anything outside an id's alphabet is not recorded.
+  if [[ -n "$instance_id" && ! "$instance_id" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+    log_warn "The hub reported an instance_id with unexpected characters; not recording HUB_INSTANCE_ID."
+    instance_id=""
+  fi
   log_info "Hub at $url: ${name:-?} ${version:-?}${instance_id:+ (instance $instance_id)}"
 
   # --- a key it accepts -------------------------------------------------------------

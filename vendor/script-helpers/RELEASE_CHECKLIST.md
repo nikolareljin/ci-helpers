@@ -14,9 +14,14 @@ Versioning and releases
   - Then run `scripts/pin_production.sh <version>` to move `production` for this manual flow.
 - GitHub Actions creates a release for pushed tag with auto-generated notes
 - `production` branch is auto-moved to the new tag by release automation in the same workflow run that creates the tag on `main`.
-- Manual fallback (or rollback) to a specific tag:
-  - `scripts/pin_production.sh <version>`
-  - If a rollback is needed, fast-forward `production` to a previous tag.
+- Manual move to a specific tag:
+  - Forward: `scripts/pin_production.sh <version>`
+  - Rollback: `scripts/pin_production.sh <older-version> --allow-rewind`
+  - A rollback is not a fast-forward, so it needs `--allow-rewind`. Without the flag the move is
+    refused, not attempted — it used to be attempted, report success, and change nothing.
+  - Add `--dry-run` to see what would move before it moves.
+  - Release automation never passes `--allow-rewind`: rolling `production` back is a deliberate act
+    by a person, never something a release run decides to do.
 
 Downstream projects
 -------------------

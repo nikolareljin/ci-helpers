@@ -69,8 +69,12 @@ while [[ $# -gt 0 ]]; do
     --no-docker) USE_DOCKER=false; shift ;;   # accepted for symmetry with ci_*.sh
     --skip-security) SKIP_SECURITY=true; shift ;;
     --list) LIST_ONLY=true; shift ;;
-    --stack) WANTED_STACKS+=("${2:-}"); shift 2 ;;
-    --dir) PROJECT_DIR="${2:-}"; shift 2 ;;
+    # No `set -e` here, so a failed `shift 2` on a trailing flag would leave
+    # $1 in place and loop forever. Check for the value first.
+    --stack) [[ $# -ge 2 ]] || { echo "--stack needs a value" >&2; exit 2; }
+             WANTED_STACKS+=("$2"); shift 2 ;;
+    --dir) [[ $# -ge 2 ]] || { echo "--dir needs a value" >&2; exit 2; }
+           PROJECT_DIR="$2"; shift 2 ;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -116,12 +120,151 @@ _is_pruned() {
   return 1
 }
 
+# A path the repository itself ignores is not a project: a stale local copy left
+# beside the real one is the common case. Only git knows, so ask it -- and treat
+# every other outcome as "not ignored", because failing open detects one project
+# too many, while failing closed silently drops a real one.
+#
+# Note it consults the index, so a file force-added under an ignored directory
+# still reports "not ignored" and is still detected. That is the behaviour we
+# want: the repository tracks it, so it is ours. Do not add --no-index.
+_is_git_ignored() {
+  [[ "${_PREFLIGHT_IN_GIT_REPO:-}" == "1" ]] || return 1
+  git -C "$PROJECT_DIR" check-ignore -q -- "$1" 2>/dev/null
+}
+
+# Someone else's repository, nested inside this one. A submodule is *tracked*,
+# so `check-ignore` correctly answers "not ignored" and `_is_pruned` does not
+# name it -- yet its contents are upstream code this gate must never lint, test
+# or install into. Left detected, the pre-push hook builds a virtualenv inside
+# the submodule working tree and installs upstream's dependencies, which dirties
+# the superproject and fails on code that is not ours.
+#
+# A submodule worktree has `.git` as a *file* (a gitdir pointer), where an
+# ordinary repository has a directory -- so this needs no subprocess.
+_is_submodule_path() {
+  local d="${1#./}"
+  d="$(dirname "$d")"
+  while [[ -n "$d" && "$d" != "." && "$d" != "/" ]]; do
+    [[ -f "$PROJECT_DIR/$d/.git" ]] && return 0
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+
+# True when this project is inside a git work tree. Resolved once: the answer
+# cannot change during a run, and asking per marker doubled the git calls.
+_preflight__detect_git() {
+  _PREFLIGHT_IN_GIT_REPO=0
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+    _PREFLIGHT_IN_GIT_REPO=1
+  return 0
+}
+
+# Is <key> a key of the top-level JSON object in <file>?
+#
+# A substring grep for '"workspaces"' also matches it as a value -- a
+# `"keywords": ["monorepo", "workspaces"]` would declare a workspace that does
+# not exist, and every sibling package would then be dropped from the gate
+# without a word. Tracking brace depth costs one awk and removes the class.
+#
+# POSIX awk only: no gensub, no length(array), no \s. Escaped quotes inside
+# strings are removed first so they cannot be read as delimiters.
+_preflight__has_top_level_key() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v k="$key" '
+    {
+      line = $0; gsub(/\\"/, "", line)
+      n = length(line)
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (instr) {
+          if (c == "\"") { instr = 0; closed = 1 } else cur = cur c
+          continue
+        }
+        if (c == "\"") { instr = 1; cur = ""; strdepth = depth; closed = 0; continue }
+        # A string followed by a colon is a key, and its depth is where it began
+        # -- which is why depth is read at the string, not at end of line. A
+        # compact one-line object is back to depth 0 by then.
+        if (closed && c == ":") { if (strdepth == 1 && cur == k) found = 1; closed = 0 }
+        else if (c != " " && c != "\t") closed = 0
+        if (c == "{" || c == "[") depth++
+        else if (c == "}" || c == "]") depth--
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' "$file" 2>/dev/null
+}
+
+# Does <file> declare a Cargo workspace?
+#
+# `[workspace]` may be indented (cargo accepts it) and must not be matched
+# inside a multi-line string. Anchoring on a whole line that is exactly the
+# table header, optionally followed by a comment, covers both.
+_preflight__has_cargo_workspace() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  awk '
+    /^[ \t]*\[workspace\][ \t]*(#.*)?$/ { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$file" 2>/dev/null
+}
+
+# Does the project at <outer> actually build the one at <inner>?
+#
+# Only true where the outer project's own build system is told about the inner
+# one. A workspace root does install and test its members, so checking both runs
+# the same tests twice. Nothing else does: a directory merely containing another
+# is not a build relationship, and treating it as one is how sibling projects
+# disappear from the gate entirely.
+#
+# Deliberately loose for node and rust: it asks whether the outer declares a
+# workspace at all, not whether the inner matches its globs. Glob membership is
+# the stricter test, but every workspace in this fleet nests its members, so the
+# looser rule keeps behaviour identical for them while fixing everything else.
+_preflight__owns() {
+  local stack="$1" outer="$2" inner="$3" root
+  # A build relationship needs containment first.
+  [[ "$outer" != "$inner" ]] || return 1
+  if [[ "$outer" == "." ]]; then
+    root="$PROJECT_DIR"
+  else
+    case "$inner" in "$outer"/*) ;; *) return 1 ;; esac
+    root="$PROJECT_DIR/$outer"
+  fi
+  case "$stack" in
+    node)
+      # npm and yarn declare members in package.json; pnpm uses its own file,
+      # and four of this fleet's five workspaces use only the latter.
+      [[ -f "$root/pnpm-workspace.yaml" ]] && return 0
+      _preflight__has_top_level_key "$root/package.json" workspaces && return 0
+      return 1
+      ;;
+    rust)
+      _preflight__has_cargo_workspace "$root/Cargo.toml" && return 0
+      return 1
+      ;;
+    *)
+      # python, go, php, flutter, gradle, ios: no construct by which a project
+      # at the root builds a sibling directory. Go modules in particular are
+      # independent build units however they are nested.
+      return 1
+      ;;
+  esac
+}
+
 detect_stacks() {
   local marker dir
   local -a pairs=() flutter_dirs=()
 
+  _preflight__detect_git
+
   while IFS= read -r marker; do
     _is_pruned "$marker" && continue
+    _is_submodule_path "$marker" && continue
+    _is_git_ignored "$marker" && continue
     dir="$(dirname "$marker")"; dir="${dir#./}"; [[ -n "$dir" ]] || dir="."
     case "$(basename "$marker")" in
       pubspec.yaml)                       pairs+=("flutter	$dir"); flutter_dirs+=("$dir") ;;
@@ -150,6 +293,11 @@ detect_stacks() {
   done
   while IFS= read -r podfile; do
     _is_pruned "$podfile" && continue
+    # The same three filters as the marker loop above. Applying them to one loop
+    # and not the other let a gitignored stale copy back in as an ios project,
+    # and an ios check is an Xcode build -- the slowest step in the run.
+    _is_submodule_path "$podfile" && continue
+    _is_git_ignored "$podfile" && continue
     pdir_ios="$(dirname "$podfile")"; pdir_ios="${pdir_ios#./}"
     [[ -n "$pdir_ios" ]] || pdir_ios="."
     # A Podfile lives in the ios/ folder; the project it belongs to is above it.
@@ -178,7 +326,19 @@ detect_stacks() {
     if [[ "$stack" == "gradle" ]]; then
       for other in "${flutter_dirs[@]-}"; do
         [[ -n "$other" ]] || continue
-        [[ "$other" == "." || "$pdir" == "$other" || "$pdir" == "$other"/* ]] && { skip=1; break; }
+        # Only the Gradle tree *belonging to* this Flutter app. This condition
+        # used to include `"$other" == "."`, which with an app at the repository
+        # root dropped every Gradle project anywhere in the tree -- a standalone
+        # wear/ or automotive/ module was never built and the run still passed.
+        # That is the same defect the same-stack pass below was fixed for.
+        [[ "$pdir" == "$other" ]] && { skip=1; break; }
+        if [[ "$other" == "." ]]; then
+          # Everything is under the root, so containment alone proves nothing;
+          # a Flutter app at the root owns android/ and nothing else.
+          [[ "$pdir" == "android" || "$pdir" == android/* ]] && { skip=1; break; }
+        elif [[ "$pdir" == "$other"/* ]]; then
+          skip=1; break
+        fi
       done
     fi
     [[ "$skip" -eq 1 ]] && continue
@@ -192,8 +352,10 @@ detect_stacks() {
     for other in "${kept[@]+"${kept[@]}"}"; do
       ostack="${other%%	*}"; odir="${other#*	}"
       [[ "$ostack" == "$stack" && "$odir" != "$pdir" ]] || continue
-      # $pdir sits inside $odir — the outer project owns it.
-      if [[ "$odir" == "." || "$pdir" == "$odir"/* ]]; then skip=1; break; fi
+      # Drop $pdir only when $odir's build system genuinely builds it. This
+      # used to also drop every project of the stack whenever one sat at the
+      # root, which silently removed sibling projects from the gate.
+      if _preflight__owns "$stack" "$odir" "$pdir"; then skip=1; break; fi
     done
     [[ "$skip" -eq 1 ]] && continue
     printf '%s\n' "$pair"
@@ -207,7 +369,9 @@ detect_stacks() {
 read_preflight_config() {
   local file="$PROJECT_DIR/.preflight" stack dir
   [[ -f "$file" ]] || return 1
-  while read -r stack dir _; do
+  # `|| [[ -n "$stack" ]]` keeps a last line that has no trailing newline:
+  # read returns non-zero for it even though it filled the variables.
+  while read -r stack dir _ || [[ -n "$stack" ]]; do
     [[ -n "$stack" ]] || continue
     [[ "$stack" == \#* ]] && continue
     [[ " $KNOWN_STACKS " == *" $stack "* ]] || {
@@ -221,7 +385,11 @@ read_preflight_config() {
 DETECTED=()
 CONFIGURED=false
 if [[ -f "$PROJECT_DIR/.preflight" ]]; then
-  while IFS= read -r line; do [[ -n "$line" ]] && DETECTED+=("$line"); done < <(read_preflight_config)
+  # Captured rather than read from a process substitution, whose exit status
+  # is lost: a misspelled stack used to be dropped silently, with every line
+  # before it still run.
+  PREFLIGHT_CONFIG="$(read_preflight_config)" || exit 2
+  while IFS= read -r line; do [[ -n "$line" ]] && DETECTED+=("$line"); done <<< "$PREFLIGHT_CONFIG"
   [[ ${#DETECTED[@]} -gt 0 ]] || { log_error "preflight: .preflight is present but lists no usable projects"; exit 2; }
   CONFIGURED=true
 else

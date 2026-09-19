@@ -14,6 +14,7 @@
 #      Gradle:   https://hub.docker.com/_/gradle/tags (pick version-jdkNN)
 #      Go:       https://hub.docker.com/_/golang/tags (pick 1.x)
 #      Gitleaks: https://github.com/gitleaks/gitleaks/releases
+#      Wrangler: https://www.npmjs.com/package/wrangler?activeTab=versions
 #
 # 2. Update the version variables below.
 # 3. Commit with: git commit -m "chore: bump ci default versions"
@@ -51,3 +52,10 @@ CI_DEFAULT_BASH32_IMAGE="${CI_DEFAULT_BASH32_IMAGE:-bash}"
 # -- Gitleaks (security scanning) --
 CI_DEFAULT_GITLEAKS_VERSION="${CI_DEFAULT_GITLEAKS_VERSION:-v8.30.0}"
 CI_DEFAULT_GITLEAKS_IMAGE="${CI_DEFAULT_GITLEAKS_IMAGE:-zricethezav/gitleaks}"
+
+# -- Wrangler (Cloudflare deploys) --
+# Not an image: this is the version `lib/cloudflare.sh` hands to `npx` when a
+# project has no wrangler of its own. A project with a lockfile gets the version
+# it was tested against instead, which is always the better answer -- this is
+# the floor for projects that have none.
+CI_DEFAULT_WRANGLER_VERSION="${CI_DEFAULT_WRANGLER_VERSION:-4.42.0}"

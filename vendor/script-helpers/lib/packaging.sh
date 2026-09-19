@@ -56,10 +56,10 @@ pkg_trim() {
 # Usage: pkg_join_list <list> <separator>
 # Joins a | delimited list with the given separator.
 pkg_join_list() {
-  local list="$1" separator="$2" item out=""
+  local list="$1" separator="$2" item out="" items
   local IFS='|'
   read -r -a items <<< "$list"
-  for item in "${items[@]}"; do
+  for item in ${items[@]+"${items[@]}"}; do
     item="$(pkg_trim "$item")"
     [[ -z "$item" ]] && continue
     if [[ -n "$out" ]]; then
@@ -73,10 +73,10 @@ pkg_join_list() {
 # Usage: pkg_quote_list <list>
 # Quotes each item from a | delimited list for shell arrays.
 pkg_quote_list() {
-  local list="$1" item out=""
+  local list="$1" item out="" items
   local IFS='|'
   read -r -a items <<< "$list"
-  for item in "${items[@]}"; do
+  for item in ${items[@]+"${items[@]}"}; do
     item="$(pkg_trim "$item")"
     [[ -z "$item" ]] && continue
     out+="'$item' "
@@ -87,10 +87,10 @@ pkg_quote_list() {
 # Usage: pkg_render_lines <prefix> <list>
 # Renders lines with prefix for each item in a | delimited list.
 pkg_render_lines() {
-  local prefix="$1" list="$2" item out=""
+  local prefix="$1" list="$2" item out="" items
   local IFS='|'
   read -r -a items <<< "$list"
-  for item in "${items[@]}"; do
+  for item in ${items[@]+"${items[@]}"}; do
     item="$(pkg_trim "$item")"
     [[ -z "$item" ]] && continue
     out+="${prefix}${item}"$'\n'

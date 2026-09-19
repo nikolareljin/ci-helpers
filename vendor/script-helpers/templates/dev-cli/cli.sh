@@ -50,7 +50,7 @@ declare -a DEV_ARGS=()
 parse_dev_options() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      android|ios|host|backend|frontend|linux|web|macos|windows)
+      android|ios|host|backend|frontend|linux|web|macos|windows|cloudflare)
         DEV_TARGET="$1"; shift ;;
       # Checked before shifting: `shift 2` with one argument left returns
       # non-zero, and set -e would kill the process before the validation below
@@ -61,6 +61,18 @@ parse_dev_options() {
       --user)
         [[ $# -ge 2 ]] || { log_error "--user needs a profile id, e.g. --user 0"; exit 2; }
         DEV_USER="$2"; shift 2 ;;
+      # Options the forwarded scripts take a value for: preflight's --stack and
+      # --dir, screencap's --platform, --out, --seconds, --size and --bitrate.
+      # The value is passed through with its flag, so a value that happens to
+      # be a target word (`./dev preflight --stack ios`, `./dev screenshot
+      # --out web`) is not taken as the target and the flag left dangling.
+      # A next word starting with `-` is another option, not the value: taking
+      # it would swallow `--help` or `--release` (`./dev preflight --stack
+      # --help` ran preflight). The flag is then passed on alone for the script
+      # to reject as missing its value.
+      --stack|--dir|--platform|--out|--seconds|--size|--bitrate|--env|--config|--dist|--status-path|--build-command|--command|--version-file|--source)
+        DEV_ARGS+=("$1"); shift
+        if [[ $# -gt 0 && "$1" != -* ]]; then DEV_ARGS+=("$1"); shift; fi ;;
       --release) DEV_RELEASE=true; shift ;;
       --verbose) DEV_VERBOSE=true; shift ;;
       # Asking a verb for help must not run the verb. Without this, `./dev
@@ -87,23 +99,64 @@ not_applicable() {
 # Delegated to preflight, which is the one implementation of it. Emits
 # "<stack>\t<dir>" lines.
 
-dev_projects() {
-  bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true
+# Detect once per ./dev invocation. Detection cannot change while one command
+# runs, and every caller asked again: `./dev install` alone asked five times --
+# dev_is_flutter, then dev_has_stack and dev_stack_dir for python and node --
+# so one command spawned five preflight subprocesses to answer one question.
+#
+# The guard tests a separate flag rather than the cache being non-empty, because
+# a repository with no detected stack caches an empty string and would otherwise
+# be re-detected on every call: the cheapest case would pay the most.
+_dev_projects_ensure() {
+  [[ "${_DEV_PROJECTS_CACHED:-}" == "1" ]] && return 0
+  # CI cleared for this call only: preflight refuses to run under CI=true, and
+  # with its error discarded every nested project went undetected in CI. --list
+  # only detects; it runs no checks.
+  _DEV_PROJECTS_CACHE="$(CI="" bash "$SCRIPT_HELPERS_DIR/scripts/preflight.sh" --list 2>/dev/null || true)"
+  _DEV_PROJECTS_CACHED=1
 }
 
-dev_has_stack() { dev_projects | grep -q "^$1	"; }
+dev_projects() {
+  _dev_projects_ensure
+  printf '%s\n' "$_DEV_PROJECTS_CACHE"
+}
 
-# Returns 1 when the stack is absent so callers can fall back. awk exits 0 when
-# it matches nothing, so `dev_stack_dir x || echo .` would otherwise be dead
+# The callers below must not put dev_projects on the left of a pipe or inside a
+# command substitution: both run it in a subshell, where the cache it fills is
+# discarded when that subshell exits, so every call would detect again and the
+# memoization above would do nothing. They match the cached string in this shell
+# instead -- which also drops the grep and awk each call used to spawn.
+dev_has_stack() {
+  _dev_projects_ensure
+  case $'\n'"$_DEV_PROJECTS_CACHE"$'\n' in
+    *$'\n'"$1"$'\t'*) return 0 ;;
+  esac
+  return 1
+}
+
+# Returns 1 when the stack is absent so callers can fall back. awk exited 0 when
+# it matched nothing, so `dev_stack_dir x || echo .` would otherwise be dead
 # code and the caller would receive an empty directory.
 dev_stack_dir() {
-  local dir
-  dir="$(dev_projects | awk -F'\t' -v s="$1" '$1==s {print $2; exit}')"
-  [[ -n "$dir" ]] || return 1
-  printf '%s\n' "$dir"
+  local want="$1" stack dir
+  _dev_projects_ensure
+  # A here-string keeps the loop in this shell; a pipe would not.
+  while IFS=$'\t' read -r stack dir || [[ -n "$stack" ]]; do
+    [[ "$stack" == "$want" ]] || continue
+    [[ -n "$dir" ]] || return 1
+    printf '%s\n' "$dir"
+    return 0
+  done <<< "$_DEV_PROJECTS_CACHE"
+  return 1
 }
 
-dev_is_flutter() { [[ -f pubspec.yaml ]] || dev_has_stack flutter; }
+# Ask the detector first, so the cache is filled in this shell rather than
+# inside whichever command substitution happens to run next. With the file test
+# first, a Flutter app at the repository root short-circuits, dev_has_stack
+# never runs here, and the first fill lands in a `$(dev_stack_dir ...)` subshell
+# and is discarded -- which made the memoization worth 5->2 instead of 5->1 on
+# exactly the repositories this template targets.
+dev_is_flutter() { dev_has_stack flutter || [[ -f pubspec.yaml ]]; }
 dev_is_android() { dev_has_stack gradle || [[ -d android ]]; }
 
 # --- verbs -----------------------------------------------------------------
@@ -367,12 +420,29 @@ _deploy_android() {
   fi
 }
 
+# Deploy to Cloudflare. Everything after the target word is handed to
+# cloudflare_deploy untouched, so this stays a pass-through rather than a second
+# place where deploy options are enumerated and then drift.
+#
+# The same function is what a CI workflow calls through its deploy_command, so
+# the laptop and the pipeline run one sequence, not two that must be kept in
+# step by hand.
+_deploy_cloudflare() {
+  shlib_import cloudflare
+  local -a args=()
+  args=("${DEV_ARGS[@]+"${DEV_ARGS[@]}"}")
+  # --env is required by cloudflare_deploy and has no safe default: guessing an
+  # environment is how a staging deploy reaches production.
+  cloudflare_deploy "${args[@]+"${args[@]}"}"
+}
+
 verb_deploy() {
   declare -f project_deploy >/dev/null && { project_deploy; return; }
   case "${DEV_TARGET:-android}" in
-    android) _deploy_android ;;
-    ios)     _deploy_ios ;;
-    *) not_applicable "deploy ${DEV_TARGET}" "deploy installs on a device; targets are android and ios" ;;
+    android)    _deploy_android ;;
+    ios)        _deploy_ios ;;
+    cloudflare) _deploy_cloudflare ;;
+    *) not_applicable "deploy ${DEV_TARGET}" "targets are android, ios and cloudflare" ;;
   esac
 }
 
@@ -479,7 +549,8 @@ Core
   run           Start the app in the foreground.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
-  deploy        Build, then install and launch on a connected device.
+  deploy        Build, then install and launch on a connected device,
+                or deploy to Cloudflare with `deploy cloudflare --env <name>`.
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
 
@@ -490,8 +561,18 @@ Mobile
   logs          Stream filtered device logs.
   release       Bump the version across manifests and open a CHANGELOG section.
 
-Targets   android ios host backend frontend linux web macos windows
+Targets   android ios host backend frontend linux web macos windows cloudflare
 Options   --device <id>  --user <id>  --release  --verbose
+
+deploy cloudflare passes its options straight to cloudflare_deploy:
+  --env <name>          required; also the wrangler --env
+  --config <path>       wrangler config to deploy
+  --dist <dir>          build output holding a generated deploy config
+  --status-path <path>  JSON endpoint carrying the deployed version
+  --yes                 skip the typed confirmation for a protected environment
+  --dry-run             build and validate, deploy nothing
+A protected environment (default: production) asks you to type its name. With
+no terminal it refuses rather than waiting, so pass --yes in automation.
 
 --user is the Android profile to install into, default 0 (the device owner).
 deploy verifies the package is visible there afterwards: an unqualified install

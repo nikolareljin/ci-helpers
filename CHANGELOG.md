@@ -30,6 +30,36 @@
   It reports the current state honestly — the vendored copy is pinned at
   `0.28.0` while upstream `production` is `0.30.0`, three releases back.
 
+## Unreleased
+
+### Changed
+
+- **Re-vendored script-helpers `0.28.0` -> `0.31.0`**, four releases on. The
+  copy predated the `preflight.sh` submodule fix and the `pin_production.sh`
+  rollback fix, and `check_vendor_currency.sh` — added one release ago — is what
+  said so.
+
+- **The vendored copy now carries only what this repository runs** — `helpers.sh`,
+  the `lib/` modules loaded through `shlib_import`, and `scripts/`. `docs/`,
+  `CHANGELOG.md` and `tests/` are no longer copied: 890K and 45 files that
+  nothing here has ever read.
+  Two checks objected to the surplus in one re-vendor. `verify_vendor.sh`
+  refuses a vendored tree that names this repository, and `0.31.0` brought two
+  files that do — a changelog sentence about leaving `@production` refs
+  floating, and a stylesheet attribution comment. Separately, gitleaks flagged a
+  synthetic token in `tests/publish_homebrew_test.sh`.
+
+  Neither is a defect upstream. That token is a deliberate stand-in and stays
+  where it is: it is what proves `publish_homebrew` keeps a token out of `argv`.
+  And neither check was narrowed to admit them — a scanner that reasons about
+  whether a secret is *really* a secret is worth nothing.
+
+  Not copying files this repository never reads removes both classes of false
+  positive instead of the checks that catch them. The alternative was a
+  per-fixture allowlist in `.gitleaks.toml`, maintained forever, each entry a
+  standing exemption in a secret scanner. `VENDOR_EXCLUDES` and
+  `FORBIDDEN_PATHS` are kept in step, as the comment on each already required.
+
 ## 2026-09-19 — v0.28.0
 
 ### Fixed

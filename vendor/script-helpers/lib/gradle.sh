@@ -58,8 +58,13 @@ gradle_test() { gradle_run "${1:-.}" test; }
 # Usage: gradle_assemble [dir=.] [variant=Debug]; run `assemble<Variant>`.
 # <variant> is capitalized as Gradle expects it (Debug, Release).
 gradle_assemble() {
-  local dir="${1:-.}" variant="${2:-Debug}"
-  gradle_run "$dir" "assemble${variant}"
+  local dir="${1:-.}" variant="${2:-Debug}" first
+  # Capitalized here rather than trusted: `release` ran `assemblerelease`, which
+  # Gradle rejects. `tr` because bash 3.2 has no ${variant^}; in the C locale
+  # because case mapping is locale data, and a Turkish locale upper-cases `i`
+  # to a dotted capital I that no Gradle task name contains.
+  first="$(printf '%s' "${variant:0:1}" | LC_ALL=C tr '[:lower:]' '[:upper:]')"
+  gradle_run "$dir" "assemble${first}${variant:1}"
 }
 
 # Usage: gradle_clean [dir=.]; run the `clean` task.

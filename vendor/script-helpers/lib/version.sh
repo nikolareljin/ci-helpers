@@ -35,6 +35,11 @@ version_compare() {
   read -r l_major l_minor l_patch <<< "$left_parts"
   read -r r_major r_minor r_patch <<< "$right_parts"
 
+  # Forced to base 10. Arithmetic reads a leading zero as octal, so a CalVer
+  # `2026.08.1` was an error ("value too great for base") and `1.010.0` was 8.
+  l_major=$((10#$l_major)); l_minor=$((10#$l_minor)); l_patch=$((10#$l_patch))
+  r_major=$((10#$r_major)); r_minor=$((10#$r_minor)); r_patch=$((10#$r_patch))
+
   if (( l_major == r_major && l_minor == r_minor && l_patch == r_patch )); then
     return 0
   elif (( l_major > r_major )); then

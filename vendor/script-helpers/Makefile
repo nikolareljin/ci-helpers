@@ -5,7 +5,7 @@
 BASH_BIN := $(shell command -v bash 2>/dev/null)
 SHELL := $(if $(BASH_BIN),$(BASH_BIN),/bin/bash)
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32 docs-deps docs-serve docs-build docs-preview docs-check docs-clean
 
 help:
 	@echo "Available targets:"
@@ -17,6 +17,16 @@ help:
 	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"
 	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
 	@echo "  make example_<name>           # Run a specific example"
+	@echo ""
+	@echo "  make docs-serve               # Docs site with live reload (while writing)"
+	@echo "  make docs-preview             # Build, then serve ./site over HTTP (what ships)"
+	@echo "  make docs-build               # mkdocs build --strict into ./site"
+	@echo "  make docs-check               # Build --strict to a temp dir; no server (CI/hooks)"
+	@echo "  make docs-deps                # Create the docs virtualenv only"
+	@echo "  make docs-clean               # Remove ./site and the docs virtualenv"
+	@echo ""
+	@echo "  lint-docs checks that every module is documented."
+	@echo "  docs-check builds the site those docs render into. Both, before a PR."
 
 # Defaults: avoid network and interactive prompts
 RUN_NETWORK ?= 0
@@ -104,3 +114,24 @@ install-git-hooks:
 	@chmod +x scripts/git-hooks/pre-commit
 	@ln -sf ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit 2>/dev/null || cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
 	@echo "Installed pre-commit hook: docs linter"
+
+# Documentation site. Built from docs/ in place -- there is no second copy of
+# the content anywhere. See scripts/docs_site.sh for why preview and serve are
+# different things.
+docs-deps:
+	@bash scripts/docs_site.sh deps
+
+docs-serve:
+	@bash scripts/docs_site.sh serve
+
+docs-build:
+	@bash scripts/docs_site.sh build
+
+docs-preview:
+	@bash scripts/docs_site.sh preview
+
+docs-check:
+	@bash scripts/docs_site.sh check
+
+docs-clean:
+	@bash scripts/docs_site.sh clean
