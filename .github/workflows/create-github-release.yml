@@ -42,6 +42,23 @@ jobs:
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
+          # The accepted tags are X.Y.Z and X.Y.Z-rcN / X.Y.Z-rc.N, so a hyphen
+          # is exactly the pre-release marker. A candidate is cut to be tried
+          # out, not to be what people land on: left unmarked it would be
+          # published as a normal release AND become the repository's "Latest",
+          # which is the same mistake as letting a candidate advance a floating
+          # production ref. Both flags are emitted here so the rule has one
+          # definition, and as plain strings rather than an Actions expression
+          # -- `x && 'a' || 'b'` is a trap when either branch can be falsy.
+          if [ "${tag#*-}" != "$tag" ]; then
+            printf 'is_prerelease=true\n'  >> "$GITHUB_OUTPUT"
+            printf 'make_latest=false\n'   >> "$GITHUB_OUTPUT"
+            echo "::notice::${tag} is a release candidate; publishing it as a pre-release and not marking it Latest."
+          else
+            printf 'is_prerelease=false\n' >> "$GITHUB_OUTPUT"
+            printf 'make_latest=true\n'    >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: 0
@@ -103,6 +120,8 @@ jobs:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
           body: ${{ steps.notes.outputs.body }}
+          prerelease: ${{ steps.resolve_tag.outputs.is_prerelease }}
+          make_latest: ${{ steps.resolve_tag.outputs.make_latest }}
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.notes.outputs.body == ''
@@ -111,3 +130,5 @@ jobs:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
           generate_release_notes: true
+          prerelease: ${{ steps.resolve_tag.outputs.is_prerelease }}
+          make_latest: ${{ steps.resolve_tag.outputs.make_latest }}

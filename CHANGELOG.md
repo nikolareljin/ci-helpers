@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A release candidate would have been published as the Latest release.**
+  `create-github-release.yml` passed no `prerelease` flag, so
+  `softprops/action-gh-release` defaulted it to `false` and GitHub marked the
+  candidate as the repository's **Latest** release — the version anyone landing
+  on the releases page sees as current.
+
+  That is the same mistake as letting a candidate advance a floating
+  `production` ref, on a different surface, and it would have shown up on the
+  first candidate this repository ever cut. A tag carrying a pre-release suffix
+  is now published with `prerelease: true` and `make_latest: false`, and says so
+  with a `::notice::`.
+
+  No caller changes behaviour: a final `X.Y.Z` gets `prerelease: false` and
+  `make_latest: true`, which is what the action already defaulted to, and no
+  repository has ever cut a tag matching the candidate pattern.
+
 ### Added
 
 - **`update-production.yml` — move a floating ref onto a tag by hand.** The
