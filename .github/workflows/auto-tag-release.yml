@@ -53,6 +53,11 @@ on:
           (not this workflow's internal `tag` job), e.g.
           `needs.auto_tag.outputs.version`.
         value: ${{ jobs.tag.outputs.version }}
+      is_prerelease:
+        description: >
+          Forwarded from auto-tag.yml. "true" when the detected version carries
+          a pre-release suffix, so a caller can gate follow-up jobs on it.
+        value: ${{ jobs.tag.outputs.is_prerelease }}
 
 permissions:
   contents: write

@@ -47,6 +47,7 @@ on:
         type: boolean
         default: false
       runner:
+        description: "Runner label for the job."
         type: string
         default: ubuntu-latest
 
@@ -70,6 +71,7 @@ on:
         type: boolean
         default: false
       runner:
+        description: "Runner label for the job."
         type: string
         default: ubuntu-latest
 
@@ -130,6 +132,8 @@ jobs:
         env:
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
+          UPDATE_BRANCH: ${{ inputs.update_branch }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
 
@@ -141,14 +145,28 @@ jobs:
             echo "::error::tag '${TARGET_TAG}' contains characters not allowed here."
             exit 1
           fi
+          # ref_name is used as an ls-remote pattern below, so a glob
+          # character changes which ref is matched. Constrain it to the
+          # characters a ref name may contain before it is used anywhere.
+          if ! printf '%s' "$REF_NAME" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/-]*$'; then
+            echo "::error::ref_name '${REF_NAME}' contains characters not allowed here."
+            exit 1
+          fi
           case "$REF_NAME" in
-            main|master|HEAD|"")
+            main|master|HEAD|refs/heads/main|refs/heads/master|"")
               echo "::error::ref_name '${REF_NAME}' is refused."
               exit 1
               ;;
           esac
 
-          git fetch --force origin "refs/tags/*:refs/tags/*" >/dev/null 2>&1 || true
+          # Not `|| true`: this fetch exists because the checkout's tag
+          # snapshot cannot be trusted, so proceeding on it after the fetch
+          # failed would defeat the point. create_production.sh refuses here
+          # for the same reason.
+          if ! git fetch --force origin "refs/tags/*:refs/tags/*" >/dev/null 2>&1; then
+            echo "::error::Failed to fetch tags from origin; refusing to resolve '${TARGET_TAG}' against a possibly stale checkout."
+            exit 1
+          fi
 
           if ! target="$(git rev-parse -q --verify "refs/tags/${TARGET_TAG}^{commit}")"; then
             echo "::error::tag '${TARGET_TAG}' does not exist. Push it first."
@@ -161,8 +179,19 @@ jobs:
           # refs/tags/X^{} the commit it points at. Prefer the dereferenced
           # line, so the comparison below is commit-to-commit either way.
           # (`production` is lightweight today, but ref_name is an input.)
-          current_commit="$(git ls-remote origin "refs/tags/${REF_NAME}" "refs/tags/${REF_NAME}^{}" \
-            | awk '$2 ~ /\^\{\}$/ {deref=$1; next} {plain=$1} END {print (deref != "" ? deref : plain)}')"
+          if ! ls_out="$(git ls-remote origin "refs/tags/${REF_NAME}" "refs/tags/${REF_NAME}^{}")"; then
+            echo "::error::Failed to query origin for refs/tags/${REF_NAME}."
+            exit 1
+          fi
+          # Compare ref names exactly: ls-remote patterns match on trailing path
+          # components, so a bare catch-all would report whichever ref happened
+          # to sort last.
+          current_commit="$(printf '%s\n' "$ls_out" \
+            | awk -v d="refs/tags/${REF_NAME}^{}" '$2 == d {print $1; exit}')"
+          if [[ -z "$current_commit" ]]; then
+            current_commit="$(printf '%s\n' "$ls_out" \
+              | awk -v n="refs/tags/${REF_NAME}" '$2 == n {print $1; exit}')"
+          fi
 
           {
             echo "target=${target}"
@@ -181,8 +210,8 @@ jobs:
             echo "| target commit | \`${target}\` |"
             echo "| \`${REF_NAME}\` is now | \`${current_commit:-<unset>}\` |"
             echo "| pre-release | ${prerelease} |"
-            echo "| branch moved too | ${{ inputs.update_branch }} |"
-            echo "| dry run | ${{ inputs.dry_run }} |"
+            echo "| branch moved too | ${UPDATE_BRANCH} |"
+            echo "| dry run | ${DRY_RUN} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$current_commit" == "$target" ]]; then

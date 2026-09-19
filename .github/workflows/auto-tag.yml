@@ -43,6 +43,14 @@ on:
           production branch — on `needs.<caller-job-id>.outputs.version`, where
           `<caller-job-id>` is the caller's own job that `uses:` this workflow.
         value: ${{ jobs.tag.outputs.version }}
+      is_prerelease:
+        description: >
+          "true" when the detected version carries a pre-release suffix
+          (X.Y.Z-rcN), "false" otherwise, and "false" when no release was
+          detected. Exposed so a caller gating a follow-up job — publishing a
+          GitHub Release, deploying — can tell a candidate from a final release
+          without re-deriving the rule from the version string.
+        value: ${{ jobs.tag.outputs.is_prerelease }}
 
 permissions:
   contents: write
@@ -61,6 +69,7 @@ jobs:
       pull-requests: read
     outputs:
       version: ${{ steps.release.outputs.version }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -245,11 +254,16 @@ jobs:
       # after the tag has been pushed leaves a tag behind that someone has to
       # delete by hand -- which is the failure this guard exists to prevent,
       # so running it later would defeat the point of having it.
+      #
+      # It is NOT gated on is_prerelease, also deliberately. Whether this
+      # repository can move production is a fact about the repository, not
+      # about which kind of release this is. Gated on the release kind, a repo
+      # could cut rc1..rc5 green and only discover a missing script on the
+      # final cut -- the one moment where a stray tag costs the most.
       - name: Bootstrap script-helpers
         if: >-
           ${{ steps.release.outputs.version != ''
-              && inputs.update_production_tag
-              && steps.release.outputs.is_prerelease != 'true' }}
+              && inputs.update_production_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -320,10 +334,13 @@ jobs:
           version="$AUTO_TAG_VERSION"
           ./scripts/create_production.sh -t "$version" --fetch-tags
 
+      # No update_production_tag condition: this is informational, and the
+      # caller most in need of it is the one taking the default (false), who
+      # would otherwise see a candidate tagged with nothing said about
+      # production at all.
       - name: Note that the candidate left production alone
         if: >-
           ${{ steps.release.outputs.version != ''
-              && inputs.update_production_tag
               && steps.release.outputs.is_prerelease == 'true' }}
         shell: bash
         env:

@@ -96,6 +96,7 @@ jobs:
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/auto-tag.yml`: reusable tag-only workflow for release branches (least privilege — no `actions: write`)
 - `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches (adds an optional dispatch job; requires `actions: write`)
+- `.github/workflows/update-production.yml`: reusable **manual** workflow to move a floating ref (`production`) onto a tag you pick, including a release candidate
 - `.github/workflows/release-tag-gate.yml`: reusable PR gate for release tag availability
 - `.github/workflows/release-tag-check.yml`: repo guard that checks tag availability on new release branches
 - `.github/workflows/release-build.yml`: reusable release build workflow for any language

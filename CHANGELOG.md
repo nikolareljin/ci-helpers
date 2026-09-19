@@ -45,6 +45,27 @@
   job can be pointed at a GitHub Environment with required reviewers to gate who
   may run it.
 
+- **`ci.yml` gained an `install_command` input**, running before Lint. Every
+  other command input already existed there; this one did not, although
+  `pr-gate.yml` and eleven standalone workflows have had it since they were
+  written. Its absence is why several presets installed dependencies *inside*
+  their lint default — the only slot available.
+
+  Threaded through the thirteen presets that call the engine. Default is empty,
+  so no existing caller changes behaviour. `docker.yml` is deliberately left
+  out: it sets up no language toolchain and runs no lint, test or build, so an
+  install step there would have nothing to install with.
+
+- **A `self-test.yml`**, calling this repository's own presets by **relative
+  path** against committed fixtures — so a pull request editing a preset runs
+  the edited file rather than whatever `@production` holds. The pattern is
+  `docs-site.yml`'s, which already publishes this repository's site through its
+  own Pages preset.
+
+  It carries no `paths:` filter, deliberately: a filter that never matches the
+  files under test reports green without having run. Its assertion job treats a
+  **skipped** leg as a failure, because a skip is not a pass.
+
 ### Changed — BREAKING
 
 - **`production` now moves only for a final `X.Y.Z`, and only when asked.**
@@ -107,29 +128,6 @@
   path it never ran. `auto-tag-release-push.yml` already duplicates two other
   checks for exactly this reason; this was the third in that family, and the
   only one nobody had noticed, because no repository has ever cut a candidate.
-
-### Added
-
-- **`ci.yml` gained an `install_command` input**, running before Lint. Every
-  other command input already existed there; this one did not, although
-  `pr-gate.yml` and eleven standalone workflows have had it since they were
-  written. Its absence is why several presets installed dependencies *inside*
-  their lint default — the only slot available.
-
-  Threaded through the thirteen presets that call the engine. Default is empty,
-  so no existing caller changes behaviour. `docker.yml` is deliberately left
-  out: it sets up no language toolchain and runs no lint, test or build, so an
-  install step there would have nothing to install with.
-
-- **A `self-test.yml`**, calling this repository's own presets by **relative
-  path** against committed fixtures — so a pull request editing a preset runs
-  the edited file rather than whatever `@production` holds. The pattern is
-  `docs-site.yml`'s, which already publishes this repository's site through its
-  own Pages preset.
-
-  It carries no `paths:` filter, deliberately: a filter that never matches the
-  files under test reports green without having run. Its assertion job treats a
-  **skipped** leg as a failure, because a skip is not a pass.
 
 ### Fixed
 

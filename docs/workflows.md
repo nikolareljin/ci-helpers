@@ -1027,7 +1027,7 @@ Purpose: The tag-only, least-privilege version of the release automation. On a p
 
 Permissions: needs only `contents: write` + `pull-requests: read`. **No `actions: write`** — prefer this workflow whenever you do not need the auto-dispatch feature.
 
-Inputs: `runner`, `fetch_depth`, `default_branch`, `update_production_tag` (same meaning as in `auto-tag-release.yml`). Output: `version`.
+Inputs: `runner`, `fetch_depth`, `default_branch`, `update_production_tag` (same meaning as in `auto-tag-release.yml`). Outputs: `version`, and `is_prerelease` (`"true"`/`"false"`) so a caller can gate a follow-up job on whether the release is a candidate without re-deriving the rule from the version string.
 
 Only a release branch in the repository itself counts: a merged PR whose `release/X.Y.Z` head branch lives in a fork is logged and skipped (no tag, `production` untouched, `version` empty).
 
@@ -1067,11 +1067,53 @@ Inputs:
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
 - `update_production_tag` (boolean, default `false`) — when `true`, runs the Bootstrap script-helpers and Update production tag steps after tagging. Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
+- `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
+**`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
 
----
+Example (tag only, no production tag, no GitHub Release) — use `auto-tag.yml`, which needs no `actions: write`:
 
-### `update-production.yml`
+```yaml
+name: Auto Tag
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
+    with:
+      update_production_tag: false
+```
+
+Example (tag + auto-create GitHub Release via dispatch):
+
+```yaml
+name: Auto Tag Release
+on:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+jobs:
+  tag:
+    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
+    with:
+      update_production_tag: false
+      release_workflow: create-github-release.yml
+```
+
+See `create-github-release.yml` below for the local wrapper workflow that must exist in the calling repo.
+
+## update-production.yml
 
 Purpose: move a floating ref (`production` by default) onto a tag **you pick, by hand**. Manual and opt-in — nothing calls it on a push, a merge or a schedule, and a repository gets it only by adding a `workflow_dispatch` wrapper of its own.
 
@@ -1125,50 +1167,6 @@ jobs:
 
 To restrict who may run it, point the wrapper's job at a GitHub Environment with required reviewers; the dispatch then waits for an approval before the ref moves.
 
-**`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
-- `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
-
-Example (tag only, no production tag, no GitHub Release) — use `auto-tag.yml`, which needs no `actions: write`:
-
-```yaml
-name: Auto Tag
-on:
-  push:
-    branches: [ main, master ]
-
-permissions:
-  contents: write
-  pull-requests: read
-
-jobs:
-  tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag.yml@production
-    with:
-      update_production_tag: false
-```
-
-Example (tag + auto-create GitHub Release via dispatch):
-
-```yaml
-name: Auto Tag Release
-on:
-  push:
-    branches: [ main, master ]
-
-permissions:
-  contents: write
-  pull-requests: read
-  actions: write
-
-jobs:
-  tag:
-    uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
-    with:
-      update_production_tag: false
-      release_workflow: create-github-release.yml
-```
-
-See `create-github-release.yml` below for the local wrapper workflow that must exist in the calling repo.
 
 ## create-github-release.yml
 
