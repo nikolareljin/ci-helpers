@@ -234,35 +234,17 @@ jobs:
             core.setOutput('version', version);
             core.setOutput('is_prerelease', isPrerelease ? 'true' : 'false');
 
-      - name: Check tag availability
-        if: ${{ steps.release.outputs.version != '' }}
-        shell: bash
-        env:
-          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          version="$AUTO_TAG_VERSION"
-          if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
-            echo "Tag $version already exists."
-            exit 1
-          fi
-
-      - name: Create and push tag
-        if: ${{ steps.release.outputs.version != '' }}
-        shell: bash
-        env:
-          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          version="$AUTO_TAG_VERSION"
-          git tag "$version"
-          git push origin "$version"
-
       # Bootstrapping only exists to make create_production.sh runnable, so it
-      # is gated exactly like the move it serves. It used to run on `if:
+      # is gated exactly like the move it serves: it used to run on `if:
       # inputs.update_production_tag` alone, which meant initialising
       # submodules on every push to the default branch in a repository that
       # opts in, including the overwhelming majority that are not releases.
+      #
+      # It sits BEFORE the tag is created, deliberately. Its checks decide
+      # whether the production move can succeed at all, and discovering that
+      # after the tag has been pushed leaves a tag behind that someone has to
+      # delete by hand -- which is the failure this guard exists to prevent,
+      # so running it later would defeat the point of having it.
       - name: Bootstrap script-helpers
         if: >-
           ${{ steps.release.outputs.version != ''
@@ -295,6 +277,30 @@ jobs:
             echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
             exit 1
           fi
+
+      - name: Check tag availability
+        if: ${{ steps.release.outputs.version != '' }}
+        shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$AUTO_TAG_VERSION"
+          if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
+            echo "Tag $version already exists."
+            exit 1
+          fi
+
+      - name: Create and push tag
+        if: ${{ steps.release.outputs.version != '' }}
+        shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          version="$AUTO_TAG_VERSION"
+          git tag "$version"
+          git push origin "$version"
 
       # `production` moves only for a final X.Y.Z. A candidate is tagged so it
       # can be exercised by a pilot consumer, and `production` stays where it

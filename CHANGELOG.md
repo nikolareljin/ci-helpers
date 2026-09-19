@@ -74,10 +74,14 @@
   so a non-executable file fails just as surely as a missing one, and the two
   cases say different things about what to fix.
 
-  Bootstrap also moved to after version detection and is now gated exactly like
-  the move it serves. It previously ran on `update_production_tag` alone, so an
-  opted-in repository initialised submodules on every push to its default
-  branch, the overwhelming majority of which are not releases.
+  Bootstrap now sits between version detection and tag creation, gated exactly
+  like the move it serves. Two things were wrong with where it was. It ran on
+  `update_production_tag` alone, with no version check, so an opted-in
+  repository initialised submodules on every push to its default branch — the
+  overwhelming majority of which are not releases. And its checks decide
+  whether the production move can succeed at all, so they have to run *before*
+  the tag is pushed: failing afterwards leaves a tag behind that someone has to
+  delete by hand, which is the very failure the guard exists to prevent.
 
   Worth recording: `production-branch.yml` has always carried an rc guard, and
   it never helped. That workflow is triggered by a tag push, and the tag is
