@@ -1068,6 +1068,63 @@ Inputs:
 - `default_branch` (string, default `""`, uses repo default)
 - `update_production_tag` (boolean, default `false`) — when `true`, runs the Bootstrap script-helpers and Update production tag steps after tagging. Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
 
+
+---
+
+### `update-production.yml`
+
+Purpose: move a floating ref (`production` by default) onto a tag **you pick, by hand**. Manual and opt-in — nothing calls it on a push, a merge or a schedule, and a repository gets it only by adding a `workflow_dispatch` wrapper of its own.
+
+The two ways `production` can move are **independent**, and a repository may have either, both or neither:
+
+| | how it moves | when |
+|---|---|---|
+| automatic | `auto-tag.yml` with `update_production_tag: true` | a `release/X.Y.Z` merge, final versions only |
+| manual | this workflow | whenever a human runs it and names a tag |
+
+Release candidates are deliberately accepted here. Automatic tagging never moves `production` for a candidate — that is a rule, not an option — so this is how a candidate that has been exercised on a pilot consumer gets promoted without waiting for a final `X.Y.Z`, and how a bad move is rolled back onto an earlier tag.
+
+Requires `scripts/create_production.sh` in the calling repository, the same script `auto-tag.yml` uses. ci-helpers does not supply it.
+
+Inputs:
+
+- `tag` (string, **required**) — tag to point the ref at, e.g. `1.2.3` or `1.2.3-rc1`. Must already exist on the remote.
+- `ref_name` (string, default `production`) — the floating tag and branch to move. `main`, `master` and `HEAD` are refused.
+- `update_branch` (boolean, default `true`) — also move `refs/heads/<ref_name>`, not just the tag.
+- `dry_run` (boolean, default `false`) — resolve and report what would move, push nothing. Worth a first run whenever the target is a candidate or a rollback.
+- `runner` (string, default `ubuntu-latest`)
+
+Every run writes a job summary naming the target commit, what the ref points at now (read from the remote, since a moved tag does not update on a plain fetch), and whether the target is a pre-release.
+
+Wrapper to add in a consumer:
+
+```yaml
+name: Update production
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to point production at (e.g. 1.2.3 or 1.2.3-rc1)"
+        type: string
+        required: true
+      dry_run:
+        description: "Report what would move, push nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    uses: nikolareljin/ci-helpers/.github/workflows/update-production.yml@production
+    with:
+      tag: ${{ inputs.tag }}
+      dry_run: ${{ inputs.dry_run }}
+```
+
+To restrict who may run it, point the wrapper's job at a GitHub Environment with required reviewers; the dispatch then waits for an approval before the ref moves.
+
 **`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 

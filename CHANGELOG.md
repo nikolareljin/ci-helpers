@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added
+
+- **`update-production.yml` — move a floating ref onto a tag by hand.** The
+  deliberate counterpart to automatic tagging, and independent of it: a
+  repository may have either, both or neither.
+
+  | | how `production` moves | when |
+  |---|---|---|
+  | automatic | `auto-tag.yml` with `update_production_tag: true` | a `release/X.Y.Z` merge, final versions only |
+  | manual | `update-production.yml` | whenever a human runs it and names a tag |
+
+  Manual and opt-in. Nothing calls it on a push, a merge or a schedule; a
+  repository gets it only by adding a small `workflow_dispatch` wrapper of its
+  own. Release candidates are deliberately accepted, because automatic tagging
+  never moves `production` for one — so this is how an exercised candidate is
+  promoted without waiting for a final `X.Y.Z`, and how a bad move is rolled
+  back onto an earlier tag.
+
+  Inputs: `tag` (required), `ref_name` (default `production`), `update_branch`,
+  `dry_run`, `runner`. Every run writes a job summary naming the target commit,
+  what the ref points at now — read from the remote, since a moved tag does not
+  update on a plain fetch — and whether the target is a pre-release. A wrapper
+  job can be pointed at a GitHub Environment with required reviewers to gate who
+  may run it.
+
 ### Changed — BREAKING
 
 - **`production` now moves only for a final `X.Y.Z`, and only when asked.**
