@@ -69,9 +69,15 @@
   skipped it and stayed green.
 
   Since `update_production_tag: true` now asserts something checkable, the
-  Bootstrap step verifies `scripts/create_production.sh` exists and fails there
-  — seconds in, before anything is tagged — rather than after the tag has been
-  pushed and has to be deleted by hand.
+  Bootstrap step verifies `scripts/create_production.sh` is present **and
+  executable** — the workflow invokes it as `./scripts/create_production.sh`,
+  so a non-executable file fails just as surely as a missing one, and the two
+  cases say different things about what to fix.
+
+  Bootstrap also moved to after version detection and is now gated exactly like
+  the move it serves. It previously ran on `update_production_tag` alone, so an
+  opted-in repository initialised submodules on every push to its default
+  branch, the overwhelming majority of which are not releases.
 
   Worth recording: `production-branch.yml` has always carried an rc guard, and
   it never helped. That workflow is triggered by a tag push, and the tag is

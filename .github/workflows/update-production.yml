@@ -115,6 +115,10 @@ jobs:
             echo "::error::scripts/create_production.sh is missing. This workflow moves a floating ref by running that script from your repository; ci-helpers does not supply it."
             exit 1
           fi
+          if [[ ! -x "scripts/create_production.sh" ]]; then
+            echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
+            exit 1
+          fi
 
       # inputs.tag reaches us from a manual dispatch, so it is untrusted text.
       # It is read from the environment and never interpolated into a command,
@@ -153,11 +157,12 @@ jobs:
 
           # A moved tag does not update on a plain fetch, so ask the remote
           # rather than trusting whatever this checkout happens to hold.
-          current="$(git ls-remote origin "refs/tags/${REF_NAME}" | awk '{print $1}')"
-          current_commit=""
-          if [[ -n "$current" ]]; then
-            current_commit="$(git rev-parse -q --verify "${current}^{commit}" 2>/dev/null || echo "$current")"
-          fi
+          # An annotated tag shows twice: refs/tags/X is the tag object and
+          # refs/tags/X^{} the commit it points at. Prefer the dereferenced
+          # line, so the comparison below is commit-to-commit either way.
+          # (`production` is lightweight today, but ref_name is an input.)
+          current_commit="$(git ls-remote origin "refs/tags/${REF_NAME}" "refs/tags/${REF_NAME}^{}" \
+            | awk '$2 ~ /\^\{\}$/ {deref=$1; next} {plain=$1} END {print (deref != "" ? deref : plain)}')"
 
           {
             echo "target=${target}"

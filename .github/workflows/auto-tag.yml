@@ -67,29 +67,6 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
-      - name: Bootstrap script-helpers
-        if: ${{ inputs.update_production_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
-            exit 1
-          fi
-          # update_production_tag: true asserts this repository can move a
-          # production ref, and the move runs ./scripts/create_production.sh.
-          # Check that here rather than let the run tag a release and then die
-          # at the last step, which is what used to happen.
-          if [[ ! -x "scripts/create_production.sh" && ! -f "scripts/create_production.sh" ]]; then
-            echo "update_production_tag is true but scripts/create_production.sh is missing." >&2
-            echo "Either add that script, or pass update_production_tag: false to tag only." >&2
-            exit 1
-          fi
       - name: Detect release version
         id: release
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
@@ -280,6 +257,44 @@ jobs:
           version="$AUTO_TAG_VERSION"
           git tag "$version"
           git push origin "$version"
+
+      # Bootstrapping only exists to make create_production.sh runnable, so it
+      # is gated exactly like the move it serves. It used to run on `if:
+      # inputs.update_production_tag` alone, which meant initialising
+      # submodules on every push to the default branch in a repository that
+      # opts in, including the overwhelming majority that are not releases.
+      - name: Bootstrap script-helpers
+        if: >-
+          ${{ steps.release.outputs.version != ''
+              && inputs.update_production_tag
+              && steps.release.outputs.is_prerelease != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+          if [[ ! -e "vendor/script-helpers" ]]; then
+            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
+            exit 1
+          fi
+          # update_production_tag: true asserts this repository can move a
+          # production ref, and the move runs ./scripts/create_production.sh.
+          # Check that here rather than let the run tag a release and then die
+          # at the last step, which is what used to happen. Both conditions are
+          # checked: the script is invoked as ./scripts/create_production.sh,
+          # so a present-but-non-executable file fails just as surely as a
+          # missing one, and says something different about what to fix.
+          if [[ ! -f "scripts/create_production.sh" ]]; then
+            echo "::error::update_production_tag is true but scripts/create_production.sh is missing. Either add that script, or pass update_production_tag: false to tag only."
+            exit 1
+          fi
+          if [[ ! -x "scripts/create_production.sh" ]]; then
+            echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
+            exit 1
+          fi
 
       # `production` moves only for a final X.Y.Z. A candidate is tagged so it
       # can be exercised by a pilot consumer, and `production` stays where it
