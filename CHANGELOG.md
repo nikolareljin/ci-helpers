@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`scripts/check_vendor_currency.sh` — say when script-helpers has moved on.**
+  `vendor/script-helpers` is a committed copy pinned by
+  `vendor/.script-helpers-ref`. Two things already watch it: `vendor-check.yml`
+  proves the copy is *usable* on every pull request, and `security-weekly.yml`'s
+  vendor-drift job catches a tree that no longer matches its own recorded pin.
+  Neither answers the remaining question — *upstream has released since you
+  pinned this* — and `vendor-check.yml`'s header is explicit that currency must
+  not be a CI check, because an upstream release would then turn every open pull
+  request red for a reason unrelated to the change under review.
+
+  So this is a developer-time notice. It exits immediately when `$CI` is set,
+  reports by default and only fails with `--strict`, is throttled to one network
+  round trip a day via a stamp in `.git/`, and is silent both when the copy is
+  current and when upstream is unreachable. `--offer` prompts and, on yes, runs
+  the sync and then `verify_vendor.sh` — because a copy is only safe while that
+  still passes.
+
+  It compares against where **`production`** points rather than the newest tag,
+  since that is the ref consumers follow, and the tag pattern accepts `X.Y.Z`
+  only, so a release candidate is never offered.
+
+  Wired into `.githooks/pre-commit` as `|| true`: a notice, never a gate.
+
+  It reports the current state honestly — the vendored copy is pinned at
+  `0.28.0` while upstream `production` is `0.30.0`, three releases back.
+
 ## 2026-09-19 — v0.28.0
 
 ### Fixed
