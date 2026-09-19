@@ -10,8 +10,18 @@ if [[ -f .githooks/pre-commit ]] && ! [[ .githooks/pre-commit -ef "$0" ]]; then
   exec bash .githooks/pre-commit "$@"
 fi
 
-# Block accidental .env commits while allowing cleanup deletions.
-if git diff --cached --name-only --diff-filter=ACMR | grep -qE '(^|\/)(\.env|\.env\..+)$'; then
+# Block accidental .env commits while allowing cleanup deletions. Templates
+# meant to be committed -- .env.example, .env.sample, .env.template, .env.dist,
+# and the same suffix on a variant such as .env.local.example -- are allowed.
+# Paths are read NUL-separated: git otherwise quotes a path with non-ASCII
+# bytes, a tab, a quote or a newline ("\303\274n\303\257/.env"), and the
+# closing quote hid the .env suffix from the pattern. NULs become newlines, so
+# a newline inside a name can only add a line that is blocked, never hide one.
+staged_env="$(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACMR \
+  | tr '\000' '\n' \
+  | grep -E '(^|/)\.env(\..+)?$' \
+  | grep -vE '(^|/)\.env(\..+)?\.(example|sample|template|dist)$' || true)"
+if [[ -n "$staged_env" ]]; then
   echo "[pre-commit] ERROR: Staging a .env file. Remove it from the index first." >&2
   echo "  git restore --staged <file>" >&2
   exit 1

@@ -3,13 +3,30 @@
 
 # Usage: json_escape <string>; escapes for safe JSON output.
 json_escape() {
-  local input="$1"
+  local input="${1-}"
   input=${input//\\/\\\\}
-  input=${input//"/\\"}
+  # Escaped quote in the pattern: written as //"/ the quote opened a quoted
+  # word instead, and double quotes went out unescaped (invalid JSON).
+  input=${input//\"/\\\"}
   input=${input//$'\n'/\\n}
   input=${input//$'\r'/\\r}
   input=${input//$'\t'/\\t}
-  echo "$input"
+  # Every other control character is invalid raw inside a JSON string. A bash
+  # string cannot hold NUL, so 0x01-0x1F is the whole remaining set.
+  if [[ "$input" == *[[:cntrl:]]* ]]; then
+    local i c rep
+    for (( i = 1; i < 32; i++ )); do
+      case "$i" in 9|10|13) continue ;; esac
+      # The format string is the point: printf turns \ooo into that byte.
+      # shellcheck disable=SC2059
+      c="$(printf "\\$(printf '%03o' "$i")")"
+      [[ "$input" == *"$c"* ]] || continue
+      rep="\\u00$(printf '%02x' "$i")"
+      input=${input//"$c"/"$rep"}
+    done
+  fi
+  # printf, not echo: echo swallowed an input of -n or -e whole.
+  printf '%s\n' "$input"
 }
 
 # Assumes the JSON has a .response field; exits non-zero if invalid JSON

@@ -14,6 +14,16 @@ add_to_etc_hosts() {
     print_error "add_to_etc_hosts: need <domain> <ip>"
     return 2
   fi
+  # Both land in /etc/hosts, often through sudo. A newline in either wrote a
+  # second, unrelated entry -- any name pointed at any address.
+  if [[ ! "$domain" =~ ^[A-Za-z0-9_]([A-Za-z0-9._-]*[A-Za-z0-9_])?$ ]]; then
+    print_error "add_to_etc_hosts: '$domain' is not a valid hostname"
+    return 2
+  fi
+  if [[ ! "$ip_address" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ && ! "$ip_address" =~ ^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*$ ]]; then
+    print_error "add_to_etc_hosts: '$ip_address' is not an IPv4 or IPv6 address"
+    return 2
+  fi
   local hosts_file="${HOSTS_FILE:-/etc/hosts}"
   # An exact token comparison rather than a grep pattern. Two reasons, and the
   # first one shipped broken: \s is a GNU extension that BSD grep does not
@@ -33,18 +43,25 @@ add_to_etc_hosts() {
       [[ -n "${line//[[:space:]]/}" ]] || continue
       # read -a rather than word-splitting $line, which would also glob.
       read -r -a parts <<< "$line"
-      local tok
-      for tok in "${parts[@]+"${parts[@]}"}"; do
-        [[ "$tok" == "$domain" ]] && { found=1; break 2; }
+      # The first field is the address; only the names after it count, or a
+      # "domain" equal to some line's IP was judged already present.
+      local i
+      for (( i = 1; i < ${#parts[@]}; i++ )); do
+        [[ "${parts[$i]}" == "$domain" ]] && { found=1; break 2; }
       done
     done < "$hosts_file"
   fi
 
   if [[ "$found" -eq 0 ]]; then
+    local write_ok=1
     if [[ -w "$hosts_file" ]]; then
-      printf '%s    %s\n' "$ip_address" "$domain" >> "$hosts_file"
+      printf '%s    %s\n' "$ip_address" "$domain" >> "$hosts_file" || write_ok=0
     else
-      echo "$ip_address    $domain" | sudo tee -a "$hosts_file" >/dev/null
+      printf '%s    %s\n' "$ip_address" "$domain" | sudo tee -a "$hosts_file" >/dev/null || write_ok=0
+    fi
+    if [[ "$write_ok" -ne 1 ]]; then
+      print_error "Could not add $domain to $hosts_file"
+      return 1
     fi
     print_success "Added $domain to $hosts_file"
   else

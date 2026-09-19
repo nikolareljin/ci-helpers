@@ -105,7 +105,9 @@ flutter_build() {
       --release) mode="--release"; shift ;;
       --debug) mode="--debug"; shift ;;
       --profile) mode="--profile"; shift ;;
-      --flavor) flavor="${2:-}"; shift 2 ;;
+      --flavor)
+        [[ $# -ge 2 ]] || { log_error "flutter_build: $1 requires a value"; return 2; }
+        flavor="${2:-}"; shift 2 ;;
       --simulator) simulator=1; shift ;;
       -*) log_error "flutter_build: unknown option $1"; return 2 ;;
       *) dir="$1"; shift ;;
@@ -157,7 +159,8 @@ flutter_resolve_device() {
   devices=()
   while IFS= read -r _sh_line; do devices+=("$_sh_line"); done < <(flutter_devices "$dir" 2>/dev/null)
   if [[ -n "$preferred" ]]; then
-    for ids in "${devices[@]}"; do
+    # Guarded: bash 3.2 treats an empty array as unbound under `set -u`.
+    for ids in ${devices[@]+"${devices[@]}"}; do
       [[ "${ids%%$'\t'*}" == "$preferred" ]] && { printf '%s\n' "$preferred"; return 0; }
     done
     log_error "flutter_resolve_device: '$preferred' is not connected"

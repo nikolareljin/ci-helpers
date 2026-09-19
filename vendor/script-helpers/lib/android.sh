@@ -64,13 +64,15 @@ android_sdk_tool() {
     do
       [[ -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
     done
-    # build-tools are versioned; take the highest that has the tool. `ls | sort -V`
-    # rather than find, because the ordering is the point and these are SDK
-    # directory names, which are always plain semver.
-    # shellcheck disable=SC2012
-    for candidate in $(ls -1d "$root"/build-tools/*/ 2>/dev/null | sort -Vr); do
+    # build-tools are versioned; take the highest that has the tool. `sort -V`
+    # because the ordering is the point and these are SDK directory names, which
+    # are always plain semver. A glob and one path per line rather than an
+    # unquoted `$(ls ...)`, which split an SDK root containing a space.
+    while IFS= read -r candidate; do
       [[ -x "$candidate$name" ]] && { printf '%s\n' "$candidate$name"; return 0; }
-    done
+    done < <(for candidate in "$root"/build-tools/*/; do
+               [[ -d "$candidate" ]] && printf '%s\n' "$candidate"
+             done | sort -Vr)
   fi
   command -v "$name" >/dev/null 2>&1 && { command -v "$name"; return 0; }
   return 3
@@ -168,8 +170,18 @@ android_package_name() {
   local dir="${1:-.}" artifact="${2:-}" aapt out pkg=""
   if [[ -n "$artifact" && -f "$artifact" ]]; then
     if aapt="$(android_sdk_tool aapt2 2>/dev/null)" || aapt="$(android_sdk_tool aapt 2>/dev/null)"; then
-      out="$("$aapt" dump badging "$artifact" 2>/dev/null | grep -m1 '^package:')" || out=""
-      pkg="$(sed -n "s/.*name='\([^']*\)'.*/\1/p" <<<"$out")"
+      # Anchored on `package: name=`: the badging line carries several `name`
+      # attributes, and build-tools 37 appends compileSdkVersionCodename='15',
+      # which a greedy `.*name=` picked instead of the package.
+      #
+      # awk reads the whole dump rather than stopping at the first match: with
+      # `grep -m1` aapt2 was still writing when grep exited, got SIGPIPE, and a
+      # caller running with pipefail (the dev-CLI template does) saw the
+      # pipeline fail, so the package came back empty and the build-file
+      # fallback -- without applicationIdSuffix -- was used instead.
+      out="$("$aapt" dump badging "$artifact" 2>/dev/null \
+        | awk '!seen && /^package: name=/ { print; seen = 1 }')" || out=""
+      pkg="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$out")"
       [[ -n "$pkg" ]] && { printf '%s\n' "$pkg"; return 0; }
     fi
   fi
@@ -205,11 +217,16 @@ android_sign() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --keystore) keystore="${2:-}"; shift 2 ;;
-      --base64-env) b64var="${2:-}"; shift 2 ;;
-      --storepass) storepass="${2:-}"; shift 2 ;;
-      --alias) alias="${2:-}"; shift 2 ;;
-      --keypass) keypass="${2:-}"; shift 2 ;;
+      --keystore|--base64-env|--storepass|--alias|--keypass)
+        [[ $# -ge 2 ]] || { log_error "android_sign: $1 requires a value"; return 2; }
+        case "$1" in
+          --keystore) keystore="$2" ;;
+          --base64-env) b64var="$2" ;;
+          --storepass) storepass="$2" ;;
+          --alias) alias="$2" ;;
+          --keypass) keypass="$2" ;;
+        esac
+        shift 2 ;;
       --allow-unsigned) allow_unsigned=1; shift ;;
       -*) log_error "android_sign: unknown option $1"; return 2 ;;
       *) artifact="$1"; shift ;;
@@ -252,25 +269,36 @@ android_sign() {
     return 2
   }
 
+  # Each signer runs as an `if` condition, so a failing signer under `set -e`
+  # still reaches the cleanup below instead of leaving the decoded keystore in
+  # the temp directory. Passwords go through the environment for both signers:
+  # an argument is readable by every user on the machine via the process list.
   if signer="$(android_sdk_tool apksigner 2>/dev/null)"; then
     log_info "android: signing $artifact with apksigner"
-    ANDROID_SIGN_STOREPASS="$storepass" ANDROID_SIGN_KEYPASS="${keypass:-$storepass}" \
-    "$signer" sign \
-      --ks "$keystore" \
-      --ks-key-alias "$alias" \
-      --ks-pass env:ANDROID_SIGN_STOREPASS \
-      --key-pass env:ANDROID_SIGN_KEYPASS \
-      "$artifact"
-    rc=$?
+    if ANDROID_SIGN_STOREPASS="$storepass" ANDROID_SIGN_KEYPASS="${keypass:-$storepass}" \
+      "$signer" sign \
+        --ks "$keystore" \
+        --ks-key-alias "$alias" \
+        --ks-pass env:ANDROID_SIGN_STOREPASS \
+        --key-pass env:ANDROID_SIGN_KEYPASS \
+        "$artifact"; then
+      rc=0
+    else
+      rc=$?
+    fi
   elif command -v jarsigner >/dev/null 2>&1; then
     log_info "android: signing $artifact with jarsigner (apksigner not found)"
-    jarsigner -verbose:0 \
-      -sigalg SHA256withRSA -digestalg SHA-256 \
-      -keystore "$keystore" \
-      -storepass "$storepass" \
-      -keypass "${keypass:-$storepass}" \
-      "$artifact" "$alias" >/dev/null
-    rc=$?
+    if ANDROID_SIGN_STOREPASS="$storepass" ANDROID_SIGN_KEYPASS="${keypass:-$storepass}" \
+      jarsigner -verbose:0 \
+        -sigalg SHA256withRSA -digestalg SHA-256 \
+        -keystore "$keystore" \
+        -storepass:env ANDROID_SIGN_STOREPASS \
+        -keypass:env ANDROID_SIGN_KEYPASS \
+        "$artifact" "$alias" >/dev/null; then
+      rc=0
+    else
+      rc=$?
+    fi
   else
     [[ -n "$tmp_keystore" ]] && rm -f "$tmp_keystore"
     log_error "android_sign: neither apksigner nor jarsigner is available"
@@ -278,6 +306,7 @@ android_sign() {
   fi
 
   [[ -n "$tmp_keystore" ]] && rm -f "$tmp_keystore"
+  [[ "$rc" -eq 0 ]] || log_error "android_sign: signing $artifact failed (exit $rc)"
   return $rc
 }
 
@@ -316,7 +345,9 @@ android_emulator_start() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --no-window) no_window=1; shift ;;
-      --wait) wait_for="${2:-180}"; shift 2 ;;
+      --wait)
+        [[ $# -ge 2 ]] || { log_error "android_emulator_start: $1 requires a value"; return 2; }
+        wait_for="${2:-180}"; shift 2 ;;
       -*) log_error "android_emulator_start: unknown option $1"; return 2 ;;
       *) avd="$1"; shift ;;
     esac

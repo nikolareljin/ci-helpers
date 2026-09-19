@@ -104,7 +104,9 @@ class_name="$(pkg_classify_name "$name")"
 
 deps_block=""
 for dep in "${deps[@]+"${deps[@]}"}"; do
-  deps_block+="  depends_on \"$dep\"\n"
+  # $'\n', not "\n": inside double quotes \n is two literal characters, which
+  # put every dependency on one line as invalid Ruby.
+  deps_block+="  depends_on \"$dep\""$'\n'
 done
 
 man_block=""

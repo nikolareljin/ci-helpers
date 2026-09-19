@@ -216,7 +216,9 @@ adb_install_verified() {
     || { log_error "adb_install_verified: need <serial> <apk> <package>"; return 2; }
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --user) user="${2:-}"; passthru+=(--user "$user"); shift 2 ;;
+      --user)
+        [[ $# -ge 2 ]] || { log_error "adb_install_verified: $1 requires a value"; return 2; }
+        user="${2:-}"; passthru+=(--user "$user"); shift 2 ;;
       *) passthru+=("$1"); shift ;;
     esac
   done

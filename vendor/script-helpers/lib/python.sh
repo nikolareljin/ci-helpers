@@ -42,6 +42,7 @@ python_can_run() {
 python_pick_3() {
   local min_major="${1:-3}"
   local min_minor="${2:-8}"
+  local candidate
   for candidate in python3 python; do
     if python_can_run "$candidate"; then
       if python_has_min_version "$candidate" "$min_major" "$min_minor"; then

@@ -128,9 +128,15 @@ screencap_shot() {
   local device="" platform="" out="" resolved
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --device) device="${2:-}"; shift 2 ;;
-      --platform) platform="${2:-}"; shift 2 ;;
-      --out) out="${2:-}"; shift 2 ;;
+      --device)
+        [[ $# -ge 2 ]] || { log_error "screencap_shot: $1 requires a value"; return 2; }
+        device="${2:-}"; shift 2 ;;
+      --platform)
+        [[ $# -ge 2 ]] || { log_error "screencap_shot: $1 requires a value"; return 2; }
+        platform="${2:-}"; shift 2 ;;
+      --out)
+        [[ $# -ge 2 ]] || { log_error "screencap_shot: $1 requires a value"; return 2; }
+        out="${2:-}"; shift 2 ;;
       -*) log_error "screencap_shot: unknown option $1"; return 2 ;;
       *) log_error "screencap_shot: unexpected argument '$1'"; return 2 ;;
     esac
@@ -173,12 +179,24 @@ screencap_record() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --device) device="${2:-}"; shift 2 ;;
-      --platform) platform="${2:-}"; shift 2 ;;
-      --out) out="${2:-}"; shift 2 ;;
-      --seconds) seconds="${2:-30}"; shift 2 ;;
-      --size) size="${2:-}"; shift 2 ;;
-      --bitrate) bitrate="${2:-}"; shift 2 ;;
+      --device)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        device="${2:-}"; shift 2 ;;
+      --platform)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        platform="${2:-}"; shift 2 ;;
+      --out)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        out="${2:-}"; shift 2 ;;
+      --seconds)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        seconds="${2:-30}"; shift 2 ;;
+      --size)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        size="${2:-}"; shift 2 ;;
+      --bitrate)
+        [[ $# -ge 2 ]] || { log_error "screencap_record: $1 requires a value"; return 2; }
+        bitrate="${2:-}"; shift 2 ;;
       --gif) want_gif=1; shift ;;
       -*) log_error "screencap_record: unknown option $1"; return 2 ;;
       *) log_error "screencap_record: unexpected argument '$1'"; return 2 ;;
@@ -230,7 +248,7 @@ _screencap__record_android() {
 
   if [[ "$seconds" -le "$_SCREENCAP_ANDROID_MAX_SECONDS" ]]; then
     log_info "screencap: recording ${seconds}s on $serial"
-    adb -s "$serial" shell screenrecord --time-limit "$seconds" "${flags[@]}" "$remote" || rc=1
+    adb -s "$serial" shell screenrecord --time-limit "$seconds" ${flags[@]+"${flags[@]}"} "$remote" || rc=1
     if [[ "$rc" -eq 0 ]]; then
       adb -s "$serial" pull "$remote" "$out" >/dev/null 2>&1 || rc=1
     fi
@@ -252,7 +270,7 @@ _screencap__record_android() {
   log_info "screencap: recording ${seconds}s on $serial in ${_SCREENCAP_ANDROID_MAX_SECONDS}s chunks"
   while [[ "$left" -gt 0 ]]; do
     chunk_dur=$(( left > _SCREENCAP_ANDROID_MAX_SECONDS ? _SCREENCAP_ANDROID_MAX_SECONDS : left ))
-    if ! adb -s "$serial" shell screenrecord --time-limit "$chunk_dur" "${flags[@]}" "$remote"; then
+    if ! adb -s "$serial" shell screenrecord --time-limit "$chunk_dur" ${flags[@]+"${flags[@]}"} "$remote"; then
       rc=1; break
     fi
     if ! adb -s "$serial" pull "$remote" "$tmpdir/part-$index.mp4" >/dev/null 2>&1; then
@@ -304,7 +322,9 @@ screencap_frame() {
   local video="" out="" at="1"
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --at) at="${2:-1}"; shift 2 ;;
+      --at)
+        [[ $# -ge 2 ]] || { log_error "screencap_frame: $1 requires a value"; return 2; }
+        at="${2:-1}"; shift 2 ;;
       -*) log_error "screencap_frame: unknown option $1"; return 2 ;;
       *) if [[ -z "$video" ]]; then video="$1"; else out="$1"; fi; shift ;;
     esac
@@ -329,8 +349,12 @@ screencap_gif() {
   local video="" out="" fps=12 width=480 palette rc=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --fps) fps="${2:-12}"; shift 2 ;;
-      --width) width="${2:-480}"; shift 2 ;;
+      --fps)
+        [[ $# -ge 2 ]] || { log_error "screencap_gif: $1 requires a value"; return 2; }
+        fps="${2:-12}"; shift 2 ;;
+      --width)
+        [[ $# -ge 2 ]] || { log_error "screencap_gif: $1 requires a value"; return 2; }
+        width="${2:-480}"; shift 2 ;;
       -*) log_error "screencap_gif: unknown option $1"; return 2 ;;
       *) if [[ -z "$video" ]]; then video="$1"; else out="$1"; fi; shift ;;
     esac

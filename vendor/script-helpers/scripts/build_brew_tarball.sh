@@ -66,6 +66,21 @@ rsync_args=( -a )
 for ex in "${excludes[@]+"${excludes[@]}"}"; do
   rsync_args+=( --exclude "$ex" )
 done
+# Never shipped, whatever --exclude says: git metadata, local env files (the
+# committed templates .env.example/.sample/.template/.dist are kept), and the
+# tarballs this script has already written when the output directory is inside
+# the repo, which otherwise nest every previous release in the next one.
+# rsync takes the first matching rule, so the caller's excludes above still win.
+for keep in .env.example .env.sample .env.template .env.dist \
+            '.env.*.example' '.env.*.sample' '.env.*.template' '.env.*.dist'; do
+  rsync_args+=( --include "$keep" )
+done
+rsync_args+=( --exclude .git --exclude .env --exclude '.env.*' )
+repo_abs="$(cd "$repo_dir" && pwd -P)"
+dist_abs="$(cd "$dist_dir" && pwd -P)"
+if [[ "$dist_abs" == "$repo_abs"/* ]]; then
+  rsync_args+=( --exclude "/${dist_abs#"$repo_abs"/}/${name}-*.tar.gz" )
+fi
 
 rsync "${rsync_args[@]+"${rsync_args[@]}"}" "$repo_dir/" "$pkg_dir/"
 

@@ -32,8 +32,10 @@ run_docker_compose_command() {
   if [[ $# -eq 1 ]]; then
     local -a split_args=()
     read -r -a split_args <<< "$1"
+    # The +alternative: an empty string splits to no words, and on bash 3.2
+    # "${split_args[@]}" of an empty array is an unbound-variable error.
     # shellcheck disable=SC2086
-    $cmd "${split_args[@]}"
+    $cmd ${split_args[@]+"${split_args[@]}"}
   else
     $cmd "$@"
   fi
@@ -67,12 +69,25 @@ check_project_root() {
   fi
 }
 
+# Internal: is a compose service running? Compose v2 answers exactly with
+# `ps --status running -q`; its default `ps` table says "Up 5 seconds", never
+# "running", so grepping for that word waited out every timeout. Compose v1
+# has no --status and says "Up" in its State column.
+_docker_service_running() {
+  local service_name="$1" ids
+  if ids="$(docker_compose ps --status running -q "$service_name" 2>/dev/null)"; then
+    [[ -n "$ids" ]]
+    return
+  fi
+  docker_compose ps "$service_name" 2>/dev/null | grep -Eq '(^|[[:space:]])(Up|running)([[:space:]]|$)'
+}
+
 # Usage: wait_for_service <service_name> [max_wait_seconds]; waits until running.
 wait_for_service() {
   local service_name="$1"; local max_wait="${2:-60}"; local wait_time=0
   log_info "Waiting for service '$service_name' to be ready..."
   while [[ $wait_time -lt $max_wait ]]; do
-    if docker_compose ps "$service_name" 2>/dev/null | grep -q "running"; then
+    if _docker_service_running "$service_name"; then
       log_info "Service '$service_name' is ready"
       return 0
     fi

@@ -68,4 +68,14 @@ if [[ "$BRANCH_NAME" =~ ^release/v?([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.?[0-9]+)?$ 
       echo "[check_release_version] Warning: base tag $base_version already exists. This can be expected when creating an RC after a final release, but verify that creating $release_version is intentional." >&2
     fi
   fi
+elif [[ "$BRANCH_NAME" == release/* ]]; then
+  # A branch that announces itself as a release and then does not parse is the
+  # case worth failing on. Until now it fell through and exited 0: every
+  # assertion above lives inside the match, so `release/oops` asserted nothing
+  # and reported success. The workflow caught that with its own inline pattern,
+  # which is how the two definitions drifted -- that one accepted X.Y.Z only and
+  # rejected the candidates this repository's tooling supports everywhere else.
+  echo "[check_release_version] Release branch name '$BRANCH_NAME' is invalid." >&2
+  echo "  Expected release/X.Y.Z or release/X.Y.Z-rcN (optionally with a leading v)." >&2
+  exit 1
 fi

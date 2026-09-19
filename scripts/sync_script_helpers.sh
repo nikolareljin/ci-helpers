@@ -101,7 +101,24 @@ cp -r "$TMP_DIR/script-helpers" "$STAGE_DIR"
 # GitHub only runs workflows at the repository root, so a copy under vendor/ can
 # never execute, and it references this repository's reusable workflows back --
 # which makes it read like a second, stale definition of our own CI.
-VENDOR_EXCLUDES=(".git" ".github")
+# Vendor only what this repository actually consumes: helpers.sh, the lib/
+# modules loaded through shlib_import, and scripts/. The sync used to take the
+# whole upstream tree, and copying code nobody here runs is how a copy turns
+# from a dependency into a liability. Two checks caught that in one re-vendor:
+#
+#   docs/, CHANGELOG.md  prose that names this repository, which the
+#     circular-reference check in verify_vendor.sh refuses. That check cannot
+#     tell a sentence in a changelog from a dependency and should not have to.
+#
+#   tests/  upstream's fixtures include a synthetic token that the secret
+#     scanner flags. The value is a deliberate stand-in and stays upstream --
+#     it is what proves publish_homebrew keeps a token out of argv -- but a
+#     repository that never runs those tests has no reason to carry them.
+#
+# The alternative was an allowlist entry per fixture, maintained forever, each
+# one a standing exemption in a secret scanner. Not copying the file is smaller
+# and cannot rot.
+VENDOR_EXCLUDES=(".git" ".github" "docs" "CHANGELOG.md" "tests")
 for excluded in "${VENDOR_EXCLUDES[@]}"; do
   rm -rf "${STAGE_DIR:?}/${excluded}"
 done
