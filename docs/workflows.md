@@ -861,7 +861,8 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `dotnet_version` (string, default `8.0.x`)
-- `lint_command` (string, default `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`)
+- `project` (string, default `""`) — project or solution to restore, build, test and format. Required whenever the directory does not hold exactly one project or solution; validated, and may not begin with `-`.
+- `lint_command` (string, default `dotnet format "<project>" --verify-no-changes`) — the SDK built-in. The previous default installed the standalone `dotnet-format` tool and passed it `--verify-no-changes`, a flag only the built-in accepts, so it read the flag as a file name and exited 1 on every project.
 - `test_command` (string, default `dotnet restore && dotnet test`)
 - `vuln_command` (string, default runs `dotnet list package --vulnerable --include-transitive` and fails when it lists vulnerable packages, since that command exits 0 either way)
 

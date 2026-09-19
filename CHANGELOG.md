@@ -30,7 +30,23 @@
   It reports the current state honestly — the vendored copy is pinned at
   `0.28.0` while upstream `production` is `0.30.0`, three releases back.
 
-## Unreleased
+
+- **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
+  `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
+  this repository often enough that the circular-reference check refuses it. The
+  two projects reference each other constantly, so that is a recurring collision,
+  not bad luck. The question it answered is still worth answering, so the sync
+  now records it next to the pin instead — the changelog entries **between the
+  previous pin and the new one**, which is the question a reviewer actually has
+  when approving a hundred-file generated diff.
+
+  It lives in `vendor/` rather than `vendor/script-helpers/`, which is what makes
+  it work: the circular check greps the vendored tree only, and the upstream file
+  comparison compares that tree only. The notes quote upstream prose — four
+  mentions of this repository at `0.31.0` — and trip neither.
+
+  It is derived, not verified. Nothing gates it against being hand-edited, and
+  the file says so in its own header.
 
 ### Changed
 
@@ -59,27 +75,6 @@
   per-fixture allowlist in `.gitleaks.toml`, maintained forever, each entry a
   standing exemption in a secret scanner. `VENDOR_EXCLUDES` and
   `FORBIDDEN_PATHS` are kept in step, as the comment on each already required.
-
-## Unreleased
-
-### Added
-
-- **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
-  `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
-  this repository often enough that the circular-reference check refuses it. The
-  two projects reference each other constantly, so that is a recurring collision,
-  not bad luck. The question it answered is still worth answering, so the sync
-  now records it next to the pin instead — the changelog entries **between the
-  previous pin and the new one**, which is the question a reviewer actually has
-  when approving a hundred-file generated diff.
-
-  It lives in `vendor/` rather than `vendor/script-helpers/`, which is what makes
-  it work: the circular check greps the vendored tree only, and the upstream file
-  comparison compares that tree only. The notes quote upstream prose — four
-  mentions of this repository at `0.31.0` — and trip neither.
-
-  It is derived, not verified. Nothing gates it against being hand-edited, and
-  the file says so in its own header.
 
 ### Fixed
 

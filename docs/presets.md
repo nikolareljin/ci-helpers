@@ -323,7 +323,12 @@ Workflow: `.github/workflows/csharp.yml`
 Defaults:
 
 - `dotnet_version`: `8.0.x`
-- `lint_command`: `dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes`
+- `project`: `""` — project or solution to restore, build, test and format, relative to `working_directory`. Leave empty only when the directory holds exactly one project or solution.
+- `lint_command`: `dotnet format "<project>" --verify-no-changes` (the SDK built-in)
+
+**Pass `project` unless the directory holds exactly one project or solution.** A directory with both a `.sln` and a `.csproj` fails a bare `dotnet build` with `MSB1011`, and a project in a subdirectory fails with `MSB1003`. The `.sln`/`.csproj` case is subtler than it looks: it only fails when the two base names *differ*. `App.sln` beside `App.csproj` is picked silently, while `Solution.sln` beside `App.csproj` is refused — so a repository can appear fine until it renames something.
+
+`project` is validated before use: letters, digits, dot, underscore, slash, dash and space, and it may not begin with `-`. A leading dash is refused because `dotnet` would read it as a flag rather than a path, which quoting alone does not prevent.
 - `test_command`: `dotnet restore && dotnet test`
 - `build_command`: `dotnet restore && dotnet build -c Release`
 

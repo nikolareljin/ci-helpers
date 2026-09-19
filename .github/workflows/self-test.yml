@@ -29,6 +29,70 @@ jobs:
       lint_command: "python -c 'print(\"lint overridden; install must still have run\")'"
       test_command: "python -m pip install pytest && python -m pytest -q"
 
+  # The C# defaults could not pass anywhere: the lint default installed the
+  # standalone dotnet-format tool and handed it --verify-no-changes, a flag only
+  # the SDK built-in accepts, so it read the flag as a file name and exited 1.
+  # Nothing noticed because no repository had ever called this preset.
+  #
+  # The fixture holds Solution.sln beside App.csproj. That combination fails a
+  # bare `dotnet build` with MSB1011 -- and only because the base names differ;
+  # with App.sln it would silently succeed and prove nothing. Passing `project`
+  # is what resolves it, so this leg exercises the input and the repaired lint
+  # default at once.
+  csharp-defaults-can-pass:
+    uses: ./.github/workflows/csharp.yml
+    with:
+      working_directory: tests/fixtures/csharp-project
+      project: Solution.sln
+
+  # The other direction. A gate that only ever passes is not a gate, and this
+  # one had been green-by-never-running; asserting that unformatted source still
+  # fails is what makes the passing leg above mean something.
+  csharp-lint-still-fails-on-bad-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        with:
+          dotnet-version: "8.0.x"
+      - name: Unformatted source must fail the lint default
+        shell: bash
+        working-directory: tests/fixtures/csharp-project
+        run: |
+          set -euo pipefail
+          printf 'namespace App;\npublic class Bad {   public int X  =>  1; }\n' > Bad.cs
+          trap 'rm -f Bad.cs' EXIT
+          if dotnet format "Solution.sln" --verify-no-changes; then
+            echo "::error::lint passed on deliberately unformatted source; the gate is blind"
+            exit 1
+          fi
+          echo "lint correctly rejected unformatted source"
+
+  # A project path this preset refuses to interpolate.
+  csharp-rejects-an-unsafe-project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: A project that could change a command is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Mirrors the guard in csharp.yml's validate-inputs job.
+          refuses() {
+            local v="$1"
+            case "$v" in -*) return 0 ;; esac
+            printf '%s' "$v" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/ -]*$' && return 1 || return 0
+          }
+          for bad in '-p:X=Y' 'a.csproj; id' 'a.csproj && id' 'a.csproj$(id)' 'a"b.csproj'; do
+            refuses "$bad" || { echo "::error::guard allowed '$bad'"; exit 1; }
+          done
+          for good in 'App.csproj' 'src/My App/App.csproj' 'a-b/c.sln'; do
+            refuses "$good" && { echo "::error::guard refused a legitimate path '$good'"; exit 1; }
+          done
+          echo "guard accepts real paths and refuses the rest"
+
   assert-ran:
     needs: [python-install-survives-lint-override]
     if: ${{ always() }}

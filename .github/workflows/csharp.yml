@@ -20,15 +20,37 @@ on:
       install_command:
         type: string
         default: ""
+      project:
+        description: >
+          Project or solution to restore, build, test and format, relative to
+          working_directory (e.g. "MyApp.csproj", "src/MyApp/MyApp.csproj",
+          "MyApp.sln"). Leave empty to let dotnet pick, which only works when the
+          directory holds exactly one project or solution: a directory holding
+          both a .sln and a .csproj fails with MSB1011, and a project in a
+          subdirectory fails with MSB1003.
+        type: string
+        default: ""
       lint_command:
+        description: >
+          Defaults to the SDK's built-in `dotnet format` against `project`. The
+          previous default installed the standalone dotnet-format tool and passed
+          it --verify-no-changes, a flag only the built-in accepts; the tool read
+          it as a file name and exited 1, so the default could not pass anywhere.
+          Set this to override the command entirely; `project` is then ignored.
         type: string
-        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
+        default: ""
       test_command:
+        description: >
+          Defaults to restore and test of `project`. Set this to override the
+          command entirely; `project` is then ignored.
         type: string
-        default: "dotnet restore && dotnet test"
+        default: ""
       build_command:
+        description: >
+          Defaults to restore and build of `project`. Set this to override the
+          command entirely; `project` is then ignored.
         type: string
-        default: "dotnet restore && dotnet build -c Release"
+        default: ""
       e2e_command:
         type: string
         default: ""
@@ -40,7 +62,33 @@ on:
         default: ""
 
 jobs:
+  # `project` is spliced into a shell command below, and it is the only input
+  # here that does not already look like one: a caller reasonably reads it as a
+  # file path. Constrain it to characters that cannot change a command's meaning
+  # before it is ever used, and refuse a leading dash so it cannot be smuggled
+  # into dotnet as a flag. Spaces are allowed because Windows project paths have
+  # them; the value is quoted at every use site.
+  validate-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the project path
+        shell: bash
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          set -euo pipefail
+          [[ -z "$PROJECT" ]] && exit 0
+          case "$PROJECT" in
+            -*) echo "::error::project '$PROJECT' may not start with '-'; dotnet would read it as a flag." >&2; exit 1 ;;
+          esac
+          if ! printf '%s' "$PROJECT" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/ -]*$'; then
+            echo "::error::project '$PROJECT' contains characters not allowed here. Use letters, digits, dot, underscore, slash, dash and space." >&2
+            exit 1
+          fi
+
   ci:
+    needs: [validate-inputs]
     uses: ./.github/workflows/ci.yml
     with:
       runner: ${{ inputs.runner }}
@@ -49,9 +97,24 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       dotnet_version: ${{ inputs.dotnet_version }}
       install_command: ${{ inputs.install_command }}
-      lint_command: ${{ inputs.lint_command }}
-      test_command: ${{ inputs.test_command }}
-      build_command: ${{ inputs.build_command }}
+      lint_command: >-
+        ${{ inputs.lint_command != ''
+            && inputs.lint_command
+            || (inputs.project != ''
+                && format('dotnet format "{0}" --verify-no-changes', inputs.project)
+                || 'dotnet format --verify-no-changes') }}
+      test_command: >-
+        ${{ inputs.test_command != ''
+            && inputs.test_command
+            || (inputs.project != ''
+                && format('dotnet restore "{0}" && dotnet test "{0}"', inputs.project)
+                || 'dotnet restore && dotnet test') }}
+      build_command: >-
+        ${{ inputs.build_command != ''
+            && inputs.build_command
+            || (inputs.project != ''
+                && format('dotnet restore "{0}" && dotnet build "{0}" -c Release', inputs.project)
+                || 'dotnet restore && dotnet build -c Release') }}
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}

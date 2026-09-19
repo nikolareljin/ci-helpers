@@ -14,12 +14,31 @@ on:
       dotnet_version:
         type: string
         default: "8.0.x"
+      project:
+        description: >
+          Project or solution to restore, build, test and format, relative to
+          working_directory (e.g. "MyApp.csproj", "src/MyApp/MyApp.csproj",
+          "MyApp.sln"). Leave empty to let dotnet pick, which only works when the
+          directory holds exactly one project or solution: a directory holding
+          both a .sln and a .csproj fails with MSB1011, and a project in a
+          subdirectory fails with MSB1003.
+        type: string
+        default: ""
       lint_command:
+        description: >
+          Defaults to the SDK's built-in `dotnet format` against `project`. The
+          previous default installed the standalone dotnet-format tool and passed
+          it --verify-no-changes, a flag only the built-in accepts; the tool read
+          it as a file name and exited 1, so the default could not pass anywhere.
+          Set this to override the command entirely; `project` is then ignored.
         type: string
-        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
+        default: ""
       test_command:
+        description: >
+          Defaults to restore and test of `project`. Set this to override the
+          command entirely; `project` is then ignored.
         type: string
-        default: "dotnet restore && dotnet test"
+        default: ""
       # `dotnet list package --vulnerable` exits 0 even when it lists vulnerable
       # packages, so the default fails on its "has the following vulnerable
       # packages" line. The CLI language is forced to English because that line
@@ -47,20 +66,44 @@ jobs:
           dotnet-version: ${{ inputs.dotnet_version }}
 
       - name: .NET lint
-        if: ${{ inputs.lint_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          # Neither value is spliced into the command text. An explicit
+          # command is arbitrary shell by contract and runs as given; the
+          # default references the path as a quoted argument, so a path
+          # with a space works and a path cannot become a command.
+          STAGE_COMMAND: ${{ inputs.lint_command }}
+          PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
-          ${{ inputs.lint_command }}
+          if [[ -n "$STAGE_COMMAND" ]]; then
+            bash -c "$STAGE_COMMAND"
+          elif [[ -n "$PROJECT" ]]; then
+            dotnet format "$PROJECT" --verify-no-changes
+          else
+            dotnet format --verify-no-changes
+          fi
 
       - name: .NET tests
-        if: ${{ inputs.test_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          # Neither value is spliced into the command text. An explicit
+          # command is arbitrary shell by contract and runs as given; the
+          # default references the path as a quoted argument, so a path
+          # with a space works and a path cannot become a command.
+          STAGE_COMMAND: ${{ inputs.test_command }}
+          PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
-          ${{ inputs.test_command }}
+          if [[ -n "$STAGE_COMMAND" ]]; then
+            bash -c "$STAGE_COMMAND"
+          elif [[ -n "$PROJECT" ]]; then
+            dotnet restore "$PROJECT" && dotnet test "$PROJECT"
+          else
+            dotnet restore && dotnet test
+          fi
 
       - name: Vulnerable packages
         if: ${{ inputs.vuln_command != '' }}
