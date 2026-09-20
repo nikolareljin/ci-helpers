@@ -18,6 +18,23 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # false / true / recursive, as actions/checkout understands them. A
+      # string, not a boolean, because `recursive` is a third state.
+      #
+      # checkout upper-cases this and compares against TRUE and RECURSIVE, so
+      # anything else -- `yes`, `1`, a typo -- means *false* and says nothing.
+      # A consumer that vendors a shared library as a submodule then gets a
+      # green run against a tree where the library is simply absent, and a
+      # "file not found" from whatever needed it. The validation step below
+      # refuses the values checkout would silently ignore.
+      #
+      # Public submodules only. checkout authenticates with a header scoped to
+      # the calling repository, so a submodule in a private repository fails
+      # with a 403; supplying a token would need a `secrets:` declaration at
+      # every hop between the caller and this workflow.
+      submodules:
+        type: string
+        default: "false"
       node_version:
         type: string
         default: ""
@@ -107,10 +124,30 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
+      # Before checkout, so a refused value costs nothing. Skipped in the
+      # default case, which is the value everyone gets when they pass nothing.
+      - name: Validate submodules input
+        if: ${{ inputs.submodules != 'false' && inputs.submodules != '' }}
+        shell: bash
+        env:
+          SUBMODULES: ${{ inputs.submodules }}
+        run: |
+          set -euo pipefail
+          case "$(printf '%s' "$SUBMODULES" | tr '[:upper:]' '[:lower:]')" in
+            false|true|recursive) ;;
+            *)
+              echo "::error::submodules must be false, true or recursive (got '${SUBMODULES}')." >&2
+              echo "::error::actions/checkout reads any other value as false, checks out no" >&2
+              echo "::error::submodule, and reports success -- so this is refused instead." >&2
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+          submodules: ${{ inputs.submodules }}
 
       - name: Checkout script-helpers
         if: ${{ inputs.check_release_tag }}

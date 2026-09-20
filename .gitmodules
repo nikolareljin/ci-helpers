@@ -1,0 +1,15 @@
+# A test fixture, and the only submodule in this repository.
+#
+# tests/fixtures/submodule-consumer exists so the `submodules` input on ci.yml
+# can be proven rather than asserted: the self-test checks this tree out both
+# with the input and without it, and fails if the file is present in the second
+# case. Nothing here is used at runtime by any workflow this library ships.
+#
+# It is deliberately NOT related to vendor/script-helpers, which is a committed
+# copy of the same upstream pinned by vendor/.script-helpers-ref and synced by
+# scripts/sync_script_helpers.sh. Two pins to one project would otherwise look
+# like a mistake, or get "fixed" into agreement. This one is pinned to a commit
+# and only needs to move if the fixture stops checking out.
+[submodule "tests/fixtures/submodule-consumer/shared/script-helpers"]
+	path = tests/fixtures/submodule-consumer/shared/script-helpers
+	url = https://github.com/nikolareljin/script-helpers.git

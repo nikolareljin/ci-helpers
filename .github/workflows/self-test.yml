@@ -221,9 +221,79 @@ jobs:
           fi
           echo "refuses a dropped forward, a diverging default and an undocumented input"
 
+  # The submodule input, against a tree that actually has one. Calls the engine
+  # directly: what is under test is its checkout, and a preset's stack defaults
+  # would only add a Go or Python toolchain to the failure surface. That every
+  # preset forwards the input is asserted statically by check_engine_inputs.py,
+  # which is cheaper and covers all fourteen rather than one.
+  submodules-recursive-checks-out-the-tree:
+    uses: ./.github/workflows/ci.yml
+    with:
+      concurrency_key: submodules-recursive-checks-out-the-tree
+      submodules: recursive
+      test_command: test -f tests/fixtures/submodule-consumer/shared/script-helpers/VERSION
+
+  # The other direction, which is the one that can rot silently: if checkout
+  # started pulling submodules regardless of the input, the leg above would stay
+  # green while the input did nothing.
+  submodules-default-leaves-the-tree-absent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Without the input the submodule must be absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f tests/fixtures/submodule-consumer/shared/script-helpers/VERSION ]]; then
+            echo "::error::the submodule is present without being asked for; the recursive leg proves nothing"
+            exit 1
+          fi
+          echo "default checkout leaves the submodule absent, as expected"
+
+  # The guard, driven from the workflow that owns it rather than through a copy
+  # of its case statement -- the same reasoning as the dotnet project guard
+  # below. Its refusals cannot be asserted by calling the engine, because a
+  # reusable workflow that fails fails the whole run.
+  submodules-guard-refuses-values-checkout-would-ignore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every value checkout would read as false is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "${RUNNER_TEMP}/guard.sh"
+          import yaml, pathlib, sys
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text())
+          steps = doc['jobs']['ci']['steps']
+          body = next((s['run'] for s in steps if s.get('name') == 'Validate submodules input'), None)
+          if not body:
+              sys.exit('could not find the validate step in ci.yml')
+          sys.stdout.write(body)
+          PY
+          test -s "${RUNNER_TEMP}/guard.sh" || { echo "::error::could not extract the guard"; exit 1; }
+          for bad in yes no 1 0 Recursiv "true " on; do
+            if SUBMODULES="$bad" bash "${RUNNER_TEMP}/guard.sh" >/dev/null 2>&1; then
+              echo "::error::guard accepted '$bad', which checkout reads as false"
+              exit 1
+            fi
+          done
+          for good in false true recursive False TRUE Recursive; do
+            if ! SUBMODULES="$good" bash "${RUNNER_TEMP}/guard.sh" >/dev/null 2>&1; then
+              echo "::error::guard refused a legitimate value '$good'"
+              exit 1
+            fi
+          done
+          echo "guard accepts the three states in any case, refuses everything else"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
+      - submodules-recursive-checks-out-the-tree
+      - submodules-default-leaves-the-tree-absent
+      - submodules-guard-refuses-values-checkout-would-ignore
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -237,6 +307,9 @@ jobs:
         env:
           RESULTS: >-
             engine-inputs-gate-refuses-a-dropped-forward=${{ needs.engine-inputs-gate-refuses-a-dropped-forward.result }}
+            submodules-recursive-checks-out-the-tree=${{ needs.submodules-recursive-checks-out-the-tree.result }}
+            submodules-default-leaves-the-tree-absent=${{ needs.submodules-default-leaves-the-tree-absent.result }}
+            submodules-guard-refuses-values-checkout-would-ignore=${{ needs.submodules-guard-refuses-values-checkout-would-ignore.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}

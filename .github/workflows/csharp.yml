@@ -14,6 +14,11 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
       dotnet_version:
         type: string
         default: "8.0.x"
@@ -102,3 +107,4 @@ jobs:
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
+      submodules: ${{ inputs.submodules }}

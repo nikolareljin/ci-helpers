@@ -54,6 +54,7 @@ PASS_THROUGH = (
     "working_directory",
     "concurrency_key",
     "fetch_depth",
+    "submodules",
     "timeout_minutes",
 )
 

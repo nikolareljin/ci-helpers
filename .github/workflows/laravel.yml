@@ -32,6 +32,11 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
       php_version:
         type: string
         default: "8.4"
@@ -135,3 +140,4 @@ jobs:
       db_health_cmd: 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
+      submodules: ${{ inputs.submodules }}
