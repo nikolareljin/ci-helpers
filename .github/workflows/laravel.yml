@@ -76,6 +76,11 @@ on:
       db_wait_seconds:
         type: number
         default: 60
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
 
 jobs:
   laravel:
@@ -129,3 +134,4 @@ jobs:
       # `sh -c` inside the DB container, where $MYSQL_ROOT_PASSWORD is set.
       db_health_cmd: 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}

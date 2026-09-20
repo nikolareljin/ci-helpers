@@ -53,6 +53,12 @@ Inputs:
 - `docker_command` (string, default `""`)
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
+- `extra_env` (string, default `""`) — extra environment for the command steps, one `KEY=VALUE` per line. Written to `$GITHUB_ENV` without the shell re-quoting the value, so a credential containing quotes survives intact; a line that is not `KEY=VALUE` fails the step with the value redacted.
+- `db_image` (string, default `""`) — optional database image. When set, the container is started with `docker run` before the command steps, because a `services:` block cannot be made conditional inside a reusable job.
+- `db_env` (string, default `""`) — container environment, one `KEY=VALUE` per line. A bare key is refused: `docker run -e KEY` would copy that variable off the runner and into the container.
+- `db_ports` (string, default `""`) — one published port mapping per line.
+- `db_health_cmd` (string, default `""`) — readiness probe, run **inside** the container, so it must address a local socket or port rather than a host URL.
+- `db_wait_seconds` (number, default `60`) — how long to wait for that probe before failing and printing the container's last 50 log lines.
 - `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
 
 This workflow declares a `concurrency` group keyed on the caller workflow, the

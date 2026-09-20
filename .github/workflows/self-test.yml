@@ -116,8 +116,114 @@ jobs:
           done
           echo "guard accepts real paths and refuses the rest"
 
+  # The anti-drift gate, driven against a tree built to be broken. A gate whose
+  # failing direction is never exercised is the same shape as the C# preset that
+  # looked correct because nothing had ever called it -- so this asserts the
+  # refusal, not just the pass. The real tree's passing direction is asserted by
+  # workflow-yaml-check.yml on every pull request.
+  engine-inputs-gate-refuses-a-dropped-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: A preset that stops forwarding an input is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/engine-inputs"
+          # The fixture is written by Python, not by a heredoc: a workflow
+          # expression written literally in a run: block is substituted by Actions
+          # before bash ever sees it, so a heredoc could not emit one. Building
+          # the string from parts keeps the sequence out of this file.
+          python3 - "$root" <<'PY'
+          import pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          wf = root / ".github" / "workflows"
+          wf.mkdir(parents=True, exist_ok=True)
+          (root / "docs").mkdir(exist_ok=True)
+          (root / "docs" / "workflows.md").write_text(
+              pathlib.Path("docs/workflows.md").read_text(encoding="utf-8"), encoding="utf-8")
+
+          INPUTS = ["runner", "working_directory", "concurrency_key",
+                    "fetch_depth", "timeout_minutes"]
+          DEFAULTS = {"runner": "ubuntu-latest", "working_directory": '"."',
+                      "concurrency_key": '""', "fetch_depth": "0",
+                      "timeout_minutes": "20"}
+          TYPES = {"fetch_depth": "number", "timeout_minutes": "number"}
+
+          def decls(indent, overrides=None):
+              over = overrides or {}
+              return "\n".join(
+                  "%s%s: { type: %s, default: %s }"
+                  % (indent, n, TYPES.get(n, "string"), over.get(n, DEFAULTS[n]))
+                  for n in INPUTS)
+
+          def engine():
+              return ("name: engine\non:\n  workflow_call:\n    inputs:\n"
+                      + decls("      ")
+                      + "\njobs:\n  ci:\n    runs-on: ubuntu-latest\n"
+                        "    steps:\n      - run: 'true'\n")
+
+          def preset(drop=None, overrides=None):
+              # The expression is assembled so this file never contains one.
+              expr = lambda n: "$" + "{{ inputs.%s }}" % n
+              names = [n for n in INPUTS if n != drop]
+              return ("name: preset\non:\n  workflow_call:\n    inputs:\n"
+                      + decls("      ", overrides)
+                      + "\njobs:\n  ci:\n    uses: ./.github/workflows/ci.yml\n    with:\n"
+                      + "\n".join("      %s: %s" % (n, expr(n)) for n in names) + "\n")
+
+          for name in ("ci", "pr-gate"):
+              (wf / (name + ".yml")).write_text(engine(), encoding="utf-8")
+          (wf / "preset.yml").write_text(preset(), encoding="utf-8")
+          (wf / "preset-good.yml.keep").write_text(preset(), encoding="utf-8")
+          (wf / "preset-drops.yml").write_text(preset(drop="timeout_minutes"), encoding="utf-8")
+          (wf / "preset-diverges.yml").write_text(
+              preset(overrides={"timeout_minutes": "45"}), encoding="utf-8")
+          PY
+
+          gate() { python3 scripts/check_engine_inputs.py --root "$root"; }
+
+          # Sound before broken: if the intact tree did not pass, every refusal
+          # below would prove nothing.
+          mv "$root/.github/workflows/preset-good.yml.keep" "$root/good.yml"
+          mv "$root/.github/workflows/preset-drops.yml" "$root/drops.yml"
+          mv "$root/.github/workflows/preset-diverges.yml" "$root/diverges.yml"
+          gate
+
+          # 1. a hop that stops forwarding one input
+          mv "$root/drops.yml" "$root/.github/workflows/preset.yml"
+          if gate; then
+            echo "::error::the gate accepted a preset that drops timeout_minutes"; exit 1
+          fi
+
+          # 2. a default that disagrees with the engine
+          mv "$root/diverges.yml" "$root/.github/workflows/preset.yml"
+          if gate; then
+            echo "::error::the gate accepted a default that disagrees with the engine"; exit 1
+          fi
+
+          # 3. an engine input nobody documented
+          python3 - "$root" <<'PY'
+          import pathlib, sys
+          wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows"
+          p = wf / "ci.yml"
+          p.write_text(p.read_text(encoding="utf-8").replace(
+              "      fetch_depth:",
+              '      undocumented_input: { type: string, default: "" }\n      fetch_depth:'),
+              encoding="utf-8")
+          (wf / "preset.yml").write_text(
+              (pathlib.Path(sys.argv[1]) / "good.yml").read_text(encoding="utf-8"),
+              encoding="utf-8")
+          PY
+          if gate; then
+            echo "::error::the gate accepted an engine input missing from docs/workflows.md"; exit 1
+          fi
+          echo "refuses a dropped forward, a diverging default and an undocumented input"
+
   assert-ran:
     needs:
+      - engine-inputs-gate-refuses-a-dropped-forward
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -130,6 +236,7 @@ jobs:
       - name: A skipped leg is not a pass
         env:
           RESULTS: >-
+            engine-inputs-gate-refuses-a-dropped-forward=${{ needs.engine-inputs-gate-refuses-a-dropped-forward.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}

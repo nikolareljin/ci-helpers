@@ -58,6 +58,11 @@ on:
       extra_command:
         type: string
         default: ""
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
 
 jobs:
   # `project` is spliced into a shell command below, and it is the only input
@@ -96,3 +101,4 @@ jobs:
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}

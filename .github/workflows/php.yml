@@ -63,6 +63,11 @@ on:
       extra_env:
         type: string
         default: ""
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
 
 jobs:
   ci:
@@ -87,3 +92,4 @@ jobs:
       db_health_cmd: ${{ inputs.db_health_cmd }}
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
       extra_env: ${{ inputs.extra_env }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}

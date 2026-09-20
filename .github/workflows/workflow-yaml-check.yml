@@ -36,6 +36,12 @@ jobs:
         shell: bash
         run: python3 scripts/check_workflow_yaml.py
 
+      # Parsing proves a file is YAML; it says nothing about an input going
+      # missing one hop down. See the script's header for what drifted.
+      - name: Engine inputs are threaded through every caller
+        shell: bash
+        run: python3 scripts/check_engine_inputs.py
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is
