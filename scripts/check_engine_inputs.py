@@ -55,6 +55,7 @@ PASS_THROUGH = (
     "concurrency_key",
     "fetch_depth",
     "submodules",
+    "cache",
     "timeout_minutes",
 )
 

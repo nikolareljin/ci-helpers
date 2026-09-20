@@ -37,6 +37,11 @@ on:
       submodules:
         type: string
         default: "false"
+      # Restore dependency caches, for the toolchains whose setup action has
+      # the option. The engine decides which from the lockfiles it finds.
+      cache:
+        type: boolean
+        default: true
       php_version:
         type: string
         default: "8.4"
@@ -141,3 +146,4 @@ jobs:
       db_wait_seconds: ${{ inputs.db_wait_seconds }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
       submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}

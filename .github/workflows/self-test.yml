@@ -288,12 +288,102 @@ jobs:
           done
           echo "guard accepts the three states in any case, refuses everything else"
 
+  # The cache probe, driven against generated trees rather than through a run.
+  # What this library owns is the mapping from lockfile to cache setting -- not
+  # GitHub's cache service -- and every wrong answer in that mapping is a hard
+  # job failure, because setup-node and setup-dotnet fail when told to cache a
+  # toolchain whose lockfile is absent. Extracted from ci.yml so there is no
+  # second copy of the rule to drift.
+  cache-probe-maps-every-lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Each fixture tree produces the expected cache settings
+        shell: bash
+        run: |
+          set -uo pipefail
+          export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+          probe="${RUNNER_TEMP}/probe.sh"
+          python3 - <<'PY' > "$probe"
+          import yaml, pathlib, sys
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text())
+          body = next((s['run'] for s in doc['jobs']['ci']['steps']
+                       if s.get('name') == 'Detect dependency lockfiles'), None)
+          if not body:
+              sys.exit('could not find the probe step in ci.yml')
+          sys.stdout.write(body)
+          PY
+          test -s "$probe" || { echo "could not extract the probe"; exit 1; }
+
+          failures=0
+          run_case() {           # run_case <name> <cache> <workdir> <expected k=v ...>
+            local name="$1" cache="$2" workdir="$3"; shift 3
+            local out="${RUNNER_TEMP}/out-$RANDOM"
+            : > "$out"
+            ( cd "${RUNNER_TEMP}/tree" && CACHE="$cache" WORKDIR="$workdir" \
+                GITHUB_OUTPUT="$out" bash "$probe" >/dev/null 2>&1 )
+            local rc=$?
+            if (( rc != 0 )); then echo "  FAIL $name: probe exited $rc"; failures=$((failures+1)); return; fi
+            local pair key want got
+            for pair in "$@"; do
+              key="${pair%%=*}"; want="${pair#*=}"
+              got="$(grep "^${key}=" "$out" | head -1 | cut -d= -f2-)"
+              if [[ "$got" != "$want" ]]; then
+                echo "  FAIL $name: $key is '$got', expected '$want'"; failures=$((failures+1))
+              fi
+            done
+            [[ $failures -eq 0 ]] && echo "  ok   $name"
+          }
+          tree() { rm -rf "${RUNNER_TEMP}/tree"; mkdir -p "${RUNNER_TEMP}/tree/$1"; }
+
+          tree .;            : > "${RUNNER_TEMP}/tree/package-lock.json"
+          run_case "npm lockfile"          true "." node=npm node_path=./package-lock.json go=false dotnet=false
+          tree .;            : > "${RUNNER_TEMP}/tree/yarn.lock"
+          run_case "yarn lockfile"         true "." node=yarn node_path=./yarn.lock
+          tree .;            : > "${RUNNER_TEMP}/tree/package-lock.json"; : > "${RUNNER_TEMP}/tree/yarn.lock"
+          run_case "both lockfiles"        true "." node=npm node_path=./package-lock.json
+          tree .
+          run_case "empty tree"            true "." node= python= go=false java= dotnet=false
+          tree .;            : > "${RUNNER_TEMP}/tree/poetry.lock"
+          run_case "poetry only"           true "." python= python_path=
+          tree .;            : > "${RUNNER_TEMP}/tree/requirements-dev.txt"
+          run_case "requirements-dev only" true "." python=pip 'python_path=./requirements*.txt'
+          tree apps/web;     : > "${RUNNER_TEMP}/tree/apps/web/package-lock.json"
+          run_case "monorepo path"         true "apps/web" node=npm node_path=apps/web/package-lock.json
+          run_case "trailing slash"        true "apps/web/" node=npm node_path=apps/web/package-lock.json
+          tree .;            : > "${RUNNER_TEMP}/tree/go.sum"; : > "${RUNNER_TEMP}/tree/packages.lock.json"
+          run_case "go and dotnet"         true "." go=true go_path=./go.sum dotnet=true dotnet_path=./packages.lock.json
+          run_case "cache disabled"        false "." go=false dotnet=false node= python= java=
+          tree .;            : > "${RUNNER_TEMP}/tree/pom.xml"
+          run_case "maven"                 true "." java=maven java_path=./pom.xml
+          tree .;            : > "${RUNNER_TEMP}/tree/build.gradle.kts"
+          run_case "gradle"                true "." java=gradle 'java_path=./*.gradle*'
+
+          if (( failures )); then echo "$failures probe assertion(s) failed"; exit 1; fi
+          echo "probe maps every fixture correctly"
+
+  # And once for real, because the unit leg cannot prove that setup-node accepts
+  # what the probe emits. It asserts the decision, not a cache hit: "cold" is
+  # false on any re-run, so asserting a hit would flake on the second push.
+  cache-npm-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/ci.yml
+    with:
+      concurrency_key: cache-npm-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-node
+      node_version: "22"
+      test_command: |
+        grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe chose npm and setup-node accepted it"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
       - submodules-recursive-checks-out-the-tree
       - submodules-default-leaves-the-tree-absent
       - submodules-guard-refuses-values-checkout-would-ignore
+      - cache-probe-maps-every-lockfile
+      - cache-npm-is-accepted-on-a-real-run
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -310,6 +400,8 @@ jobs:
             submodules-recursive-checks-out-the-tree=${{ needs.submodules-recursive-checks-out-the-tree.result }}
             submodules-default-leaves-the-tree-absent=${{ needs.submodules-default-leaves-the-tree-absent.result }}
             submodules-guard-refuses-values-checkout-would-ignore=${{ needs.submodules-guard-refuses-values-checkout-would-ignore.result }}
+            cache-probe-maps-every-lockfile=${{ needs.cache-probe-maps-every-lockfile.result }}
+            cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
