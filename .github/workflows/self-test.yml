@@ -69,27 +69,50 @@ jobs:
           fi
           echo "lint correctly rejected unformatted source"
 
-  # A project path this preset refuses to interpolate.
+  # The guard itself, called the way a preset calls it. Asserting it through a
+  # copy of its regex is what let csharp-scan.yml drift to having no check at
+  # all while the self-test stayed green.
   csharp-rejects-an-unsafe-project:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: "src/My App/App.csproj"
+
+  # And the refusals, which cannot be asserted by calling the workflow: a
+  # reusable workflow that fails fails the run. This drives the same script the
+  # workflow runs, from the workflow file, so there is no second copy of the
+  # rule to drift.
+  csharp-guard-refuses-bad-projects:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-      - name: A project that could change a command is refused
+      - name: Every refusal case is refused, every real path is not
         shell: bash
         run: |
           set -euo pipefail
-          # Mirrors the guard in csharp.yml's validate-inputs job.
-          refuses() {
-            local v="$1"
-            case "$v" in -*) return 0 ;; esac
-            printf '%s' "$v" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/ -]*$' && return 1 || return 0
-          }
-          for bad in '-p:X=Y' 'a.csproj; id' 'a.csproj && id' 'a.csproj$(id)' 'a"b.csproj'; do
-            refuses "$bad" || { echo "::error::guard allowed '$bad'"; exit 1; }
+          # Extract the guard body from the workflow that owns it, so this test
+          # cannot pass against a rule that has since changed.
+          python3 - <<'PY' > /tmp/guard.sh
+          import re, pathlib
+          t = pathlib.Path('.github/workflows/validate-dotnet-project.yml').read_text()
+          body = t.split('run: |', 1)[1]
+          lines = []
+          for line in body.split('\n'):
+              if line.strip() and not line.startswith('          '):
+                  break
+              lines.append(line[10:])
+          pathlib.Path('/tmp/guard.sh').write_text('\n'.join(lines))
+          PY
+          test -s /tmp/guard.sh || { echo "::error::could not extract the guard"; exit 1; }
+          for bad in '-p:X=Y' 'a.csproj; id' 'a.csproj && id' 'a.csproj$(id)' 'a"b.csproj' "a'b.csproj"; do
+            if PROJECT="$bad" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard accepted '$bad'"; exit 1
+            fi
           done
-          for good in 'App.csproj' 'src/My App/App.csproj' 'a-b/c.sln'; do
-            refuses "$good" && { echo "::error::guard refused a legitimate path '$good'"; exit 1; }
+          for good in 'App.csproj' 'src/My App/App.csproj' 'a-b/c.sln' ''; do
+            if ! PROJECT="$good" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard refused a legitimate value '$good'"; exit 1
+            fi
           done
           echo "guard accepts real paths and refuses the rest"
 

@@ -69,23 +69,10 @@ jobs:
   # into dotnet as a flag. Spaces are allowed because Windows project paths have
   # them; the value is quoted at every use site.
   validate-inputs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Check the project path
-        shell: bash
-        env:
-          PROJECT: ${{ inputs.project }}
-        run: |
-          set -euo pipefail
-          [[ -z "$PROJECT" ]] && exit 0
-          case "$PROJECT" in
-            -*) echo "::error::project '$PROJECT' may not start with '-'; dotnet would read it as a flag." >&2; exit 1 ;;
-          esac
-          if ! printf '%s' "$PROJECT" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/ -]*$'; then
-            echo "::error::project '$PROJECT' contains characters not allowed here. Use letters, digits, dot, underscore, slash, dash and space." >&2
-            exit 1
-          fi
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: ${{ inputs.project }}
+      runner: ${{ inputs.runner }}
 
   ci:
     needs: [validate-inputs]

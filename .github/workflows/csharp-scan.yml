@@ -51,7 +51,14 @@ on:
           echo "::error::Vulnerable NuGet packages found (listed above)"; exit 1; fi
 
 jobs:
+  validate-inputs:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: ${{ inputs.project }}
+      runner: ${{ inputs.runner }}
+
   scan:
+    needs: [validate-inputs]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:

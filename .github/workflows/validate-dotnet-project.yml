@@ -1,0 +1,63 @@
+name: validate-dotnet-project
+
+# Refuse a project/solution path that could change the meaning of the command it
+# is placed into, or be read by dotnet as a flag.
+#
+# This is a reusable workflow rather than a composite action on purpose. A
+# relative `uses: ./.github/workflows/...` resolves to THIS repository at the
+# same commit as the caller, so a cross-repo consumer gets the version that
+# matches the preset calling it. A relative action path would instead resolve
+# against the consumer's own checkout, where this file does not exist, and an
+# absolute `@production` reference cannot work for a check that does not exist
+# at `production` yet.
+#
+# One definition, used by csharp.yml and csharp-scan.yml. It began as two
+# copies, and csharp-scan.yml had already drifted to having no check at all --
+# a leading dash reached dotnet there while csharp.yml refused it. That is the
+# defect shape this repository has now hit four times.
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: The project or solution path to check. Empty is allowed.
+        type: string
+        default: ""
+      runner:
+        type: string
+        default: ubuntu-latest
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 5
+    steps:
+      - name: Check the project path
+        shell: bash
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PROJECT" ]]; then
+            echo "project is empty; dotnet will pick, which requires exactly one project or solution in the directory."
+            exit 0
+          fi
+          # A leading dash is refused separately from the charset: dotnet reads
+          # it as an option, and quoting the argument does not prevent that.
+          case "$PROJECT" in
+            -*)
+              echo "::error::project '$PROJECT' may not start with '-'; dotnet would read it as a flag, and quoting does not prevent that." >&2
+              exit 1
+              ;;
+          esac
+          # Letters, digits, dot, underscore, slash, dash and space. Spaces are
+          # allowed because Windows project paths have them, and every use site
+          # quotes the value. Everything that could terminate or extend a
+          # command is refused.
+          if ! printf '%s' "$PROJECT" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/ -]*$'; then
+            echo "::error::project '$PROJECT' contains characters not allowed here. Use letters, digits, dot, underscore, slash, dash and space." >&2
+            exit 1
+          fi
+          echo "project '$PROJECT' accepted."
