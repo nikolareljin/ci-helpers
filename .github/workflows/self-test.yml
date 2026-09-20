@@ -136,7 +136,7 @@ jobs:
           # before bash ever sees it, so a heredoc could not emit one. Building
           # the string from parts keeps the sequence out of this file.
           python3 - "$root" <<'PY'
-          import pathlib, sys
+          import pathlib, subprocess, sys, yaml
           root = pathlib.Path(sys.argv[1])
           wf = root / ".github" / "workflows"
           wf.mkdir(parents=True, exist_ok=True)
@@ -144,42 +144,45 @@ jobs:
           (root / "docs" / "workflows.md").write_text(
               pathlib.Path("docs/workflows.md").read_text(encoding="utf-8"), encoding="utf-8")
 
-          INPUTS = ["runner", "working_directory", "concurrency_key",
-                    "fetch_depth", "timeout_minutes"]
-          DEFAULTS = {"runner": "ubuntu-latest", "working_directory": '"."',
-                      "concurrency_key": '""', "fetch_depth": "0",
-                      "timeout_minutes": "20"}
-          TYPES = {"fetch_depth": "number", "timeout_minutes": "number"}
+          # The fixture's inputs are taken from the gate's own set and the real
+          # engine's declarations. Writing them out by hand here made this test a
+          # second copy of the list, which went stale the first time the set grew
+          # -- the exact failure the gate exists to catch, in the gate's own test.
+          names = subprocess.run(
+              [sys.executable, "scripts/check_engine_inputs.py", "--print-pass-through"],
+              capture_output=True, text=True, check=True).stdout.split()
+          engine_doc = yaml.safe_load(pathlib.Path(".github/workflows/ci.yml").read_text())
+          engine_inputs = (engine_doc.get("on") or engine_doc.get(True))["workflow_call"]["inputs"]
+          decls = {n: dict(engine_inputs[n]) for n in names}
 
-          def decls(indent, overrides=None):
-              over = overrides or {}
-              return "\n".join(
-                  "%s%s: { type: %s, default: %s }"
-                  % (indent, n, TYPES.get(n, "string"), over.get(n, DEFAULTS[n]))
-                  for n in INPUTS)
+          def dump(doc):
+              return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
           def engine():
-              return ("name: engine\non:\n  workflow_call:\n    inputs:\n"
-                      + decls("      ")
-                      + "\njobs:\n  ci:\n    runs-on: ubuntu-latest\n"
-                        "    steps:\n      - run: 'true'\n")
+              return dump({"name": "engine",
+                           "on": {"workflow_call": {"inputs": decls}},
+                           "jobs": {"ci": {"runs-on": "ubuntu-latest",
+                                           "steps": [{"run": "true"}]}}})
 
-          def preset(drop=None, overrides=None):
-              # The expression is assembled so this file never contains one.
+          def preset(drop=None, diverge=None):
+              # Assembled from parts so this file never contains a workflow
+              # expression, which Actions would substitute before bash ran.
               expr = lambda n: "$" + "{{ inputs.%s }}" % n
-              names = [n for n in INPUTS if n != drop]
-              return ("name: preset\non:\n  workflow_call:\n    inputs:\n"
-                      + decls("      ", overrides)
-                      + "\njobs:\n  ci:\n    uses: ./.github/workflows/ci.yml\n    with:\n"
-                      + "\n".join("      %s: %s" % (n, expr(n)) for n in names) + "\n")
+              d = {n: dict(v) for n, v in decls.items()}
+              if diverge:
+                  d[diverge] = dict(d[diverge], default=987)
+              with_ = {n: expr(n) for n in names if n != drop}
+              return dump({"name": "preset",
+                           "on": {"workflow_call": {"inputs": d}},
+                           "jobs": {"ci": {"uses": "./.github/workflows/ci.yml",
+                                           "with": with_}}})
 
           for name in ("ci", "pr-gate"):
               (wf / (name + ".yml")).write_text(engine(), encoding="utf-8")
           (wf / "preset.yml").write_text(preset(), encoding="utf-8")
           (wf / "preset-good.yml.keep").write_text(preset(), encoding="utf-8")
           (wf / "preset-drops.yml").write_text(preset(drop="timeout_minutes"), encoding="utf-8")
-          (wf / "preset-diverges.yml").write_text(
-              preset(overrides={"timeout_minutes": "45"}), encoding="utf-8")
+          (wf / "preset-diverges.yml").write_text(preset(diverge="timeout_minutes"), encoding="utf-8")
           PY
 
           gate() { python3 scripts/check_engine_inputs.py --root "$root"; }
@@ -205,16 +208,15 @@ jobs:
 
           # 3. an engine input nobody documented
           python3 - "$root" <<'PY'
-          import pathlib, sys
-          wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows"
-          p = wf / "ci.yml"
-          p.write_text(p.read_text(encoding="utf-8").replace(
-              "      fetch_depth:",
-              '      undocumented_input: { type: string, default: "" }\n      fetch_depth:'),
-              encoding="utf-8")
+          import pathlib, sys, yaml
+          root = pathlib.Path(sys.argv[1])
+          wf = root / ".github" / "workflows"
+          doc = yaml.safe_load((wf / "ci.yml").read_text())
+          (doc.get("on") or doc.get(True))["workflow_call"]["inputs"]["undocumented_input"] = {
+              "type": "string", "default": ""}
+          (wf / "ci.yml").write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
           (wf / "preset.yml").write_text(
-              (pathlib.Path(sys.argv[1]) / "good.yml").read_text(encoding="utf-8"),
-              encoding="utf-8")
+              (root / "good.yml").read_text(encoding="utf-8"), encoding="utf-8")
           PY
           if gate; then
             echo "::error::the gate accepted an engine input missing from docs/workflows.md"; exit 1

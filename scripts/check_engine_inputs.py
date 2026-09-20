@@ -114,7 +114,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent),
                     help="repository root to check (default: this repository)")
+    # So a test can build a fixture from the set rather than restating it. A
+    # restated list is the drift this script exists to catch, and the self-test
+    # managed to grow one within a day of the script being written.
+    ap.add_argument("--print-pass-through", action="store_true",
+                    help="print the pass-through input names, one per line")
     args = ap.parse_args()
+
+    if args.print_pass_through:
+        for name in PASS_THROUGH:
+            print(name)
+        return 0
 
     wf_dir = Path(args.root) / ".github" / "workflows"
     if not wf_dir.is_dir():
