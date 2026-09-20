@@ -14,10 +14,27 @@ on:
       dotnet_version:
         type: string
         default: "8.0.x"
-      lint_command:
+      project:
+        description: >
+          Project or solution to restore, build, test and format, relative to
+          working_directory (e.g. "MyApp.csproj", "src/MyApp/MyApp.csproj",
+          "MyApp.sln"). Leave empty to let dotnet pick, which only works when the
+          directory holds exactly one project or solution: a directory holding
+          both a .sln and a .csproj fails with MSB1011, and a project in a
+          subdirectory fails with MSB1003.
         type: string
-        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
+        default: ""
+      lint_command:
+        description: >
+          Defaults to the SDK's built-in `dotnet format`. Set to "" to disable
+          the stage, as in every other preset here. When left at the default and
+          `project` is set, the project is passed to it.
+        type: string
+        default: "dotnet format --verify-no-changes"
       test_command:
+        description: >
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and test.
         type: string
         default: "dotnet restore && dotnet test"
       # `dotnet list package --vulnerable` exits 0 even when it lists vulnerable
@@ -32,7 +49,13 @@ on:
           echo "::error::Vulnerable NuGet packages found (listed above)"; exit 1; fi
 
 jobs:
+  validate-inputs:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: ${{ inputs.project }}
+
   scan:
+    needs: [validate-inputs]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
@@ -50,17 +73,27 @@ jobs:
         if: ${{ inputs.lint_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          STAGE_COMMAND: >-
+            ${{ (inputs.lint_command == 'dotnet format --verify-no-changes' && inputs.project != '')
+                && format('dotnet format "{0}" --verify-no-changes', inputs.project)
+                || inputs.lint_command }}
         run: |
           set -euo pipefail
-          ${{ inputs.lint_command }}
+          eval "$STAGE_COMMAND"
 
       - name: .NET tests
         if: ${{ inputs.test_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          STAGE_COMMAND: >-
+            ${{ (inputs.test_command == 'dotnet restore && dotnet test' && inputs.project != '')
+                && format('dotnet restore "{0}" && dotnet test "{0}"', inputs.project)
+                || inputs.test_command }}
         run: |
           set -euo pipefail
-          ${{ inputs.test_command }}
+          eval "$STAGE_COMMAND"
 
       - name: Vulnerable packages
         if: ${{ inputs.vuln_command != '' }}

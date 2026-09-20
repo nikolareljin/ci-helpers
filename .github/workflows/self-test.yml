@@ -29,19 +29,122 @@ jobs:
       lint_command: "python -c 'print(\"lint overridden; install must still have run\")'"
       test_command: "python -m pip install pytest && python -m pytest -q"
 
+  # The C# defaults could not pass anywhere: the lint default installed the
+  # standalone dotnet-format tool and handed it --verify-no-changes, a flag only
+  # the SDK built-in accepts, so it read the flag as a file name and exited 1.
+  # Nothing noticed because no repository had ever called this preset.
+  #
+  # The fixture holds Solution.sln beside App.csproj. That combination fails a
+  # bare `dotnet build` with MSB1011 -- and only because the base names differ;
+  # with App.sln it would silently succeed and prove nothing. Passing `project`
+  # is what resolves it, so this leg exercises the input and the repaired lint
+  # default at once.
+  csharp-defaults-can-pass:
+    uses: ./.github/workflows/csharp.yml
+    with:
+      working_directory: tests/fixtures/csharp-project
+      project: Solution.sln
+
+  # The other direction. A gate that only ever passes is not a gate, and this
+  # one had been green-by-never-running; asserting that unformatted source still
+  # fails is what makes the passing leg above mean something.
+  csharp-lint-still-fails-on-bad-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        with:
+          dotnet-version: "8.0.x"
+      - name: Unformatted source must fail the lint default
+        shell: bash
+        working-directory: tests/fixtures/csharp-project
+        run: |
+          set -euo pipefail
+          printf 'namespace App;\npublic class Bad {   public int X  =>  1; }\n' > Bad.cs
+          trap 'rm -f Bad.cs' EXIT
+          if dotnet format "Solution.sln" --verify-no-changes; then
+            echo "::error::lint passed on deliberately unformatted source; the gate is blind"
+            exit 1
+          fi
+          echo "lint correctly rejected unformatted source"
+
+  # The guard itself, called the way a preset calls it. Asserting it through a
+  # copy of its regex is what let csharp-scan.yml drift to having no check at
+  # all while the self-test stayed green.
+  csharp-guard-accepts-a-real-path:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: "src/My App/App.csproj"
+
+  # And the refusals, which cannot be asserted by calling the workflow: a
+  # reusable workflow that fails fails the run. This drives the same script the
+  # workflow runs, from the workflow file, so there is no second copy of the
+  # rule to drift.
+  csharp-guard-refuses-bad-projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every refusal case is refused, every real path is not
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Extract the guard body from the workflow that owns it, so this test
+          # cannot pass against a rule that has since changed.
+          python3 - <<'PY' > /tmp/guard.sh
+          import re, pathlib
+          t = pathlib.Path('.github/workflows/validate-dotnet-project.yml').read_text()
+          body = t.split('run: |', 1)[1]
+          lines = []
+          for line in body.split('\n'):
+              if line.strip() and not line.startswith('          '):
+                  break
+              lines.append(line[10:])
+          pathlib.Path('/tmp/guard.sh').write_text('\n'.join(lines))
+          PY
+          test -s /tmp/guard.sh || { echo "::error::could not extract the guard"; exit 1; }
+          for bad in '-p:X=Y' 'a.csproj; id' 'a.csproj && id' 'a.csproj$(id)' 'a"b.csproj' "a'b.csproj"; do
+            if PROJECT="$bad" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard accepted '$bad'"; exit 1
+            fi
+          done
+          for good in 'App.csproj' 'src/My App/App.csproj' 'a-b/c.sln' ''; do
+            if ! PROJECT="$good" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard refused a legitimate value '$good'"; exit 1
+            fi
+          done
+          echo "guard accepts real paths and refuses the rest"
+
   assert-ran:
-    needs: [python-install-survives-lint-override]
+    needs:
+      - python-install-survives-lint-override
+      - csharp-defaults-can-pass
+      - csharp-lint-still-fails-on-bad-input
+      - csharp-guard-accepts-a-real-path
+      - csharp-guard-refuses-bad-projects
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: A skipped leg is not a pass
         env:
-          RESULT: ${{ needs.python-install-survives-lint-override.result }}
+          RESULTS: >-
+            python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
+            csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
+            csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
+            csharp-guard-accepts-a-real-path=${{ needs.csharp-guard-accepts-a-real-path.result }}
+            csharp-guard-refuses-bad-projects=${{ needs.csharp-guard-refuses-bad-projects.result }}
         run: |
           set -euo pipefail
-          case "$RESULT" in
-            success) echo "python install leg passed" ;;
-            skipped) echo "::error::leg was skipped; a skip is not a pass"; exit 1 ;;
-            *)       echo "::error::leg result: $RESULT"; exit 1 ;;
-          esac
+          failed=0
+          for pair in $RESULTS; do
+            leg="${pair%%=*}"
+            result="${pair#*=}"
+            case "$result" in
+              success) echo "$leg passed" ;;
+              skipped) echo "::error::$leg was skipped; a skip is not a pass"; failed=1 ;;
+              *)       echo "::error::$leg result: $result"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

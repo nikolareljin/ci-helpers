@@ -20,13 +20,33 @@ on:
       install_command:
         type: string
         default: ""
-      lint_command:
+      project:
+        description: >
+          Project or solution to restore, build, test and format, relative to
+          working_directory (e.g. "MyApp.csproj", "src/MyApp/MyApp.csproj",
+          "MyApp.sln"). Leave empty to let dotnet pick, which only works when the
+          directory holds exactly one project or solution: a directory holding
+          both a .sln and a .csproj fails with MSB1011, and a project in a
+          subdirectory fails with MSB1003.
         type: string
-        default: 'dotnet tool install -g dotnet-format && export PATH="$PATH:$HOME/.dotnet/tools" && dotnet-format --verify-no-changes'
+        default: ""
+      lint_command:
+        description: >
+          Defaults to the SDK's built-in `dotnet format`. Set to "" to disable
+          the stage, as in every other preset here. When left at the default and
+          `project` is set, the project is passed to it.
+        type: string
+        default: "dotnet format --verify-no-changes"
       test_command:
+        description: >
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and test.
         type: string
         default: "dotnet restore && dotnet test"
       build_command:
+        description: >
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and build.
         type: string
         default: "dotnet restore && dotnet build -c Release"
       e2e_command:
@@ -40,7 +60,19 @@ on:
         default: ""
 
 jobs:
+  # `project` is spliced into a shell command below, and it is the only input
+  # here that does not already look like one: a caller reasonably reads it as a
+  # file path. Constrain it to characters that cannot change a command's meaning
+  # before it is ever used, and refuse a leading dash so it cannot be smuggled
+  # into dotnet as a flag. Spaces are allowed because Windows project paths have
+  # them; the value is quoted at every use site.
+  validate-inputs:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: ${{ inputs.project }}
+
   ci:
+    needs: [validate-inputs]
     uses: ./.github/workflows/ci.yml
     with:
       runner: ${{ inputs.runner }}
@@ -49,9 +81,18 @@ jobs:
       fetch_depth: ${{ inputs.fetch_depth }}
       dotnet_version: ${{ inputs.dotnet_version }}
       install_command: ${{ inputs.install_command }}
-      lint_command: ${{ inputs.lint_command }}
-      test_command: ${{ inputs.test_command }}
-      build_command: ${{ inputs.build_command }}
+      lint_command: >-
+        ${{ (inputs.lint_command == 'dotnet format --verify-no-changes' && inputs.project != '')
+            && format('dotnet format "{0}" --verify-no-changes', inputs.project)
+            || inputs.lint_command }}
+      test_command: >-
+        ${{ (inputs.test_command == 'dotnet restore && dotnet test' && inputs.project != '')
+            && format('dotnet restore "{0}" && dotnet test "{0}"', inputs.project)
+            || inputs.test_command }}
+      build_command: >-
+        ${{ (inputs.build_command == 'dotnet restore && dotnet build -c Release' && inputs.project != '')
+            && format('dotnet restore "{0}" && dotnet build "{0}" -c Release', inputs.project)
+            || inputs.build_command }}
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}

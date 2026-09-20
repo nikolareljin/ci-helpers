@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`tests/fixtures/csharp-project` and self-test legs for C#.** The fixture
+  reproduces `MSB1011`, builds when given the project, passes lint when
+  formatted and **fails** lint when not. Both directions are asserted: a default
+  that failed on everything would have looked healthy against a fixture that
+  only proved failure.
+
+  `assert-ran` now covers every leg rather than only the Python one, and still
+  treats `skipped` as failure.
+
+
+
 - **`scripts/check_vendor_currency.sh` — say when script-helpers has moved on.**
   `vendor/script-helpers` is a committed copy pinned by
   `vendor/.script-helpers-ref`. Two things already watch it: `vendor-check.yml`
@@ -30,7 +41,23 @@
   It reports the current state honestly — the vendored copy is pinned at
   `0.28.0` while upstream `production` is `0.30.0`, three releases back.
 
-## Unreleased
+
+- **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
+  `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
+  this repository often enough that the circular-reference check refuses it. The
+  two projects reference each other constantly, so that is a recurring collision,
+  not bad luck. The question it answered is still worth answering, so the sync
+  now records it next to the pin instead — the changelog entries **between the
+  previous pin and the new one**, which is the question a reviewer actually has
+  when approving a hundred-file generated diff.
+
+  It lives in `vendor/` rather than `vendor/script-helpers/`, which is what makes
+  it work: the circular check greps the vendored tree only, and the upstream file
+  comparison compares that tree only. The notes quote upstream prose — four
+  mentions of this repository at `0.31.0` — and trip neither.
+
+  It is derived, not verified. Nothing gates it against being hand-edited, and
+  the file says so in its own header.
 
 ### Changed
 
@@ -60,28 +87,50 @@
   standing exemption in a secret scanner. `VENDOR_EXCLUDES` and
   `FORBIDDEN_PATHS` are kept in step, as the comment on each already required.
 
-## Unreleased
-
-### Added
-
-- **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
-  `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
-  this repository often enough that the circular-reference check refuses it. The
-  two projects reference each other constantly, so that is a recurring collision,
-  not bad luck. The question it answered is still worth answering, so the sync
-  now records it next to the pin instead — the changelog entries **between the
-  previous pin and the new one**, which is the question a reviewer actually has
-  when approving a hundred-file generated diff.
-
-  It lives in `vendor/` rather than `vendor/script-helpers/`, which is what makes
-  it work: the circular check greps the vendored tree only, and the upstream file
-  comparison compares that tree only. The notes quote upstream prose — four
-  mentions of this repository at `0.31.0` — and trip neither.
-
-  It is derived, not verified. Nothing gates it against being hand-edited, and
-  the file says so in its own header.
-
 ### Fixed
+
+- **The C# preset could not succeed on any repository.** Its lint default
+  installed the standalone `dotnet-format` tool and then passed it
+  `--verify-no-changes`, a flag only the SDK's built-in `dotnet format` accepts.
+  The tool reads it as a file name:
+
+  ```
+  The file '--verify-no-changes' does not appear to be a valid project or solution file.
+  ```
+
+  Measured on SDK 8.0.425 the install itself *succeeds* — it installs v5.1.2 — so
+  this was a new flag handed to an old tool, not a delisted package. The default
+  is now the built-in. Nothing had noticed because no repository had ever called
+  this preset.
+
+- **A directory holding both a solution and a project could not build.** A bare
+  `dotnet build` fails with `MSB1011`; a project in a subdirectory fails with
+  `MSB1003`. A new `project` input is passed to the default restore, build, test
+  and format commands.
+
+  The collision turns on the **base names**, which is worth knowing: `App.sln`
+  beside `App.csproj` is picked silently and succeeds, while `Solution.sln`
+  beside `App.csproj` is refused. A repository can look fine until it renames
+  something — and a fixture named the obvious way proves nothing, which the
+  first version of this one demonstrated by passing.
+
+- **`project` is validated, and the rule has one definition.**
+  `validate-dotnet-project.yml` refuses a value that could change a command's
+  meaning, that begins with `-` (which `dotnet` reads as a flag, and quoting does
+  not prevent), or that has a leading or trailing space (which fails inside
+  dotnet as a missing file). Both presets call it; `csharp-scan.yml` previously
+  had no check at all while using the same input.
+
+  It is a reusable workflow, not a composite action: a relative workflow
+  reference resolves to this repository at the caller's commit, while a relative
+  action path would resolve against the consumer's checkout.
+
+  The project is passed positionally rather than after `--`. `--` works for
+  `dotnet format`, `restore` and `build`, but `dotnet test` treats everything
+  after it as arguments for the test runner, so the project is never seen and
+  the command fails with `MSB1011`. Measured per subcommand rather than assumed
+  from one.
+
 
 - **The sync could not rebuild the tree it replaces.**
   `sync_script_helpers.sh` sources `helpers.sh` from `vendor/script-helpers`, so
