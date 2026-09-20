@@ -129,11 +129,22 @@ jobs:
     steps:
       - name: A skipped leg is not a pass
         env:
-          RESULT: ${{ needs.python-install-survives-lint-override.result }}
+          RESULTS: >-
+            python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
+            csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
+            csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
+            csharp-guard-accepts-a-real-path=${{ needs.csharp-guard-accepts-a-real-path.result }}
+            csharp-guard-refuses-bad-projects=${{ needs.csharp-guard-refuses-bad-projects.result }}
         run: |
           set -euo pipefail
-          case "$RESULT" in
-            success) echo "python install leg passed" ;;
-            skipped) echo "::error::leg was skipped; a skip is not a pass"; exit 1 ;;
-            *)       echo "::error::leg result: $RESULT"; exit 1 ;;
-          esac
+          failed=0
+          for pair in $RESULTS; do
+            leg="${pair%%=*}"
+            result="${pair#*=}"
+            case "$result" in
+              success) echo "$leg passed" ;;
+              skipped) echo "::error::$leg was skipped; a skip is not a pass"; failed=1 ;;
+              *)       echo "::error::$leg result: $result"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

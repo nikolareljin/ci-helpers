@@ -125,6 +125,12 @@
   reference resolves to this repository at the caller's commit, while a relative
   action path would resolve against the consumer's checkout.
 
+  The project is passed positionally rather than after `--`. `--` works for
+  `dotnet format`, `restore` and `build`, but `dotnet test` treats everything
+  after it as arguments for the test runner, so the project is never seen and
+  the command fails with `MSB1011`. Measured per subcommand rather than assumed
+  from one.
+
 
 - **The sync could not rebuild the tree it replaces.**
   `sync_script_helpers.sh` sources `helpers.sh` from `vendor/script-helpers`, so

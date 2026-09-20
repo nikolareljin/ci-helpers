@@ -76,7 +76,7 @@ jobs:
         env:
           STAGE_COMMAND: >-
             ${{ (inputs.lint_command == 'dotnet format --verify-no-changes' && inputs.project != '')
-                && format('dotnet format --verify-no-changes -- "{0}"', inputs.project)
+                && format('dotnet format "{0}" --verify-no-changes', inputs.project)
                 || inputs.lint_command }}
         run: |
           set -euo pipefail
@@ -89,7 +89,7 @@ jobs:
         env:
           STAGE_COMMAND: >-
             ${{ (inputs.test_command == 'dotnet restore && dotnet test' && inputs.project != '')
-                && format('dotnet restore -- "{0}" && dotnet test -- "{0}"', inputs.project)
+                && format('dotnet restore "{0}" && dotnet test "{0}"', inputs.project)
                 || inputs.test_command }}
         run: |
           set -euo pipefail
