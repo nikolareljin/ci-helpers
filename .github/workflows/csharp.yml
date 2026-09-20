@@ -32,25 +32,23 @@ on:
         default: ""
       lint_command:
         description: >
-          Defaults to the SDK's built-in `dotnet format` against `project`. The
-          previous default installed the standalone dotnet-format tool and passed
-          it --verify-no-changes, a flag only the built-in accepts; the tool read
-          it as a file name and exited 1, so the default could not pass anywhere.
-          Set this to override the command entirely; `project` is then ignored.
+          Defaults to the SDK's built-in `dotnet format`. Set to "" to disable
+          the stage, as in every other preset here. When left at the default and
+          `project` is set, the project is passed to it.
         type: string
-        default: ""
+        default: "dotnet format --verify-no-changes"
       test_command:
         description: >
-          Defaults to restore and test of `project`. Set this to override the
-          command entirely; `project` is then ignored.
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and test.
         type: string
-        default: ""
+        default: "dotnet restore && dotnet test"
       build_command:
         description: >
-          Defaults to restore and build of `project`. Set this to override the
-          command entirely; `project` is then ignored.
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and build.
         type: string
-        default: ""
+        default: "dotnet restore && dotnet build -c Release"
       e2e_command:
         type: string
         default: ""
@@ -72,7 +70,6 @@ jobs:
     uses: ./.github/workflows/validate-dotnet-project.yml
     with:
       project: ${{ inputs.project }}
-      runner: ${{ inputs.runner }}
 
   ci:
     needs: [validate-inputs]
@@ -85,23 +82,17 @@ jobs:
       dotnet_version: ${{ inputs.dotnet_version }}
       install_command: ${{ inputs.install_command }}
       lint_command: >-
-        ${{ inputs.lint_command != ''
-            && inputs.lint_command
-            || (inputs.project != ''
-                && format('dotnet format "{0}" --verify-no-changes', inputs.project)
-                || 'dotnet format --verify-no-changes') }}
+        ${{ (inputs.lint_command == 'dotnet format --verify-no-changes' && inputs.project != '')
+            && format('dotnet format --verify-no-changes -- "{0}"', inputs.project)
+            || inputs.lint_command }}
       test_command: >-
-        ${{ inputs.test_command != ''
-            && inputs.test_command
-            || (inputs.project != ''
-                && format('dotnet restore "{0}" && dotnet test "{0}"', inputs.project)
-                || 'dotnet restore && dotnet test') }}
+        ${{ (inputs.test_command == 'dotnet restore && dotnet test' && inputs.project != '')
+            && format('dotnet restore -- "{0}" && dotnet test -- "{0}"', inputs.project)
+            || inputs.test_command }}
       build_command: >-
-        ${{ inputs.build_command != ''
-            && inputs.build_command
-            || (inputs.project != ''
-                && format('dotnet restore "{0}" && dotnet build "{0}" -c Release', inputs.project)
-                || 'dotnet restore && dotnet build -c Release') }}
+        ${{ (inputs.build_command == 'dotnet restore && dotnet build -c Release' && inputs.project != '')
+            && format('dotnet restore -- "{0}" && dotnet build -c Release -- "{0}"', inputs.project)
+            || inputs.build_command }}
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}

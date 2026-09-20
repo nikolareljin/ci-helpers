@@ -72,7 +72,7 @@ jobs:
   # The guard itself, called the way a preset calls it. Asserting it through a
   # copy of its regex is what let csharp-scan.yml drift to having no check at
   # all while the self-test stayed green.
-  csharp-rejects-an-unsafe-project:
+  csharp-guard-accepts-a-real-path:
     uses: ./.github/workflows/validate-dotnet-project.yml
     with:
       project: "src/My App/App.csproj"
@@ -117,7 +117,12 @@ jobs:
           echo "guard accepts real paths and refuses the rest"
 
   assert-ran:
-    needs: [python-install-survives-lint-override]
+    needs:
+      - python-install-survives-lint-override
+      - csharp-defaults-can-pass
+      - csharp-lint-still-fails-on-bad-input
+      - csharp-guard-accepts-a-real-path
+      - csharp-guard-refuses-bad-projects
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

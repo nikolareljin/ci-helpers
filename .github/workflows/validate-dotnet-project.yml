@@ -5,16 +5,21 @@ name: validate-dotnet-project
 #
 # This is a reusable workflow rather than a composite action on purpose. A
 # relative `uses: ./.github/workflows/...` resolves to THIS repository at the
-# same commit as the caller, so a cross-repo consumer gets the version that
-# matches the preset calling it. A relative action path would instead resolve
+# same commit as the caller, so a cross-repo consumer gets the version matching
+# the preset that called it. A relative *action* path would instead resolve
 # against the consumer's own checkout, where this file does not exist, and an
 # absolute `@production` reference cannot work for a check that does not exist
 # at `production` yet.
 #
 # One definition, used by csharp.yml and csharp-scan.yml. It began as two
 # copies, and csharp-scan.yml had already drifted to having no check at all --
-# a leading dash reached dotnet there while csharp.yml refused it. That is the
-# defect shape this repository has now hit four times.
+# a leading dash reached dotnet there while csharp.yml refused it.
+#
+# What it is NOT: a security boundary. The same caller already supplies
+# lint_command, test_command, build_command and four more, every one of which
+# reaches a shell by contract. This exists so a value that reads as a path
+# behaves like one, and so a mistake produces a legible error instead of a
+# confusing one from dotnet.
 
 on:
   workflow_call:
@@ -24,6 +29,10 @@ on:
         type: string
         default: ""
       runner:
+        description: >
+          Deliberately not defaulted from the caller's runner. The whole job is
+          one grep; billing a macOS (10x) or Windows (2x) minute for it on every
+          run is a cost the caller did not ask for.
         type: string
         default: ubuntu-latest
 
@@ -40,10 +49,12 @@ jobs:
           PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
-          if [[ -z "$PROJECT" ]]; then
-            echo "project is empty; dotnet will pick, which requires exactly one project or solution in the directory."
+
+          if [ -z "$PROJECT" ]; then
+            echo "project is empty; dotnet will pick, which needs exactly one project or solution in the directory."
             exit 0
           fi
+
           # A leading dash is refused separately from the charset: dotnet reads
           # it as an option, and quoting the argument does not prevent that.
           case "$PROJECT" in
@@ -52,6 +63,17 @@ jobs:
               exit 1
               ;;
           esac
+
+          # A leading or trailing space passes the charset below and then fails
+          # inside dotnet as "could not find file" -- the confusing failure this
+          # guard exists to pre-empt.
+          case "$PROJECT" in
+            " "*|*" ")
+              echo "::error::project '$PROJECT' has a leading or trailing space; dotnet would report the file as missing." >&2
+              exit 1
+              ;;
+          esac
+
           # Letters, digits, dot, underscore, slash, dash and space. Spaces are
           # allowed because Windows project paths have them, and every use site
           # quotes the value. Everything that could terminate or extend a
@@ -60,4 +82,5 @@ jobs:
             echo "::error::project '$PROJECT' contains characters not allowed here. Use letters, digits, dot, underscore, slash, dash and space." >&2
             exit 1
           fi
+
           echo "project '$PROJECT' accepted."

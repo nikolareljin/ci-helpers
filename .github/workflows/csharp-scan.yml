@@ -26,19 +26,17 @@ on:
         default: ""
       lint_command:
         description: >
-          Defaults to the SDK's built-in `dotnet format` against `project`. The
-          previous default installed the standalone dotnet-format tool and passed
-          it --verify-no-changes, a flag only the built-in accepts; the tool read
-          it as a file name and exited 1, so the default could not pass anywhere.
-          Set this to override the command entirely; `project` is then ignored.
+          Defaults to the SDK's built-in `dotnet format`. Set to "" to disable
+          the stage, as in every other preset here. When left at the default and
+          `project` is set, the project is passed to it.
         type: string
-        default: ""
+        default: "dotnet format --verify-no-changes"
       test_command:
         description: >
-          Defaults to restore and test of `project`. Set this to override the
-          command entirely; `project` is then ignored.
+          Set to "" to disable the stage. When left at the default and `project`
+          is set, the project is passed to restore and test.
         type: string
-        default: ""
+        default: "dotnet restore && dotnet test"
       # `dotnet list package --vulnerable` exits 0 even when it lists vulnerable
       # packages, so the default fails on its "has the following vulnerable
       # packages" line. The CLI language is forced to English because that line
@@ -55,7 +53,6 @@ jobs:
     uses: ./.github/workflows/validate-dotnet-project.yml
     with:
       project: ${{ inputs.project }}
-      runner: ${{ inputs.runner }}
 
   scan:
     needs: [validate-inputs]
@@ -73,44 +70,30 @@ jobs:
           dotnet-version: ${{ inputs.dotnet_version }}
 
       - name: .NET lint
+        if: ${{ inputs.lint_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          # Neither value is spliced into the command text. An explicit
-          # command is arbitrary shell by contract and runs as given; the
-          # default references the path as a quoted argument, so a path
-          # with a space works and a path cannot become a command.
-          STAGE_COMMAND: ${{ inputs.lint_command }}
-          PROJECT: ${{ inputs.project }}
+          STAGE_COMMAND: >-
+            ${{ (inputs.lint_command == 'dotnet format --verify-no-changes' && inputs.project != '')
+                && format('dotnet format --verify-no-changes -- "{0}"', inputs.project)
+                || inputs.lint_command }}
         run: |
           set -euo pipefail
-          if [[ -n "$STAGE_COMMAND" ]]; then
-            bash -c "$STAGE_COMMAND"
-          elif [[ -n "$PROJECT" ]]; then
-            dotnet format "$PROJECT" --verify-no-changes
-          else
-            dotnet format --verify-no-changes
-          fi
+          eval "$STAGE_COMMAND"
 
       - name: .NET tests
+        if: ${{ inputs.test_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          # Neither value is spliced into the command text. An explicit
-          # command is arbitrary shell by contract and runs as given; the
-          # default references the path as a quoted argument, so a path
-          # with a space works and a path cannot become a command.
-          STAGE_COMMAND: ${{ inputs.test_command }}
-          PROJECT: ${{ inputs.project }}
+          STAGE_COMMAND: >-
+            ${{ (inputs.test_command == 'dotnet restore && dotnet test' && inputs.project != '')
+                && format('dotnet restore -- "{0}" && dotnet test -- "{0}"', inputs.project)
+                || inputs.test_command }}
         run: |
           set -euo pipefail
-          if [[ -n "$STAGE_COMMAND" ]]; then
-            bash -c "$STAGE_COMMAND"
-          elif [[ -n "$PROJECT" ]]; then
-            dotnet restore "$PROJECT" && dotnet test "$PROJECT"
-          else
-            dotnet restore && dotnet test
-          fi
+          eval "$STAGE_COMMAND"
 
       - name: Vulnerable packages
         if: ${{ inputs.vuln_command != '' }}
