@@ -185,7 +185,8 @@ def main() -> int:
         # values it wants and has no caller to pass anything on from. Demanding
         # it declare inputs nobody can set would make the gate unpassable, and a
         # gate that cannot pass gets deleted rather than obeyed.
-        if not declared and "workflow_call" not in str(doc.get("on", doc.get(True, ""))):
+        on = doc.get("on", doc.get(True)) or {}
+        if not (isinstance(on, dict) and "workflow_call" in on):
             continue
         hops = [(job_id, target, with_) for job_id, target, with_ in local_calls(doc)
                 if target in reaching]
