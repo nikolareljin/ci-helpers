@@ -519,6 +519,39 @@ jobs:
           fi
           echo "the lint default accepted the clean project"
 
+  # govulncheck must FAIL on a module with a reachable advisory. A vulnerability
+  # checker is easy to write so that it finds none, and nothing about a green
+  # scan distinguishes "no advisories" from "never looked".
+  #
+  # govulncheck exits 3, not 1, when it finds something. The step relies on
+  # non-zero, not on a specific code.
+  govulncheck-fails-on-a-known-advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
+        with:
+          go-version: "1.25"
+      - name: The pinned govulncheck must reject the fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(python3 -c "
+          import yaml
+          d = yaml.safe_load(open('.github/workflows/go-scan.yml'))
+          on = d.get('on', d.get(True))
+          print(on['workflow_call']['inputs']['govulncheck_version']['default'])
+          ")"
+          echo "pinned version from go-scan.yml: $ver"
+          go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
+          cd tests/fixtures/go-vuln
+          if "$(go env GOPATH)/bin/govulncheck" ./...; then
+            echo "::error::govulncheck passed on a module with a reachable advisory"
+            exit 1
+          fi
+          echo "govulncheck rejected the fixture, as it must"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -538,6 +571,7 @@ jobs:
       - godot-imports-and-tests-a-real-project
       - godot-default-test-command-refuses-to-pass
       - godot-lint-default-rejects-a-project-that-does-not-parse
+      - govulncheck-fails-on-a-known-advisory
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -562,6 +596,7 @@ jobs:
             godot-imports-and-tests-a-real-project=${{ needs.godot-imports-and-tests-a-real-project.result }}
             godot-default-test-command-refuses-to-pass=${{ needs.godot-default-test-command-refuses-to-pass.result }}
             godot-lint-default-rejects-a-project-that-does-not-parse=${{ needs.godot-lint-default-rejects-a-project-that-does-not-parse.result }}
+            govulncheck-fails-on-a-known-advisory=${{ needs.govulncheck-fails-on-a-known-advisory.result }}
         run: |
           set -euo pipefail
           failed=0

@@ -444,6 +444,39 @@ nobody thought of, and a format string with more placeholders than arguments
 (Godot reports `ERROR: a number is required`) reached a physical device that
 way while CI reported success.
 
+## Go scan
+
+Workflow: `.github/workflows/go-scan.yml`
+
+Defaults:
+
+- `go_version`: `1.25`
+- `govulncheck_version`: `v1.8.0`
+- `vulncheck`: `false`
+
+```yaml
+jobs:
+  scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@production
+    with:
+      vulncheck: true
+```
+
+`gosec` is a static analyser: it reads this repository's own code. It is not a
+dependency audit and says nothing about a known advisory in a module you import.
+`govulncheck` is that audit, and it reports only advisories reachable from your
+code, so importing a vulnerable module without calling into it is not flagged.
+
+It is **off by default**. Turning it on fleet-wide would fail repositories that
+changed nothing, on the day an advisory is published.
+
+`govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
+means the gate changes behaviour without a commit here, and a new advisory class
+turns every consumer red on a day nobody shipped.
+
+govulncheck exits **3** when it finds something, not 1. The step relies on
+non-zero rather than a specific code.
+
 ## Docker
 
 Workflow: `.github/workflows/docker.yml`

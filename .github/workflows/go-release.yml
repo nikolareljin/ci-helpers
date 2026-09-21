@@ -13,7 +13,25 @@ on:
         default: 0
       go_version:
         type: string
-        default: "1.24"
+        # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
+        # so the old default failed outright with `go.mod requires go >= 1.25.0`.
+        # It passed its own version, which is why nothing caught it.
+        default: "1.25"
+      # cgo is off by default and must stay that way: a cgo binary links against
+      # the build machine's libc, so a default-on build would hand every consumer
+      # a binary that fails on an older distribution.
+      #
+      # A repository with a build-tag-gated cgo path cannot ship it otherwise:
+      # the tag keeps it out of the default build correctly, and this workflow
+      # hardcoded CGO_ENABLED=0, so the path was never in a released binary.
+      cgo_enabled:
+        type: boolean
+        default: false
+      # apt packages installed before the build, for the headers a cgo path
+      # needs. Ignored when cgo_enabled is false.
+      cgo_packages:
+        type: string
+        default: ""
       bin_name:
         type: string
         required: true
@@ -69,6 +87,24 @@ jobs:
         with:
           go-version: ${{ inputs.go_version }}
 
+      - name: Install cgo build dependencies
+        if: ${{ inputs.cgo_enabled && inputs.cgo_packages != '' }}
+        shell: bash
+        env:
+          INPUT_CGO_PACKAGES: ${{ inputs.cgo_packages }}
+        run: |
+          set -euo pipefail
+          # Space-separated package names only. Anything else is rejected rather
+          # than passed to apt, because this string comes from a caller's
+          # workflow file.
+          if [[ ! "${INPUT_CGO_PACKAGES}" =~ ^[A-Za-z0-9._+-]+([[:space:]]+[A-Za-z0-9._+-]+)*$ ]]; then
+            echo "::error::cgo_packages must be space-separated package names." >&2
+            exit 2
+          fi
+          sudo apt-get update
+          # shellcheck disable=SC2086
+          sudo apt-get install -y --no-install-recommends ${INPUT_CGO_PACKAGES}
+
       - name: Build release binaries
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -78,8 +114,14 @@ jobs:
           INPUT_BUILD_TARGETS: ${{ inputs.build_targets }}
           INPUT_BIN_NAME: ${{ inputs.bin_name }}
           INPUT_MAIN_PATH: ${{ inputs.main_path }}
+          INPUT_CGO_ENABLED: ${{ inputs.cgo_enabled }}
         run: |
           set -euo pipefail
+          # 1 or 0, not true/false: go build reads CGO_ENABLED as a
+          # numeric flag and treats any other value as an error.
+          cgo=0
+          if [ "${INPUT_CGO_ENABLED}" = "true" ]; then cgo=1; fi
+          HOST_PLATFORM="$(go env GOOS)/$(go env GOARCH)"
           if [[ "${INPUT_MAIN_PATH}" == -* ]]; then
             echo "Invalid main_path: values starting with '-' are not allowed." >&2
             exit 2
@@ -103,11 +145,18 @@ jobs:
             fi
 
             out="${INPUT_ARTIFACT_DIR}/${INPUT_BIN_NAME}-${suffix}${ext}"
+            # cgo cannot cross-compile without a cross toolchain, and installing
+            # one here would be guesswork. Refuse instead of emitting a binary
+            # built for the wrong platform under the right filename.
+            if [ "${INPUT_CGO_ENABLED}" = "true" ] && [ "${goos}/${goarch}" != "${HOST_PLATFORM}" ]; then
+              echo "::error::cgo_enabled is true and target ${goos}/${goarch} is not the runner's ${HOST_PLATFORM}. Build cgo targets on a matching runner." >&2
+              exit 1
+            fi
             if [ -n "${INPUT_LDFLAGS}" ]; then
-              env CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              env CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$goarch" \
                 go build -o "$out" -ldflags "${INPUT_LDFLAGS}" "${INPUT_MAIN_PATH}"
             else
-              env CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              env CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$goarch" \
                 go build -o "$out" "${INPUT_MAIN_PATH}"
             fi
           done
