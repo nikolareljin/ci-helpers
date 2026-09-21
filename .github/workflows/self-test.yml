@@ -393,6 +393,22 @@ jobs:
         grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
         echo "pr-gate ran the probe, and setup-node accepted its answer"
 
+  # Go, on a real runner, through its preset.
+  #
+  # The self-test exercised node and python only, so the Go cache path had never run --
+  # and Go is the fleet's most-used preset. setup-go already defaults its own `cache` to
+  # true, so a wrong cache-dependency-path here does not degrade gracefully: it fails
+  # every Go consumer at once, on the first push after `production` moves.
+  cache-go-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/go.yml
+    with:
+      concurrency_key: cache-go-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-go
+      go_version: "1.24"
+      test_command: |
+        grep -q 'go: enabled' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe enabled the Go cache, and setup-go accepted its dependency path"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -402,6 +418,7 @@ jobs:
       - cache-probe-maps-every-lockfile
       - cache-npm-is-accepted-on-a-real-run
       - pr-gate-probes-and-caches
+      - cache-go-is-accepted-on-a-real-run
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -421,6 +438,7 @@ jobs:
             cache-probe-maps-every-lockfile=${{ needs.cache-probe-maps-every-lockfile.result }}
             cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
             pr-gate-probes-and-caches=${{ needs.pr-gate-probes-and-caches.result }}
+            cache-go-is-accepted-on-a-real-run=${{ needs.cache-go-is-accepted-on-a-real-run.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
