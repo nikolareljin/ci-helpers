@@ -367,7 +367,7 @@ Defaults:
 - `project`: `""` — project or solution to restore, build, test and format, relative to `working_directory`. Passed to the default commands; ignored if you override a command.
 - `lint_command`: `dotnet format --verify-no-changes` (the SDK built-in). `""` disables the stage, as elsewhere.
 
-With `project` set and the commands left at their defaults, the project is passed to each: `dotnet format --verify-no-changes -- "<project>"`, `dotnet restore -- "<project>" && dotnet test -- "<project>"`, and so on. Override a command and `project` is not woven into it — your command is used exactly as given.
+With `project` set and the commands left at their defaults, the project is passed to each: `dotnet format "<project>" --verify-no-changes`, `dotnet restore "<project>" && dotnet test "<project>"`, and so on. Override a command and `project` is not woven into it — your command is used exactly as given.
 
 **Pass `project` unless the directory holds exactly one project or solution.** A directory with both a `.sln` and a `.csproj` fails a bare `dotnet build` with `MSB1011`, and a project in a subdirectory fails with `MSB1003`. The `.sln`/`.csproj` case is subtler than it looks: it only fails when the two base names *differ*. `App.sln` beside `App.csproj` is picked silently, while `Solution.sln` beside `App.csproj` is refused — so a repository can appear fine until it renames something.
 
@@ -385,6 +385,27 @@ jobs:
     with:
       dotnet_version: "8.0.x"
 ```
+
+### Windows-only targets
+
+`runner` defaults to `ubuntu-latest`. A project whose target framework is
+Windows-only — `net8.0-windows`, `net48`, anything with `UseWindowsForms` or
+`UseWPF` — cannot build there at all: the Windows Desktop targeting pack is
+absent and the SDK refuses the build rather than producing something broken.
+
+```yaml
+jobs:
+  csharp:
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@production
+    with:
+      runner: windows-latest
+      project: WindowsApp.csproj
+```
+
+Both directions are covered by a self-test leg: `tests/fixtures/csharp-windows`
+builds on `windows-latest` and is refused on Linux with a message naming the
+platform. The second leg is the one that matters — a runner input exercised
+only on the runner it already worked on proves nothing.
 
 ## Godot
 
