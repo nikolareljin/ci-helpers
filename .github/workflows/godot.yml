@@ -1,0 +1,121 @@
+name: preset-godot
+#
+# Godot, for a GDScript or C# project.
+#
+# Two properties of the engine shape this preset, and a caller who does not
+# know them gets a green pipeline that tests nothing:
+#
+#   1. Godot resolves `class_name` types through
+#      .godot/global_script_class_cache.cfg, which is built by importing the
+#      project and is not in version control. On a fresh checkout -- every CI
+#      run is one -- that cache is absent, so every `class_name` is "not
+#      declared in the current scope", any script referencing one fails to
+#      parse, preload() returns an invalid script and .tres files load as a
+#      bare Resource. Importing first is what makes everything after it mean
+#      anything. That is why the default lint_command is the import.
+#
+#   2. **An error printed while a script runs does not reach the exit status.**
+#      Measured on 4.3: a script that fails to *parse* exits 1, so that case is
+#      caught -- but `push_error`, and anything the engine reports mid-run,
+#      prints `ERROR:` and Godot still exits **0**. A test command that trusts
+#      `$?` therefore catches the loud failures and misses the quiet ones,
+#      which are the ones a test suite exists for.
+#
+# Because of (2) there is no default test_command that would be honest, so the
+# default fails and says what to write instead. The check belongs in the
+# caller's repository, next to its test layout, where a developer can run the
+# same thing locally -- and a caller that already has a test entrypoint simply
+# passes it. docs/presets.md has a snippet to paste.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      concurrency_key:
+        type: string
+        default: ""
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      # Restore dependency caches, for the toolchains whose setup action has
+      # the option. Godot itself has no lockfile; this matters for a C# project
+      # whose NuGet packages the engine can cache.
+      cache:
+        type: boolean
+        default: true
+      # setup-godot demands a full three-part version. `project.godot` records
+      # a two-part one ("4.3"), and passing that verbatim fails with
+      # "Invalid version: 4.3" before any step runs -- which is how a repository
+      # can carry a Validate workflow that has never once succeeded. Write
+      # 4.3.0, not 4.3.
+      godot_version:
+        type: string
+        default: "4.3.0"
+      # Godot's .NET build. Needed for a C# project, a large extra download
+      # otherwise.
+      godot_use_dotnet:
+        type: boolean
+        default: false
+      install_command:
+        type: string
+        default: ""
+      # Importing is the parse gate: it is what surfaces a syntax error, an
+      # unresolved class_name or a broken .tres. It is also required before
+      # anything else runs, so it is the lint step by nature.
+      lint_command:
+        type: string
+        default: godot --headless --import
+      # No honest default exists -- see the header. This one fails.
+      test_command:
+        type: string
+        default: >-
+          echo "::error::Set test_command for this preset. Godot exits 0 after
+          printing an error, so a test must assert on the log rather than on the
+          exit status -- see docs/presets.md, section Godot." && exit 1
+      build_command:
+        type: string
+        default: ""
+      e2e_command:
+        type: string
+        default: ""
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      concurrency_key: ${{ inputs.concurrency_key }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      godot_version: ${{ inputs.godot_version }}
+      godot_use_dotnet: ${{ inputs.godot_use_dotnet }}
+      install_command: ${{ inputs.install_command }}
+      lint_command: ${{ inputs.lint_command }}
+      test_command: ${{ inputs.test_command }}
+      build_command: ${{ inputs.build_command }}
+      e2e_command: ${{ inputs.e2e_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}

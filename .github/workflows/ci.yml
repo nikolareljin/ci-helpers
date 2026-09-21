@@ -70,6 +70,19 @@ on:
       rust_toolchain:
         type: string
         default: ""
+      # Godot. setup-godot demands a full three-part version: "4.3" is rejected
+      # with "Invalid version: 4.3" before any step runs, so a caller that
+      # copies the two-part version out of its project.godot gets a workflow
+      # that has never once succeeded. The preset documents this; the engine
+      # passes the value through untouched.
+      godot_version:
+        type: string
+        default: ""
+      # Godot's .NET build, needed only for a C# project. It is a large extra
+      # download, so GDScript callers leave it off.
+      godot_use_dotnet:
+        type: boolean
+        default: false
       rust_components:
         type: string
         default: ""
@@ -156,7 +169,7 @@ env:
 # and those legs cancelled each other too. A caller that passes concurrency_key
 # keeps exactly the group it had.
 concurrency:
-  group: ci-helpers-ci-${{ github.workflow }}-${{ inputs.concurrency_key || format('{0}-{1}-node{2}-java{3}-dotnet{4}-py{5}-go{6}-flutter{7}{8}-php{9}-rust{10}', inputs.working_directory, inputs.runner, inputs.node_version, inputs.java_version, inputs.dotnet_version, inputs.python_version, inputs.go_version, inputs.flutter_version, inputs.flutter_channel, inputs.php_version, inputs.rust_toolchain) }}-${{ github.ref }}
+  group: ci-helpers-ci-${{ github.workflow }}-${{ inputs.concurrency_key || format('{0}-{1}-node{2}-java{3}-dotnet{4}-py{5}-go{6}-flutter{7}{8}-php{9}-rust{10}-godot{11}', inputs.working_directory, inputs.runner, inputs.node_version, inputs.java_version, inputs.dotnet_version, inputs.python_version, inputs.go_version, inputs.flutter_version, inputs.flutter_channel, inputs.php_version, inputs.rust_toolchain, inputs.godot_version) }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -467,6 +480,13 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
         with:
           php-version: ${{ inputs.php_version }}
+
+      - name: Setup Godot
+        if: ${{ inputs.godot_version != '' }}
+        uses: chickensoft-games/setup-godot@c233594225991af5aec714e52457cc76d6df8fa2 # v2.4.2 @ 2026-09-20
+        with:
+          version: ${{ inputs.godot_version }}
+          use-dotnet: ${{ inputs.godot_use_dotnet }}
 
       # One line per toolchain, so a run says what it cached and whether the
       # cache was there -- the alternative is reading five setup-step logs to

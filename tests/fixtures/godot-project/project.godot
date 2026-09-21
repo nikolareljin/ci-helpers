@@ -1,0 +1,13 @@
+; A minimal Godot 4 project, here so the godot.yml preset is proven rather than
+; asserted. It deliberately contains a `class_name` (scripts/Adder.gd) that the
+; test runner refers to by that name: without the import step the class cache
+; does not exist and the runner fails to parse. That case does exit non-zero --
+; what the log check in the self-test leg catches is the other one, an error
+; printed mid-run, which leaves the exit status at 0.
+
+config_version=5
+
+[application]
+
+config/name="ci-helpers godot fixture"
+config/features=PackedStringArray("4.3")

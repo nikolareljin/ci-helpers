@@ -34,3 +34,6 @@ CLAUDE.md
 /site/
 /.cache/
 /.venv-docs/
+
+# Godot builds the script class cache next to the fixture project on import.
+.godot/
