@@ -665,6 +665,59 @@ jobs:
           print("a stale exemption is refused")
           PY
 
+  # The preset defaulted to ubuntu-latest while the fleet's one production C#
+  # application targets a Windows-only framework, so the preset could not serve
+  # it at all. This is the acceptance for the runner input: the fixture builds
+  # where it can build, through the preset rather than around it.
+  csharp-windows-fixture-builds-on-a-windows-runner:
+    uses: ./.github/workflows/csharp.yml
+    with:
+      runner: windows-latest
+      working_directory: tests/fixtures/csharp-windows
+      project: WindowsApp.csproj
+
+  # And the direction that makes the leg above mean something. "It builds on
+  # Windows" would pass just as well if the fixture's target were not
+  # Windows-only at all, which is the shape of every gate here that turned out
+  # to be blind to its own subject.
+  csharp-windows-fixture-fails-clearly-on-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        with:
+          dotnet-version: "8.0.x"
+      - name: A Windows-only target must fail on Linux, and say why
+        shell: bash
+        working-directory: tests/fixtures/csharp-windows
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/linux-build.log"
+          if dotnet build "WindowsApp.csproj" -c Release > "$out" 2>&1; then
+            echo "::error::a Windows-only target built on Linux; the fixture proves nothing"
+            cat "$out"
+            exit 1
+          fi
+          echo "--- it failed, as it must; full output follows ---"
+          cat "$out"
+          # Failing is not enough. A missing SDK or a restore error would fail
+          # too, and this test would read as a pass while proving nothing about
+          # Windows targeting.
+          if ! grep -qEi "NETSDK1100|EnableWindowsTargeting|target Windows" "$out"; then
+            echo "::error::the build failed for some other reason; see the output above"
+            exit 1
+          fi
+          {
+            echo "### Windows-only target on Linux"
+            echo ""
+            echo "Refused, as it must:"
+            echo ""
+            echo '```'
+            grep -Ei "NETSDK1100|EnableWindowsTargeting|target Windows" "$out" | head -3
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -688,6 +741,8 @@ jobs:
       - go-modules-runs-every-module
       - go-modules-resolver-refuses-bad-input
       - engine-inputs-exemption-must-name-a-real-job
+      - csharp-windows-fixture-builds-on-a-windows-runner
+      - csharp-windows-fixture-fails-clearly-on-linux
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -716,6 +771,8 @@ jobs:
             go-modules-runs-every-module=${{ needs.go-modules-runs-every-module.result }}
             go-modules-resolver-refuses-bad-input=${{ needs.go-modules-resolver-refuses-bad-input.result }}
             engine-inputs-exemption-must-name-a-real-job=${{ needs.engine-inputs-exemption-must-name-a-real-job.result }}
+            csharp-windows-fixture-builds-on-a-windows-runner=${{ needs.csharp-windows-fixture-builds-on-a-windows-runner.result }}
+            csharp-windows-fixture-fails-clearly-on-linux=${{ needs.csharp-windows-fixture-fails-clearly-on-linux.result }}
         run: |
           set -euo pipefail
           failed=0

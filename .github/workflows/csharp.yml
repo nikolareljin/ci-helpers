@@ -3,6 +3,13 @@ on:
   workflow_call:
     inputs:
       runner:
+        description: >
+          The runner label. Leave it at ubuntu-latest for a portable target
+          (net8.0 and the like). A project whose target framework is
+          Windows-only -- net8.0-windows, net48, anything with UseWindowsForms
+          or UseWPF -- cannot build on Linux at all: the Windows Desktop
+          targeting pack is absent and the SDK refuses the build rather than
+          producing something broken. Pass windows-latest for those.
         type: string
         default: ubuntu-latest
       working_directory:

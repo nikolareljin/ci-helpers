@@ -4,6 +4,30 @@
 
 ### Added
 
+- **`csharp.yml` can build a Windows-only target.** `runner` defaulted to
+  `ubuntu-latest` while the fleet's one production C# application targets a
+  Windows-only framework, so the preset could not serve it at all: the Windows
+  Desktop targeting pack is absent on Linux and the SDK refuses the build. The
+  input is now documented with that case, and two self-test legs cover it --
+  `tests/fixtures/csharp-windows` (`net8.0-windows`, `UseWindowsForms`) builds
+  on `windows-latest`, and the same fixture on Linux must fail *and* say why.
+
+  The Linux leg asserts the reason, not just the failure. A missing SDK or a
+  restore error fails too, and a test that accepted any non-zero exit would read
+  as a pass while proving nothing about Windows targeting.
+
+### Fixed
+
+- **The C# preset's documented default commands used a `--` separator the
+  workflow does not use.** `docs/presets.md` showed
+  `dotnet restore -- "<project>"`; the preset splices
+  `dotnet restore "<project>"`. The documented form would not have behaved as
+  written -- `dotnet test` rejects `--`.
+
+## Unreleased
+
+### Added
+
 - **`go.yml` takes a `modules` input: a JSON array of directories, one CI leg
   each.** A repository with several `go.mod` files needed one `uses:` block per
   module. One consumer has five modules, wires three, and leaves two untested --
