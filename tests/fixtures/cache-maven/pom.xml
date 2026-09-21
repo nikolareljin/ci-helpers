@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A pom.xml for the engine's lockfile probe to find, so actions/setup-java is handed a
+  real cache-dependency-path and the Maven cache branch is exercised on a runner.
+
+  Nothing here is built. setup-java's cache is opt-in, so passing `cache: maven` is new
+  behaviour for every Java consumer, and a wrong dependency path fails the step rather
+  than quietly skipping the cache.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>example</groupId>
+  <artifactId>cache-fixture</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+</project>

@@ -409,6 +409,24 @@ jobs:
         grep -q 'go: enabled' "${RUNNER_TEMP}/cache-decisions.txt"
         echo "the probe enabled the Go cache, and setup-go accepted its dependency path"
 
+  # Maven, the last cache branch that could fail hard and had no leg.
+  #
+  # setup-java's cache is opt-in, so `cache: maven` is new behaviour for every Java
+  # consumer -- and a wrong cache-dependency-path fails the step rather than quietly
+  # skipping the cache. The commands are stubbed because what is under test is the cache
+  # wiring, not Maven.
+  cache-maven-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/java.yml
+    with:
+      concurrency_key: cache-maven-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-maven
+      java_version: "17"
+      lint_command: echo "lint is not what this leg proves"
+      build_command: echo "build is not what this leg proves"
+      test_command: |
+        grep -q 'java: maven' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe chose maven, and setup-java accepted its dependency path"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -419,6 +437,7 @@ jobs:
       - cache-npm-is-accepted-on-a-real-run
       - pr-gate-probes-and-caches
       - cache-go-is-accepted-on-a-real-run
+      - cache-maven-is-accepted-on-a-real-run
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -439,6 +458,7 @@ jobs:
             cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
             pr-gate-probes-and-caches=${{ needs.pr-gate-probes-and-caches.result }}
             cache-go-is-accepted-on-a-real-run=${{ needs.cache-go-is-accepted-on-a-real-run.result }}
+            cache-maven-is-accepted-on-a-real-run=${{ needs.cache-maven-is-accepted-on-a-real-run.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
