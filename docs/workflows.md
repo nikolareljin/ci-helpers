@@ -807,7 +807,7 @@ Purpose: Run Go lint, tests, and gosec scanning.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
-- `go_version` (string, default `1.24`)
+- `go_version` (string, default `1.25`)
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
 - `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
@@ -1389,7 +1389,7 @@ Inputs (selected):
 - `bin_name` (string, required)
 - `main_path` (string, default `"."`)
 - `artifact_dir` (string, default `artifacts`)
-- `go_version` (string, default `1.24`)
+- `go_version` (string, default `1.25`)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
 - `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
@@ -1429,7 +1429,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `go_version` (string, default `1.24`)
+- `go_version` (string, default `1.25`)
 - `bin_name` (string, required) — output binary name
 - `main_path` (string, default `"."`) — Go package path to build
 - `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
@@ -1458,7 +1458,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/go-deploy.yml@production
     with:
       working_directory: server
-      go_version: "1.24"
+      go_version: "1.25"
       bin_name: my-service
       build_target: linux/amd64
       remote_path: /opt/my-service

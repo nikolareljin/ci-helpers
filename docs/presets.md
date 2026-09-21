@@ -209,10 +209,11 @@ Workflow: `.github/workflows/go.yml`
 
 Defaults:
 
-- `go_version`: `1.24`
+- `go_version`: `1.25`
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
+- `modules`: unset, meaning one module at `working_directory`
 
 Example:
 
@@ -221,8 +222,41 @@ jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
-      go_version: "1.24"
+      go_version: "1.25"
 ```
+
+### Several modules in one repository
+
+`modules` takes a JSON array of directories relative to `working_directory` and
+runs one leg per entry, so a repository with five `go.mod` files needs one
+`uses:` block rather than five:
+
+```yaml
+jobs:
+  go:
+    uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
+    with:
+      modules: '["api", "worker", "tools/migrate"]'
+```
+
+Each leg's directory appears in its job name, and each runs the lint, test and
+build commands in that directory.
+
+A module holding `go.mod` and no packages is skipped rather than failed:
+`go build ./...` tolerates it, but `go vet ./...` and `go test ./...` both exit
+1 with "no packages to vet". The skip states its reason in the log and in the
+job summary, and the predicate is `go list -e ./...`, which still lists a
+package whose imports do not resolve -- so a module that is merely broken
+cannot be mistaken for an empty one and passed.
+
+Leave `modules` unset and nothing changes: the preset runs the single job it
+always has, still called `ci`, so a ruleset requiring that check by name keeps
+working.
+
+The input is refused, rather than quietly expanded to nothing, when it is not a
+non-empty JSON array, when an entry is absolute or contains `..`, or when two
+entries name the same directory. An empty matrix would report as a skipped job,
+and a skipped job reads like a pass.
 
 ## Java
 

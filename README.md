@@ -240,7 +240,7 @@ jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
     with:
-      go_version: "1.24"
+      go_version: "1.25"
       test_command: "go test ./..."
       build_command: "go build ./..."
 ```

@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`go.yml` takes a `modules` input: a JSON array of directories, one CI leg
+  each.** A repository with several `go.mod` files needed one `uses:` block per
+  module. One consumer has five modules, wires three, and leaves two untested --
+  including one that would pass. Writing a job per module by hand is the pattern
+  this library exists to remove.
+
+  A module holding `go.mod` and no packages is **skipped, not failed**.
+  `go build ./...` tolerates it with a warning, but `go vet ./...` and
+  `go test ./...` both exit 1 with "no packages to vet", so one such module
+  blocked adoption outright. The predicate is `go list -e ./...`: `-e` still
+  lists a package whose imports do not resolve, so a module that is merely
+  broken cannot be mistaken for an empty one and skipped green. The skip states
+  its reason in the log and in the job summary.
+
+  Leaving `modules` unset changes nothing: the preset runs the single job it
+  always has, still called `ci`. Folding that case into the matrix would have
+  renamed the check to `go (.)` and left every consumer ruleset requiring a
+  check that no longer reports.
+
+  The input is refused rather than expanded to nothing when it is not a
+  non-empty JSON array, when an entry is absolute or contains `..`, or when two
+  entries normalise to the same directory. An empty matrix reports as a skipped
+  job, and a skipped job reads like a pass.
+
+  Three self-test legs cover it: the three-module fixture (one module empty),
+  the resolver driven through nine refusals and five normalisations, and the
+  exemption check below. Each leg's test asserts its own module's name, so a leg
+  that ran in the repository root or in its neighbour fails rather than passes.
+
+### Changed
+
+- **`scripts/check_engine_inputs.py` exempts a forward by job, not by
+  workflow.** `go.yml` forwards `working_directory` and `concurrency_key`
+  verbatim from its single-module job and derives them per leg in its fan-out
+  job; a workflow-wide exemption would have excused the first as well. An
+  exemption naming a workflow, job or input that does not exist now fails the
+  run with exit 2 rather than standing ready to excuse whatever is written in
+  its place.
+
+### Fixed
+
+- **The documented Go default said 1.24 in nine places.** v0.31.0 changed
+  `go.yml`, `go-scan.yml`, `go-deploy.yml` and `go-release.yml` to 1.25 and left
+  `docs/presets.md`, `docs/usage.md`, `docs/workflows.md`,
+  `docs/private-repo-ci-strategy.md` and `README.md` describing the old value.
+
 ## 2026-09-21 — v0.31.0
 
 ### Changed

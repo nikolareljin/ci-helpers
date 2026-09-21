@@ -29,7 +29,7 @@ one that does not is ignored.
 EXIT_CODES:
   0  every reachable caller declares and forwards the set
   1  at least one hop drops an input, or a default disagrees with the engine
-  2  the tree could not be read
+  2  the tree could not be read, or an exemption names something absent
 """
 from __future__ import annotations
 
@@ -59,9 +59,22 @@ PASS_THROUGH = (
     "timeout_minutes",
 )
 
-# Deliberate exemptions, as (workflow, input) -> why. An exemption is a named
-# entry so that removing one is a visible diff rather than a silent widening.
-EXEMPT: dict[tuple[str, str], str] = {}
+# Deliberate exemptions, as (workflow, job, input) -> why. An exemption is a
+# named entry so that removing one is a visible diff rather than a silent
+# widening, and it is keyed by job rather than by workflow: go.yml forwards
+# both inputs verbatim from its single-module job and derives them in its
+# fan-out job, and a workflow-wide entry would excuse the first as well.
+#
+# Only the forward is excused. The exempted workflow must still declare the
+# input with the engine's default, so a caller can still set it.
+EXEMPT: dict[tuple[str, str, str], str] = {
+    ("go.yml", "go", "working_directory"): (
+        "fan-out: one leg per entry in `modules`, each resolved to its own "
+        "directory by resolve-modules"),
+    ("go.yml", "go", "concurrency_key"): (
+        "fan-out: suffixed with the module, because ci.yml cancels in "
+        "progress and legs sharing one key destroy each other"),
+}
 
 CALL_PREFIX = "./.github/workflows/"
 
@@ -150,6 +163,25 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    # An exemption naming a job that no longer exists is the widening this
+    # dict was shaped to prevent: the forward it excused is gone, and the entry
+    # silently stands ready to excuse whatever is written in its place. Refuse
+    # the run rather than the input, since nothing here is the caller's fault.
+    for (wf_name, job_id, input_name), _why in sorted(EXEMPT.items()):
+        if input_name not in PASS_THROUGH:
+            print(f"[ERROR] exemption names `{input_name}`, which is not a "
+                  f"pass-through input", file=sys.stderr)
+            return 2
+        exempt_doc = docs.get(wf_name)
+        if exempt_doc is None:
+            print(f"[ERROR] exemption names {wf_name}, which does not exist",
+                  file=sys.stderr)
+            return 2
+        if job_id not in (exempt_doc.get("jobs") or {}):
+            print(f"[ERROR] exemption names job `{job_id}` in {wf_name}, "
+                  f"which has no such job", file=sys.stderr)
+            return 2
+
     engine_defaults: dict[str, object] = {}
     for engine in ENGINES:
         for name, spec in workflow_call_inputs(docs[engine]).items():
@@ -194,8 +226,6 @@ def main() -> int:
             continue
         checked += 1
         for input_name in PASS_THROUGH:
-            if (name, input_name) in EXEMPT:
-                continue
             spec = declared.get(input_name)
             if not isinstance(spec, dict):
                 problems.append(f"{name}: does not declare `{input_name}`")
@@ -207,6 +237,8 @@ def main() -> int:
                     f"{name}: `{input_name}` defaults to {got!r}, engine says {want!r}")
             expected = "${{ inputs.%s }}" % input_name
             for job_id, target, with_ in hops:
+                if (name, job_id, input_name) in EXEMPT:
+                    continue
                 actual = with_.get(input_name)
                 if actual is None:
                     problems.append(
