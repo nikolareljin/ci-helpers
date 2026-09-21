@@ -138,3 +138,33 @@ Two compounding bugs, fixed in `0.10.0`:
 | `release/1.2.3-rc.1` | yes |
 | `release/1.2.3-hotfix` | no — non-numeric suffix |
 | `feature/1.2.3` | no — wrong prefix |
+
+---
+
+## Before every full release: refresh the action pins
+
+A full release (`X.Y.Z`, not an `-rcN`) must update the third-party action SHAs
+first. Run it on the release branch, before cutting:
+
+```bash
+bash scripts/update_pinned_actions.sh          # rewrite stale pins
+bash scripts/update_pinned_actions.sh --check  # must report 0 stale, 0 warnings
+```
+
+Why this is a release step and not left to the bots: Dependabot opens one pull
+request per action and **moves the SHA without touching the version comment**.
+Merging six of those leaves six pins reading `# v1.321.0 @ 2026-09-10` while
+pointing at v1.324.0. `scripts/update_pinned_actions.sh` and the security audit
+both read those comments, so the repository ends up reporting a version it does
+not ship.
+
+Without this step, a consumer pinned to `@production` gets an action version
+nobody recorded.
+
+Two things to check by hand when a Dependabot pin looks wrong:
+
+- `git/ref/tags/<tag>` returns the **tag object** for an annotated tag, not the
+  commit. Dereference it before comparing SHAs, or `github/codeql-action` will
+  look like a mismatch when it is correct.
+- The comment format is `# vX.Y.Z @ YYYY-MM-DD`, with the date of the bump, not
+  the date of the upstream release.

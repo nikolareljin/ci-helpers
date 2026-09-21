@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **Documented that a full release must refresh the action pins first**
+  (`docs/RELEASE_RC_PR.md`). Dependabot opens one pull request per action and
+  moves the SHA without touching the version comment, so merging them leaves
+  pins whose comments name a version they no longer point at. The pin audit and
+  the security audit both read those comments.
+
 - **Seven third-party action pins advanced**, consolidating six Dependabot pull
   requests into one release: `ruby/setup-ruby` to v1.324.0,
   `docker/setup-qemu-action` to v4.4.0, `docker/build-push-action` to v7.4.0,
