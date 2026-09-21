@@ -369,6 +369,23 @@ Defaults:
 
 With `project` set and the commands left at their defaults, the project is passed to each: `dotnet format "<project>" --verify-no-changes`, `dotnet restore "<project>" && dotnet test "<project>"`, and so on. Override a command and `project` is not woven into it — your command is used exactly as given.
 
+**Pass `project` unless the directory holds exactly one project or solution.** A directory with both a `.sln` and a `.csproj` fails a bare `dotnet build` with `MSB1011`, and a project in a subdirectory fails with `MSB1003`. The `.sln`/`.csproj` case is subtler than it looks: it only fails when the two base names *differ*. `App.sln` beside `App.csproj` is picked silently, while `Solution.sln` beside `App.csproj` is refused — so a repository can appear fine until it renames something.
+
+`project` is validated before use: letters, digits, dot, underscore, slash, dash and space; no leading or trailing space; and it may not begin with `-`, which `dotnet` would read as a flag rather than a path. This is for legibility, not security — the command inputs beside it are arbitrary shell by contract.
+
+- `test_command`: `dotnet restore && dotnet test`
+- `build_command`: `dotnet restore && dotnet build -c Release`
+
+Example:
+
+```yaml
+jobs:
+  csharp:
+    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@production
+    with:
+      dotnet_version: "8.0.x"
+```
+
 ### Windows-only targets
 
 `runner` defaults to `ubuntu-latest`. A project whose target framework is
@@ -389,23 +406,6 @@ Both directions are covered by a self-test leg: `tests/fixtures/csharp-windows`
 builds on `windows-latest` and is refused on Linux with a message naming the
 platform. The second leg is the one that matters — a runner input exercised
 only on the runner it already worked on proves nothing.
-
-**Pass `project` unless the directory holds exactly one project or solution.** A directory with both a `.sln` and a `.csproj` fails a bare `dotnet build` with `MSB1011`, and a project in a subdirectory fails with `MSB1003`. The `.sln`/`.csproj` case is subtler than it looks: it only fails when the two base names *differ*. `App.sln` beside `App.csproj` is picked silently, while `Solution.sln` beside `App.csproj` is refused — so a repository can appear fine until it renames something.
-
-`project` is validated before use: letters, digits, dot, underscore, slash, dash and space; no leading or trailing space; and it may not begin with `-`, which `dotnet` would read as a flag rather than a path. This is for legibility, not security — the command inputs beside it are arbitrary shell by contract.
-
-- `test_command`: `dotnet restore && dotnet test`
-- `build_command`: `dotnet restore && dotnet build -c Release`
-
-Example:
-
-```yaml
-jobs:
-  csharp:
-    uses: nikolareljin/ci-helpers/.github/workflows/csharp.yml@production
-    with:
-      dotnet_version: "8.0.x"
-```
 
 ## Godot
 

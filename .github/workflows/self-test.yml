@@ -680,11 +680,21 @@ jobs:
   # Windows" would pass just as well if the fixture's target were not
   # Windows-only at all, which is the shape of every gate here that turned out
   # to be blind to its own subject.
+  #
+  # This drives `dotnet build` directly rather than calling the preset, for the
+  # same reason csharp-guard-refuses-bad-projects drives its script directly: a
+  # reusable workflow that fails fails the run, so a refusal cannot be asserted
+  # by calling it. What is proved here is the fixture's Windows-only target, on
+  # which the preset's Linux behaviour then rests.
   csharp-windows-fixture-fails-clearly-on-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      # Guarantees an SDK is present. It does not pin which one builds: the
+      # runner image ships newer SDKs and the observed run resolved
+      # /usr/share/dotnet/sdk/10.0.400. The assertion below does not depend on
+      # the version -- every SDK that can target Windows refuses to do it here.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
         with:
           dotnet-version: "8.0.x"
