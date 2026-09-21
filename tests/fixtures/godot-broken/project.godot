@@ -1,0 +1,11 @@
+; A Godot project that does not parse, here so the preset's default
+; lint_command is proven to FAIL rather than assumed to. `godot --headless
+; --import` exits 0 over this tree while printing `SCRIPT ERROR: Parse Error`,
+; which is why the default reads the log instead of the exit status.
+
+config_version=5
+
+[application]
+
+config/name="ci-helpers godot fixture (deliberately broken)"
+config/features=PackedStringArray("4.3")

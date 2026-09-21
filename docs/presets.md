@@ -352,6 +352,98 @@ jobs:
       dotnet_version: "8.0.x"
 ```
 
+## Godot
+
+Workflow: `.github/workflows/godot.yml`
+
+Defaults:
+
+- `godot_version`: `4.3.0`
+- `godot_use_dotnet`: `false`
+- `lint_command`: imports the project and fails on anything the import logged
+- `test_command`: none — it fails and tells you to set one, for the reason below
+
+Example:
+
+```yaml
+jobs:
+  godot:
+    uses: nikolareljin/ci-helpers/.github/workflows/godot.yml@production
+    with:
+      godot_version: "4.3.0"
+      test_command: ./dev test
+```
+
+### Write the version with three parts
+
+`setup-godot` parses `godot_version` as a full version. `project.godot` records
+a two-part one, and copying it across gives `Invalid version: 4.3` **before any
+step runs** — the job fails at setup, which reads as infrastructure trouble
+rather than a typo. Write `4.3.0`.
+
+### Import before anything else
+
+Godot resolves `class_name` types through
+`.godot/global_script_class_cache.cfg`, which is produced by importing the
+project and is not in version control. Every CI run starts without it, so until
+the project is imported every `class_name` is "not declared in the current
+scope": scripts referencing one fail to parse, `preload()` returns an invalid
+script, and `.tres` files load as a bare `Resource`. The default
+`lint_command` is that import, and it doubles as the parse gate.
+
+**But the import cannot be trusted to fail.** Measured on 4.3: a project
+containing a script with a syntax error imports, prints
+`SCRIPT ERROR: Parse Error`, and **exits 0**. So a bare
+`godot --headless --import` is a lint step that can never fail — which is the
+obvious thing to write, and wrong. The default here reads the import log and
+fails on what is in it. If you override `lint_command`, keep that property.
+
+### An error during a run never reaches the exit status
+
+This is the one that matters, and it is narrower than "Godot always exits 0" —
+measured on 4.3:
+
+| What went wrong | `godot --headless --script ...` exits |
+|---|---|
+| The script fails to parse or load (an unresolved `class_name`, a syntax error) | **1** |
+| The engine prints `ERROR:` *while the script runs* (`push_error`, a bad format string, a failed resource load) | **0** |
+| `--import` over a project whose scripts do not parse | **0** |
+
+So the exit status catches the loud failures and misses the quiet ones — which
+are exactly what a test suite is for. There is no honest default test command,
+which is why the preset's default fails and asks for one. Put the check in your repository next to your tests, so it runs the
+same way locally, and pass it as `test_command`:
+
+```bash
+#!/usr/bin/env bash
+set -uo pipefail
+
+log="$(mktemp)"
+godot --headless --import                     # build the class cache first
+
+godot --headless --script res://tests/TestRunner.gd 2>&1 | tee "$log"
+
+# Fail on anything Godot printed as an error, minus the one line --headless
+# always prints: the dummy renderer reports `Parameter "m" is null` for every
+# mesh it cannot realise, which says nothing about your project.
+if grep -nE "ERROR:|Failed to load|Parse Error" "$log" | grep -vE 'Parameter "m" is null'; then
+  echo "Godot printed the errors above and still exited 0." >&2
+  exit 1
+fi
+
+# "No errors" is not "the tests ran" — a runner that dies quietly prints
+# nothing and still exits 0. Require the completion line it is supposed to
+# print.
+grep -q "all tests passed" "$log" || { echo "The runner never reported success." >&2; exit 1; }
+```
+
+Note the direction of that error check: it lists what is known to be
+**harmless** and fails on everything else. An allowlist of error strings to
+look for is the tempting shape and it is the wrong one — it ignores any kind
+nobody thought of, and a format string with more placeholders than arguments
+(Godot reports `ERROR: a number is required`) reached a physical device that
+way while CI reported success.
+
 ## Docker
 
 Workflow: `.github/workflows/docker.yml`

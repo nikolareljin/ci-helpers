@@ -52,6 +52,8 @@ Inputs:
 - `php_version` (string, default `""`)
 - `rust_toolchain` (string, default `""`)
 - `rust_components` (string, default `""`)
+- `godot_version` (string, default `""`; a full three-part version — `4.3.0`, never `4.3`, which `setup-godot` rejects with `Invalid version` before any step runs)
+- `godot_use_dotnet` (boolean, default `false`; Godot's .NET build, for a C# project)
 - `install_command` (string, default `""`)
 - `lint_command` (string, default `""`)
 - `test_command` (string, default `""`)
@@ -81,7 +83,7 @@ steps, which reads as an infrastructure hiccup rather than lost coverage.
 
 The runner and the toolchain versions (`node_version`, `java_version`,
 `dotnet_version`, `python_version`, `go_version`, `flutter_version` with
-`flutter_channel`, `php_version`, `rust_toolchain`) are in the default key for
+`flutter_channel`, `php_version`, `rust_toolchain`, `godot_version`) are in the default key for
 the same reason: a matrix over versions or runners reaches this workflow with a
 single working directory, and its legs cancelled each other too.
 
