@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-09-21 — v0.30.1
+
+### Changed
+
+- **Documented that a full release must refresh the action pins first**
+  (`docs/RELEASE_RC_PR.md`). Dependabot opens one pull request per action and
+  moves the SHA without touching the version comment, so merging them leaves
+  pins whose comments name a version they no longer point at. The pin audit and
+  the security audit both read those comments.
+
+- **Seven third-party action pins advanced**, consolidating six Dependabot pull
+  requests into one release: `ruby/setup-ruby` to v1.324.0,
+  `docker/setup-qemu-action` to v4.4.0, `docker/build-push-action` to v7.4.0,
+  `docker/setup-buildx-action` to v4.4.1, and `github/codeql-action/upload-sarif`
+  to v4.38.1 in three places.
+
+  Each new SHA was resolved from the upstream tag and compared against what
+  Dependabot proposed; all seven match. `codeql-action` needed the annotated tag
+  dereferenced, since `git/ref/tags` returns the tag object rather than the
+  commit.
+
+  The version comments were rewritten, which the bots do not do. Dependabot
+  moves the SHA and leaves `# v1.321.0 @ 2026-09-10` in place, so merging the
+  six as-is would have left every pin carrying a comment naming the version it
+  no longer points at. The pin audit reads those comments.
+
 ## 2026-09-21 — v0.30.0
 
 ### Added
