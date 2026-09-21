@@ -378,6 +378,21 @@ jobs:
         grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
         echo "the probe chose npm and setup-node accepted it"
 
+  # pr-gate.yml has no caller in this repository, so everything this change adds to it --
+  # the lockfile probe, the cache option on five setup steps, the summary -- would ship
+  # having never run once. That is exactly the shape that let the C# preset stay broken
+  # for months: a file nobody calls looks correct indefinitely. Twenty-nine repositories
+  # call this workflow on @production, which is a poor place to find out.
+  pr-gate-probes-and-caches:
+    uses: ./.github/workflows/pr-gate.yml
+    with:
+      concurrency_key: pr-gate-probes-and-caches
+      working_directory: tests/fixtures/cache-node
+      node_version: "22"
+      test_command: |
+        grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "pr-gate ran the probe, and setup-node accepted its answer"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -386,6 +401,7 @@ jobs:
       - submodules-guard-refuses-values-checkout-would-ignore
       - cache-probe-maps-every-lockfile
       - cache-npm-is-accepted-on-a-real-run
+      - pr-gate-probes-and-caches
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -404,6 +420,7 @@ jobs:
             submodules-guard-refuses-values-checkout-would-ignore=${{ needs.submodules-guard-refuses-values-checkout-would-ignore.result }}
             cache-probe-maps-every-lockfile=${{ needs.cache-probe-maps-every-lockfile.result }}
             cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
+            pr-gate-probes-and-caches=${{ needs.pr-gate-probes-and-caches.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
