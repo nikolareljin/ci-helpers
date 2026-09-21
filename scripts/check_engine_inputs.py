@@ -167,7 +167,15 @@ def main() -> int:
     # dict was shaped to prevent: the forward it excused is gone, and the entry
     # silently stands ready to excuse whatever is written in its place. Refuse
     # the run rather than the input, since nothing here is the caller's fault.
-    for (wf_name, job_id, input_name), _why in sorted(EXEMPT.items()):
+    #
+    # Only for this repository's own tree. EXEMPT describes these workflows, and
+    # --root exists to check a tree that has none of them -- the self-test drives
+    # it against a synthetic three-file fixture. Demanding go.yml there failed
+    # the fixture's intact case, which is the step that makes its refusals mean
+    # anything.
+    own_tree = Path(args.root).resolve() == Path(__file__).resolve().parent.parent
+    exemptions = sorted(EXEMPT) if own_tree else []
+    for wf_name, job_id, input_name in exemptions:
         if input_name not in PASS_THROUGH:
             print(f"[ERROR] exemption names `{input_name}`, which is not a "
                   f"pass-through input", file=sys.stderr)

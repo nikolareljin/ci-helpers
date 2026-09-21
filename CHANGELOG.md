@@ -41,7 +41,8 @@
   job; a workflow-wide exemption would have excused the first as well. An
   exemption naming a workflow, job or input that does not exist now fails the
   run with exit 2 rather than standing ready to excuse whatever is written in
-  its place.
+  its place -- checked against this repository's own tree only, since `--root`
+  exists to check a tree that holds none of these workflows.
 
 ### Fixed
 
