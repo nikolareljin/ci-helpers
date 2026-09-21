@@ -55,6 +55,41 @@
   failing direction is exercised by a self-test leg against a generated tree,
   and it was run against the unfixed tree before anything was fixed.
 
+- **A Godot preset (`godot.yml`), with `godot_version` and `godot_use_dotnet`
+  on the engine.** There was no way to build a Godot repository here at all.
+  Two properties of the engine decide whether such a pipeline means anything,
+  and both are encoded in the preset rather than left for each adopter to
+  rediscover.
+
+  Godot resolves `class_name` through `.godot/global_script_class_cache.cfg`,
+  which an import builds and which is not in version control. Every CI run
+  starts without it, so any script naming a class fails to parse, `preload()`
+  returns an invalid script and `.tres` files load as a bare `Resource`. The
+  default `lint_command` is that import.
+
+  And **Godot's exit status is not a verdict** — measured on 4.3, not inherited
+  from folklore. A script that fails to parse exits 1, but an error printed
+  while a script runs (`push_error`, a format string with more placeholders
+  than arguments) leaves the status at 0, and so does `--import` over a project
+  whose scripts do not parse. Both defaults therefore read the log. There is no
+  honest default `test_command` under that constraint, so the default **fails**
+  and says what to write instead; `docs/presets.md` carries a snippet, which
+  lists what is harmless and fails on everything else rather than listing the
+  errors to look for.
+
+  `setup-godot` needs a three-part version. The two-part one in `project.godot`
+  is refused with `Invalid version` before any step runs, which is how a
+  repository can carry a validation workflow that has never once succeeded, so
+  `godot_version` defaults to `4.3.0` and the docs say to write it that way.
+  `godot_version` also joins the concurrency key, so a version matrix does not
+  cancel its own legs.
+
+  Four self-test legs against two fixtures — one project that imports cleanly
+  and one that deliberately does not. Two of them assert the defaults **fail**:
+  the lint default over the broken project, and the test default as declared in
+  the file. The first version of this preset trusted `--import`'s exit status
+  and was a parse gate that could never fail.
+
 ### Fixed
 
 - **`timeout_minutes` reaches the engine from every preset.** It has been an
