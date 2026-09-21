@@ -116,8 +116,328 @@ jobs:
           done
           echo "guard accepts real paths and refuses the rest"
 
+  # The anti-drift gate, driven against a tree built to be broken. A gate whose
+  # failing direction is never exercised is the same shape as the C# preset that
+  # looked correct because nothing had ever called it -- so this asserts the
+  # refusal, not just the pass. The real tree's passing direction is asserted by
+  # workflow-yaml-check.yml on every pull request.
+  engine-inputs-gate-refuses-a-dropped-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: A preset that stops forwarding an input is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/engine-inputs"
+          # The fixture is written by Python, not by a heredoc: a workflow
+          # expression written literally in a run: block is substituted by Actions
+          # before bash ever sees it, so a heredoc could not emit one. Building
+          # the string from parts keeps the sequence out of this file.
+          python3 - "$root" <<'PY'
+          import pathlib, subprocess, sys, yaml
+          root = pathlib.Path(sys.argv[1])
+          wf = root / ".github" / "workflows"
+          wf.mkdir(parents=True, exist_ok=True)
+          (root / "docs").mkdir(exist_ok=True)
+          (root / "docs" / "workflows.md").write_text(
+              pathlib.Path("docs/workflows.md").read_text(encoding="utf-8"), encoding="utf-8")
+
+          # The fixture's inputs are taken from the gate's own set and the real
+          # engine's declarations. Writing them out by hand here made this test a
+          # second copy of the list, which went stale the first time the set grew
+          # -- the exact failure the gate exists to catch, in the gate's own test.
+          names = subprocess.run(
+              [sys.executable, "scripts/check_engine_inputs.py", "--print-pass-through"],
+              capture_output=True, text=True, check=True).stdout.split()
+          engine_doc = yaml.safe_load(pathlib.Path(".github/workflows/ci.yml").read_text())
+          engine_inputs = (engine_doc.get("on") or engine_doc.get(True))["workflow_call"]["inputs"]
+          decls = {n: dict(engine_inputs[n]) for n in names}
+
+          def dump(doc):
+              return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
+
+          def engine():
+              return dump({"name": "engine",
+                           "on": {"workflow_call": {"inputs": decls}},
+                           "jobs": {"ci": {"runs-on": "ubuntu-latest",
+                                           "steps": [{"run": "true"}]}}})
+
+          def preset(drop=None, diverge=None):
+              # Assembled from parts so this file never contains a workflow
+              # expression, which Actions would substitute before bash ran.
+              expr = lambda n: "$" + "{{ inputs.%s }}" % n
+              d = {n: dict(v) for n, v in decls.items()}
+              if diverge:
+                  d[diverge] = dict(d[diverge], default=987)
+              with_ = {n: expr(n) for n in names if n != drop}
+              return dump({"name": "preset",
+                           "on": {"workflow_call": {"inputs": d}},
+                           "jobs": {"ci": {"uses": "./.github/workflows/ci.yml",
+                                           "with": with_}}})
+
+          for name in ("ci", "pr-gate"):
+              (wf / (name + ".yml")).write_text(engine(), encoding="utf-8")
+          (wf / "preset.yml").write_text(preset(), encoding="utf-8")
+          (wf / "preset-good.yml.keep").write_text(preset(), encoding="utf-8")
+          (wf / "preset-drops.yml").write_text(preset(drop="timeout_minutes"), encoding="utf-8")
+          (wf / "preset-diverges.yml").write_text(preset(diverge="timeout_minutes"), encoding="utf-8")
+          PY
+
+          gate() { python3 scripts/check_engine_inputs.py --root "$root"; }
+
+          # Sound before broken: if the intact tree did not pass, every refusal
+          # below would prove nothing.
+          mv "$root/.github/workflows/preset-good.yml.keep" "$root/good.yml"
+          mv "$root/.github/workflows/preset-drops.yml" "$root/drops.yml"
+          mv "$root/.github/workflows/preset-diverges.yml" "$root/diverges.yml"
+          gate
+
+          # 1. a hop that stops forwarding one input
+          mv "$root/drops.yml" "$root/.github/workflows/preset.yml"
+          if gate; then
+            echo "::error::the gate accepted a preset that drops timeout_minutes"; exit 1
+          fi
+
+          # 2. a default that disagrees with the engine
+          mv "$root/diverges.yml" "$root/.github/workflows/preset.yml"
+          if gate; then
+            echo "::error::the gate accepted a default that disagrees with the engine"; exit 1
+          fi
+
+          # 3. an engine input nobody documented
+          python3 - "$root" <<'PY'
+          import pathlib, sys, yaml
+          root = pathlib.Path(sys.argv[1])
+          wf = root / ".github" / "workflows"
+          doc = yaml.safe_load((wf / "ci.yml").read_text())
+          (doc.get("on") or doc.get(True))["workflow_call"]["inputs"]["undocumented_input"] = {
+              "type": "string", "default": ""}
+          (wf / "ci.yml").write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+          (wf / "preset.yml").write_text(
+              (root / "good.yml").read_text(encoding="utf-8"), encoding="utf-8")
+          PY
+          if gate; then
+            echo "::error::the gate accepted an engine input missing from docs/workflows.md"; exit 1
+          fi
+          echo "refuses a dropped forward, a diverging default and an undocumented input"
+
+  # The submodule input, against a tree that actually has one. Calls the engine
+  # directly: what is under test is its checkout, and a preset's stack defaults
+  # would only add a Go or Python toolchain to the failure surface. That every
+  # preset forwards the input is asserted statically by check_engine_inputs.py,
+  # which is cheaper and covers all fourteen rather than one.
+  submodules-recursive-checks-out-the-tree:
+    uses: ./.github/workflows/ci.yml
+    with:
+      concurrency_key: submodules-recursive-checks-out-the-tree
+      submodules: recursive
+      test_command: test -f tests/fixtures/submodule-consumer/shared/script-helpers/VERSION
+
+  # The other direction, which is the one that can rot silently: if checkout
+  # started pulling submodules regardless of the input, the leg above would stay
+  # green while the input did nothing.
+  submodules-default-leaves-the-tree-absent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Without the input the submodule must be absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f tests/fixtures/submodule-consumer/shared/script-helpers/VERSION ]]; then
+            echo "::error::the submodule is present without being asked for; the recursive leg proves nothing"
+            exit 1
+          fi
+          echo "default checkout leaves the submodule absent, as expected"
+
+  # The guard, driven from the workflow that owns it rather than through a copy
+  # of its case statement -- the same reasoning as the dotnet project guard
+  # below. Its refusals cannot be asserted by calling the engine, because a
+  # reusable workflow that fails fails the whole run.
+  submodules-guard-refuses-values-checkout-would-ignore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every value checkout would read as false is refused
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "${RUNNER_TEMP}/guard.sh"
+          import yaml, pathlib, sys
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text())
+          steps = doc['jobs']['ci']['steps']
+          body = next((s['run'] for s in steps if s.get('name') == 'Validate submodules input'), None)
+          if not body:
+              sys.exit('could not find the validate step in ci.yml')
+          sys.stdout.write(body)
+          PY
+          test -s "${RUNNER_TEMP}/guard.sh" || { echo "::error::could not extract the guard"; exit 1; }
+          for bad in yes no 1 0 Recursiv "true " on; do
+            if SUBMODULES="$bad" bash "${RUNNER_TEMP}/guard.sh" >/dev/null 2>&1; then
+              echo "::error::guard accepted '$bad', which checkout reads as false"
+              exit 1
+            fi
+          done
+          for good in false true recursive False TRUE Recursive; do
+            if ! SUBMODULES="$good" bash "${RUNNER_TEMP}/guard.sh" >/dev/null 2>&1; then
+              echo "::error::guard refused a legitimate value '$good'"
+              exit 1
+            fi
+          done
+          echo "guard accepts the three states in any case, refuses everything else"
+
+  # The cache probe, driven against generated trees rather than through a run.
+  # What this library owns is the mapping from lockfile to cache setting -- not
+  # GitHub's cache service -- and every wrong answer in that mapping is a hard
+  # job failure, because setup-node and setup-dotnet fail when told to cache a
+  # toolchain whose lockfile is absent. Extracted from ci.yml so there is no
+  # second copy of the rule to drift.
+  cache-probe-maps-every-lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Each fixture tree produces the expected cache settings
+        shell: bash
+        run: |
+          set -uo pipefail
+          export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+          probe="${RUNNER_TEMP}/probe.sh"
+          python3 - <<'PY' > "$probe"
+          import yaml, pathlib, sys
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text())
+          body = next((s['run'] for s in doc['jobs']['ci']['steps']
+                       if s.get('name') == 'Detect dependency lockfiles'), None)
+          if not body:
+              sys.exit('could not find the probe step in ci.yml')
+          sys.stdout.write(body)
+          PY
+          test -s "$probe" || { echo "could not extract the probe"; exit 1; }
+
+          failures=0
+          run_case() {           # run_case <name> <cache> <workdir> <expected k=v ...>
+            local name="$1" cache="$2" workdir="$3"; shift 3
+            local out="${RUNNER_TEMP}/out-$RANDOM"
+            : > "$out"
+            ( cd "${RUNNER_TEMP}/tree" && CACHE="$cache" WORKDIR="$workdir" \
+                GITHUB_OUTPUT="$out" bash "$probe" >/dev/null 2>&1 )
+            local rc=$?
+            if (( rc != 0 )); then echo "  FAIL $name: probe exited $rc"; failures=$((failures+1)); return; fi
+            local pair key want got
+            for pair in "$@"; do
+              key="${pair%%=*}"; want="${pair#*=}"
+              got="$(grep "^${key}=" "$out" | head -1 | cut -d= -f2-)"
+              if [[ "$got" != "$want" ]]; then
+                echo "  FAIL $name: $key is '$got', expected '$want'"; failures=$((failures+1))
+              fi
+            done
+            [[ $failures -eq 0 ]] && echo "  ok   $name"
+          }
+          tree() { rm -rf "${RUNNER_TEMP}/tree"; mkdir -p "${RUNNER_TEMP}/tree/$1"; }
+
+          tree .;            : > "${RUNNER_TEMP}/tree/package-lock.json"
+          run_case "npm lockfile"          true "." node=npm node_path=./package-lock.json go=false dotnet=false
+          tree .;            : > "${RUNNER_TEMP}/tree/yarn.lock"
+          run_case "yarn lockfile"         true "." node=yarn node_path=./yarn.lock
+          tree .;            : > "${RUNNER_TEMP}/tree/package-lock.json"; : > "${RUNNER_TEMP}/tree/yarn.lock"
+          run_case "both lockfiles"        true "." node=npm node_path=./package-lock.json
+          tree .
+          run_case "empty tree"            true "." node= python= go=false java= dotnet=false
+          tree .;            : > "${RUNNER_TEMP}/tree/poetry.lock"
+          run_case "poetry only"           true "." python= python_path=
+          tree .;            : > "${RUNNER_TEMP}/tree/requirements-dev.txt"
+          run_case "requirements-dev only" true "." python=pip 'python_path=./requirements*.txt'
+          tree apps/web;     : > "${RUNNER_TEMP}/tree/apps/web/package-lock.json"
+          run_case "monorepo path"         true "apps/web" node=npm node_path=apps/web/package-lock.json
+          run_case "trailing slash"        true "apps/web/" node=npm node_path=apps/web/package-lock.json
+          tree .;            : > "${RUNNER_TEMP}/tree/go.sum"; : > "${RUNNER_TEMP}/tree/packages.lock.json"
+          run_case "go and dotnet"         true "." go=true go_path=./go.sum dotnet=true dotnet_path=./packages.lock.json
+          run_case "cache disabled"        false "." go=false dotnet=false node= python= java=
+          tree .;            : > "${RUNNER_TEMP}/tree/pom.xml"
+          run_case "maven"                 true "." java=maven java_path=./pom.xml
+          tree .;            : > "${RUNNER_TEMP}/tree/build.gradle.kts"
+          run_case "gradle"                true "." java=gradle 'java_path=./*.gradle*'
+
+          if (( failures )); then echo "$failures probe assertion(s) failed"; exit 1; fi
+          echo "probe maps every fixture correctly"
+
+  # And once for real, because the unit leg cannot prove that setup-node accepts
+  # what the probe emits. It asserts the decision, not a cache hit: "cold" is
+  # false on any re-run, so asserting a hit would flake on the second push.
+  cache-npm-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/ci.yml
+    with:
+      concurrency_key: cache-npm-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-node
+      node_version: "22"
+      test_command: |
+        grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe chose npm and setup-node accepted it"
+
+  # pr-gate.yml has no caller in this repository, so everything this change adds to it --
+  # the lockfile probe, the cache option on five setup steps, the summary -- would ship
+  # having never run once. That is exactly the shape that let the C# preset stay broken
+  # for months: a file nobody calls looks correct indefinitely. Twenty-nine repositories
+  # call this workflow on @production, which is a poor place to find out.
+  pr-gate-probes-and-caches:
+    uses: ./.github/workflows/pr-gate.yml
+    with:
+      concurrency_key: pr-gate-probes-and-caches
+      working_directory: tests/fixtures/cache-node
+      node_version: "22"
+      test_command: |
+        grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "pr-gate ran the probe, and setup-node accepted its answer"
+
+  # Go, on a real runner, through its preset.
+  #
+  # The self-test exercised node and python only, so the Go cache path had never run --
+  # and Go is the fleet's most-used preset. setup-go already defaults its own `cache` to
+  # true, so a wrong cache-dependency-path here does not degrade gracefully: it fails
+  # every Go consumer at once, on the first push after `production` moves.
+  cache-go-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/go.yml
+    with:
+      concurrency_key: cache-go-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-go
+      go_version: "1.24"
+      test_command: |
+        grep -q 'go: enabled' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe enabled the Go cache, and setup-go accepted its dependency path"
+
+  # Maven, the last cache branch that could fail hard and had no leg.
+  #
+  # setup-java's cache is opt-in, so `cache: maven` is new behaviour for every Java
+  # consumer -- and a wrong cache-dependency-path fails the step rather than quietly
+  # skipping the cache. The commands are stubbed because what is under test is the cache
+  # wiring, not Maven.
+  cache-maven-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/java.yml
+    with:
+      concurrency_key: cache-maven-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-maven
+      java_version: "17"
+      lint_command: echo "lint is not what this leg proves"
+      build_command: echo "build is not what this leg proves"
+      test_command: |
+        grep -q 'java: maven' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe chose maven, and setup-java accepted its dependency path"
+
   assert-ran:
     needs:
+      - engine-inputs-gate-refuses-a-dropped-forward
+      - submodules-recursive-checks-out-the-tree
+      - submodules-default-leaves-the-tree-absent
+      - submodules-guard-refuses-values-checkout-would-ignore
+      - cache-probe-maps-every-lockfile
+      - cache-npm-is-accepted-on-a-real-run
+      - pr-gate-probes-and-caches
+      - cache-go-is-accepted-on-a-real-run
+      - cache-maven-is-accepted-on-a-real-run
       - python-install-survives-lint-override
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
@@ -130,6 +450,15 @@ jobs:
       - name: A skipped leg is not a pass
         env:
           RESULTS: >-
+            engine-inputs-gate-refuses-a-dropped-forward=${{ needs.engine-inputs-gate-refuses-a-dropped-forward.result }}
+            submodules-recursive-checks-out-the-tree=${{ needs.submodules-recursive-checks-out-the-tree.result }}
+            submodules-default-leaves-the-tree-absent=${{ needs.submodules-default-leaves-the-tree-absent.result }}
+            submodules-guard-refuses-values-checkout-would-ignore=${{ needs.submodules-guard-refuses-values-checkout-would-ignore.result }}
+            cache-probe-maps-every-lockfile=${{ needs.cache-probe-maps-every-lockfile.result }}
+            cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
+            pr-gate-probes-and-caches=${{ needs.pr-gate-probes-and-caches.result }}
+            cache-go-is-accepted-on-a-real-run=${{ needs.cache-go-is-accepted-on-a-real-run.result }}
+            cache-maven-is-accepted-on-a-real-run=${{ needs.cache-maven-is-accepted-on-a-real-run.result }}
             python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
             csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
             csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}

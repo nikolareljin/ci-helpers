@@ -1,0 +1,6 @@
+{
+  "name": "cache-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A lockfile for the engine's cache probe to find. No dependencies: what is under test is the probe's decision and that setup-node accepts it, not npm."
+}

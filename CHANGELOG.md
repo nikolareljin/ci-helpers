@@ -1,5 +1,79 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`submodules` on `ci.yml` and `pr-gate.yml`, threaded through all 14 callers.**
+  Nothing in this library mentioned submodules before, so a consumer vendoring a
+  shared library as one ran its lint and tests against a tree where the library
+  was absent. Seven repositories in the fleet work around it today by prefixing
+  every command with a submodule update.
+
+  It is a string — `false`, `true`, `recursive` — because `recursive` is a third
+  state a boolean cannot express, and it is **validated before checkout rather
+  than passed straight through**. `actions/checkout` upper-cases the value and
+  compares it against `TRUE` and `RECURSIVE`: `yes`, `1`, `on` and every typo
+  mean false and say nothing, which is the exact failure the input exists to
+  remove. Public submodules only — checkout's credentials are scoped to the
+  calling repository, so a private submodule returns 403, and fixing that needs
+  a `secrets:` declaration at fifteen call sites.
+
+- **`cache` on `ci.yml` and `pr-gate.yml`, defaulting to on.** Every run was a
+  cold restore, so moving a repository onto the shared engine made its CI slower
+  than the hand-rolled workflow it replaced — and a shared library that is
+  slower than what it replaces does not get adopted.
+
+  Caching is routed through each `setup-*` action's own option, so no new
+  third-party action enters the SHA-pin audit, and **which toolchains are on is
+  detected from the tree rather than assumed**. That is not defensiveness:
+  `setup-node` and `setup-dotnet` *fail the job* when told to cache with no
+  lockfile present, so a blanket default would have been a new class of red
+  build across every consumer. Three findings are encoded in the probe rather
+  than left to be rediscovered — poetry and pipenv cannot be cached here at all,
+  because `setup-python` resolves their cache directories by running those
+  binaries and the setup step runs before `install_command`; `setup-go` and
+  `setup-dotnet` read `cache` as a YAML boolean and throw on an empty string, so
+  they always receive a literal true or false; and `cache-dependency-path` is
+  always set, because `setup-node` otherwise searches the workspace root
+  non-recursively and a monorepo working directory fails hard.
+
+  For Go this is a **fix**, not a new feature: `setup-go` already defaults its
+  own `cache` to true, so every Go consumer has been caching all along — and
+  hitting "Dependencies file is not found" whenever there was no `go.sum`. The
+  probe now switches it off in that case.
+
+- **`scripts/check_engine_inputs.py`, and it is wired into the pre-commit hook
+  and `workflow-yaml-check.yml`.** It requires every workflow that reaches the
+  engine to declare each pass-through input with the engine's default and
+  forward it verbatim, following the graph transitively so `laravel.yml` →
+  `php.yml` → `ci.yml` is checked at both hops. It also asserts that
+  `docs/workflows.md` names every engine input.
+
+  Scope is an explicit set rather than every input, because presets differ from
+  the engine deliberately and a check demanding otherwise could not pass. Its
+  failing direction is exercised by a self-test leg against a generated tree,
+  and it was run against the unfixed tree before anything was fixed.
+
+### Fixed
+
+- **`timeout_minutes` reaches the engine from every preset.** It has been an
+  engine input since 0.19.0, but only `kotlin.yml` and `java-gradle.yml`
+  forwarded it, so a repository going through any of the other eleven presets
+  could not raise its timeout without editing this library. Three documentation
+  pages asserted otherwise.
+
+  The default stays at 20, now on measurement instead of assertion: the fleet's
+  largest Go consumer runs 512 test functions and its engine job finishes in 40
+  seconds cold, and across twelve sampled consumers the slowest successful run
+  was 7 minutes. Nothing is pressing against the cap, and raising it would only
+  weaken a billing control. Behaviour is unchanged for every existing consumer.
+
+- **`docs/workflows.md` lists the six inputs it had been missing** — `db_image`,
+  `db_env`, `db_ports`, `db_health_cmd`, `db_wait_seconds` and `extra_env` — and
+  `docs/presets.md` no longer claims every preset takes the same inputs as the
+  engine, which was already untrue.
+
 ## 2026-09-20 — v0.29.0
 
 ### Added

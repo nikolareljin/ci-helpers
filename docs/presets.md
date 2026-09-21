@@ -1,8 +1,15 @@
 # Presets
 
 Presets are reusable workflows that wrap `ci.yml` with sane defaults for
-specific stacks or E2E tools. All presets accept the same core inputs as
-`ci.yml` and simply provide default values for common commands.
+specific stacks or E2E tools, providing default values for common commands.
+
+Every preset accepts and forwards the same **pass-through** inputs — `runner`,
+`working_directory`, `concurrency_key`, `fetch_depth`, `submodules`, `cache` and
+`timeout_minutes` — with the engine's own defaults, which
+`scripts/check_engine_inputs.py` enforces on every commit. Beyond that set they
+differ on purpose: `docker.yml` takes no lint, test or build command, the
+database inputs exist only on `php.yml`, and every preset overrides the engine's
+empty command defaults with something useful for its stack.
 
 Related docs:
 
@@ -1131,7 +1138,8 @@ project's rules rather than a shared workflow's defaults.
 
 ## Overriding defaults
 
-All presets accept the same inputs as `ci.yml`. For example, to add Docker and
+Presets forward the pass-through inputs listed at the top of this page, and
+most accept the engine's command inputs too. For example, to add Docker and
 E2E in the Node preset:
 
 ```yaml

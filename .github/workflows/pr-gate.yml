@@ -18,6 +18,29 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # false / true / recursive, as actions/checkout understands them. A
+      # string, not a boolean, because `recursive` is a third state.
+      #
+      # checkout upper-cases this and compares against TRUE and RECURSIVE, so
+      # anything else -- `yes`, `1`, a typo -- means *false* and says nothing.
+      # A consumer that vendors a shared library as a submodule then gets a
+      # green run against a tree where the library is simply absent, and a
+      # "file not found" from whatever needed it. The validation step below
+      # refuses the values checkout would silently ignore.
+      #
+      # Public submodules only. checkout authenticates with a header scoped to
+      # the calling repository, so a submodule in a private repository fails
+      # with a 403; supplying a token would need a `secrets:` declaration at
+      # every hop between the caller and this workflow.
+      submodules:
+        type: string
+        default: "false"
+      # Restore dependency caches through each setup-* action's own option, for
+      # the toolchains that have one. Which ones are switched on is decided by
+      # the probe step below, not by this flag alone: see it for why.
+      cache:
+        type: boolean
+        default: true
       node_version:
         type: string
         default: ""
@@ -107,10 +130,133 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
+
+      # Before checkout, so a refused value costs nothing. Skipped in the
+      # default case, which is the value everyone gets when they pass nothing.
+      - name: Validate submodules input
+        if: ${{ inputs.submodules != 'false' && inputs.submodules != '' }}
+        shell: bash
+        env:
+          SUBMODULES: ${{ inputs.submodules }}
+        run: |
+          set -euo pipefail
+          case "$(printf '%s' "$SUBMODULES" | tr '[:upper:]' '[:lower:]')" in
+            false|true|recursive) ;;
+            *)
+              echo "::error::submodules must be false, true or recursive (got '${SUBMODULES}')." >&2
+              echo "::error::actions/checkout reads any other value as false, checks out no" >&2
+              echo "::error::submodule, and reports success -- so this is refused instead." >&2
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+          submodules: ${{ inputs.submodules }}
+
+      # Which toolchain caches can safely be switched on, decided by looking at
+      # the tree rather than by assuming. Every setup-* action below fails the
+      # whole job when told to cache a toolchain whose lockfile it cannot find,
+      # so "cache everything" is not a conservative default -- it is a new class
+      # of red build for repositories that were fine.
+      #
+      # Runs unconditionally, including when cache is false: actions/setup-go and
+      # actions/setup-dotnet read `cache` as a YAML boolean and throw on an empty
+      # string, so they must always receive a literal true or false. The string
+      # inputs (node, python, java) take "" to mean disabled.
+      - name: Detect dependency lockfiles
+        id: cache_probe
+        shell: bash
+        env:
+          CACHE: ${{ inputs.cache }}
+          WORKDIR: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          dir="${WORKDIR:-.}"
+          dir="${dir%/}"                       # a trailing slash would make dir//lock
+          [[ -z "$dir" ]] && dir="."
+
+          decisions="${RUNNER_TEMP}/cache-decisions.txt"
+          : > "$decisions"
+          emit() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_OUTPUT"; }
+          note() { printf '%s\n' "$1" >> "$decisions"; }
+
+          node=""; node_path=""
+          python=""; python_path=""
+          go="false"; go_path=""
+          java=""; java_path=""
+          dotnet="false"; dotnet_path=""
+
+          if [[ "$CACHE" != "true" ]]; then
+            note "caching disabled by the \`cache\` input"
+          else
+            # Node. npm wins a tree holding both lockfiles, which is common right
+            # after a migration; setup-node accepts exactly one package manager,
+            # so the choice is made here and the loser is named rather than left
+            # to whichever glob ran first.
+            if [[ -f "$dir/package-lock.json" ]]; then
+              node="npm"; node_path="$dir/package-lock.json"
+            elif [[ -f "$dir/npm-shrinkwrap.json" ]]; then
+              node="npm"; node_path="$dir/npm-shrinkwrap.json"
+            elif [[ -f "$dir/yarn.lock" ]]; then
+              node="yarn"; node_path="$dir/yarn.lock"
+            fi
+            if [[ -n "$node" && -f "$dir/yarn.lock" && "$node" == "npm" ]]; then
+              note "node: npm (yarn.lock is present too and was not used)"
+            elif [[ -n "$node" ]]; then
+              note "node: $node ($node_path)"
+            else
+              note "node: no lockfile, not cached"
+            fi
+
+            # Python. pip only. setup-python resolves the poetry and pipenv cache
+            # directories by running those binaries, and in this engine the setup
+            # step runs before install_command -- so neither is on PATH yet and
+            # asking for them is a guaranteed failure, not a missed optimisation.
+            if compgen -G "$dir/requirements*.txt" > /dev/null; then
+              python="pip"; python_path="$dir/requirements*.txt"
+              note "python: pip ($python_path)"
+            elif [[ -f "$dir/poetry.lock" || -f "$dir/Pipfile.lock" ]]; then
+              note "python: poetry/pipenv locks are not cacheable here (the tool is installed by install_command, after this step)"
+            else
+              note "python: no requirements*.txt, not cached"
+            fi
+
+            if [[ -f "$dir/go.sum" ]]; then
+              go="true"; go_path="$dir/go.sum"
+              note "go: enabled ($go_path)"
+            else
+              note "go: no go.sum, not cached"
+            fi
+
+            if [[ -f "$dir/pom.xml" ]]; then
+              java="maven"; java_path="$dir/pom.xml"
+              note "java: maven ($java_path)"
+            elif compgen -G "$dir/*.gradle" > /dev/null || compgen -G "$dir/*.gradle.kts" > /dev/null; then
+              java="gradle"; java_path="$dir/*.gradle*"
+              note "java: gradle ($java_path) -- the key does not carry the JDK version, so a java_version matrix shares one cache; pass cache: false if that matters"
+            else
+              note "java: no pom.xml or build script, not cached"
+            fi
+
+            if [[ -f "$dir/packages.lock.json" ]]; then
+              dotnet="true"; dotnet_path="$dir/packages.lock.json"
+              note "dotnet: enabled ($dotnet_path)"
+            else
+              note "dotnet: no packages.lock.json, not cached"
+            fi
+
+            note "rust, php, flutter: no cache option on the actions this engine uses"
+          fi
+
+          emit node "$node";       emit node_path "$node_path"
+          emit python "$python";   emit python_path "$python_path"
+          emit go "$go";           emit go_path "$go_path"
+          emit java "$java";       emit java_path "$java_path"
+          emit dotnet "$dotnet";   emit dotnet_path "$dotnet_path"
+          cat "$decisions"
 
       - name: Checkout script-helpers
         if: ${{ inputs.check_release_tag }}
@@ -136,35 +282,50 @@ jobs:
           fi
 
       - name: Setup Node
+        id: setup_node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
         with:
           node-version: ${{ inputs.node_version }}
+          cache: ${{ steps.cache_probe.outputs.node }}
+          cache-dependency-path: ${{ steps.cache_probe.outputs.node_path }}
 
       - name: Setup Java
+        id: setup_java
         if: ${{ inputs.java_version != '' }}
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1 @ 2026-09-14
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+          cache: ${{ steps.cache_probe.outputs.java }}
+          cache-dependency-path: ${{ steps.cache_probe.outputs.java_path }}
 
       - name: Setup .NET
+        id: setup_dotnet
         if: ${{ inputs.dotnet_version != '' }}
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
+          cache: ${{ steps.cache_probe.outputs.dotnet }}
+          cache-dependency-path: ${{ steps.cache_probe.outputs.dotnet_path }}
 
       - name: Setup Python
+        id: setup_python
         if: ${{ inputs.python_version != '' }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-10
         with:
           python-version: ${{ inputs.python_version }}
+          cache: ${{ steps.cache_probe.outputs.python }}
+          cache-dependency-path: ${{ steps.cache_probe.outputs.python_path }}
 
       - name: Setup Go
+        id: setup_go
         if: ${{ inputs.go_version != '' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
         with:
           go-version: ${{ inputs.go_version }}
+          cache: ${{ steps.cache_probe.outputs.go }}
+          cache-dependency-path: ${{ steps.cache_probe.outputs.go_path }}
 
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' }}
@@ -191,6 +352,40 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
         with:
           php-version: ${{ inputs.php_version }}
+
+      # One line per toolchain, so a run says what it cached and whether the
+      # cache was there -- the alternative is reading five setup-step logs to
+      # find out why a job was slow.
+      - name: Dependency cache summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          NODE_HIT: ${{ steps.setup_node.outputs.cache-hit }}
+          JAVA_HIT: ${{ steps.setup_java.outputs.cache-hit }}
+          DOTNET_HIT: ${{ steps.setup_dotnet.outputs.cache-hit }}
+          PYTHON_HIT: ${{ steps.setup_python.outputs.cache-hit }}
+          GO_HIT: ${{ steps.setup_go.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          decisions="${RUNNER_TEMP}/cache-decisions.txt"
+          {
+            echo "### Dependency cache"
+            echo ""
+            if [[ -f "$decisions" ]]; then
+              while IFS= read -r line; do printf -- '- %s\n' "$line"; done < "$decisions"
+            else
+              printf -- '- the probe did not run\n'
+            fi
+            echo ""
+            for pair in "node=${NODE_HIT:-}" "java=${JAVA_HIT:-}" "dotnet=${DOTNET_HIT:-}" \
+                        "python=${PYTHON_HIT:-}" "go=${GO_HIT:-}"; do
+              name="${pair%%=*}"; hit="${pair#*=}"
+              case "$hit" in
+                true)  printf -- '- %s: cache hit\n' "$name" ;;
+                false) printf -- '- %s: cache miss (written for the next run)\n' "$name" ;;
+              esac
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install
         if: ${{ inputs.install_command != '' }}

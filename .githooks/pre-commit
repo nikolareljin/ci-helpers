@@ -15,6 +15,12 @@ fi
 # invalid and nothing noticed.
 python3 "$repo_root/scripts/check_workflow_yaml.py"
 
+# An input the engine declares is useless to a caller that goes through a preset
+# unless every hop forwards it. actionlint catches the opposite mistake -- a
+# preset passing an input the engine does not declare -- and nothing caught this
+# one, which is how timeout_minutes ended up honoured by 2 of 13 presets.
+python3 "$repo_root/scripts/check_engine_inputs.py"
+
 # A notice, never a gate. vendor-check.yml deliberately does not test currency
 # -- an upstream release would turn every open pull request red for a reason
 # unrelated to the change under review -- and the same reasoning applies to a

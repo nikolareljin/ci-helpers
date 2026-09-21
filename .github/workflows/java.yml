@@ -14,6 +14,16 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      # Restore dependency caches, for the toolchains whose setup action has
+      # the option. The engine decides which from the lockfiles it finds.
+      cache:
+        type: boolean
+        default: true
       java_version:
         type: string
         default: "17"
@@ -38,6 +48,11 @@ on:
       extra_command:
         type: string
         default: ""
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
 
 jobs:
   ci:
@@ -55,3 +70,6 @@ jobs:
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}

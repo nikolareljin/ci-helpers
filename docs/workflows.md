@@ -36,6 +36,12 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
+- `submodules` (string, default `"false"`) — `false`, `true` or `recursive`, passed to `actions/checkout`. Any other value is **refused**: checkout reads anything that is not `true`/`recursive` as false, so a typo would otherwise check out no submodule and report success. **Public submodules only** — checkout authenticates with a header scoped to the calling repository, so one in a private repository fails with a 403. Note the engine already checks out with `fetch-depth: 0` and `fetch-tags: true`, so `recursive` against a large submodule tree can want more than the default `timeout_minutes`.
+- `cache` (boolean, default `true`) — restore dependency caches through each `setup-*` action's own cache option. Which toolchains are enabled is **detected from the tree**, not assumed: `setup-node` and `setup-dotnet` fail the job when told to cache with no lockfile present, so a blanket "cache everything" would be a new class of red build. The mapping is `package-lock.json`/`npm-shrinkwrap.json` → npm, `yarn.lock` → yarn (npm wins when both are present, and the summary says so), `requirements*.txt` → pip, `go.sum`, `pom.xml` → maven, a root `*.gradle`/`*.gradle.kts` → gradle, `packages.lock.json` → NuGet. Each run writes one line per toolchain to the job summary saying what was cached and whether it hit.
+
+  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which needs `pnpm/action-setup` before `setup-node` (the `pnpm.yml` presets do this and do not call this engine); and **Rust, PHP and Flutter**, whose setup actions have no cache option.
+
+  One caveat worth knowing before enabling it on a matrix: `setup-java`'s cache key does not carry the JDK version, so a `java_version` matrix over one `pom.xml` shares a single cache. Pass `cache: false` if that matters.
 - `node_version` (string, default `""`)
 - `java_version` (string, default `""`)
 - `dotnet_version` (string, default `""`)
@@ -53,6 +59,12 @@ Inputs:
 - `docker_command` (string, default `""`)
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
+- `extra_env` (string, default `""`) — extra environment for the command steps, one `KEY=VALUE` per line. Written to `$GITHUB_ENV` without the shell re-quoting the value, so a credential containing quotes survives intact; a line that is not `KEY=VALUE` fails the step with the value redacted.
+- `db_image` (string, default `""`) — optional database image. When set, the container is started with `docker run` before the command steps, because a `services:` block cannot be made conditional inside a reusable job.
+- `db_env` (string, default `""`) — container environment, one `KEY=VALUE` per line. A bare key is refused: `docker run -e KEY` would copy that variable off the runner and into the container.
+- `db_ports` (string, default `""`) — one published port mapping per line.
+- `db_health_cmd` (string, default `""`) — readiness probe, run **inside** the container, so it must address a local socket or port rather than a host URL.
+- `db_wait_seconds` (number, default `60`) — how long to wait for that probe before failing and printing the container's last 50 log lines.
 - `timeout_minutes` (number, default `20`) — job timeout. Without one, a hung job bills until GitHub's six-hour cap.
 
 This workflow declares a `concurrency` group keyed on the caller workflow, the

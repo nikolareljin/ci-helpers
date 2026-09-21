@@ -95,13 +95,27 @@ document:
 | `ci.yml` | 20 | cancel-in-progress |
 | `pr-gate.yml` | 20 | cancel-in-progress |
 | `release-build.yml` | 30 | — |
-| `kotlin.yml`, `java-gradle.yml` | 20 (passed through to `ci.yml`) | via `ci.yml` |
+| every preset (13, plus `laravel.yml` via `php.yml`) | 20 (passed through to `ci.yml`) | via `ci.yml` |
 | `flutter-release.yml` | 60 | — |
 
 Before this, `timeout-minutes` appeared **nowhere** across the reusable
 workflows: a hung job billed until GitHub's six-hour cap. Every value is an
 optional input with a default. Callers whose jobs fit that default need no
 change; longer jobs must pass a higher `timeout_minutes`.
+
+Until 0.30.0 only two presets forwarded it, so a caller reaching the engine
+through any of the other eleven could not raise the timeout at all without
+editing this library. The table above said otherwise, which is the drift that
+`scripts/check_engine_inputs.py` now makes impossible: an input in its
+pass-through set must be declared and forwarded by every workflow on the way to
+the engine, or the commit is refused.
+
+**20 minutes is measured, not guessed.** The fleet's largest Go consumer runs
+512 test functions and its engine job completes in 40 seconds, cold. Across
+twelve sampled consumers the slowest successful run was 7 minutes and the median
+under 2. Raising the default would weaken a billing cap that nothing is pressing
+against; a repository that genuinely needs longer now has an input that reaches
+the engine.
 
 ---
 
