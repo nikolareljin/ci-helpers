@@ -360,7 +360,7 @@ Defaults:
 
 - `godot_version`: `4.3.0`
 - `godot_use_dotnet`: `false`
-- `lint_command`: `godot --headless --import`
+- `lint_command`: imports the project and fails on anything the import logged
 - `test_command`: none — it fails and tells you to set one, for the reason below
 
 Example:
@@ -391,6 +391,13 @@ scope": scripts referencing one fail to parse, `preload()` returns an invalid
 script, and `.tres` files load as a bare `Resource`. The default
 `lint_command` is that import, and it doubles as the parse gate.
 
+**But the import cannot be trusted to fail.** Measured on 4.3: a project
+containing a script with a syntax error imports, prints
+`SCRIPT ERROR: Parse Error`, and **exits 0**. So a bare
+`godot --headless --import` is a lint step that can never fail — which is the
+obvious thing to write, and wrong. The default here reads the import log and
+fails on what is in it. If you override `lint_command`, keep that property.
+
 ### An error during a run never reaches the exit status
 
 This is the one that matters, and it is narrower than "Godot always exits 0" —
@@ -400,6 +407,7 @@ measured on 4.3:
 |---|---|
 | The script fails to parse or load (an unresolved `class_name`, a syntax error) | **1** |
 | The engine prints `ERROR:` *while the script runs* (`push_error`, a bad format string, a failed resource load) | **0** |
+| `--import` over a project whose scripts do not parse | **0** |
 
 So the exit status catches the loud failures and misses the quiet ones — which
 are exactly what a test suite is for. There is no honest default test command,

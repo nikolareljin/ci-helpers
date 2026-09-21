@@ -383,15 +383,21 @@ jobs:
   # having never run once. That is exactly the shape that let the C# preset stay broken
   # for months: a file nobody calls looks correct indefinitely. Twenty-nine repositories
   # call this workflow on @production, which is a poor place to find out.
+  # godot_version rides along here rather than in a leg of its own: pr-gate.yml
+  # got the same Setup Godot step as ci.yml, and in #186 a block of pr-gate
+  # additions reached main with nothing calling them at all. One extra input
+  # proves the step runs rather than merely parses.
   pr-gate-probes-and-caches:
     uses: ./.github/workflows/pr-gate.yml
     with:
       concurrency_key: pr-gate-probes-and-caches
       working_directory: tests/fixtures/cache-node
       node_version: "22"
+      godot_version: "4.3.0"
       test_command: |
         grep -q 'node: npm' "${RUNNER_TEMP}/cache-decisions.txt"
-        echo "pr-gate ran the probe, and setup-node accepted its answer"
+        command -v godot >/dev/null || { echo "::error::pr-gate declared godot_version and did not install Godot"; exit 1; }
+        echo "pr-gate ran the probe, setup-node accepted its answer, and its Setup Godot step ran"
 
   # Go, on a real runner, through its preset.
   #
@@ -474,6 +480,45 @@ jobs:
           fi
           echo "the default test_command refused to pass, as it must"
 
+  # `godot --headless --import` exits 0 over a project whose scripts do not
+  # parse -- it prints `SCRIPT ERROR: Parse Error` and returns success. The
+  # obvious lint default is therefore a gate that cannot fail, and this repo
+  # shipped exactly that for one commit. The default now reads the log; this
+  # leg runs the default **as declared in godot.yml** against a fixture that
+  # deliberately does not parse, and fails if it passes.
+  godot-lint-default-rejects-a-project-that-does-not-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: chickensoft-games/setup-godot@c233594225991af5aec714e52457cc76d6df8fa2 # v2.4.2 @ 2026-09-20
+        with:
+          version: "4.3.0"
+          use-dotnet: false
+      - name: The declared lint default must reject it, and accept the good one
+        shell: bash
+        run: |
+          set -euo pipefail
+          default="$(python3 -c "
+          import yaml
+          doc = yaml.safe_load(open('.github/workflows/godot.yml'))
+          on = doc.get('on', doc.get(True))
+          print(on['workflow_call']['inputs']['lint_command']['default'])
+          ")"
+          [ -n "$default" ] || { echo "::error::godot.yml declares no lint_command default"; exit 1; }
+
+          if (cd tests/fixtures/godot-broken && bash -c "$default"); then
+            echo "::error::the lint default passed on a project that does not parse; it is trusting Godot's exit status"
+            exit 1
+          fi
+          echo "the lint default rejected the broken project"
+
+          if ! (cd tests/fixtures/godot-project && bash -c "$default"); then
+            echo "::error::the lint default failed on a project that imports cleanly"
+            exit 1
+          fi
+          echo "the lint default accepted the clean project"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -492,6 +537,7 @@ jobs:
       - csharp-guard-refuses-bad-projects
       - godot-imports-and-tests-a-real-project
       - godot-default-test-command-refuses-to-pass
+      - godot-lint-default-rejects-a-project-that-does-not-parse
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -515,6 +561,7 @@ jobs:
             csharp-guard-refuses-bad-projects=${{ needs.csharp-guard-refuses-bad-projects.result }}
             godot-imports-and-tests-a-real-project=${{ needs.godot-imports-and-tests-a-real-project.result }}
             godot-default-test-command-refuses-to-pass=${{ needs.godot-default-test-command-refuses-to-pass.result }}
+            godot-lint-default-rejects-a-project-that-does-not-parse=${{ needs.godot-lint-default-rejects-a-project-that-does-not-parse.result }}
         run: |
           set -euo pipefail
           failed=0
