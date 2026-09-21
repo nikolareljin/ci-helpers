@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The Go default is 1.25, was 1.24.** The fleet's largest Go consumer declares
+  `go 1.25.0`, so the old default failed outright with
+  `go.mod requires go >= 1.25.0`. It passed its own version, which is why
+  nothing caught it. Applied to `go.yml`, `go-scan.yml`, `go-deploy.yml` and
+  `go-release.yml`.
+
+### Added
+
+- **`go-release.yml` can opt into cgo.** It hardcoded `CGO_ENABLED=0`, so a
+  repository with a build-tag-gated cgo path could never ship it: the tag keeps
+  it out of the default build correctly, and the release path had no way in.
+  `cgo_enabled` is off by default and must stay that way, because a cgo binary
+  links against the build machine's libc. `cgo_packages` installs the headers a
+  cgo path needs, validated as package names rather than passed to apt as given.
+
+  A cgo build for a target that is not the runner's platform is **refused**.
+  Cross-compiling cgo needs a cross toolchain, and emitting a host binary under
+  a cross-named file is worse than failing.
+
+- **`go-scan.yml` runs `govulncheck`, pinned and off by default.** `gosec` is a
+  static analyser over this repository's own code; it is not a dependency audit.
+  Pinned to `v1.7.0`, not the newest: `x/vuln` v1.8.0 declares
+  `go 1.26.0` and `setup-go` sets `GOTOOLCHAIN=local`, so it installs on a
+  developer machine and fails in CI. The version is validated as `vX.Y.Z`: a
+  floating `@latest` changes the gate's
+  behaviour without a commit, and a new advisory class turns every consumer red
+  on a day nobody shipped.
+
+  A self-test leg runs the pinned version against a fixture that depends on
+  `golang.org/x/text@v0.3.0` and calls into the vulnerable symbol, and fails if
+  it passes. A vulnerability checker is easy to write so that it finds none, and
+  a green scan does not distinguish "no advisories" from "never looked".
+  govulncheck exits 3, not 1, so the step relies on non-zero.
+
 ## 2026-09-21 — v0.30.1
 
 ### Changed

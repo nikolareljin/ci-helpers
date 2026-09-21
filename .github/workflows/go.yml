@@ -26,7 +26,10 @@ on:
         default: true
       go_version:
         type: string
-        default: "1.24"
+        # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
+        # so the old default failed outright with `go.mod requires go >= 1.25.0`.
+        # It passed its own version, which is why nothing caught it.
+        default: "1.25"
       install_command:
         type: string
         default: ""

@@ -13,7 +13,10 @@ on:
         default: 0
       go_version:
         type: string
-        default: "1.24"
+        # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
+        # so the old default failed outright with `go.mod requires go >= 1.25.0`.
+        # It passed its own version, which is why nothing caught it.
+        default: "1.25"
       lint_command:
         type: string
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
@@ -21,6 +24,29 @@ on:
         type: string
         default: "go mod download && go test ./..."
       gosec_args:
+        type: string
+        default: "./..."
+      # govulncheck version, pinned. A floating @latest means the gate's
+      # behaviour changes without a commit here, and a new advisory class can
+      # turn every consumer red on a day nobody shipped anything.
+      #
+      # v1.7.0, not the newest: x/vuln v1.8.0 declares `go 1.26.0`, and
+      # actions/setup-go sets GOTOOLCHAIN=local, so the install fails with
+      # "requires go >= 1.26.0". It succeeds on a developer machine, where Go
+      # downloads the newer toolchain on demand. Raise this only with
+      # go_version.
+      govulncheck_version:
+        type: string
+        default: "v1.7.0"
+      # Off by default while consumers adopt it: govulncheck reports advisories
+      # in dependencies, so turning it on fleet-wide would fail repositories
+      # that changed nothing.
+      vulncheck:
+        type: boolean
+        default: false
+      # govulncheck's own package pattern. gosec_args belongs to gosec and is
+      # not interchangeable.
+      vulncheck_packages:
         type: string
         default: "./..."
 
@@ -60,3 +86,22 @@ jobs:
         uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0 @ 2026-09-10
         with:
           args: ${{ inputs.gosec_args }}
+
+      # gosec is a static analyser: it looks at this repository's own code. It
+      # is not a dependency audit and says nothing about a known advisory in a
+      # module this repository imports.
+      - name: govulncheck
+        if: ${{ inputs.vulncheck }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          INPUT_GOVULNCHECK_VERSION: ${{ inputs.govulncheck_version }}
+          INPUT_PACKAGES: ${{ inputs.vulncheck_packages }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${INPUT_GOVULNCHECK_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::govulncheck_version must be vX.Y.Z, got '${INPUT_GOVULNCHECK_VERSION}'." >&2
+            exit 2
+          fi
+          go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
+          "$(go env GOPATH)/bin/govulncheck" "${INPUT_PACKAGES}"
