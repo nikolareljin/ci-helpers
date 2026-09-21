@@ -552,6 +552,119 @@ jobs:
           fi
           echo "govulncheck rejected the fixture, as it must"
 
+  # Three modules, one holding go.mod and nothing else. The empty one is the
+  # point: `go vet ./...` and `go test ./...` both exit 1 on "no packages", so
+  # until the preset guarded its commands a repository with one such module
+  # could not adopt it at all. The other two prove a leg runs in its own module
+  # -- each test asserts its own module's name, so a leg that ran in the
+  # repository root or in its neighbour fails rather than passes.
+  go-modules-runs-every-module:
+    uses: ./.github/workflows/go.yml
+    with:
+      working_directory: tests/fixtures/go-modules
+      modules: '["api", "worker", "empty"]'
+
+  # The refusals, which cannot be asserted by calling the workflow: a reusable
+  # workflow that fails fails the run. This drives the resolver the preset owns,
+  # extracted from the preset, so there is no second copy of the rule to drift.
+  go-modules-resolver-refuses-bad-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every refusal is refused, and every accepted value normalises
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="${RUNNER_TEMP}/resolve.sh"
+          python3 - "$script" <<'PY'
+          import pathlib, sys, yaml
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/go.yml').read_text())
+          step = doc['jobs']['resolve-modules']['steps'][0]
+          pathlib.Path(sys.argv[1]).write_text(step['run'])
+          PY
+          test -s "$script" || { echo "::error::could not extract the resolver"; exit 1; }
+
+          resolve() {
+            local out="${RUNNER_TEMP}/resolve-out"
+            : > "$out"
+            MODULES="$1" WORKDIR="${2:-.}" GITHUB_OUTPUT="$out" \
+              bash "$script" >/dev/null 2>&1 || return 1
+            sed -n 's/^modules=//p' "$out"
+          }
+
+          # Each of these must fail loudly. A value that resolved to nothing
+          # would expand to a zero-leg matrix, which reports as a skipped job,
+          # and a skipped job reads like a pass.
+          for bad in '' '[]' 'not json' '{"a":1}' '["  "]' '["/etc"]' \
+                     '["../escape"]' '["a", "./a"]' '["api", "api"]'; do
+            if resolve "$bad" >/dev/null 2>&1; then
+              echo "::error::resolver accepted '${bad}'"; exit 1
+            fi
+          done
+
+          # And the accepted direction, with the value each must produce.
+          # '["a", "./a"]' above is refused only because both normalise to `a`;
+          # an incomplete normalisation would let it through as two legs for
+          # one directory, so these two cases hold each other up.
+          while IFS='|' read -r modules workdir want; do
+            [ -n "$modules" ] || continue
+            got="$(resolve "$modules" "$workdir")"
+            if [ "$got" != "$want" ]; then
+              echo "::error::resolve(${modules}, ${workdir}) = ${got}, want ${want}"
+              exit 1
+            fi
+          done <<'CASES'
+          ["api"]|.|["api"]
+          ["./api"]|.|["api"]
+          ["api/"]|src|["src/api"]
+          ["."]|.|["."]
+          ["api", "worker", "empty"]|tests/fixtures/go-modules|["tests/fixtures/go-modules/api","tests/fixtures/go-modules/worker","tests/fixtures/go-modules/empty"]
+          CASES
+          echo "the resolver refuses what it cannot expand and normalises the rest"
+
+  # go.yml's fan-out job derives working_directory and concurrency_key per leg,
+  # so the engine-inputs gate exempts that one job. An exemption naming a job
+  # that no longer exists would go on excusing whatever is written in its place,
+  # which is the silent widening the exemption dict was shaped to prevent.
+  engine-inputs-exemption-must-name-a-real-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: A stale exemption is refused, not honoured
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util, sys
+
+          spec = importlib.util.spec_from_file_location(
+              "gate", "scripts/check_engine_inputs.py")
+          gate = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(gate)
+          sys.argv = ["check_engine_inputs.py"]
+
+          # Sound before broken: if the real exemption set did not pass here,
+          # every refusal below would prove nothing.
+          if gate.main() != 0:
+              print("::error::the gate does not pass on this tree")
+              raise SystemExit(1)
+
+          for key in (("go.yml", "no-such-job", "working_directory"),
+                      ("no-such-file.yml", "go", "working_directory"),
+                      ("go.yml", "go", "not_a_pass_through")):
+              saved = dict(gate.EXEMPT)
+              gate.EXEMPT[key] = "deliberately stale"
+              rc = gate.main()
+              gate.EXEMPT.clear()
+              gate.EXEMPT.update(saved)
+              if rc != 2:
+                  print(f"::error::exemption {key} was honoured (exit {rc})")
+                  raise SystemExit(1)
+          print("a stale exemption is refused")
+          PY
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -572,6 +685,9 @@ jobs:
       - godot-default-test-command-refuses-to-pass
       - godot-lint-default-rejects-a-project-that-does-not-parse
       - govulncheck-fails-on-a-known-advisory
+      - go-modules-runs-every-module
+      - go-modules-resolver-refuses-bad-input
+      - engine-inputs-exemption-must-name-a-real-job
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -597,6 +713,9 @@ jobs:
             godot-default-test-command-refuses-to-pass=${{ needs.godot-default-test-command-refuses-to-pass.result }}
             godot-lint-default-rejects-a-project-that-does-not-parse=${{ needs.godot-lint-default-rejects-a-project-that-does-not-parse.result }}
             govulncheck-fails-on-a-known-advisory=${{ needs.govulncheck-fails-on-a-known-advisory.result }}
+            go-modules-runs-every-module=${{ needs.go-modules-runs-every-module.result }}
+            go-modules-resolver-refuses-bad-input=${{ needs.go-modules-resolver-refuses-bad-input.result }}
+            engine-inputs-exemption-must-name-a-real-job=${{ needs.engine-inputs-exemption-must-name-a-real-job.result }}
         run: |
           set -euo pipefail
           failed=0

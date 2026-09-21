@@ -24,6 +24,18 @@ on:
       cache:
         type: boolean
         default: true
+      # A JSON array of module directories, relative to working_directory, for
+      # a repository holding several go.mod files: '["api", "worker"]'. One
+      # leg runs per entry.
+      #
+      # Left empty the preset runs exactly as it did before the input existed:
+      # one job, still called `ci`. That matters beyond tidiness -- consumer
+      # rulesets name required status checks, and folding the single-module
+      # case into the matrix would rename the check to `go (.)` and leave every
+      # such ruleset requiring a check that no longer reports.
+      modules:
+        type: string
+        default: ""
       go_version:
         type: string
         # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
@@ -58,7 +70,10 @@ on:
         default: 20
 
 jobs:
+  # The single-module path, unchanged and deliberately not folded into the
+  # matrix below. See the `modules` input for why the job id must stay `ci`.
   ci:
+    if: ${{ inputs.modules == '' }}
     uses: ./.github/workflows/ci.yml
     with:
       runner: ${{ inputs.runner }}
@@ -70,6 +85,147 @@ jobs:
       lint_command: ${{ inputs.lint_command }}
       test_command: ${{ inputs.test_command }}
       build_command: ${{ inputs.build_command }}
+      e2e_command: ${{ inputs.e2e_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}
+
+  # `modules` is a string input, so it cannot be a matrix directly. Resolve it
+  # here, the way pimcore.yml resolves php_versions.
+  resolve-modules:
+    if: ${{ inputs.modules != '' }}
+    runs-on: ${{ inputs.runner }}
+    # Without this a hung job bills until GitHub's six-hour default (#132).
+    timeout-minutes: 5
+    outputs:
+      modules: ${{ steps.resolve.outputs.modules }}
+    steps:
+      - id: resolve
+        env:
+          MODULES: ${{ inputs.modules }}
+          WORKDIR: ${{ inputs.working_directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Must be a non-empty array of non-blank strings. Failing here beats
+          # letting the matrix expand to nothing: an empty matrix reports as a
+          # skipped job, and a skipped job reads like a pass.
+          if ! printf '%s' "$MODULES" | jq -e '
+                type == "array"
+                and length > 0
+                and all(.[]; type == "string" and (test("^\\s*$") | not))
+              ' >/dev/null 2>&1; then
+            echo "::error::modules must be a non-empty JSON array of directories, e.g. '[\"api\", \"worker\"]'" >&2
+            exit 1
+          fi
+
+          # Relative, and below working_directory. An absolute path or a `..`
+          # segment would run the caller's commands somewhere the caller did
+          # not name, which is worth refusing rather than resolving.
+          if printf '%s' "$MODULES" | jq -e '
+                any(.[]; startswith("/") or (split("/") | any(. == "..")))
+              ' >/dev/null 2>&1; then
+            echo "::error::modules must be relative paths without '..': ${MODULES}" >&2
+            exit 1
+          fi
+
+          # Join each module onto working_directory, so the matrix carries the
+          # directory the engine will cd into and each leg's name shows it.
+          # An unset WORKDIR would otherwise make every module absolute.
+          # Split and rejoin rather than a chain of substitutions: dropping
+          # every "." and empty segment collapses "./a", ".//a" and "a/" onto
+          # the one directory they all name. A chain that only stripped a
+          # leading "./" let '["a", "./a"]' through as two legs for one
+          # directory, which the duplicate check below then could not see.
+          # Absolute paths are already refused, so an empty leading segment
+          # cannot be meaningful here.
+          modules="$(printf '%s' "$MODULES" | jq -c --arg wd "${WORKDIR:-.}" '
+            [ .[]
+              | ($wd + "/" + .)
+              | split("/")
+              | map(select(. != "" and . != "."))
+              | join("/")
+              | if . == "" then "." else . end ]')"
+
+          # Two entries resolving to one directory expand to two legs with the
+          # same name. GitHub refuses that with an error naming neither the
+          # input nor the duplicate.
+          if [ "$(printf '%s' "$modules" | jq 'unique | length')" \
+             != "$(printf '%s' "$modules" | jq 'length')" ]; then
+            echo "::error::modules resolves to duplicate directories: ${modules}" >&2
+            exit 1
+          fi
+
+          echo "Modules: $(printf '%s' "$modules" | jq -r 'join(", ")')"
+          echo "modules=${modules}" >> "$GITHUB_OUTPUT"
+
+  # One leg per module. `needs` is what confines this to the multi-module path:
+  # when resolve-modules is skipped, so is this.
+  #
+  # The three command inputs are wrapped in a guard because a module that
+  # contains no packages is a real layout, not a mistake: `go build ./...`
+  # tolerates it with a warning, but `go vet` and `go test` both exit 1 with
+  # "no packages to vet". The predicate is `go list -e ./...` rather than a
+  # find for *.go -- `-e` still lists a package whose imports do not resolve,
+  # so a module that is merely broken cannot be mistaken for an empty one and
+  # skipped green.
+  go:
+    needs: resolve-modules
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.resolve-modules.outputs.modules) }}
+    # Relative, so the engine is taken from this repository at whatever ref the
+    # consumer pinned. Pinning to @production would hand a consumer testing a
+    # release branch the previous version of it.
+    uses: ./.github/workflows/ci.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ matrix.module }}
+      # Suffixed per leg. ci.yml cancels in progress on this group, so legs
+      # sharing one key destroy each other -- 0 seconds, no steps, reported as
+      # "cancelled". A caller passing concurrency_key would reintroduce exactly
+      # the defect 0.26.0 fixed.
+      concurrency_key: ${{ inputs.concurrency_key != '' && format('{0}-{1}', inputs.concurrency_key, matrix.module) || '' }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      go_version: ${{ inputs.go_version }}
+      install_command: ${{ inputs.install_command }}
+      lint_command: |
+        if [ -z "$(go list -e ./... 2>/dev/null)" ]; then
+          echo "::notice::${{ matrix.module }}: no Go packages; lint skipped"
+          note="- \`${{ matrix.module }}\`: skipped (no Go packages)"
+          # -e, because the note starts with a dash and grep reads a bare
+          # pattern beginning with one as a flag: it errors, the || branch
+          # runs every time, and the summary repeats the same line per step.
+          grep -qxF -e "$note" "$GITHUB_STEP_SUMMARY" 2>/dev/null || printf '%s\n' "$note" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        ${{ inputs.lint_command }}
+      test_command: |
+        if [ -z "$(go list -e ./... 2>/dev/null)" ]; then
+          echo "::notice::${{ matrix.module }}: no Go packages; tests skipped"
+          note="- \`${{ matrix.module }}\`: skipped (no Go packages)"
+          # -e, because the note starts with a dash and grep reads a bare
+          # pattern beginning with one as a flag: it errors, the || branch
+          # runs every time, and the summary repeats the same line per step.
+          grep -qxF -e "$note" "$GITHUB_STEP_SUMMARY" 2>/dev/null || printf '%s\n' "$note" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        ${{ inputs.test_command }}
+      build_command: |
+        if [ -z "$(go list -e ./... 2>/dev/null)" ]; then
+          echo "::notice::${{ matrix.module }}: no Go packages; build skipped"
+          note="- \`${{ matrix.module }}\`: skipped (no Go packages)"
+          # -e, because the note starts with a dash and grep reads a bare
+          # pattern beginning with one as a flag: it errors, the || branch
+          # runs every time, and the summary repeats the same line per step.
+          grep -qxF -e "$note" "$GITHUB_STEP_SUMMARY" 2>/dev/null || printf '%s\n' "$note" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        ${{ inputs.build_command }}
       e2e_command: ${{ inputs.e2e_command }}
       docker_command: ${{ inputs.docker_command }}
       extra_command: ${{ inputs.extra_command }}
