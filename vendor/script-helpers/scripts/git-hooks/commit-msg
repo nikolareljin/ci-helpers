@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# commit-msg hook — refuse a commit message that names a private repository.
+# Install via: git config core.hooksPath scripts/git-hooks
+#              or: bash scripts/setup-hooks.sh
+#
+# Skip with: git commit --no-verify
+#
+# This is a commit-msg hook and not part of pre-commit because a pre-commit hook
+# runs before the message exists and cannot see it. The message is the surface
+# that matters: a name in a commit message is published the moment the branch is
+# pushed, and rewriting it afterwards changes every tag that points at it.
+set -euo pipefail
+
+msg_file="${1:?commit-msg hook needs the message file}"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+# Allow a repo-local hook to replace the shared one, as pre-commit/pre-push do.
+if [[ -f .githooks/commit-msg ]] && ! [[ .githooks/commit-msg -ef "$0" ]]; then
+  exec bash .githooks/commit-msg "$@"
+fi
+
+_gate=""
+for candidate in \
+  "$repo_root/scripts/script-helpers/scripts/check_private_names.sh" \
+  "$repo_root/vendor/script-helpers/scripts/check_private_names.sh" \
+  "$repo_root/scripts/check_private_names.sh"; do
+  [[ -f "$candidate" ]] && { _gate="$candidate"; break; }
+done
+if [[ -z "$_gate" ]]; then
+  # 127 territory: the check is not installed here. Saying so beats both a
+  # silent pass and a refusal the author cannot act on.
+  echo "[commit-msg] check_private_names.sh not found; private-name check skipped." >&2
+  exit 0
+fi
+
+set +e
+bash "$_gate" --file "$msg_file" --only-public
+rc=$?
+set -e
+
+case "$rc" in
+  0) exit 0 ;;
+  1)
+    echo "[commit-msg] This message names a private repository. Cite it by its code instead." >&2
+    echo "[commit-msg] To override:  PRIVATE_NAMES_ALLOW=<term> git commit ..." >&2
+    echo "[commit-msg]              or git commit --no-verify" >&2
+    exit 1
+    ;;
+  *)
+    # Could not check. A missing list is a setup problem, not a clean message,
+    # and the distinction is the whole point of the separate exit code.
+    echo "[commit-msg] the private-name check could not run (exit $rc); commit allowed." >&2
+    echo "[commit-msg] Generate the name list to enable it." >&2
+    exit 0
+    ;;
+esac

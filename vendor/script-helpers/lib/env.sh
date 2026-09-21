@@ -74,8 +74,17 @@ resolve_env_value() {
 # Parameter expansion only. The old `echo | xargs` trim printed nothing for
 # -n or -e, dropped backslashes, and failed outright on an apostrophe.
 _env__parse_value() {
-  local value="${1:-}" q rest inner="" c i after
-  value="${value%$'\r'}"
+  local value="${1:-}" q rest inner="" c i after len
+  # Trim by arithmetic behind a cheap test, not by pattern removal. bash 3.2 --
+  # the floor this library supports -- is quadratic in ${var%pattern}: measured
+  # on a 40KB value, stripping a trailing carriage return this way took four
+  # seconds, and the four stray-quote trims below took eight between them. A
+  # glob test and a substring are free by comparison, and the pattern operators
+  # were doing nothing the length cannot say.
+  len=${#value}
+  if (( len > 0 )) && [[ "${value:$((len - 1))}" == $'\r' ]]; then
+    value="${value:0:$((len - 1))}"
+  fi
   value="${value#"${value%%[![:space:]]*}"}"
   q="${value:0:1}"
   if [[ "$q" == '"' || "$q" == "'" ]]; then
@@ -83,10 +92,65 @@ _env__parse_value() {
     # Double quotes honour \" and \\ as the shell does; single quotes nothing.
     rest="${value:1}"
     local closed=0
-    if [[ "$q" == "'" || "$rest" != *"\\"* ]]; then
-      # Nothing to unescape: cut at the first closing quote. The loop below
-      # indexes one character at a time, which is quadratic -- a 20KB value
-      # took seconds.
+    # Long values go to awk, whose index() and substr() are C-level. bash's own
+    # pattern operators are quadratic in 3.2, which is the floor this library
+    # supports: measured on a 40KB value, `${rest%%"$q"*}` takes 4 seconds there
+    # and none at all in bash 5, and the three forms together blew a 5-second
+    # budget. Short values -- every real one -- stay in the shell, where a
+    # process is the expensive part.
+    #
+    # Splitting on newlines is safe because this function is handed one line;
+    # `read` is used rather than more parameter expansion for the same reason
+    # the split moved out in the first place.
+    if [[ ${#rest} -gt 2048 ]]; then
+      local _mode=raw
+      [[ "$q" == '"' && "$rest" == *"\\"* ]] && _mode=escaped
+      # A here-document, not `< <(...)`: process substitution combined with read
+      # HANGS in a background job under bash 3.2, which is the floor this
+      # library supports. The first version of this used it, and the symptom was
+      # a parse that never returned -- only from a background caller, only on
+      # the old shell, which is the kind of failure that reaches a user rather
+      # than a test.
+      local _split
+      _split="$(printf '%s\n' "$rest" | awk -v q="$q" -v mode="$_mode" '
+        NR != 1 { next }
+        {
+          if (mode == "raw") {
+            i = index($0, q)
+            if (i == 0) { print 0; print $0; print ""; next }
+            print 1; print substr($0, 1, i - 1); print substr($0, i + 1); next
+          }
+          out = ""
+          i = 1
+          n = length($0)
+          while (i <= n) {
+            c = substr($0, i, 1)
+            nx = substr($0, i + 1, 1)
+            if (c == "\\" && (nx == "\"" || nx == "\\")) { out = out nx; i += 2; continue }
+            if (c == q) { print 1; print out; print substr($0, i + 1); exit }
+            out = out c
+            i++
+          }
+          print 0; print out; print ""
+        }')"
+      # Each read tolerates end-of-input. Command substitution strips trailing
+      # newlines, so when nothing follows the closing quote -- the ordinary case
+      # -- awk's empty third line is gone by the time it gets here and the last
+      # read hits EOF. Under a caller running with `set -e` that status killed
+      # the whole parse: it returned 1 and printed nothing, but only for values
+      # with no trailing comment, which is why two of three forms failed and the
+      # third looked fine.
+      {
+        read -r closed || closed=0
+        IFS= read -r inner || inner=""
+        IFS= read -r after || after=""
+      } <<SPLIT
+$_split
+SPLIT
+      inner="${inner:-}"
+      after="${after:-}"
+    elif [[ "$q" == "'" || "$rest" != *"\\"* ]]; then
+      # Nothing to unescape: cut at the first closing quote.
       if [[ "$rest" == *"$q"* ]]; then
         inner="${rest%%"$q"*}"
         # Not ${rest#*"$q"}: a shortest-prefix match is itself quadratic.
@@ -120,10 +184,18 @@ _env__parse_value() {
   # (KEY=#x) is read as empty here and so returns the default, as it always
   # did -- the shell and dotenv both read it as "#x".
   [[ "$value" == '#'* ]] && value=""
-  value="${value%%[[:space:]]#*}"
+  # Only pay for the comment scan when there is a comment to find.
+  [[ "$value" == *[[:space:]]#* ]] && value="${value%%[[:space:]]#*}"
   value="${value%"${value##*[![:space:]]}"}"
-  # A stray leading or trailing quote is dropped, as it always was.
-  value="${value%\"}"; value="${value#\"}"; value="${value%\'}"; value="${value#\'}"
+  # A stray leading or trailing quote is dropped, as it always was -- by
+  # arithmetic, for the reason given at the top of this function.
+  len=${#value}
+  if (( len > 0 )) && [[ "${value:$((len - 1))}" == '"' || "${value:$((len - 1))}" == "'" ]]; then
+    value="${value:0:$((len - 1))}"
+  fi
+  if [[ "${value:0:1}" == '"' || "${value:0:1}" == "'" ]]; then
+    value="${value:1}"
+  fi
   printf '%s' "$value"
 }
 
