@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Refuse a push whose tree or outgoing commit messages name a private repository.
+#
+# This repository is public, so a private name here is published the moment the
+# push lands. GitHub keeps the edit history of every issue and pull request
+# body, and rewriting commits changes every tag, so there is no clean fix after
+# the fact. The check has to run before the network call.
+#
+# The gate ships in the vendored library. If it is absent the push proceeds with
+# a warning rather than a refusal: a missing tool is "could not check", which is
+# not the same as "clean", and blocking on it would train people to use
+# --no-verify.
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "$repo_root" ]] || exit 0
+
+gate="$repo_root/vendor/script-helpers/scripts/check_private_names.sh"
+if [[ ! -f "$gate" ]]; then
+  echo "[pre-push] check_private_names.sh not found in vendor/script-helpers; skipping." >&2
+  exit 0
+fi
+
+rc=0
+bash "$gate" --tree --only-public || rc=$?
+if [[ "$rc" -eq 1 ]]; then
+  echo "[pre-push] A tracked file names a private repository. Cite it by its code." >&2
+  exit 1
+fi
+
+# Outgoing commit messages, written to a file first. Reading the exit code of a
+# pipeline here is how the same check in script-helpers once silently passed:
+# under pipefail, rc became git's status rather than the gate's.
+msgs="$(mktemp)"
+trap 'rm -f "$msgs"' EXIT
+while read -r _ _local_sha _ remote_sha; do
+  if [[ "$remote_sha" =~ ^0+$ ]]; then
+    git log --format='%B' "$_local_sha" --not --remotes >>"$msgs" 2>/dev/null || true
+  else
+    git log --format='%B' "$remote_sha..$_local_sha" >>"$msgs" 2>/dev/null || true
+  fi
+done
+if [[ -s "$msgs" ]]; then
+  rc=0
+  bash "$gate" --file "$msgs" || rc=$?
+  if [[ "$rc" -eq 1 ]]; then
+    echo "[pre-push] A commit message names a private repository." >&2
+    exit 1
+  fi
+fi
+exit 0

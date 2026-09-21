@@ -38,9 +38,106 @@ _push_is_deletions_only() {
   [[ "$saw_ref" == "true" ]]
 }
 
-if _push_is_deletions_only; then
+# git feeds the ref lines on stdin, and they can only be read once. They are
+# needed twice -- for the deletions-only shortcut and to work out which commits
+# are actually going out -- so they are captured first.
+_push_refs="$(mktemp)"
+trap 'rm -f "$_push_refs"' EXIT
+cat > "$_push_refs"
+
+if _push_is_deletions_only < "$_push_refs"; then
   echo "[pre-push] deletions only — no new commits to check."
   exit 0
+fi
+
+# A private repository's name must never reach a public one, and a push is the
+# last moment it can be stopped: GitHub keeps the edit history of every pull
+# request and issue body publicly, and rewriting commits changes every tag.
+#
+# Both the tracked tree and the messages of the commits actually being pushed.
+# The check decides for itself whether this repository is one the rule applies
+# to, so the hook can be installed everywhere rather than only where someone
+# remembered to configure it.
+_private_names_gate() {
+  local gate=""
+  local candidate
+  for candidate in \
+    "$repo_root/scripts/script-helpers/scripts/check_private_names.sh" \
+    "$repo_root/vendor/script-helpers/scripts/check_private_names.sh" \
+    "$repo_root/scripts/check_private_names.sh"; do
+    [[ -f "$candidate" ]] && { gate="$candidate"; break; }
+  done
+  [[ -n "$gate" ]] || return 127
+  printf '%s' "$gate"
+}
+
+_check_private_names() {
+  local gate rc lref lsha rref rsha
+  gate="$(_private_names_gate)" || {
+    echo "[pre-push] check_private_names.sh not found; private-name check skipped." >&2
+    return 0
+  }
+
+  bash "$gate" --tree --only-public
+  rc=$?
+  # 2 means it could not check -- no name list, most often. That is a setup
+  # problem rather than a clean tree, and it is deliberately a different exit
+  # code from "found something" so the two can never be confused.
+  if [[ "$rc" -eq 1 ]]; then
+    echo "[pre-push] A tracked file names a private repository. Cite it by its code." >&2
+    return 1
+  elif [[ "$rc" -ne 0 ]]; then
+    echo "[pre-push] the private-name check could not run (exit $rc); push allowed." >&2
+    return 0
+  fi
+
+  # The messages go to a file first, and the gate is called on the file.
+  #
+  # This used to be `... done < refs | bash "$gate" --stdin`, with `rc=$?` read straight
+  # after. Under `set -o pipefail` that is the PIPELINE's status, not the gate's: when
+  # `git log` failed -- a shallow clone, or a remote ref never fetched -- rc was git's 128,
+  # the `-eq 1` test below did not fire, and the commit-message check silently did nothing
+  # while the push went ahead. The mirror case was worse: anything on the left exiting 1
+  # blocked the push and blamed a private name that was not there.
+  local messages="${_push_refs}.messages"
+  : > "$messages"
+  local log_failed=0
+  # shellcheck disable=SC2034
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lsha:-}" ]] || continue
+    [[ "$lsha" =~ ^0+$ ]] && continue          # a deletion carries no commits
+    if [[ "${rsha:-}" =~ ^0+$ ]]; then
+      # A new branch: everything not already on a remote, rather than the whole
+      # history, which would re-check every commit ever made on every first push.
+      git log --format='%B' "$lsha" --not --remotes >> "$messages" 2>/dev/null || log_failed=1
+    else
+      git log --format='%B' "${rsha}..${lsha}" >> "$messages" 2>/dev/null || log_failed=1
+    fi
+  done < "$_push_refs"
+
+  if [[ "$log_failed" -eq 1 ]]; then
+    # Distinct from both "clean" and "found something", because it is neither.
+    echo "[pre-push] could not read every outgoing commit message (shallow clone, or a" >&2
+    echo "[pre-push] remote ref that was never fetched); those commits were NOT checked." >&2
+  fi
+
+  bash "$gate" --file "$messages" --only-public
+  rc=$?
+  rm -f "$messages"
+  if [[ "$rc" -eq 1 ]]; then
+    echo "[pre-push] A commit message names a private repository." >&2
+    echo "[pre-push] To override:  PRIVATE_NAMES_ALLOW=<term> git push ..." >&2
+    echo "[pre-push]              or git push --no-verify" >&2
+    return 1
+  elif [[ "$rc" -ne 0 ]]; then
+    # The tree pass says this; the message pass used to say nothing at all.
+    echo "[pre-push] the commit-message check could not run (exit $rc); push allowed." >&2
+  fi
+  return 0
+}
+
+if ! _check_private_names; then
+  exit 1
 fi
 
 # Resolve local_test_*.sh scripts directory; submodule path takes priority.

@@ -1,0 +1,20 @@
+# Findings a person has looked at and accepted. One line per finding, as
+# path:rule:line -- a fingerprint suppresses exactly that finding and nothing
+# else.
+#
+# Deliberately NOT a .gitleaks.toml allowlist. An allowlist entry keyed on a
+# path excludes that whole file from every rule, even with condition = "AND":
+# measured on this repository, two randomly generated secrets planted in the
+# allowlisted files went from 4 findings to 0. A fingerprint cannot do that --
+# it names one rule at one line, and anything else in the same file is still
+# reported.
+#
+# Re-check after editing this file, the only way that means anything -- plant a
+# random secret in one of the files below, confirm it is still caught, remove it.
+#
+# scripts/ci_pimcore_bundle_check.sh:45  db_password="" -- an empty default, no
+#   value at all, let alone a secret. The caller supplies the password.
+# tests/publish_homebrew_test.sh:25  a dummy tap token. The test's whole point
+#   is asserting it never reaches argv or .git/config.
+scripts/ci_pimcore_bundle_check.sh:generic-api-key:45
+tests/publish_homebrew_test.sh:generic-api-key:25
