@@ -29,15 +29,26 @@ on:
       # govulncheck version, pinned. A floating @latest means the gate's
       # behaviour changes without a commit here, and a new advisory class can
       # turn every consumer red on a day nobody shipped anything.
+      #
+      # v1.7.0, not the newest: x/vuln v1.8.0 declares `go 1.26.0`, and
+      # actions/setup-go sets GOTOOLCHAIN=local, so the install fails with
+      # "requires go >= 1.26.0". It succeeds on a developer machine, where Go
+      # downloads the newer toolchain on demand. Raise this only with
+      # go_version.
       govulncheck_version:
         type: string
-        default: "v1.8.0"
+        default: "v1.7.0"
       # Off by default while consumers adopt it: govulncheck reports advisories
       # in dependencies, so turning it on fleet-wide would fail repositories
       # that changed nothing.
       vulncheck:
         type: boolean
         default: false
+      # govulncheck's own package pattern. gosec_args belongs to gosec and is
+      # not interchangeable.
+      vulncheck_packages:
+        type: string
+        default: "./..."
 
 jobs:
   scan:
@@ -85,7 +96,7 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         env:
           INPUT_GOVULNCHECK_VERSION: ${{ inputs.govulncheck_version }}
-          INPUT_PACKAGES: ${{ inputs.packages }}
+          INPUT_PACKAGES: ${{ inputs.vulncheck_packages }}
         run: |
           set -euo pipefail
           if [[ ! "${INPUT_GOVULNCHECK_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

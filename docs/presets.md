@@ -451,7 +451,7 @@ Workflow: `.github/workflows/go-scan.yml`
 Defaults:
 
 - `go_version`: `1.25`
-- `govulncheck_version`: `v1.8.0`
+- `govulncheck_version`: `v1.7.0`
 - `vulncheck`: `false`
 
 ```yaml
@@ -469,6 +469,13 @@ code, so importing a vulnerable module without calling into it is not flagged.
 
 It is **off by default**. Turning it on fleet-wide would fail repositories that
 changed nothing, on the day an advisory is published.
+
+`v1.7.0` rather than the newest: `x/vuln` v1.8.0 declares `go 1.26.0`, and
+`actions/setup-go` sets `GOTOOLCHAIN=local`, so installing it fails with
+`requires go >= 1.26.0`. It installs fine on a developer machine, where Go
+downloads the newer toolchain on demand, which is a difference worth knowing
+before trusting a local check. Raise this input only together with
+`go_version`.
 
 `govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
 means the gate changes behaviour without a commit here, and a new advisory class

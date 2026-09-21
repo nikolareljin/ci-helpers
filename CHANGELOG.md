@@ -25,7 +25,10 @@
 
 - **`go-scan.yml` runs `govulncheck`, pinned and off by default.** `gosec` is a
   static analyser over this repository's own code; it is not a dependency audit.
-  The version is validated as `vX.Y.Z`: a floating `@latest` changes the gate's
+  Pinned to `v1.7.0`, not the newest: `x/vuln` v1.8.0 declares
+  `go 1.26.0` and `setup-go` sets `GOTOOLCHAIN=local`, so it installs on a
+  developer machine and fails in CI. The version is validated as `vX.Y.Z`: a
+  floating `@latest` changes the gate's
   behaviour without a commit, and a new advisory class turns every consumer red
   on a day nobody shipped.
 
