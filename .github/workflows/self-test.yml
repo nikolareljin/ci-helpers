@@ -728,6 +728,73 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Unity cannot be exercised here: an editor run needs a licence this
+  # repository does not have and bills by the minute, which is the whole reason
+  # the preset is armed by a repository variable. What can be exercised, and is
+  # the part that protects the bill, is the gate that decides whether any of it
+  # runs. It is driven from the workflow that owns it, so this cannot pass
+  # against a gate that has since changed.
+  unity-gate-refuses-and-disarms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: The gate refuses bad input, and stays off unless armed
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="${RUNNER_TEMP}/decide.sh"
+          python3 - "$script" <<'PY'
+          import pathlib, sys, yaml
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/unity.yml').read_text())
+          pathlib.Path(sys.argv[1]).write_text(doc['jobs']['decide']['steps'][0]['run'])
+          PY
+          test -s "$script" || { echo "::error::could not extract the gate"; exit 1; }
+
+          # enabled | test_mode | project_path | license | serial | email | password
+          decide() {
+            local out="${RUNNER_TEMP}/decide-out"
+            : > "$out"
+            IN_ENABLED="" VAR_ENABLED="$1" IN_TEST_MODE="$2" IN_PROJECT_PATH="$3" \
+            HAS_LICENSE="$4" HAS_SERIAL="$5" HAS_EMAIL="$6" HAS_PASSWORD="$7" \
+            GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="${RUNNER_TEMP}/decide-sum" \
+              bash "$script" >/dev/null 2>&1 || return 1
+            sed -n 's/^mode=//p' "$out"
+          }
+
+          # Each of these must fail before anything bills.
+          while IFS='|' read -r en tm pp lic ser em pw why; do
+            [ -n "${en}${tm}" ] || continue
+            if decide "$en" "$tm" "$pp" "$lic" "$ser" "$em" "$pw" >/dev/null 2>&1; then
+              echo "::error::gate accepted what it must refuse: ${why}"
+              exit 1
+            fi
+          done <<'REFUSE'
+          true|bogus|.|true|false|true|true|an unknown test_mode
+          |all|/abs|false|false|false|false|an absolute project_path
+          |all|a/../b|false|false|false|false|a project_path containing ..
+          true|all|.|false|false|false|false|armed with no licence and no serial
+          true|all|.|true|false|false|true|armed with a licence but no email
+          REFUSE
+
+          # And the accepted direction. The first two are the ones that protect
+          # the bill: an unarmed repository is inert and is never asked for a
+          # credential it has no reason to hold.
+          while IFS='|' read -r en tm pp lic ser em pw want; do
+            [ -n "${tm}" ] || continue
+            got="$(decide "$en" "$tm" "$pp" "$lic" "$ser" "$em" "$pw")"
+            if [ "$got" != "$want" ]; then
+              echo "::error::gate(enabled=${en:-<unset>}) = ${got}, want ${want}"
+              exit 1
+            fi
+          done <<'ACCEPT'
+          |all|.|false|false|false|false|disabled
+          false|all|.|false|false|false|false|disabled
+          true|all|.|true|false|true|true|test
+          true|editmode|.|false|true|true|true|test
+          ACCEPT
+          echo "the gate refuses bad input and stays off unless armed"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -753,6 +820,7 @@ jobs:
       - engine-inputs-exemption-must-name-a-real-job
       - csharp-windows-fixture-builds-on-a-windows-runner
       - csharp-windows-fixture-fails-clearly-on-linux
+      - unity-gate-refuses-and-disarms
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -783,6 +851,7 @@ jobs:
             engine-inputs-exemption-must-name-a-real-job=${{ needs.engine-inputs-exemption-must-name-a-real-job.result }}
             csharp-windows-fixture-builds-on-a-windows-runner=${{ needs.csharp-windows-fixture-builds-on-a-windows-runner.result }}
             csharp-windows-fixture-fails-clearly-on-linux=${{ needs.csharp-windows-fixture-fails-clearly-on-linux.result }}
+            unity-gate-refuses-and-disarms=${{ needs.unity-gate-refuses-and-disarms.result }}
         run: |
           set -euo pipefail
           failed=0

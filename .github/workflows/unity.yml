@@ -1,0 +1,234 @@
+name: preset-unity
+# Unity is not a variant of the C# preset and must not be folded into it. It
+# needs licence activation against Unity's servers, a cached Library folder
+# that dwarfs every other cache here, and a macOS runner for an iOS export.
+# It also bills differently: an editor run is minutes where `dotnet build` is
+# seconds, which is why this workflow does nothing at all unless a repository
+# variable arms it.
+#
+# A .NET test harness that lives outside the asset tree is NOT this preset's
+# business. That harness exists precisely so some tests run on a Linux runner
+# without the editor, and it keeps using `csharp.yml`. This preset is for the
+# tests that need the editor.
+on:
+  workflow_call:
+    inputs:
+      # --- kill switch -------------------------------------------------------
+      enabled:
+        type: string
+        default: ""
+        description: >
+          Pass the repository variable that arms Unity runs — an expression
+          reading vars.UNITY_CI from the caller. Empty falls back to reading
+          that same variable here. Compared against the string 'true';
+          anything else, including unset, leaves this workflow inert.
+
+          It is a variable rather than an input so that arming it is a
+          deliberate act in the repository's settings, visible to anyone with
+          access, rather than a line in a workflow file that a merge can
+          introduce. An editor run bills by the minute.
+      runner:
+        type: string
+        default: ubuntu-latest
+        description: >
+          ubuntu-latest covers editmode and playmode. An iOS export needs a
+          macOS runner, which bills at ten times the Linux rate — arm this
+          deliberately.
+      project_path:
+        type: string
+        default: "."
+        description: Directory holding Assets/ and ProjectSettings/, relative to the repository root.
+      unity_version:
+        type: string
+        default: auto
+        description: >
+          'auto' reads ProjectSettings/ProjectVersion.txt, which is what keeps
+          CI on the version the project actually opens with. Pin a version only
+          to test an upgrade.
+      test_mode:
+        type: string
+        default: editmode
+        description: all, editmode or playmode. Refused if it is anything else.
+      cache:
+        type: boolean
+        default: true
+        description: >
+          Cache the Library folder, keyed on the project's assets and settings.
+          A cold Library import is the slowest thing in a Unity run by a wide
+          margin.
+      lfs:
+        type: boolean
+        default: true
+        description: >
+          Check out Git LFS objects. Unity projects usually keep binary assets
+          in LFS, and a missing object fails deep inside the import rather than
+          at checkout.
+      fetch_depth:
+        type: number
+        default: 1
+        description: >
+          1, not 0 as elsewhere: nothing here reads history, and a Unity
+          repository is large enough that a full clone is a real cost.
+      timeout_minutes:
+        type: number
+        default: 60
+        description: >
+          60, not the 20 used elsewhere: a cold Library import alone can take
+          most of that. Without a timeout a hung editor bills until GitHub's
+          six-hour default (#132).
+      artifact_name:
+        type: string
+        default: unity-test-results
+
+    secrets:
+      UNITY_LICENSE:
+        required: false
+        description: >
+          Contents of the .ulf licence file, for a Personal licence. Activate
+          once locally, then paste the whole file into the secret. Either this
+          or UNITY_SERIAL must be set when the kill switch is armed.
+      UNITY_EMAIL:
+        required: false
+        description: Unity account email. Needed with either licence kind.
+      UNITY_PASSWORD:
+        required: false
+        description: Unity account password. Needed with either licence kind.
+      UNITY_SERIAL:
+        required: false
+        description: Serial for a Plus or Pro licence, instead of UNITY_LICENSE.
+
+jobs:
+  # Runs on every call, costs seconds, checks out nothing. Everything that can
+  # be refused is refused here, before a runner that bills by the minute starts
+  # importing a Library folder.
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+    steps:
+      - name: Decide whether this run does anything
+        id: decide
+        shell: bash
+        env:
+          IN_ENABLED: ${{ inputs.enabled }}
+          VAR_ENABLED: ${{ vars.UNITY_CI }}
+          IN_TEST_MODE: ${{ inputs.test_mode }}
+          IN_PROJECT_PATH: ${{ inputs.project_path }}
+          # Presence only. Never printed, never compared to a literal.
+          HAS_LICENSE: ${{ secrets.UNITY_LICENSE != '' }}
+          HAS_SERIAL: ${{ secrets.UNITY_SERIAL != '' }}
+          HAS_EMAIL: ${{ secrets.UNITY_EMAIL != '' }}
+          HAS_PASSWORD: ${{ secrets.UNITY_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+
+          # Refused before the kill switch, so a typo costs five seconds and
+          # fails saying what it is, whether or not Unity is armed.
+          case "${IN_TEST_MODE}" in
+            all|editmode|playmode) ;;
+            *)
+              echo "::error::test_mode must be all, editmode or playmode, not '${IN_TEST_MODE}'"
+              exit 1 ;;
+          esac
+
+          case "${IN_PROJECT_PATH}" in
+            /*)
+              echo "::error::project_path must be relative to the repository root, not '${IN_PROJECT_PATH}'"
+              exit 1 ;;
+            *..*)
+              echo "::error::project_path must not contain '..': '${IN_PROJECT_PATH}'"
+              exit 1 ;;
+          esac
+
+          enabled="${IN_ENABLED}"
+          if [ -z "${enabled}" ]; then
+            enabled="${VAR_ENABLED:-}"
+          fi
+          # Compared against the literal string. Anything else, unset included,
+          # leaves Unity off.
+          if [ "${enabled}" = "true" ]; then
+            mode="test"
+          else
+            mode="disabled"
+          fi
+
+          # An enum, not a boolean. A job output is a string, so a boolean
+          # crossing a job boundary arrives as "true"/"false" and `if: needs.x`
+          # is truthy for both -- which is how a run that was supposed to be
+          # skipped runs anyway. See cloudflare-deploy.yml, same reasoning.
+          case "${mode}" in
+            test|disabled) ;;
+            *) echo "::error::internal: mode '${mode}' is not one of test, disabled"; exit 1 ;;
+          esac
+
+          # Credentials are checked here rather than by the editor, because the
+          # editor discovers a missing licence several minutes into a billed
+          # run, after the Library import, with an error that names a file
+          # instead of a secret.
+          if [ "${mode}" = "test" ]; then
+            if [ "${HAS_LICENSE}" != "true" ] && [ "${HAS_SERIAL}" != "true" ]; then
+              echo "::error::UNITY_CI is armed but neither UNITY_LICENSE nor UNITY_SERIAL is set; nothing can activate"
+              exit 1
+            fi
+            if [ "${HAS_EMAIL}" != "true" ] || [ "${HAS_PASSWORD}" != "true" ]; then
+              echo "::error::UNITY_CI is armed but UNITY_EMAIL or UNITY_PASSWORD is missing; both are needed with either licence kind"
+              exit 1
+            fi
+          fi
+
+          if [ "${mode}" = "disabled" ]; then
+            echo "::notice::Unity is not armed on this repository. Set the repository variable UNITY_CI to 'true' to run editor tests. Nothing was billed."
+            {
+              echo "### Unity"
+              echo ""
+              echo "Not armed: repository variable \`UNITY_CI\` is not \`true\`. No editor ran."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    needs: decide
+    if: ${{ needs.decide.outputs.mode == 'test' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          lfs: ${{ inputs.lfs }}
+
+      # Keyed on the assets and settings that decide what the import produces.
+      # Restoring a Library built from different assets is worse than a cold
+      # import: the editor reimports anyway, after paying to download it.
+      - if: ${{ inputs.cache }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: ${{ inputs.project_path }}/Library
+          key: unity-library-${{ inputs.runner }}-${{ inputs.project_path }}-${{ hashFiles(format('{0}/Assets/**', inputs.project_path), format('{0}/Packages/**', inputs.project_path), format('{0}/ProjectSettings/**', inputs.project_path)) }}
+          restore-keys: |
+            unity-library-${{ inputs.runner }}-${{ inputs.project_path }}-
+
+      - uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0 @ 2026-09-21
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: ${{ inputs.project_path }}
+          unityVersion: ${{ inputs.unity_version }}
+          testMode: ${{ inputs.test_mode }}
+          githubToken: ${{ github.token }}
+
+      # always(), so a failing suite still uploads the results that say which
+      # test failed. Without it the one run worth inspecting is the one with no
+      # artifact.
+      - if: ${{ always() && steps.tests.outputs.artifactsPath != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ steps.tests.outputs.artifactsPath }}
