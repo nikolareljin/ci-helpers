@@ -849,6 +849,30 @@ jobs:
 
           echo "the gate refuses a second Unreleased, a buried one, and a repeated version"
 
+  # The PR gate had no Go preset, so a Go caller either pinned a version locally
+  # or got no Go setup at all. These two legs together are what prove the preset
+  # sets Go up: asserting only the default would pass even if setup never ran,
+  # because the runner image already ships a 1.25.
+  #
+  # This leg takes the default and asserts the version it names.
+  go-pr-gate-uses-the-shared-default:
+    uses: ./.github/workflows/go-pr-gate.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      test_command: 'go version && go version | grep -q "go1\.25\." && echo "the shared default is in force"'
+      build_command: ""
+
+  # And this leg names a version the image does not ship, so it can only pass if
+  # the gate actually ran its Setup Go step.
+  go-pr-gate-honours-a-named-version:
+    uses: ./.github/workflows/go-pr-gate.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      go_version: "1.24"
+      lint_command: ""
+      test_command: 'go version && go version | grep -q "go1\.24\." && echo "Setup Go ran; the image ships a different version"'
+      build_command: ""
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -876,6 +900,8 @@ jobs:
       - csharp-windows-fixture-fails-clearly-on-linux
       - unity-gate-refuses-and-disarms
       - changelog-structure-gate-refuses-what-it-must
+      - go-pr-gate-uses-the-shared-default
+      - go-pr-gate-honours-a-named-version
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -908,6 +934,8 @@ jobs:
             csharp-windows-fixture-fails-clearly-on-linux=${{ needs.csharp-windows-fixture-fails-clearly-on-linux.result }}
             unity-gate-refuses-and-disarms=${{ needs.unity-gate-refuses-and-disarms.result }}
             changelog-structure-gate-refuses-what-it-must=${{ needs.changelog-structure-gate-refuses-what-it-must.result }}
+            go-pr-gate-uses-the-shared-default=${{ needs.go-pr-gate-uses-the-shared-default.result }}
+            go-pr-gate-honours-a-named-version=${{ needs.go-pr-gate-honours-a-named-version.result }}
         run: |
           set -euo pipefail
           failed=0

@@ -258,6 +258,28 @@ non-empty JSON array, when an entry is absolute or contains `..`, or when two
 entries name the same directory. An empty matrix would report as a skipped job,
 and a skipped job reads like a pass.
 
+### The pull request gate
+
+`go.yml` calls the CI engine. For a pull request gate, call `go-pr-gate.yml`,
+which supplies the same defaults to `pr-gate.yml`:
+
+```yaml
+jobs:
+  gate:
+    uses: nikolareljin/ci-helpers/.github/workflows/go-pr-gate.yml@production
+```
+
+Without it, a Go repository calling `pr-gate.yml` directly has two bad options.
+Name `go_version` and it is a local pin that drifts from the shared default;
+name nothing and the gate's `Setup Go` step does not run at all, so the job
+builds on whatever Go the runner image ships, with no module cache. A
+repository in that state passes until the image moves.
+
+The defaults are `go.yml`'s, identically, so a caller using both gets the same
+toolchain on a push and on a pull request. `check_release_tag` and
+`release_branch` are forwarded, so adopting the preset does not cost access to
+the gate's own inputs.
+
 ## Java
 
 Workflow: `.github/workflows/java.yml`
