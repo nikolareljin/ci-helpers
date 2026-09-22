@@ -74,6 +74,32 @@
   is exactly the shape the C# preset was in when it could not have passed
   anywhere. That limitation is written into the docs rather than left implied.
 
+- **`scripts/check_changelog_structure.py`, run by `pre-commit` and by
+  `workflow-yaml-check.yml`.** Release notes are cut from one CHANGELOG section.
+  On 2026-09-21 a second `## Unreleased` was added above the existing one, and
+  everything under the lower heading -- a feature merged that morning -- would
+  have been dropped from the next release while the file still appeared to
+  contain it. `check_changelog_section.sh` did not notice, because it asks
+  whether a section for the version exists and has entries, which was true of
+  the top one.
+
+  Three rules, kept narrow on purpose: at most one `## Unreleased`, no released
+  section above it, and no version in two headings. It does **not** police the
+  shape of a released heading -- this file's history holds four, including 20
+  date-only ones and 49 without the `v` that was adopted late, and a check that
+  cannot pass gets deleted rather than obeyed.
+
+  The version rule reads the heading's version *field*, not any SemVer on the
+  line. Reading the whole line took a dotted date (`## 2026.09.21`) for a version
+  and took a dependency named in prose (`- bump Node 20.1.0`) for the section's
+  version, so two headings mentioning one dependency collided. A false duplicate
+  fails a correct changelog, and a gate that cries wolf gets switched off.
+
+  Verified against the actual broken commit from that day, not only against
+  fixtures. The self-test leg asserts all three refusals, and three files that
+  must still pass: date-only headings, a dotted date, and a dependency version
+  named in two headings.
+
 ### Changed
 
 - **`scripts/check_engine_inputs.py` exempts a forward by job, not by

@@ -795,6 +795,60 @@ jobs:
           ACCEPT
           echo "the gate refuses bad input and stays off unless armed"
 
+  # The gate that would have caught a real defect on 2026-09-21: a second
+  # `## Unreleased` added above the existing one, which drops everything under
+  # the lower heading from the release notes while the file still appears to
+  # contain it. Asserting the refusals is the point -- a structure check is easy
+  # to write so that it finds nothing.
+  changelog-structure-gate-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Sound before broken, then each refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP}/changelog"
+          mkdir -p "$tmp"
+
+          # Sound before broken: this repository's own CHANGELOG must pass, or
+          # every refusal below proves nothing. It also keeps the gate honest
+          # about the four heading shapes this file's history actually holds.
+          python3 scripts/check_changelog_structure.py
+
+          printf '# Changelog\n\n## Unreleased\n\n- a\n\n## Unreleased\n\n- b\n' > "$tmp/two.md"
+          printf '# Changelog\n\n## 2026-09-21 — v0.31.0\n\n- c\n\n## Unreleased\n\n- a\n' > "$tmp/buried.md"
+          printf '# Changelog\n\n## Unreleased\n\n- a\n\n## 2026-09-21 — v0.31.0\n\n- c\n\n## 2026-09-20 — 0.31.0\n\n- d\n' > "$tmp/dupver.md"
+
+          for bad in two buried dupver; do
+            if python3 scripts/check_changelog_structure.py --file "$tmp/${bad}.md" >/dev/null 2>&1; then
+              echo "::error::the gate accepted ${bad}.md"
+              exit 1
+            fi
+          done
+
+          # And the files that must still pass. A false duplicate fails a correct
+          # changelog, and a gate that cries wolf gets switched off -- so these
+          # matter as much as the refusals above.
+          #
+          # old-shapes: date-only headings and a missing `v`, both in this
+          #   repository's history. A gate rejecting them could not pass here.
+          # dotted-date: read as a SemVer by the first version of this check.
+          # prose-version: a dependency named in two headings, likewise.
+          printf '# Changelog\n\n## Unreleased\n\n- a\n\n## 2026-09-17 — 0.27.0\n\n- c\n\n## 2026-04-11\n\n- old\n' > "$tmp/old-shapes.md"
+          printf '# Changelog\n\n## 2026.09.21\n\n- a\n\n## 2026.09.20\n\n- b\n' > "$tmp/dotted-date.md"
+          printf '# Changelog\n\n## 2026-05-01 — bump Node 20.1.0\n\n- a\n\n## 2026-04-01 — pin Node 20.1.0\n\n- b\n' > "$tmp/prose-version.md"
+          for good in old-shapes dotted-date prose-version; do
+            if ! python3 scripts/check_changelog_structure.py --file "$tmp/${good}.md" >/dev/null 2>&1; then
+              echo "::error::the gate refused a correct file: ${good}.md"
+              python3 scripts/check_changelog_structure.py --file "$tmp/${good}.md" || true
+              exit 1
+            fi
+          done
+
+          echo "the gate refuses a second Unreleased, a buried one, and a repeated version"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -821,6 +875,7 @@ jobs:
       - csharp-windows-fixture-builds-on-a-windows-runner
       - csharp-windows-fixture-fails-clearly-on-linux
       - unity-gate-refuses-and-disarms
+      - changelog-structure-gate-refuses-what-it-must
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -852,6 +907,7 @@ jobs:
             csharp-windows-fixture-builds-on-a-windows-runner=${{ needs.csharp-windows-fixture-builds-on-a-windows-runner.result }}
             csharp-windows-fixture-fails-clearly-on-linux=${{ needs.csharp-windows-fixture-fails-clearly-on-linux.result }}
             unity-gate-refuses-and-disarms=${{ needs.unity-gate-refuses-and-disarms.result }}
+            changelog-structure-gate-refuses-what-it-must=${{ needs.changelog-structure-gate-refuses-what-it-must.result }}
         run: |
           set -euo pipefail
           failed=0

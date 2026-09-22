@@ -42,6 +42,13 @@ jobs:
         shell: bash
         run: python3 scripts/check_engine_inputs.py
 
+      # The CHANGELOG is the release body. Two `## Unreleased` sections, or one
+      # buried below a release, drop entries from the notes without failing
+      # anything -- see scripts/check_changelog_structure.py.
+      - name: CHANGELOG structure
+        shell: bash
+        run: python3 scripts/check_changelog_structure.py
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is
