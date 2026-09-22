@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2026-09-21 — v0.32.0
 
 ### Added
 
@@ -99,6 +99,11 @@
   fixtures. The self-test leg asserts all three refusals, and three files that
   must still pass: date-only headings, a dotted date, and a dependency version
   named in two headings.
+
+  Its success line reports what it found -- "no Unreleased section" or "one
+  Unreleased section, at the top" -- rather than asserting the latter
+  unconditionally, which it did when cutting this release and would have shipped
+  as a gate describing a state it had not checked.
 
 ### Changed
 

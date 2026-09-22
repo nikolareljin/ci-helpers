@@ -123,7 +123,14 @@ def main() -> int:
             print(f"      {line}", file=sys.stderr)
         return 1
 
-    print(f"[INFO] {path.name}: one Unreleased section at the top, no repeated version")
+    # Say what was actually found. The first version of this line claimed "one
+    # Unreleased section at the top" unconditionally, so it said that of a file
+    # that had just had its Unreleased section renamed into a release -- a gate
+    # reporting something it had not checked, which is the defect this script
+    # exists to catch.
+    count = sum(1 for line in text.splitlines() if line.rstrip() == UNRELEASED)
+    where = "one Unreleased section, at the top" if count else "no Unreleased section"
+    print(f"[INFO] {path.name}: {where}, no repeated version")
     return 0
 
 
