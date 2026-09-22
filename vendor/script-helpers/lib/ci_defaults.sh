@@ -20,14 +20,14 @@
 # 3. Commit with: git commit -m "chore: bump ci default versions"
 # 4. Run sync_script_helpers.sh in consuming repos to propagate the change.
 #
-# LAST UPDATED: 2026-01-29
+# LAST UPDATED: 2026-09-22
 
 # -- Node.js --
-CI_DEFAULT_NODE_VERSION="${CI_DEFAULT_NODE_VERSION:-20-bullseye}"
+CI_DEFAULT_NODE_VERSION="${CI_DEFAULT_NODE_VERSION:-24-bookworm}"
 CI_DEFAULT_NODE_IMAGE="${CI_DEFAULT_NODE_IMAGE:-node}"
 
 # -- Python --
-CI_DEFAULT_PYTHON_VERSION="${CI_DEFAULT_PYTHON_VERSION:-3.11-slim}"
+CI_DEFAULT_PYTHON_VERSION="${CI_DEFAULT_PYTHON_VERSION:-3.12-slim}"
 CI_DEFAULT_PYTHON_IMAGE="${CI_DEFAULT_PYTHON_IMAGE:-python}"
 
 # -- Flutter --

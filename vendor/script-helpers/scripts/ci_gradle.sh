@@ -88,8 +88,16 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     mkdir -p "$HOME/.gradle"
     DOCKER_CMD+=(-v "$HOME/.gradle":/tmp/.gradle)
   fi
-  DOCKER_CMD+=("$IMAGE" bash -lc)
-  # Docker mode: ${GRADLE_FLAGS[*]} expands into a single string for bash -lc.
+  # bash -c, not -lc. A login shell sources /etc/profile, which replaces PATH
+  # with a default built for a shell session. A container already has the
+  # environment its image set; a login shell there has nothing to add and can
+  # only take away. This cost every Docker-mode run in ci_go.sh: the golang
+  # image keeps its toolchain in /usr/local/go/bin, which the profile default
+  # does not carry, so every run exited 127.
+  #
+  # Measured 2026-09-22 against gradle:8.7-jdk17: the toolchain resolves under -c.
+  DOCKER_CMD+=("$IMAGE" bash -c)
+  # Docker mode: ${GRADLE_FLAGS[*]} expands into a single string for bash -c.
   # Non-Docker mode uses "${GRADLE_FLAGS[@]}" to pass flags as separate arguments.
   if [[ "$SKIP_BUILD" == "false" ]]; then
     log_info "./gradlew $BUILD_TASK ${GRADLE_FLAGS[*]}"

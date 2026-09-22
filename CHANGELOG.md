@@ -44,9 +44,15 @@
   `vendor/.script-helpers-sha`. It did not: the pin was 0.28.0 while the
   vendored tree is 0.32.0. The comment now says what is true.
 
-  The vendored copy under `vendor/` is **not** re-vendored here. `vendor-check.yml`
-  states that re-vendoring is a separate decision and deliberately does not
-  check currency.
+  `vendor/script-helpers` is re-vendored to 0.33.0 in the same change, which is
+  what `README.md` and `AGENTS.md` both say to do whenever script-helpers cuts
+  a release. `vendor-check.yml` not checking currency means CI will not force
+  it, not that it should be skipped. `verify_vendor.sh` passes, including the
+  online comparison against upstream at that SHA.
+
+  With that, `release-tag-gate.yml`'s pin matches `vendor/.script-helpers-sha`
+  again. Nothing enforces that relationship, so the comment there now says when
+  to re-read it rather than asserting it holds.
 
 ## 2026-09-22 — v0.33.0
 

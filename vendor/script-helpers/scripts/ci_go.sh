@@ -69,13 +69,38 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e GOMODCACHE=/tmp/go-cache -v "$ABS_WORKDIR":/work -w /work)
+  # GOCACHE as well as GOMODCACHE. The container runs as the host user, who has
+  # no home inside it, so HOME is / and Go puts its build cache at /.cache --
+  # not writable, and the run dies with
+  #   failed to initialize build cache at /.cache/go-build: mkdir /.cache: permission denied
+  # GOMODCACHE was already redirected for this reason; GOCACHE was missed, so
+  # the failure only moved rather than going away.
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e GOMODCACHE=/tmp/go-cache -e GOCACHE=/tmp/go-build -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
     HOST_GOMODCACHE="${HOME}/.cache/go"
     mkdir -p "$HOST_GOMODCACHE"
     DOCKER_CMD+=(-v "$HOST_GOMODCACHE":/tmp/go-cache)
+    # The build cache is mounted for the same reason the module cache is, and it
+    # is the one that costs time: compiling the dependency graph is most of a Go
+    # lint or test run. Measured on a real consumer, the same job takes 21s with
+    # a cold build cache and 7s with a warm one. Redirecting GOCACHE without
+    # mounting it would keep the helper working and make every run a cold one.
+    HOST_GOCACHE="${HOME}/.cache/go-build"
+    mkdir -p "$HOST_GOCACHE"
+    DOCKER_CMD+=(-v "$HOST_GOCACHE":/tmp/go-build)
   fi
-  DOCKER_CMD+=("$IMAGE" bash -lc)
+  # bash -c, not -lc. A login shell sources /etc/profile, which replaces PATH
+  # with its own default -- and the golang image keeps the toolchain in
+  # /usr/local/go/bin, which that default does not contain. Every Docker-mode
+  # run therefore failed with `go: command not found` and exit 127:
+  #
+  #   docker run --rm golang:1.22 bash -c  'go version'  -> go version go1.22.12
+  #   docker run --rm golang:1.22 bash -lc 'go version'  -> bash: go: command not found
+  #
+  # A container's environment comes from the image, so the login shell had
+  # nothing to add and one thing to destroy. The host path below keeps -l, where
+  # a developer's own profile is what puts go on PATH.
+  DOCKER_CMD+=("$IMAGE" bash -c)
   if [[ "$SKIP_LINT" == "false" ]]; then
     log_info "$LINT_CMD"
     "${DOCKER_CMD[@]}" "$LINT_CMD"

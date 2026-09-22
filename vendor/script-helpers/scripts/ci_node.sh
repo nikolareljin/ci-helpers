@@ -80,7 +80,15 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     mkdir -p "$HOME/.npm"
     DOCKER_CMD+=(-v "$HOME/.npm":/tmp/.npm)
   fi
-  DOCKER_CMD+=("$IMAGE" bash -lc)
+  # bash -c, not -lc. A login shell sources /etc/profile, which replaces PATH
+  # with a default built for a shell session. A container already has the
+  # environment its image set; a login shell there has nothing to add and can
+  # only take away. This cost every Docker-mode run in ci_go.sh: the golang
+  # image keeps its toolchain in /usr/local/go/bin, which the profile default
+  # does not carry, so every run exited 127.
+  #
+  # Measured 2026-09-22 against node:24-bookworm: the toolchain resolves under -c.
+  DOCKER_CMD+=("$IMAGE" bash -c)
   if [[ "$NO_INSTALL" == "false" ]]; then
     log_info "$INSTALL_CMD"
     "${DOCKER_CMD[@]}" "$INSTALL_CMD"
