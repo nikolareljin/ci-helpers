@@ -74,6 +74,25 @@
   is exactly the shape the C# preset was in when it could not have passed
   anywhere. That limitation is written into the docs rather than left implied.
 
+- **`scripts/check_changelog_structure.py`, run by `pre-commit` and by
+  `workflow-yaml-check.yml`.** Release notes are cut from one CHANGELOG section.
+  On 2026-09-21 a second `## Unreleased` was added above the existing one, and
+  everything under the lower heading -- a feature merged that morning -- would
+  have been dropped from the next release while the file still appeared to
+  contain it. `check_changelog_section.sh` did not notice, because it asks
+  whether a section for the version exists and has entries, which was true of
+  the top one.
+
+  Three rules, kept narrow on purpose: at most one `## Unreleased`, no released
+  section above it, and no version in two headings. It does **not** police the
+  shape of a released heading -- this file's history holds four, including 20
+  date-only ones and 49 without the `v` that was adopted late, and a check that
+  cannot pass gets deleted rather than obeyed.
+
+  Verified against the actual broken commit from that day, not only against
+  fixtures, and a self-test leg asserts all three refusals plus an
+  old-fashioned file that must still pass.
+
 ### Changed
 
 - **`scripts/check_engine_inputs.py` exempts a forward by job, not by
