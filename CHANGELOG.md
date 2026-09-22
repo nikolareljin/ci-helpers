@@ -89,9 +89,16 @@
   date-only ones and 49 without the `v` that was adopted late, and a check that
   cannot pass gets deleted rather than obeyed.
 
+  The version rule reads the heading's version *field*, not any SemVer on the
+  line. Reading the whole line took a dotted date (`## 2026.09.21`) for a version
+  and took a dependency named in prose (`- bump Node 20.1.0`) for the section's
+  version, so two headings mentioning one dependency collided. A false duplicate
+  fails a correct changelog, and a gate that cries wolf gets switched off.
+
   Verified against the actual broken commit from that day, not only against
-  fixtures, and a self-test leg asserts all three refusals plus an
-  old-fashioned file that must still pass.
+  fixtures. The self-test leg asserts all three refusals, and three files that
+  must still pass: date-only headings, a dotted date, and a dependency version
+  named in two headings.
 
 ### Changed
 

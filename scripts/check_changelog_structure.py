@@ -43,9 +43,20 @@ import sys
 from pathlib import Path
 
 UNRELEASED = "## Unreleased"
-# Any heading that names a SemVer, with or without the `v` the file adopted
-# late. Date-only headings carry no version and simply have nothing to clash.
-VERSION_IN_HEADING = re.compile(r"^##\s+.*?\bv?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$")
+# The version FIELD of a released heading: `## <date> <dash> <version>`, with or
+# without the `v` the file adopted late. Not "any SemVer anywhere in the line" --
+# that read a dotted date (`## 2026.09.21`) as a version, and read a dependency
+# mentioned in prose (`## 2026-05-01 - bump Node 20.1.0`) as the section's
+# version, so two headings naming one dependency collided. A false duplicate is
+# worse than a missed one here: it fails a correct file, and a gate that cries
+# wolf gets switched off.
+#
+# Consequence, stated rather than hidden: the duplicate-version rule covers only
+# headings in this shape. A Keep-a-Changelog heading (`## 1.2.3`) is not matched.
+# This file has never used one; widen this if it ever does.
+VERSION_IN_HEADING = re.compile(
+    r"^##\s+\d{4}-\d{2}-\d{2}\s*[\u2014\u2013-]\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$"
+)
 
 
 def check(text: str) -> list[str]:

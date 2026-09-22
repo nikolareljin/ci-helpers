@@ -828,11 +828,24 @@ jobs:
             fi
           done
 
-          # And a file that is merely old-fashioned must still pass: date-only
-          # headings and a missing `v` are both in this repository's history,
-          # and a gate that rejected them could not pass here at all.
+          # And the files that must still pass. A false duplicate fails a correct
+          # changelog, and a gate that cries wolf gets switched off -- so these
+          # matter as much as the refusals above.
+          #
+          # old-shapes: date-only headings and a missing `v`, both in this
+          #   repository's history. A gate rejecting them could not pass here.
+          # dotted-date: read as a SemVer by the first version of this check.
+          # prose-version: a dependency named in two headings, likewise.
           printf '# Changelog\n\n## Unreleased\n\n- a\n\n## 2026-09-17 — 0.27.0\n\n- c\n\n## 2026-04-11\n\n- old\n' > "$tmp/old-shapes.md"
-          python3 scripts/check_changelog_structure.py --file "$tmp/old-shapes.md"
+          printf '# Changelog\n\n## 2026.09.21\n\n- a\n\n## 2026.09.20\n\n- b\n' > "$tmp/dotted-date.md"
+          printf '# Changelog\n\n## 2026-05-01 — bump Node 20.1.0\n\n- a\n\n## 2026-04-01 — pin Node 20.1.0\n\n- b\n' > "$tmp/prose-version.md"
+          for good in old-shapes dotted-date prose-version; do
+            if ! python3 scripts/check_changelog_structure.py --file "$tmp/${good}.md" >/dev/null 2>&1; then
+              echo "::error::the gate refused a correct file: ${good}.md"
+              python3 scripts/check_changelog_structure.py --file "$tmp/${good}.md" || true
+              exit 1
+            fi
+          done
 
           echo "the gate refuses a second Unreleased, a buried one, and a repeated version"
 
