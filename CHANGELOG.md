@@ -45,6 +45,35 @@
   restore error fails too, and a test that accepted any non-zero exit would read
   as a pass while proving nothing about Windows targeting.
 
+- **A Unity preset, `unity.yml`, inert until a repository arms it.** Unity is not
+  a variant of the C# preset: it needs licence activation, a `Library` cache that
+  dwarfs every other cache here, and a macOS runner for an iOS export, and an
+  editor run bills by the minute where `dotnet build` takes seconds.
+
+  It does nothing unless the repository variable `UNITY_CI` is `true`. Anything
+  else, unset included, and the run reports that it is not armed and stops before
+  checkout. The switch is a variable rather than an input so arming it is a
+  deliberate act in a repository's settings, not a line a merge can introduce.
+
+  The gate job also refuses, in seconds and before any runner starts, an unknown
+  `test_mode`, an absolute or `..`-containing `project_path`, and being armed with
+  no usable licence -- the editor otherwise discovers a missing licence minutes
+  into a billed run and reports it as a missing file.
+
+  It carries its own concurrency group, because it does not call the engine and
+  so inherits none: without one, two pushes a minute apart run two concurrent
+  editor runs and bill for both. The key carries `project_path`, `runner` and
+  `test_mode` rather than the ref alone, so a caller testing two projects or two
+  modes does not cancel its own legs -- the defect `ci.yml` carried until 0.26.0.
+
+  A .NET test harness outside the asset tree keeps using `csharp.yml`; this preset
+  is for tests that need the editor.
+
+  The gate is covered by a self-test leg in both directions. The editor run is
+  not: this repository holds no Unity licence, and a workflow that has never run
+  is exactly the shape the C# preset was in when it could not have passed
+  anywhere. That limitation is written into the docs rather than left implied.
+
 ### Changed
 
 - **`scripts/check_engine_inputs.py` exempts a forward by job, not by

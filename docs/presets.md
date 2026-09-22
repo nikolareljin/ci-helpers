@@ -499,6 +499,76 @@ nobody thought of, and a format string with more placeholders than arguments
 (Godot reports `ERROR: a number is required`) reached a physical device that
 way while CI reported success.
 
+## Unity
+
+Workflow: `.github/workflows/unity.yml`
+
+Separate from the C# preset on purpose. Unity needs licence activation against
+Unity's servers, a cached `Library` folder that dwarfs every other cache here,
+and a macOS runner for an iOS export. An editor run takes minutes where
+`dotnet build` takes seconds.
+
+**A .NET test harness that lives outside the asset tree keeps using `csharp.yml`.**
+That harness exists so some tests run on a Linux runner without the editor; this
+preset is for the tests that need the editor.
+
+### It does nothing until you arm it
+
+Set the repository variable `UNITY_CI` to `true`. Anything else, unset included,
+and the workflow reports that it is not armed and stops — no checkout, no editor,
+nothing billed.
+
+It is a variable rather than an input so that arming it is a deliberate act in the
+repository's settings, visible to anyone with access, rather than a line in a
+workflow file that a merge can introduce.
+
+```yaml
+jobs:
+  unity:
+    uses: nikolareljin/ci-helpers/.github/workflows/unity.yml@production
+    with:
+      project_path: game
+      test_mode: editmode
+    secrets:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+      UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+```
+
+### Licence
+
+Either a Personal licence or a serial, plus the account credentials in both cases:
+
+| secret | for |
+|---|---|
+| `UNITY_LICENSE` | the contents of the `.ulf` file — activate once locally, paste the whole file |
+| `UNITY_SERIAL` | a Plus or Pro serial, instead of `UNITY_LICENSE` |
+| `UNITY_EMAIL`, `UNITY_PASSWORD` | the Unity account, needed with either kind |
+
+Credentials are checked by the gate job, in seconds, before a runner starts. The
+editor otherwise discovers a missing licence several minutes into a billed run and
+reports it as a missing file rather than a missing secret.
+
+### Defaults
+
+- `test_mode`: `editmode` — `all`, `editmode` or `playmode`; anything else is refused
+- `unity_version`: `auto`, read from `ProjectSettings/ProjectVersion.txt`
+- `cache`: `true`, caching `Library` keyed on `Assets/`, `Packages/` and `ProjectSettings/`
+- `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
+- `timeout_minutes`: `60`, not `20` — a cold `Library` import can take most of it
+- `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate
+
+### What is and is not tested here
+
+The gate is covered by a self-test leg: it refuses an unknown `test_mode`, an
+absolute or `..`-containing `project_path`, and being armed without a usable
+licence; and it stays off, without asking for any credential, when `UNITY_CI` is
+unset.
+
+The editor run itself is not exercised, because this repository holds no Unity
+licence and an editor run bills by the minute. Treat the first run on a real
+project as the first proof that the Unity step works.
+
 ## Go scan
 
 Workflow: `.github/workflows/go-scan.yml`
