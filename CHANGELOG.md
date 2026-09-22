@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`go-pr-gate.yml`: the Go preset for the pull request gate.** `go.yml` sits in
+  front of the CI engine and supplies the Go defaults; nothing sat in front of
+  `pr-gate.yml`. A Go repository therefore chose between naming a version, a
+  local pin that drifts from the shared default, and naming none, in which case
+  the gate never runs `Setup Go` and the job builds on whatever the runner image
+  ships with no module cache.
+
+  The reference Go adopter was in the second state on every run for months while
+  its `go.mod` declared `go 1.25.0`; it passed only because the image was newer.
+
+  Defaults are `go.yml`'s identically, so a caller using both gets the same
+  toolchain on a push and on a pull request. `check_release_tag` and
+  `release_branch` are forwarded, so adopting it costs no access to the gate's
+  own inputs.
+
+  It takes no `modules` input: `go.yml` fans out over several `go.mod` files and
+  the pull request gate does not, so a multi-module repository calls `go.yml` on
+  `pull_request` instead, which is what the pilot does.
+
+  Two self-test legs, because one proves nothing: the first takes the default and
+  asserts `go version` reports 1.25, and the second names 1.24 and asserts it
+  reports 1.24. Asserting only the default would pass with `Setup Go` skipped,
+  since the image already ships a 1.25.
+
 ## 2026-09-22 — v0.32.0
 
 ### Added

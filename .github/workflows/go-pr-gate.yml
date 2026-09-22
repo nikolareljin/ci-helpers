@@ -1,0 +1,106 @@
+name: preset-go-pr-gate
+# The Go preset for the pull request gate.
+#
+# `go.yml` sits in front of the CI engine and supplies the Go defaults. Nothing
+# sat in front of the PR gate, so a Go repository had two bad options for its
+# pull request workflow: name a version, which is a local pin that drifts from
+# the shared default, or name nothing, in which case the gate sets Go up not at
+# all and the run builds on whatever the runner image ships, with no module
+# cache.
+#
+# The reference Go adopter took the second option on every run for months while
+# its go.mod declared `go 1.25.0`. It passed only because the image was newer.
+#
+# The defaults here are `go.yml`'s, deliberately and identically. A caller that
+# uses both gets the same toolchain on a push and on a pull request, which is
+# the property that makes a green gate mean anything.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      concurrency_key:
+        type: string
+        default: ""
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      # Restore dependency caches, for the toolchains whose setup action has
+      # the option. The engine decides which from the lockfiles it finds.
+      cache:
+        type: boolean
+        default: true
+      go_version:
+        type: string
+        # The same default as go.yml. Changing one without the other gives a
+        # repository a different Go on a pull request than on a push, which is
+        # the drift this preset exists to remove.
+        default: "1.25"
+      install_command:
+        type: string
+        default: ""
+      lint_command:
+        type: string
+        default: 'test -z "$(gofmt -l .)" && go vet ./...'
+      test_command:
+        type: string
+        default: "go mod download && go test ./..."
+      build_command:
+        type: string
+        default: "go build ./..."
+      e2e_command:
+        type: string
+        default: ""
+      docker_command:
+        type: string
+        default: ""
+      extra_command:
+        type: string
+        default: ""
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
+      # The gate's own inputs, forwarded so a Go caller does not have to drop
+      # back to calling pr-gate.yml directly to reach them.
+      check_release_tag:
+        type: boolean
+        default: false
+      release_branch:
+        type: string
+        default: ""
+
+jobs:
+  # Relative, so the gate is taken from this repository at whatever ref the
+  # consumer pinned. Pinning the child to @production would hand a consumer
+  # testing a release branch the previous version of it.
+  gate:
+    uses: ./.github/workflows/pr-gate.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      concurrency_key: ${{ inputs.concurrency_key }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}
+      go_version: ${{ inputs.go_version }}
+      install_command: ${{ inputs.install_command }}
+      lint_command: ${{ inputs.lint_command }}
+      test_command: ${{ inputs.test_command }}
+      build_command: ${{ inputs.build_command }}
+      e2e_command: ${{ inputs.e2e_command }}
+      docker_command: ${{ inputs.docker_command }}
+      extra_command: ${{ inputs.extra_command }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      check_release_tag: ${{ inputs.check_release_tag }}
+      release_branch: ${{ inputs.release_branch }}
