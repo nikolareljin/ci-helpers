@@ -98,9 +98,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          # 0.28.0 -- carries check_changelog_section.sh (used below) as well as
-          # check_release_tag.sh; matches vendor/.script-helpers-sha.
-          ref: df62393602dbd4d628bc29235ff11f544edd16fe
+          # Carries check_changelog_section.sh (used below) as well as
+          # check_release_tag.sh. Both are byte-identical to the 0.28.0 copy
+          # this pin used to name, so the bump changes nothing here; it is for
+          # having one pin in this repository rather than three.
+          #
+          # This does NOT track vendor/.script-helpers-sha, which is 0.32.0.
+          # The comment used to say it did, and did not: the pin was 0.28.0
+          # while the vendored tree had moved on. Re-vendoring is a separate
+          # decision, per vendor-check.yml.
+          ref: 66abf003ba9165ba0e72d190f4c1f44871372385 # 0.33.0
           path: .script-helpers
           fetch-depth: 1
 
