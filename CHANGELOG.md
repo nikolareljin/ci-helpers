@@ -1,5 +1,59 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The WordPress and Pimcore checks were pinned to a script-helpers commit
+  from 2026-04-11, and one of them was broken by it.** `wp-plugin-check.yml`
+  and `pimcore-bundle-check.yml` pinned `3d70d24`. In that version
+  `ci_wp_plugin_check.sh` exported the plugin source path as given:
+
+  ```bash
+  export "$plugin_src_env"="$plugin_src"      # "." verbatim
+  ```
+
+  Compose resolves a relative path against the compose file's directory, so a
+  caller passing `plugin_src: .` with `compose_file: test/docker-compose.yml`
+  had `test/` mounted as its plugin directory. WP-CLI then reported
+  `The '<plugin>' plugin could not be found` and the job failed. Confirmed from
+  inside the container, where the mounted plugin directory held the compose
+  files.
+
+  Moving the pin alone was not enough. Every script-helpers release after that
+  commit removed `--php-version` from both helpers, so a newer pin failed with
+  `Unknown argument: --php-version`, and the releases in between carried a
+  `wp --config` call that WP-CLI refuses. 0.33.0 is the first with all three
+  resolved.
+
+  `php_version` remains a workflow input: it still drives the `Setup PHP` step,
+  and Pimcore's `php_version_env` export. Only the argument to the helper is
+  gone, because the helper no longer takes one.
+
+### Changed
+
+- **One script-helpers pin, not three.** All eleven checkouts now name 0.33.0.
+  They were spread across `3d70d24`, `df62393` (0.28.0) and `1bb1977`.
+
+  For the nine that were not broken this is a no-op, checked rather than
+  assumed: `release_notes.sh`, `check_release_tag.sh` and
+  `check_changelog_section.sh` are byte-identical between their old pins and
+  0.33.0, and every flag each workflow passes is still accepted.
+
+  `release-tag-gate.yml` also carried a comment saying its pin matched
+  `vendor/.script-helpers-sha`. It did not: the pin was 0.28.0 while the
+  vendored tree is 0.32.0. The comment now says what is true.
+
+  `vendor/script-helpers` is re-vendored to 0.33.0 in the same change, which is
+  what `README.md` and `AGENTS.md` both say to do whenever script-helpers cuts
+  a release. `vendor-check.yml` not checking currency means CI will not force
+  it, not that it should be skipped. `verify_vendor.sh` passes, including the
+  online comparison against upstream at that SHA.
+
+  With that, `release-tag-gate.yml`'s pin matches `vendor/.script-helpers-sha`
+  again. Nothing enforces that relationship, so the comment there now says when
+  to re-read it rather than asserting it holds.
+
 ## 2026-09-22 — v0.33.0
 
 ### Added

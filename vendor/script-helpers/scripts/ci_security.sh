@@ -115,15 +115,18 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       PYTHON_REQ="requirements.txt"
     fi
     if [[ -n "$PYTHON_REQ" ]]; then
+      # bash -c, not -lc: see ci_go.sh. A login shell replaces the image's PATH
+      # with /etc/profile's default. Measured 2026-09-22 on python:3.12-slim.
       docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
-        bash -lc "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
+        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
     else
       log_warn "No requirements file found; skipping python audit."
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]]; then
+    # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:24-bookworm.
     docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
-      bash -lc "$NODE_CMD" || true
+      bash -c "$NODE_CMD" || true
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     docker run --pull=always --rm -t -v "$ABS_WORKDIR":/work -w /work "$GITLEAKS_IMAGE" \

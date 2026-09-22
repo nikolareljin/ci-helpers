@@ -189,6 +189,10 @@ if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_comm
 fi
 
 mkdir -p "$out_dir"
+# Reports from a previous run, not this one. out_dir persists between runs, and
+# when `wp plugin check` produces nothing its output is discarded rather than
+# installed -- so without this the last run's findings are read as this run's.
+rm -f "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
 wp_site_url="http://localhost:${host_port}"
 cat > "${out_dir}/wp-cli.yml" <<WPCLI
 path: /var/www/html
@@ -207,7 +211,7 @@ run_wp_shell() {
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" "$@"' -- "$@"
+    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp "$@"' -- "$@"
 }
 
 run_wp() {
@@ -245,7 +249,7 @@ WP_DB_PASSWORD="$db_password" DEBUG=false docker_compose -f "$compose_file" run 
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f /var/www/html/wp-config.php || wp --config="$WP_CLI_CONFIG_PATH" config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f /var/www/html/wp-config.php || wp config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true
@@ -271,7 +275,7 @@ if docker_compose -f "$compose_file" run --rm \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" help plugin check >/dev/null 2>&1'; then
+  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
   rm -f "$plugin_check_tmp"
@@ -296,7 +300,7 @@ if [[ -n "$meta_check_script" ]]; then
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp --config="$WP_CLI_CONFIG_PATH" eval-file "$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
+    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp eval-file "$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then
@@ -308,6 +312,7 @@ if [[ "$fail_on_findings" == "true" ]]; then
   OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" python3 - <<'PY'
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -328,23 +333,110 @@ def load_json(path: Path, label: str):
         parse_errors.append(f"{label} could not be read: {exc}")
     return None
 
+ERROR_LEVELS = {"error", "critical", "fatal"}
+warning_count = 0
+file_count = 0
+
+
+def entry_level(item):
+    if not isinstance(item, dict):
+        return "error"
+    for key in ("severity", "level", "type"):
+        value = item.get(key)
+        if value:
+            return str(value).lower()
+    return "error"
+
+
+def count_entries(items):
+    """Return (errors, warnings) for one list of plugin-check entries."""
+    errors = warnings = 0
+    for item in items:
+        if entry_level(item) in ERROR_LEVELS:
+            errors += 1
+        else:
+            warnings += 1
+    return errors, warnings
+
+
+def parse_file_sections(text):
+    """`wp plugin check --format=json` writes one section per file:
+
+        FILE: includes/foo.php
+        [{"line": 33, "type": "WARNING", ...}]
+        FILE: includes/bar.php
+        [...]
+
+    It is not one JSON document, and reading it as one threw away every
+    result and reported a parse failure instead.
+    """
+    # Split on the headers rather than matching whole sections: one regex for
+    # both needs re.S, and then "." swallows the newlines that separate them.
+    parts = re.split(r"^FILE:[ \t]*(.+?)[ \t]*$", text, flags=re.M)
+    sections = []
+    for index in range(1, len(parts) - 1, 2):
+        path = parts[index]
+        body = parts[index + 1].strip()
+        if not body:
+            continue
+        entries = json.loads(body)
+        if not isinstance(entries, list):
+            # Counting a dict here iterates its keys, so an object with three
+            # keys reported three errors.
+            raise ValueError(f"the section for {path} is not a list of entries")
+        sections.append((path, entries))
+    return sections
+
+
 if plugin_check.exists():
-    data = load_json(plugin_check, "plugin-check.json")
-    if isinstance(data, dict):
-        if isinstance(data.get("errors"), int):
-            error_count += data.get("errors", 0)
-        for key in ("results", "issues", "messages"):
-            items = data.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        level = str(item.get("severity") or item.get("level") or item.get("type") or "").lower()
-                        if level in {"error", "critical", "fatal"}:
-                            error_count += 1
-                    else:
-                        error_count += 1
-    elif isinstance(data, list):
-        error_count += len(data)
+    try:
+        raw = plugin_check.read_text(encoding="utf-8")
+    except OSError as exc:
+        raw = None
+        parse_errors.append(f"plugin-check.json could not be read: {exc}")
+
+    if raw is not None and not raw.strip():
+        # Reading it as "no findings" turns a checker that produced nothing
+        # into a pass. It exited 5 here before this block could parse sections.
+        parse_errors.append("plugin-check.json is empty; the check produced no output")
+    elif raw is not None:
+        sections = None
+        try:
+            sections = parse_file_sections(raw)
+        except (json.JSONDecodeError, ValueError) as exc:
+            parse_errors.append(f"plugin-check.json has a FILE section that is not valid JSON: {exc}")
+
+        if sections is None:
+            # The sections were there and did not parse. Falling through to the
+            # whole-document branch only adds a second, misleading message
+            # about the first line not being JSON.
+            pass
+        elif sections:
+            file_count = len(sections)
+            for _path, items in sections:
+                errors, warnings = count_entries(items)
+                error_count += errors
+                warning_count += warnings
+        else:
+            # Older wp-cli, or a build that emits a single document.
+            data = load_json(plugin_check, "plugin-check.json")
+            if isinstance(data, dict):
+                if isinstance(data.get("errors"), int):
+                    error_count += data["errors"]
+                if isinstance(data.get("warnings"), int):
+                    warning_count += data["warnings"]
+                for key in ("results", "issues", "messages"):
+                    items = data.get(key)
+                    if isinstance(items, list):
+                        errors, warnings = count_entries(items)
+                        error_count += errors
+                        warning_count += warnings
+            elif isinstance(data, list):
+                # Counting the whole list as errors made every warning fail the
+                # build: 58 errors reported where 8 were errors and 50 warnings.
+                errors, warnings = count_entries(data)
+                error_count += errors
+                warning_count += warnings
 elif plugin_check_available:
     parse_errors.append("plugin-check.json was not created even though wp plugin check is available")
 
@@ -361,10 +453,14 @@ if parse_errors:
         print(message, file=sys.stderr)
     sys.exit(5)
 
+summary = f"{error_count} error(s), {warning_count} warning(s)"
+if file_count:
+    summary += f" across {file_count} file(s)"
+
 if error_count > 0:
-    print(f"Plugin checks reported {error_count} error(s)")
+    print(f"Plugin checks reported {summary}")
     sys.exit(4)
 
-print("No plugin-check errors detected.")
+print(f"No plugin-check errors detected ({summary}).")
 PY
 fi

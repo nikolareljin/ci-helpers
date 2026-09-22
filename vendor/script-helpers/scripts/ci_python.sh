@@ -74,7 +74,15 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     mkdir -p "$HOME/.cache/pip"
     DOCKER_CMD+=(-v "$HOME/.cache/pip":/tmp/.cache/pip)
   fi
-  DOCKER_CMD+=("$IMAGE" bash -lc)
+  # bash -c, not -lc. A login shell sources /etc/profile, which replaces PATH
+  # with a default built for a shell session. A container already has the
+  # environment its image set; a login shell there has nothing to add and can
+  # only take away. This cost every Docker-mode run in ci_go.sh: the golang
+  # image keeps its toolchain in /usr/local/go/bin, which the profile default
+  # does not carry, so every run exited 127.
+  #
+  # Measured 2026-09-22 against python:3.12-slim: the toolchain resolves under -c.
+  DOCKER_CMD+=("$IMAGE" bash -c)
 
   # Build a single command string so pip-installed packages persist within
   # the same container (each docker run is a fresh container).
