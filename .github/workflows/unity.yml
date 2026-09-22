@@ -79,6 +79,13 @@ on:
       artifact_name:
         type: string
         default: unity-test-results
+      concurrency_key:
+        type: string
+        default: ""
+        description: >
+          Overrides the default concurrency group. The default already
+          separates runs by project_path, runner and test_mode, so a caller
+          that tests several projects or modes does not cancel its own legs.
 
     secrets:
       UNITY_LICENSE:
@@ -96,6 +103,19 @@ on:
       UNITY_SERIAL:
         required: false
         description: Serial for a Plus or Pro licence, instead of UNITY_LICENSE.
+
+# Unity has no engine to inherit a group from -- it does not call ci.yml -- so
+# without this two pushes a minute apart run two concurrent editor runs and bill
+# for both. cancel-in-progress is true for the same reason: a superseded run is
+# money being spent on an answer nobody will read.
+#
+# The key carries project_path, runner and test_mode, not just the ref. A caller
+# testing two projects, or editmode and playmode, reaches this workflow with one
+# github.ref, and a group keyed on the ref alone would have those legs cancel
+# each other -- the defect ci.yml carried until 0.26.0.
+concurrency:
+  group: ci-helpers-unity-${{ github.workflow }}-${{ inputs.concurrency_key || format('{0}-{1}-{2}', inputs.project_path, inputs.runner, inputs.test_mode) }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Runs on every call, costs seconds, checks out nothing. Everything that can
