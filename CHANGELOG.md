@@ -27,36 +27,6 @@
   asserts `go version` reports 1.25, and the second names 1.24 and asserts it
   reports 1.24. Asserting only the default would pass with `Setup Go` skipped,
   since the image already ships a 1.25.
- was added above the existing one, and
-  everything under the lower heading -- a feature merged that morning -- would
-  have been dropped from the next release while the file still appeared to
-  contain it. `check_changelog_section.sh` did not notice, because it asks
-  whether a section for the version exists and has entries, which was true of
-  the top one.
-
-  Three rules, kept narrow on purpose: at most one `## Unreleased`, no released
-  section above it, and no version in two headings. It does **not** police the
-  shape of a released heading -- this file's history holds four, including 20
-  date-only ones and 49 without the `v` that was adopted late, and a check that
-  cannot pass gets deleted rather than obeyed.
-
-  The version rule reads the heading's version *field*, not any SemVer on the
-  line. Reading the whole line took a dotted date (`## 2026.09.21`) for a version
-  and took a dependency named in prose (`- bump Node 20.1.0`) for the section's
-  version, so two headings mentioning one dependency collided. A false duplicate
-  fails a correct changelog, and a gate that cries wolf gets switched off.
-
-  Verified against the actual broken commit from that day, not only against
-  fixtures. The self-test leg asserts all three refusals, and three files that
-  must still pass: date-only headings, a dotted date, and a dependency version
-  named in two headings.
-
-  Its success line reports what it found -- "no Unreleased section" or "one
-  Unreleased section, at the top" -- rather than asserting the latter
-  unconditionally, which it did when cutting this release and would have shipped
-  as a gate describing a state it had not checked.
-
-### Changed
 
 ## 2026-09-22 — v0.32.0
 
