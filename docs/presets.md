@@ -280,6 +280,11 @@ toolchain on a push and on a pull request. `check_release_tag` and
 `release_branch` are forwarded, so adopting the preset does not cost access to
 the gate's own inputs.
 
+It takes no `modules` input. `go.yml` fans out over several `go.mod` files; the
+pull request gate does not, so a repository with several modules gets one leg
+here. Such a repository can call `go.yml` on `pull_request` instead, which is
+what the multi-module pilot does.
+
 ## Java
 
 Workflow: `.github/workflows/java.yml`
