@@ -1,0 +1,219 @@
+name: preset-wp-phpunit
+# WordPress plugin tests, against the WordPress test suite.
+#
+# `wp-plugin-check.yml` checks how a plugin is packaged. This runs its actual
+# tests: a plugin's tests/bootstrap.php is written against the WordPress test
+# library, which expects WP_TESTS_DIR to hold `includes/functions.php` and a
+# `wp-tests-config.php` naming a real database.
+#
+# Built on php.yml -> ci.yml, so the database comes from the engine's optional
+# db_image rather than a second mechanism. Everything is provisioned inside the
+# test command because a reusable workflow cannot add steps to the engine's job.
+#
+# The library and core both come from one wordpress-develop tarball, so they
+# cannot disagree about the version under test.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      concurrency_key:
+        type: string
+        default: ""
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to the engine's checkout; see
+      # ci.yml for why a typo is refused rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      # Restore dependency caches, for the toolchains whose setup action has
+      # the option. The engine decides which from the lockfiles it finds.
+      cache:
+        type: boolean
+        default: true
+      php_version:
+        type: string
+        default: "8.3"
+      node_version:
+        type: string
+        default: ""
+      # A full X.Y.Z, a minor like "7.1" which resolves to its newest patch, or
+      # "latest". wordpress-develop tags are always X.Y.Z, so a bare minor is
+      # resolved rather than passed through: requesting "7.1" as a tag 404s.
+      wp_version:
+        type: string
+        default: "latest"
+      wp_multisite:
+        type: string
+        default: "0"
+      # Where the test library is installed. A plugin's bootstrap.php reads
+      # WP_TESTS_DIR, falling back to this path, which is the long-standing
+      # convention the scaffold script established.
+      wp_tests_dir:
+        type: string
+        default: "/tmp/wordpress-tests-lib"
+      wp_core_dir:
+        type: string
+        default: "/tmp/wordpress"
+      install_command:
+        type: string
+        default: "composer install --no-interaction --prefer-dist"
+      lint_command:
+        type: string
+        default: ""
+      # The tests themselves. Replace it to run pest, a subset, or a different
+      # configuration; it runs with WP_TESTS_DIR already exported.
+      test_command:
+        type: string
+        default: "./vendor/bin/phpunit"
+      build_command:
+        type: string
+        default: ""
+      # Anything else this plugin verifies. Threaded through so a caller adds
+      # checks without forking this workflow.
+      extra_command:
+        type: string
+        default: ""
+      db_image:
+        type: string
+        default: "mysql:8.0"
+      db_database:
+        type: string
+        default: "wordpress_test"
+      db_username:
+        type: string
+        default: "wordpress"
+      db_password:
+        type: string
+        default: "wordpress"
+      db_root_password:
+        type: string
+        default: "root"
+      db_port:
+        type: string
+        default: "3306"
+      # Forwarded to the engine, which applies it as the job timeout. Without
+      # one a hung job bills until GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
+
+jobs:
+  wp-phpunit:
+    uses: ./.github/workflows/php.yml
+    with:
+      runner: ${{ inputs.runner }}
+      working_directory: ${{ inputs.working_directory }}
+      concurrency_key: ${{ inputs.concurrency_key }}
+      fetch_depth: ${{ inputs.fetch_depth }}
+      submodules: ${{ inputs.submodules }}
+      cache: ${{ inputs.cache }}
+      php_version: ${{ inputs.php_version }}
+      node_version: ${{ inputs.node_version }}
+      install_command: ${{ inputs.install_command }}
+      lint_command: ${{ inputs.lint_command }}
+      build_command: ${{ inputs.build_command }}
+      extra_command: ${{ inputs.extra_command }}
+      # Provision, then run. Both here because a reusable workflow cannot add a
+      # step to the engine's job, so the engine's own command hook is the only
+      # place with the database running and the checkout present.
+      test_command: |
+        set -euo pipefail
+
+        WP_VERSION_INPUT="${{ inputs.wp_version }}"
+
+        # wordpress-develop tags are always X.Y.Z. A caller naming "7.1" or
+        # "latest" means the newest patch of that line, so resolve it rather
+        # than requesting a tag that does not exist and failing with a 404 that
+        # says nothing about versions.
+        if [ "$WP_VERSION_INPUT" = "latest" ]; then
+          WP_TAG="$(curl -fsSL https://api.wordpress.org/core/version-check/1.7/ \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["offers"][0]["current"])')"
+        elif printf '%s' "$WP_VERSION_INPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          WP_TAG="$WP_VERSION_INPUT"
+        else
+          # Newest tag on that line. Sorted by version, not by the API's order.
+          WP_TAG="$(curl -fsSL 'https://api.github.com/repos/WordPress/wordpress-develop/tags?per_page=100' \
+            | python3 -c '
+        import json, sys
+        line = sys.argv[1]
+        tags = [t["name"] for t in json.load(sys.stdin)]
+        want = [t for t in tags if t == line or t.startswith(line + ".")]
+        if not want:
+            sys.exit("no wordpress-develop tag matches " + line)
+        print(sorted(want, key=lambda v: [int(p) for p in v.split(".")])[-1])
+        ' "$WP_VERSION_INPUT")"
+        fi
+        echo "WordPress under test: ${WP_TAG} (requested '${WP_VERSION_INPUT}')"
+
+        TESTS_DIR="${{ inputs.wp_tests_dir }}"
+        CORE_DIR="${{ inputs.wp_core_dir }}"
+        rm -rf "$TESTS_DIR" "$CORE_DIR"
+        mkdir -p "$TESTS_DIR" "$CORE_DIR"
+
+        # One tarball for both the library and core, so they cannot disagree
+        # about the version. Downloading core separately from wordpress.org is
+        # how the two drift apart.
+        tarball="$(mktemp -d)/wordpress-develop.tar.gz"
+        curl -fsSL -o "$tarball" \
+          "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${WP_TAG}.tar.gz"
+
+        extracted="$(mktemp -d)"
+        tar -xzf "$tarball" -C "$extracted"
+        root="${extracted}/wordpress-develop-${WP_TAG}"
+        if [ ! -d "${root}/tests/phpunit/includes" ]; then
+          echo "::error::${WP_TAG} has no tests/phpunit/includes; the tarball layout changed" >&2
+          exit 1
+        fi
+
+        cp -R "${root}/tests/phpunit/." "$TESTS_DIR/"
+        cp -R "${root}/src/." "$CORE_DIR/"
+
+        # The config the library reads. Written from the sample so a new
+        # constant appearing upstream is carried rather than dropped.
+        cfg="${TESTS_DIR}/wp-tests-config.php"
+        cp "${root}/wp-tests-config-sample.php" "$cfg"
+        python3 - "$cfg" <<'PY'
+        import re, sys
+        path = sys.argv[1]
+        s = open(path).read()
+        subs = {
+            "dirname( __FILE__ ) . '/src/'": "'${{ inputs.wp_core_dir }}/'",
+            "youremptytestdbnamehere": "${{ inputs.db_database }}",
+            "yourusernamehere": "${{ inputs.db_username }}",
+            "yourpasswordhere": "${{ inputs.db_password }}",
+            "localhost": "127.0.0.1:${{ inputs.db_port }}",
+        }
+        for old, new in subs.items():
+            if old not in s:
+                sys.exit("wp-tests-config-sample.php no longer contains %r" % old)
+            s = s.replace(old, new, 1)
+        open(path, "w").write(s)
+        PY
+
+        export WP_TESTS_DIR="$TESTS_DIR"
+        export WP_CORE_DIR="$CORE_DIR"
+        export WP_TESTS_CONFIG_FILE_PATH="$cfg"
+        export WP_MULTISITE="${{ inputs.wp_multisite }}"
+
+        ${{ inputs.test_command }}
+      extra_env: |
+        WP_TESTS_DIR=${{ inputs.wp_tests_dir }}
+        WP_CORE_DIR=${{ inputs.wp_core_dir }}
+        WP_MULTISITE=${{ inputs.wp_multisite }}
+      db_image: ${{ inputs.db_image }}
+      # Loopback only: on a self-hosted runner this keeps the database off the
+      # network while 127.0.0.1 still reaches it.
+      db_ports: ${{ format('127.0.0.1:{0}:3306', inputs.db_port) }}
+      db_env: |
+        MYSQL_DATABASE=${{ inputs.db_database }}
+        MYSQL_USER=${{ inputs.db_username }}
+        MYSQL_PASSWORD=${{ inputs.db_password }}
+        MYSQL_ROOT_PASSWORD=${{ inputs.db_root_password }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}

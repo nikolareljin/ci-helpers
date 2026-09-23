@@ -1488,6 +1488,69 @@ jobs:
       ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
 ```
 
+## wp-phpunit.yml
+
+Workflow: `.github/workflows/wp-phpunit.yml`
+
+Purpose: Run a WordPress plugin's own tests against the WordPress test suite.
+
+`wp-plugin-check.yml` checks how a plugin is packaged. This runs what it does.
+A plugin's `tests/bootstrap.php` is written against the WordPress test library,
+which expects `WP_TESTS_DIR` to hold `includes/functions.php` and a
+`wp-tests-config.php` naming a real database. Both are provisioned here, so the
+plugin carries no `bin/install-wp-tests.sh`.
+
+The library and core come from one `wordpress-develop` tarball, so they cannot
+disagree about the version under test. `wp_version` takes a full `X.Y.Z`, a
+minor like `7.1` which resolves to its newest patch, or `latest`; those tags are
+always `X.Y.Z`, so a bare minor is resolved rather than requested and 404ing.
+
+The database is the engine's optional `db_image`, the same one `laravel.yml`
+uses, rather than a second mechanism.
+
+The plugin needs `phpunit/phpunit` and `yoast/phpunit-polyfills` as dev
+dependencies; the default `install_command` runs `composer install`.
+
+`extra_command` is threaded through, so a plugin adds its own verifications
+without forking this workflow.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `.`)
+- `concurrency_key` (string, default `""`)
+- `fetch_depth` (number, default `0`)
+- `submodules` (string, default `false`)
+- `cache` (boolean, default `true`)
+- `php_version` (string, default `8.3`)
+- `node_version` (string, default `""`)
+- `wp_version` (string, default `latest`)
+- `wp_multisite` (string, default `0`)
+- `wp_tests_dir` (string, default `/tmp/wordpress-tests-lib`)
+- `wp_core_dir` (string, default `/tmp/wordpress`)
+- `install_command` (string, default `composer install --no-interaction --prefer-dist`)
+- `lint_command` (string, default `""`)
+- `test_command` (string, default `./vendor/bin/phpunit`)
+- `build_command` (string, default `""`)
+- `extra_command` (string, default `""`)
+- `db_image` (string, default `mysql:8.0`)
+- `db_database` (string, default `wordpress_test`)
+- `db_username` (string, default `wordpress`)
+- `db_password` (string, default `wordpress`)
+- `db_root_password` (string, default `root`)
+- `db_port` (string, default `3306`)
+- `timeout_minutes` (number, default `20`)
+
+Example:
+
+```yaml
+jobs:
+  tests:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-phpunit.yml@production
+    with:
+      wp_version: "7.1"
+      php_version: "8.3"
+```
+
 ## wp-plugin-check.yml
 
 Workflow: `.github/workflows/wp-plugin-check.yml`

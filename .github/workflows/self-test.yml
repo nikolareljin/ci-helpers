@@ -883,6 +883,15 @@ jobs:
       plugin_src: tests/fixtures/wp-plugin
       versions: '[{"wp":"7.1","php":"8.4"},{"wp":"7.0","php":"8.2"}]'
       fail_on_findings: true
+  # Real WordPress tests against a real database: the fixture asserts
+  # wp_insert_post exists, so a green run proves WordPress actually loaded
+  # rather than the assertions passing in isolation.
+  wp-phpunit-runs-real-wordpress-tests:
+    uses: ./.github/workflows/wp-phpunit.yml
+    with:
+      working_directory: tests/fixtures/wp-phpunit
+      wp_version: "7.1"
+      php_version: "8.3"
 
   assert-ran:
     needs:
@@ -914,6 +923,7 @@ jobs:
       - go-pr-gate-uses-the-shared-default
       - go-pr-gate-honours-a-named-version
       - wp-check-generates-its-own-stack
+      - wp-phpunit-runs-real-wordpress-tests
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -949,6 +959,7 @@ jobs:
             go-pr-gate-uses-the-shared-default=${{ needs.go-pr-gate-uses-the-shared-default.result }}
             go-pr-gate-honours-a-named-version=${{ needs.go-pr-gate-honours-a-named-version.result }}
             wp-check-generates-its-own-stack=${{ needs.wp-check-generates-its-own-stack.result }}
+            wp-phpunit-runs-real-wordpress-tests=${{ needs.wp-phpunit-runs-real-wordpress-tests.result }}
         run: |
           set -euo pipefail
           failed=0
