@@ -1,31 +1,6 @@
 # Changelog
 
-## 2026-09-23 — v0.34.0
-
-### Fixed
-
-- **The WordPress and Pimcore checks scanned a copy of `script-helpers` and
-  counted it against the caller.** Both clone this library into the caller's
-  workspace, and the workspace is what `plugin_src` / `bundle_src` point at. So
-  `wp plugin check` was handed all 276 files of it, and the `hidden_files`
-  check fires once per file under a dot directory:
-
-  ```
-  without .script-helpers   1 error,   10 files
-  with .script-helpers      146 errors, 155 files
-  ```
-
-  The second row is what a consumer's CI reported. Reproduced locally by
-  unpacking this library into the plugin directory and getting the same two
-  numbers, so it is the same defect rather than a lookalike.
-
-  `actions/checkout` refuses a path outside the workspace, so the clone still
-  lands there and is moved to `${{ runner.temp }}` before anything runs. The
-  helper is invoked from there.
-
-  `pr-gate.yml` and `release-tag-gate.yml` also clone into the workspace. They
-  are left alone: they run one script and scan nothing, and `pr-gate.yml` is
-  the most-called workflow in the fleet.
+## Unreleased
 
 ### Added
 
@@ -67,6 +42,35 @@
   A self-test leg runs two of them against a fixture plugin, on generated
   stacks. The fixture passes cleanly on its own, so a failure there is the
   workflow's rather than the plugin's.
+
+## 2026-09-23 — v0.34.0
+
+### Fixed
+
+- **The WordPress and Pimcore checks scanned a copy of `script-helpers` and
+  counted it against the caller.** Both clone this library into the caller's
+  workspace, and the workspace is what `plugin_src` / `bundle_src` point at. So
+  `wp plugin check` was handed all 276 files of it, and the `hidden_files`
+  check fires once per file under a dot directory:
+
+  ```
+  without .script-helpers   1 error,   10 files
+  with .script-helpers      146 errors, 155 files
+  ```
+
+  The second row is what a consumer's CI reported. Reproduced locally by
+  unpacking this library into the plugin directory and getting the same two
+  numbers, so it is the same defect rather than a lookalike.
+
+  `actions/checkout` refuses a path outside the workspace, so the clone still
+  lands there and is moved to `${{ runner.temp }}` before anything runs. The
+  helper is invoked from there.
+
+  `pr-gate.yml` and `release-tag-gate.yml` also clone into the workspace. They
+  are left alone: they run one script and scan nothing, and `pr-gate.yml` is
+  the most-called workflow in the fleet.
+
+### Added
 
 - **`exclude_directories` and `exclude_files` on `wp-plugin-check.yml`,
   forwarded to `wp plugin check`** (script-helpers 0.34.0).
@@ -496,8 +500,6 @@
   `assert-ran` now covers every leg rather than only the Python one, and still
   treats `skipped` as failure.
 
-
-
 - **`scripts/check_vendor_currency.sh` — say when script-helpers has moved on.**
   `vendor/script-helpers` is a committed copy pinned by
   `vendor/.script-helpers-ref`. Two things already watch it: `vendor-check.yml`
@@ -523,7 +525,6 @@
 
   It reports the current state honestly — the vendored copy is pinned at
   `0.28.0` while upstream `production` is `0.30.0`, three releases back.
-
 
 - **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
   `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
@@ -613,7 +614,6 @@
   after it as arguments for the test runner, so the project is never seen and
   the command fails with `MSB1011`. Measured per subcommand rather than assumed
   from one.
-
 
 - **The sync could not rebuild the tree it replaces.**
   `sync_script_helpers.sh` sources `helpers.sh` from `vendor/script-helpers`, so
