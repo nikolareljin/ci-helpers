@@ -15,6 +15,8 @@
 #   --db-password <password>                 Database password (default: wordpress).
 #   --host-port <port>                       WordPress host port (default: 8080).
 #   --out-dir <path>                         Directory for output artifacts (default: test/tmp).
+#   --exclude-directories <list>             Comma-separated directories `wp plugin check` skips.
+#   --exclude-files <list>                   Comma-separated files `wp plugin check` skips.
 #   --db-wait-seconds <seconds>              Max seconds to wait for DB readiness (default: 30).
 #   --multisite <true|false>                 Enable multisite install (default: true).
 #   --activate-network <true|false>          Activate plugin network-wide (default: true).
@@ -54,6 +56,11 @@ db_password="wordpress"
 wordpress_service="wordpress"
 host_port="8080"
 out_dir="test/tmp"
+# Empty by default: a caller scanning a packaged plugin wants everything
+# checked. A caller scanning a repository checkout passes what is not part of
+# the plugin -- a vendor tree, a test harness, the dotfiles git needs.
+exclude_directories=""
+exclude_files=""
 db_wait_seconds="30"
 multisite="true"
 activate_network="true"
@@ -83,6 +90,8 @@ while [[ $# -gt 0 ]]; do
     --wordpress-service) wordpress_service="$2"; shift 2 ;;
     --host-port) host_port="$2"; shift 2 ;;
     --out-dir) out_dir="$2"; shift 2 ;;
+    --exclude-directories) exclude_directories="$2"; shift 2 ;;
+    --exclude-files) exclude_files="$2"; shift 2 ;;
     --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
     --multisite) multisite="$2"; shift 2 ;;
     --activate-network) activate_network="$2"; shift 2 ;;
@@ -280,7 +289,13 @@ if docker_compose -f "$compose_file" run --rm \
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
   rm -f "$plugin_check_tmp"
   plugin_check_exit=0
-  run_wp plugin check "$plugin_slug" --format=json > "$plugin_check_tmp" || plugin_check_exit=$?
+  # Built as an array so an empty value passes no flag at all. Passing
+  # `--exclude-files=` with nothing after it makes plugin-check treat the empty
+  # string as a filename and skip nothing, which reads as working.
+  check_args=(plugin check "$plugin_slug" --format=json)
+  [[ -n "$exclude_directories" ]] && check_args+=("--exclude-directories=$exclude_directories")
+  [[ -n "$exclude_files" ]] && check_args+=("--exclude-files=$exclude_files")
+  run_wp "${check_args[@]}" > "$plugin_check_tmp" || plugin_check_exit=$?
   if [[ -s "$plugin_check_tmp" ]]; then
     mv "$plugin_check_tmp" "${out_dir}/plugin-check.json"
   else
