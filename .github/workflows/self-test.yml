@@ -873,6 +873,17 @@ jobs:
       test_command: 'go version && go version | grep -q "go1\.24\." && echo "Setup Go ran; the image ships a different version"'
       build_command: ""
 
+  # Two legs from one input, each on a stack this repository generates rather
+  # than one the caller wrote. The fixture plugin passes cleanly, so a failure
+  # here is the workflow's, not the plugin's.
+  wp-check-generates-its-own-stack:
+    uses: ./.github/workflows/wp-plugin-check.yml
+    with:
+      plugin_slug: wp-plugin/wp-plugin.php
+      plugin_src: tests/fixtures/wp-plugin
+      versions: '[{"wp":"7.1","php":"8.4"},{"wp":"7.0","php":"8.2"}]'
+      fail_on_findings: true
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -902,6 +913,7 @@ jobs:
       - changelog-structure-gate-refuses-what-it-must
       - go-pr-gate-uses-the-shared-default
       - go-pr-gate-honours-a-named-version
+      - wp-check-generates-its-own-stack
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -936,6 +948,7 @@ jobs:
             changelog-structure-gate-refuses-what-it-must=${{ needs.changelog-structure-gate-refuses-what-it-must.result }}
             go-pr-gate-uses-the-shared-default=${{ needs.go-pr-gate-uses-the-shared-default.result }}
             go-pr-gate-honours-a-named-version=${{ needs.go-pr-gate-honours-a-named-version.result }}
+            wp-check-generates-its-own-stack=${{ needs.wp-check-generates-its-own-stack.result }}
         run: |
           set -euo pipefail
           failed=0

@@ -1520,12 +1520,32 @@ Inputs:
 - `phpcs_warning_command` (string, default `""`)
 - `phpunit_command` (string, default `""`)
 - `phpunit_working_directory` (string, default `.`)
+- `wp_version` (string, default `""`)
+- `plugin_dir` (string, default `""`)
+- `versions` (string, default `""`)
 - `exclude_directories` (string, default `vendor,node_modules,.git,.github`)
 - `exclude_files` (string, default `.gitignore,.gitattributes,.editorconfig,.distignore`)
 - `fail_on_findings` (boolean, default `false`)
 - `cleanup` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `plugin-check-results`)
+
+Set `wp_version` (or `versions`) and the workflow generates the WordPress
+stack itself, so a plugin repository carries no compose file. Three plugins in
+this fleet each wrote one, and they differed only in the image tag, the mount
+path and the name of a port variable. `compose_file` still wins when set, for a
+repository that needs services this does not describe.
+
+`versions` runs one leg per entry:
+
+```yaml
+versions: '[{"wp":"6.2","php":"8.0"},{"wp":"7.1","php":"8.4"}]'
+```
+
+`php` is optional per entry. Each leg is named from its pair, so a failure says
+`check wp6.2-php8.0` rather than a rendered struct. Empty `versions` runs a
+single leg from `wp_version` and `php_version`, which is what a caller that
+never sets it already gets.
 
 `wp plugin check` reports every file it is given, and with `plugin_src: .` that
 is the whole repository rather than the plugin. The two exclusion defaults name

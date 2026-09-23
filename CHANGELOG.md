@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`wp-plugin-check.yml` generates the WordPress stack, so a plugin carries no
+  compose file.** Three plugins in this fleet each wrote one. Compared
+  structurally they were the same stack: `db` + `wordpress` + `wpcli`, the same
+  `mariadb:10.11` and `wordpress:cli`, differing only in the WordPress image
+  tag, the mount path and the name of a port variable.
+
+  Set `wp_version` (or `versions`) and the workflow writes the stack to
+  `${{ runner.temp }}`, outside the directory `wp plugin check` scans. The
+  mount path comes from `plugin_slug`'s first segment, which is the directory
+  WordPress expects; `plugin_dir` overrides it. `compose_file` still wins when
+  set, for a repository needing services this does not describe.
+
+  Only the tag forms the official image publishes are composed -- both parts,
+  the PHP part alone, or neither. A tag that does not exist fails at pull time
+  with a message about a manifest, which does not point back at these inputs.
+
+- **`versions` runs one leg per `{wp, php}` pair.** A plugin testing five
+  combinations was writing five near-identical jobs:
+
+  ```yaml
+  versions: '[{"wp":"6.2","php":"8.0"},{"wp":"7.1","php":"8.4"}]'
+  ```
+
+  Resolved in one place so the check job exists once rather than once per mode:
+  an empty `versions` yields a single leg carrying `wp_version` /
+  `php_version`, so a caller that never heard of the matrix behaves as before.
+
+  Refused rather than expanded: a non-array, an empty array, an entry without a
+  non-blank `wp`, and two entries naming one pair. An empty matrix reports as a
+  skipped job, and a skipped job reads like a pass. GitHub's own error for
+  duplicate legs names neither the input nor the duplicate.
+
+  Each leg carries a label, because a matrix over objects otherwise names its
+  jobs `map[php:8.4 wp:7.1]`. A failure now says `check wp6.2-php8.0`.
+
+  A self-test leg runs two of them against a fixture plugin, on generated
+  stacks. The fixture passes cleanly on its own, so a failure there is the
+  workflow's rather than the plugin's.
+
 ## 2026-09-23 — v0.34.0
 
 ### Fixed
