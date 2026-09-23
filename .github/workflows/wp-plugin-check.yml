@@ -79,6 +79,28 @@ on:
       # `test` is deliberately absent: a plugin that ships a `test` directory
       # would have it silently skipped, and the compose files consumers keep
       # there are not scanned anyway.
+      # A generated stack, so a plugin repository carries no compose file at
+      # all. Three plugins wrote one each and they differed only in the
+      # WordPress image tag, the mount path and the name of a port variable.
+      #
+      # Set `wp_version` (or `versions`) to generate. `compose_file` still wins
+      # when it is set, for a repository that needs services this does not
+      # describe.
+      wp_version:
+        type: string
+        default: ""
+      # Directory the plugin is mounted at, under wp-content/plugins. Defaults
+      # to the first segment of `plugin_slug`, which is what a slug like
+      # "my-plugin/my-plugin.php" already names.
+      plugin_dir:
+        type: string
+        default: ""
+      # JSON array of {"wp": ..., "php": ...} objects, one leg each, e.g.
+      # '[{"wp":"6.2","php":"8.0"},{"wp":"7.1","php":"8.4"}]'. Empty runs a
+      # single leg from wp_version / php_version.
+      versions:
+        type: string
+        default: ""
       exclude_directories:
         type: string
         default: "vendor,node_modules,.git,.github"
@@ -99,7 +121,73 @@ on:
         default: plugin-check-results
 
 jobs:
+  # One leg per {wp, php} pair, resolved here so the check job below exists
+  # once rather than once per mode. With `versions` empty this yields a single
+  # leg carrying wp_version / php_version, so a caller that never heard of the
+  # matrix behaves exactly as before.
+  resolve-versions:
+    runs-on: ${{ inputs.runner }}
+    # Without this a hung job bills until GitHub's six-hour default (#132).
+    timeout-minutes: 5
+    outputs:
+      combos: ${{ steps.resolve.outputs.combos }}
+    steps:
+      - id: resolve
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          WP_VERSION: ${{ inputs.wp_version }}
+          PHP_VERSION: ${{ inputs.php_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VERSIONS}" ]]; then
+            # A label per leg. A matrix over objects otherwise names each job
+            # "map[php:8.4 wp:7.1]", which is what GitHub prints for a struct.
+            combos="$(jq -cn --arg wp "${WP_VERSION}" --arg php "${PHP_VERSION}" \
+              '[{wp: $wp, php: $php, label: (if $wp == "" and $php == "" then "default" else (if $wp == "" then "" else "wp" + $wp end) + (if $php == "" then "" else "-php" + $php end) end)}]')"
+            echo "One leg: wp='${WP_VERSION}' php='${PHP_VERSION}'"
+            echo "combos=${combos}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Must be a non-empty array of objects. Failing here beats letting
+          # the matrix expand to nothing: an empty matrix reports as a skipped
+          # job, and a skipped job reads like a pass.
+          if ! printf '%s' "$VERSIONS" | jq -e '
+                type == "array"
+                and length > 0
+                and all(.[]; type == "object" and has("wp") and (.wp | type == "string") and (.wp | test("^\\s*$") | not))
+              ' >/dev/null 2>&1; then
+            echo "::error::versions must be a non-empty JSON array of objects with a non-blank \"wp\", e.g. '[{\"wp\":\"7.1\",\"php\":\"8.4\"}]'" >&2
+            exit 1
+          fi
+
+          # php is optional per entry; normalise it to "" so the matrix has a
+          # uniform shape and `matrix.combo.php` is never null.
+          combos="$(printf '%s' "$VERSIONS" | jq -c '
+            [ .[] | {wp: .wp, php: (.php // "")}
+              | . + {label: ("wp" + .wp + (if .php == "" then "" else "-php" + .php end))} ]')"
+
+          # Two entries naming one pair expand to two legs with the same name.
+          # GitHub refuses that with an error naming neither the input nor the
+          # duplicate.
+          if [ "$(printf '%s' "$combos" | jq '[.[] | {wp, php}] | unique | length')" \
+             != "$(printf '%s' "$combos" | jq 'length')" ]; then
+            echo "::error::versions resolves to duplicate pairs: ${combos}" >&2
+            exit 1
+          fi
+
+          echo "Legs: $(printf '%s' "$combos" | jq -r 'map("wp" + .wp + (if .php == "" then "" else "-php" + .php end)) | join(", ")')"
+          echo "combos=${combos}" >> "$GITHUB_OUTPUT"
+
   check:
+    name: check ${{ matrix.combo.label }}
+    needs: [resolve-versions]
+    strategy:
+      fail-fast: false
+      matrix:
+        combo: ${{ fromJSON(needs.resolve-versions.outputs.combos) }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
@@ -126,21 +214,106 @@ jobs:
           rm -rf "${{ runner.temp }}/script-helpers"
           mv .script-helpers "${{ runner.temp }}/script-helpers"
 
-      - name: Setup PHP
-        if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
-        with:
-          php-version: ${{ inputs.php_version }}
-
-      - name: WordPress plugin check
+      # A plugin repository should not carry a compose file whose only
+      # distinguishing feature is an image tag. Written to runner.temp so it is
+      # not in the directory wp plugin check scans.
+      - name: Generate the WordPress stack
+        id: stack
+        if: ${{ inputs.compose_file == '' || matrix.combo.wp != '' }}
+        env:
+          WP: ${{ matrix.combo.wp }}
+          PHP: ${{ matrix.combo.php }}
+          PLUGIN_SLUG: ${{ inputs.plugin_slug }}
+          PLUGIN_DIR: ${{ inputs.plugin_dir }}
         shell: bash
         run: |
           set -euo pipefail
+
+          # The directory the plugin is mounted at. A slug is "dir/file.php",
+          # so its first segment is the directory WordPress expects.
+          dir="${PLUGIN_DIR:-${PLUGIN_SLUG%%/*}}"
+          if [[ -z "$dir" || "$dir" == */* ]]; then
+            echo "::error::could not derive a plugin directory from plugin_slug='${PLUGIN_SLUG}'; set plugin_dir" >&2
+            exit 1
+          fi
+
+          # Tag forms the official image actually publishes: both parts, the
+          # PHP part alone, or neither. Composing a tag that does not exist
+          # fails at pull time with a message about the manifest, which does
+          # not point back at these inputs.
+          if [[ -n "$WP" && -n "$PHP" ]]; then image="wordpress:${WP}-php${PHP}-apache"
+          elif [[ -n "$WP" ]];            then image="wordpress:${WP}-apache"
+          elif [[ -n "$PHP" ]];           then image="wordpress:php${PHP}-apache"
+          else                                 image="wordpress:latest"
+          fi
+
+          out="${RUNNER_TEMP}/wp-check-compose.yml"
+          cat > "$out" <<YAML
+          services:
+            db:
+              image: mariadb:10.11
+              environment:
+                MARIADB_DATABASE: wordpress
+                MARIADB_USER: wordpress
+                MARIADB_PASSWORD: wordpress
+                MARIADB_ROOT_PASSWORD: wordpress
+
+            wordpress:
+              image: ${image}
+              depends_on:
+                - db
+              environment:
+                WORDPRESS_DB_HOST: db:3306
+                WORDPRESS_DB_USER: wordpress
+                WORDPRESS_DB_PASSWORD: wordpress
+                WORDPRESS_DB_NAME: wordpress
+              ports:
+                - "\${WP_CHECK_PORT:-8080}:80"
+              volumes:
+                - wp_core:/var/www/html
+                - \${WP_CHECK_PLUGIN_SRC}:/var/www/html/wp-content/plugins/${dir}:rw
+
+            wpcli:
+              image: wordpress:cli
+              depends_on:
+                - wordpress
+              user: "33:33"
+              environment:
+                WORDPRESS_DB_HOST: db:3306
+                WORDPRESS_DB_USER: wordpress
+                WORDPRESS_DB_PASSWORD: wordpress
+                WORDPRESS_DB_NAME: wordpress
+              working_dir: /var/www/html
+              volumes:
+                - wp_core:/var/www/html
+                - \${WP_CHECK_PLUGIN_SRC}:/var/www/html/wp-content/plugins/${dir}:rw
+
+          volumes:
+            wp_core:
+          YAML
+
+          echo "Generated stack for ${image}, plugin at wp-content/plugins/${dir}"
+          echo "compose_file=${out}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup PHP
+        if: ${{ matrix.combo.php != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
+        with:
+          php-version: ${{ matrix.combo.php }}
+
+      - name: WordPress plugin check
+        shell: bash
+        env:
+          # The generated stack reads these two. A caller-supplied compose file
+          # reads whatever it already declared, and is unaffected.
+          WP_CHECK_PORT: ${{ inputs.host_port }}
+        run: |
+          set -euo pipefail
           "${{ runner.temp }}/script-helpers/scripts/ci_wp_plugin_check.sh" \
-            --compose-file "${{ inputs.compose_file }}" \
+            --compose-file "${{ steps.stack.outputs.compose_file || inputs.compose_file }}" \
             --plugin-slug "${{ inputs.plugin_slug }}" \
             --plugin-src "${{ inputs.plugin_src }}" \
-            --plugin-src-env "${{ inputs.plugin_src_env }}" \
+            --plugin-src-env "${{ steps.stack.outputs.compose_file && 'WP_CHECK_PLUGIN_SRC' || inputs.plugin_src_env }}" \
             --wpcli-service "${{ inputs.wpcli_service }}" \
             --db-service "${{ inputs.db_service }}" \
             --wordpress-service "${{ inputs.wordpress_service }}" \
