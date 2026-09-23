@@ -118,8 +118,16 @@
 
   The script starts the database and removes it afterwards, so `ci.yml`'s
   `db_image` is no longer involved: one mechanism rather than two.
-  `db_root_password` and `node_version` go with it, and `db_wait_seconds` is
-  exposed.
+
+  Four inputs go with the delegation, and a caller still passing one gets
+  `not defined in the referenced workflow` rather than a warning:
+  `db_root_password` (the script does not need it), `node_version` (nothing
+  here used it), `concurrency_key` (there is no engine job to key) and `cache`
+  (`ci.yml` never cached composer -- it has no mention of it -- so this loses
+  nothing). `db_wait_seconds` is exposed in their place.
+
+  Nothing outside this repository calls the preset yet: it merged today, and
+  the self-test is its only caller.
 
   Values reach the script as environment rather than interpolated into the
   command line, so a password containing a quote cannot break quoting or run
