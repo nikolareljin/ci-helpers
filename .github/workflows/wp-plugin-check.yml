@@ -71,6 +71,20 @@ on:
       phpunit_working_directory:
         type: string
         default: .
+      # `wp plugin check` reports every file it is given, and a repository
+      # checkout is more than the plugin. The defaults name what a plugin
+      # repository carries but does not ship; a caller scanning an already
+      # packaged plugin passes empty strings to turn them off.
+      #
+      # `test` is deliberately absent: a plugin that ships a `test` directory
+      # would have it silently skipped, and the compose files consumers keep
+      # there are not scanned anyway.
+      exclude_directories:
+        type: string
+        default: "vendor,node_modules,.git,.github"
+      exclude_files:
+        type: string
+        default: ".gitignore,.gitattributes,.editorconfig,.distignore"
       fail_on_findings:
         type: boolean
         default: false
@@ -95,9 +109,22 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 66abf003ba9165ba0e72d190f4c1f44871372385 # 0.33.0
+          ref: c9aa9f6340772232d0ffda06c9eb08255bfe4b0d # 0.34.0
           path: .script-helpers
           fetch-depth: 1
+
+      # actions/checkout refuses a path outside the workspace, and the
+      # workspace is what `plugin_src` usually points at. Left where it lands,
+      # `wp plugin check` scans all 276 files of this library and the
+      # hidden_files check fires once per file: 146 errors on a plugin whose
+      # own count is 1. Moving it is the fix; the exclusions below are for what
+      # the caller's own repository carries.
+      - name: Move script-helpers out of the plugin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ runner.temp }}/script-helpers"
+          mv .script-helpers "${{ runner.temp }}/script-helpers"
 
       - name: Setup PHP
         if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
@@ -109,7 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./.script-helpers/scripts/ci_wp_plugin_check.sh \
+          "${{ runner.temp }}/script-helpers/scripts/ci_wp_plugin_check.sh" \
             --compose-file "${{ inputs.compose_file }}" \
             --plugin-slug "${{ inputs.plugin_slug }}" \
             --plugin-src "${{ inputs.plugin_src }}" \
@@ -131,6 +158,8 @@ jobs:
             --phpcs-warning-command "${{ inputs.phpcs_warning_command }}" \
             --phpunit-command "${{ inputs.phpunit_command }}" \
             --phpunit-working-directory "${{ inputs.phpunit_working_directory }}" \
+            --exclude-directories "${{ inputs.exclude_directories }}" \
+            --exclude-files "${{ inputs.exclude_files }}" \
             --fail-on-findings "${{ inputs.fail_on_findings }}" \
             --cleanup "${{ inputs.cleanup }}"
 

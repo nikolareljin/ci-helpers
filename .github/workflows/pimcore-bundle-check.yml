@@ -92,9 +92,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 66abf003ba9165ba0e72d190f4c1f44871372385 # 0.33.0
+          ref: c9aa9f6340772232d0ffda06c9eb08255bfe4b0d # 0.34.0
           path: .script-helpers
           fetch-depth: 1
+
+      # Same reason as wp-plugin-check.yml: actions/checkout cannot write
+      # outside the workspace, and the workspace is what `bundle_src` points
+      # at. A checkout of this library sitting in the tree under test is not
+      # part of the bundle.
+      - name: Move script-helpers out of the bundle source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ runner.temp }}/script-helpers"
+          mv .script-helpers "${{ runner.temp }}/script-helpers"
 
       - name: Setup PHP (standalone)
         if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_standalone_command != '' || inputs.phpunit_standalone_command != '') }}
@@ -142,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./.script-helpers/scripts/ci_pimcore_bundle_check.sh \
+          "${{ runner.temp }}/script-helpers/scripts/ci_pimcore_bundle_check.sh" \
             --compose-file "${{ inputs.compose_file }}" \
             --bundle-src "${{ inputs.bundle_src }}" \
             --bundle-src-env "${{ inputs.bundle_src_env }}" \
