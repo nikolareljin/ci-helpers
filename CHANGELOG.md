@@ -43,6 +43,65 @@
   stacks. The fixture passes cleanly on its own, so a failure there is the
   workflow's rather than the plugin's.
 
+- **`wp-phpunit.yml`: a WordPress plugin's own tests, against the WordPress
+  test suite.** `wp-plugin-check.yml` checks how a plugin is packaged; nothing
+  ran what it does. A plugin's `tests/bootstrap.php` is written against the
+  WordPress test library, which expects `WP_TESTS_DIR` to hold
+  `includes/functions.php` and a `wp-tests-config.php` naming a real database.
+  Both are provisioned here, so a plugin carries no `bin/install-wp-tests.sh`
+  of its own.
+
+  Library and core come from one `wordpress-develop` tarball, so they cannot
+  disagree about the version under test. Fetching core from wordpress.org
+  separately is how those two drift apart.
+
+  Two things measured rather than assumed, both of which would have failed in
+  CI only:
+
+  - Those tags are always `X.Y.Z`. Requesting `6.8` returns a 404 whose message
+    says nothing about versions, so a bare minor like `7.1` is resolved to its
+    newest patch. `latest` resolves through the WordPress.org version API.
+  - A `curl -I` on the archive URL answers `302`. That is the redirect, not the
+    result; the final status has to be read, or a 404 reads as success.
+
+  The database is the engine's optional `db_image`, the same one `laravel.yml`
+  uses, rather than a second mechanism.
+
+  `extra_command` is threaded through, so a plugin adds its own verifications
+  without forking the workflow.
+
+  Verified by running it: WordPress 7.1.2 against MySQL 8.0, with a fixture
+  plugin whose tests assert both its own function and that `wp_insert_post`
+  exists -- so a green run proves WordPress loaded rather than the assertions
+  passing in isolation.
+
+  ```
+  Running as single site...
+  PHPUnit 9.6.36
+  ..                                    2 / 2 (100%)
+  OK (2 tests, 2 assertions)
+  ```
+
+  A self-test leg runs that fixture. The plugin needs `phpunit/phpunit` and
+  `yoast/phpunit-polyfills` as dev dependencies.
+
+  Three defects found reviewing this, all from feeding it hostile input rather
+  than reading it. Caller values were interpolated into the provisioning script
+  and into the Python that writes `wp-tests-config.php`, so a password holding
+  a quote could break the syntax or run as code -- the lesson `laravel.yml`
+  already records for its own DB connection. They arrive as environment now.
+
+  Escaping them was not enough either: the sample writes these between single
+  quotes, so a password containing one ended the PHP string early and the
+  config stopped parsing. `php -l` on the generated file said
+  `syntax error, unexpected identifier "x"`. Values are escaped for a PHP
+  single-quoted string, and the round trip is asserted rather than assumed:
+  `p"a$s\w0rd'x` is written, re-read by PHP, and compared to the input.
+
+  And `wp_tests_dir` / `wp_core_dir` are caller input handed straight to
+  `rm -rf`. They must be absolute now, and `/` and the working directory are
+  refused, so `.` cannot delete the checkout.
+
 ## 2026-09-23 — v0.34.0
 
 ### Fixed
