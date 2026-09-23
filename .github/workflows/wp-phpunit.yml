@@ -126,7 +126,10 @@ jobs:
       test_command: |
         set -euo pipefail
 
-        WP_VERSION_INPUT="${{ inputs.wp_version }}"
+        # Every caller-supplied value arrives as environment (see extra_env),
+        # never interpolated into this script or the Python below. A password
+        # containing a quote would otherwise break the syntax, or run as code.
+        # laravel.yml records the same lesson for its DB connection.
 
         # wordpress-develop tags are always X.Y.Z. A caller naming "7.1" or
         # "latest" means the newest patch of that line, so resolve it rather
@@ -152,8 +155,22 @@ jobs:
         fi
         echo "WordPress under test: ${WP_TAG} (requested '${WP_VERSION_INPUT}')"
 
-        TESTS_DIR="${{ inputs.wp_tests_dir }}"
-        CORE_DIR="${{ inputs.wp_core_dir }}"
+        # Both are removed below, and both are caller input. An absolute path
+        # is required and "/" refused, so a caller cannot aim `rm -rf` at the
+        # checkout or the root by passing "." or "/".
+        for d in "$WP_TESTS_DIR" "$WP_CORE_DIR"; do
+          case "$d" in
+            /?*) : ;;
+            *) echo "::error::wp_tests_dir and wp_core_dir must be absolute paths; got '$d'" >&2; exit 1 ;;
+          esac
+          if [ "$d" = "/" ] || [ "$d" = "$PWD" ]; then
+            echo "::error::refusing to use '$d' as a scratch directory" >&2
+            exit 1
+          fi
+        done
+
+        TESTS_DIR="$WP_TESTS_DIR"
+        CORE_DIR="$WP_CORE_DIR"
         rm -rf "$TESTS_DIR" "$CORE_DIR"
         mkdir -p "$TESTS_DIR" "$CORE_DIR"
 
@@ -180,15 +197,27 @@ jobs:
         cfg="${TESTS_DIR}/wp-tests-config.php"
         cp "${root}/wp-tests-config-sample.php" "$cfg"
         python3 - "$cfg" <<'PY'
-        import re, sys
+        import os, sys
         path = sys.argv[1]
         s = open(path).read()
+
+        def php(value):
+            """Escape for a PHP single-quoted string.
+
+            The sample writes these between single quotes. A password holding
+            one ends the PHP string early and the config stops parsing --
+            'p"a$s\\w0rd'x' is a parse error, not a password. Only the
+            backslash and the quote are special in that context.
+            """
+            return value.replace("\\", "\\\\").replace("'", "\\'")
+
+        # Values from the environment, not interpolated into this source.
         subs = {
-            "dirname( __FILE__ ) . '/src/'": "'${{ inputs.wp_core_dir }}/'",
-            "youremptytestdbnamehere": "${{ inputs.db_database }}",
-            "yourusernamehere": "${{ inputs.db_username }}",
-            "yourpasswordhere": "${{ inputs.db_password }}",
-            "localhost": "127.0.0.1:${{ inputs.db_port }}",
+            "dirname( __FILE__ ) . '/src/'": "'%s/'" % php(os.environ["WP_CORE_DIR"].rstrip("/")),
+            "youremptytestdbnamehere": php(os.environ["WP_DB_DATABASE"]),
+            "yourusernamehere": php(os.environ["WP_DB_USERNAME"]),
+            "yourpasswordhere": php(os.environ["WP_DB_PASSWORD"]),
+            "localhost": "127.0.0.1:%s" % php(os.environ["WP_DB_PORT"]),
         }
         for old, new in subs.items():
             if old not in s:
@@ -200,13 +229,20 @@ jobs:
         export WP_TESTS_DIR="$TESTS_DIR"
         export WP_CORE_DIR="$CORE_DIR"
         export WP_TESTS_CONFIG_FILE_PATH="$cfg"
-        export WP_MULTISITE="${{ inputs.wp_multisite }}"
 
         ${{ inputs.test_command }}
+      # Everything the provisioning reads. Passed as environment rather than
+      # interpolated into the script, so a value containing a quote cannot
+      # break quoting or run as code.
       extra_env: |
         WP_TESTS_DIR=${{ inputs.wp_tests_dir }}
         WP_CORE_DIR=${{ inputs.wp_core_dir }}
         WP_MULTISITE=${{ inputs.wp_multisite }}
+        WP_VERSION_INPUT=${{ inputs.wp_version }}
+        WP_DB_DATABASE=${{ inputs.db_database }}
+        WP_DB_USERNAME=${{ inputs.db_username }}
+        WP_DB_PASSWORD=${{ inputs.db_password }}
+        WP_DB_PORT=${{ inputs.db_port }}
       db_image: ${{ inputs.db_image }}
       # Loopback only: on a self-hosted runner this keeps the database off the
       # network while 127.0.0.1 still reaches it.

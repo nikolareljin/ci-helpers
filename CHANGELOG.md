@@ -85,6 +85,23 @@
   A self-test leg runs that fixture. The plugin needs `phpunit/phpunit` and
   `yoast/phpunit-polyfills` as dev dependencies.
 
+  Three defects found reviewing this, all from feeding it hostile input rather
+  than reading it. Caller values were interpolated into the provisioning script
+  and into the Python that writes `wp-tests-config.php`, so a password holding
+  a quote could break the syntax or run as code -- the lesson `laravel.yml`
+  already records for its own DB connection. They arrive as environment now.
+
+  Escaping them was not enough either: the sample writes these between single
+  quotes, so a password containing one ended the PHP string early and the
+  config stopped parsing. `php -l` on the generated file said
+  `syntax error, unexpected identifier "x"`. Values are escaped for a PHP
+  single-quoted string, and the round trip is asserted rather than assumed:
+  `p"a$s\w0rd'x` is written, re-read by PHP, and compared to the input.
+
+  And `wp_tests_dir` / `wp_core_dir` are caller input handed straight to
+  `rm -rf`. They must be absolute now, and `/` and the working directory are
+  refused, so `.` cannot delete the checkout.
+
 ## 2026-09-23 — v0.34.0
 
 ### Fixed
