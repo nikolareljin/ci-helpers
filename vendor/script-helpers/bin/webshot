@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Usage: webshot ensure [venv_dir]
+#        webshot capture <spec.json> <out_dir>
+#        webshot pdf <input.html> <output.pdf> [--format F] [--landscape] [--footer TEXT] [--wait-ms N]
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "${HERE}/../helpers.sh"
+shlib_import logging python webshot
+
+cmd="${1:-}"
+[[ $# -gt 0 ]] && shift
+case "$cmd" in
+  ensure) webshot_ensure "$@" ;;
+  capture) webshot_capture "$@" ;;
+  pdf) webshot_pdf "$@" ;;
+  -h|--help|help|"")
+    sed -n '2,4p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    [[ -n "$cmd" ]] || exit 2
+    ;;
+  *) log_error "unknown command: $cmd"; exit 2 ;;
+esac

@@ -102,6 +102,38 @@
   `rm -rf`. They must be absolute now, and `/` and the working directory are
   refused, so `.` cannot delete the checkout.
 
+### Changed
+
+- **`wp-phpunit.yml` calls script-helpers' `ci_wp_phpunit.sh` instead of
+  carrying the provisioning inline.** It was about a hundred lines of bash in
+  YAML, which a developer cannot run: the same work therefore existed twice,
+  once here and once as a `bin/install-wp-tests.sh` in every plugin. There is
+  one copy now, and `ci_wp_phpunit.sh --db-image ... --php-image ...` runs it
+  on a laptop with nothing installed but Docker.
+
+  The preset no longer delegates to `php.yml`, because a reusable workflow
+  cannot add a step to another's job and the script has to run as one. It sets
+  PHP up itself and keeps `install_command`, `lint_command`, `build_command`
+  and `extra_command`.
+
+  The script starts the database and removes it afterwards, so `ci.yml`'s
+  `db_image` is no longer involved: one mechanism rather than two.
+  `db_root_password` and `node_version` go with it, and `db_wait_seconds` is
+  exposed.
+
+  Values reach the script as environment rather than interpolated into the
+  command line, so a password containing a quote cannot break quoting or run
+  as code. The four command inputs are still interpolated, as in every preset
+  here, because they are shell commands by definition.
+
+  script-helpers is cloned to `${{ runner.temp }}`, not left in the plugin
+  directory: `wp-plugin-check.yml` showed what that costs when it reported 146
+  findings from this library against someone else's plugin.
+
+- **script-helpers pinned at 0.35.0**, all twelve checkouts, and the vendored
+  copy re-synced to match.
+
+
 ## 2026-09-23 — v0.34.0
 
 ### Fixed

@@ -1,4 +1,4 @@
-![script-helpers — reusable Bash and PowerShell helpers. 36 Bash modules, 29 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
+![script-helpers — reusable Bash and PowerShell helpers. 37 Bash modules, 29 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash helpers extracted from projects in this workspace. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
@@ -183,6 +183,7 @@ Loader and modules
   - `file.sh` — file/dir helpers, checksum verification.
   - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
   - `svg.sh` — rasterize SVG art to PNG (`svg_rasterize <in> <out> [size]`, `svg_rasterize_sizes`) for app logos/launcher icons; prefers Inkscape, falls back to ImageMagick. CLI: `bin/svg-rasterize`.
+  - `webshot.sh`: screenshots of web pages from a JSON spec (`webshot_capture <spec> <out_dir>`: login profiles, clicks and fills, element clips, hidden elements) and HTML-to-PDF (`webshot_pdf`), with Playwright in a cached venv (`webshot_ensure`). CLI: `bin/webshot`.
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
 - `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
