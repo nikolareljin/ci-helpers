@@ -48,6 +48,14 @@
 
 ### Changed
 
+- **`docs/workflows.md` lists every `wp-plugin-check.yml` input.** Reviewing
+  this change found the new ones missing from that list, and then that 14 of
+  the 29 were already absent: `multisite`, `activate_network`, every admin
+  credential, the service names, `host_port`, `cleanup` and more. A list that
+  names half the inputs reads as complete, so a caller would conclude the rest
+  do not exist. Generated from the workflow rather than written by hand, and
+  checked back against it.
+
 - **script-helpers pinned at 0.34.0**, all eleven checkouts, and the vendored
   copy re-synced to match. `verify_vendor.sh` passes, including the comparison
   against upstream at that SHA.

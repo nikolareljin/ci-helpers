@@ -1500,16 +1500,41 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `compose_file` (string, default `test/docker-compose.yml`)
 - `plugin_slug` (string, required)
-- `plugin_src` (string, default `"."`)
+- `plugin_src` (string, default `.`)
 - `plugin_src_env` (string, default `PLUGIN_SRC`)
+- `wpcli_service` (string, default `wpcli`)
+- `db_service` (string, default `db`)
+- `wordpress_service` (string, default `wordpress`)
+- `host_port` (string, default `8080`)
 - `out_dir` (string, default `test/tmp`)
+- `db_wait_seconds` (string, default `30`)
+- `multisite` (boolean, default `true`)
+- `activate_network` (boolean, default `true`)
+- `admin_user` (string, default `admin`)
+- `admin_password` (string, default `admin`)
+- `admin_email` (string, default `admin@example.com`)
+- `site_title` (string, default `WP Test Site`)
+- `meta_check_script` (string, default `""`)
 - `php_version` (string, default `""`)
 - `php_lint_command` (string, default `""`)
 - `phpcs_warning_command` (string, default `""`)
 - `phpunit_command` (string, default `""`)
+- `phpunit_working_directory` (string, default `.`)
+- `exclude_directories` (string, default `vendor,node_modules,.git,.github`)
+- `exclude_files` (string, default `.gitignore,.gitattributes,.editorconfig,.distignore`)
 - `fail_on_findings` (boolean, default `false`)
+- `cleanup` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `plugin-check-results`)
+
+`wp plugin check` reports every file it is given, and with `plugin_src: .` that
+is the whole repository rather than the plugin. The two exclusion defaults name
+what a plugin repository carries but does not ship. A caller pointing
+`plugin_src` at an already packaged plugin passes empty strings to turn them
+off.
+
+`test` is deliberately not in the default list: a plugin that ships a `test`
+directory would have it silently skipped.
 
 Example:
 
