@@ -48,95 +48,44 @@
   ran what it does. A plugin's `tests/bootstrap.php` is written against the
   WordPress test library, which expects `WP_TESTS_DIR` to hold
   `includes/functions.php` and a `wp-tests-config.php` naming a real database.
-  Both are provisioned here, so a plugin carries no `bin/install-wp-tests.sh`
-  of its own.
+
+  The provisioning lives in script-helpers' `ci_wp_phpunit.sh`, so the same
+  code runs in CI and on a laptop:
+
+  ```bash
+  scripts/ci_wp_phpunit.sh --wp-version 7.1 \
+    --db-image mysql:8.0 --php-image php:8.3-cli --workdir path/to/plugin
+  ```
+
+  Every plugin otherwise keeps its own `bin/install-wp-tests.sh`, and a
+  developer cannot run what CI runs.
+
+  The preset is a standalone job rather than a delegation to `php.yml`: a
+  reusable workflow cannot add a step to another's job, and the script has to
+  run as one. It sets PHP up itself and keeps `install_command`,
+  `lint_command`, `build_command` and `extra_command`, so a plugin adds its own
+  verifications without forking the workflow. The script starts the database
+  and removes it afterwards, so `ci.yml`'s `db_image` is not involved: one
+  mechanism rather than two.
 
   Library and core come from one `wordpress-develop` tarball, so they cannot
-  disagree about the version under test. Fetching core from wordpress.org
-  separately is how those two drift apart.
+  disagree about the version. Those tags are always `X.Y.Z`, so a bare minor
+  like `7.1` is resolved to its newest patch; requested as a tag it answers 404
+  with a message about a missing ref, which says nothing about versions.
 
-  Two things measured rather than assumed, both of which would have failed in
-  CI only:
+  Values reach the script as environment rather than interpolated into a
+  command line, so a password containing a quote cannot break quoting or run as
+  code.
 
-  - Those tags are always `X.Y.Z`. Requesting `6.8` returns a 404 whose message
-    says nothing about versions, so a bare minor like `7.1` is resolved to its
-    newest patch. `latest` resolves through the WordPress.org version API.
-  - A `curl -I` on the archive URL answers `302`. That is the redirect, not the
-    result; the final status has to be read, or a 404 reads as success.
-
-  The database is the engine's optional `db_image`, the same one `laravel.yml`
-  uses, rather than a second mechanism.
-
-  `extra_command` is threaded through, so a plugin adds its own verifications
-  without forking the workflow.
-
-  Verified by running it: WordPress 7.1.2 against MySQL 8.0, with a fixture
-  plugin whose tests assert both its own function and that `wp_insert_post`
-  exists -- so a green run proves WordPress loaded rather than the assertions
-  passing in isolation.
+  Verified on a runner, not simulated: the self-test leg provisions WordPress
+  7.1.2 against MySQL and runs a fixture plugin whose tests assert
+  `wp_insert_post` exists, so a green run proves WordPress loaded.
 
   ```
-  Running as single site...
-  PHPUnit 9.6.36
-  ..                                    2 / 2 (100%)
+  Database ready after 8s
+  WordPress under test: 7.1.2 (requested '7.1')
   OK (2 tests, 2 assertions)
   ```
-
-  A self-test leg runs that fixture. The plugin needs `phpunit/phpunit` and
-  `yoast/phpunit-polyfills` as dev dependencies.
-
-  Three defects found reviewing this, all from feeding it hostile input rather
-  than reading it. Caller values were interpolated into the provisioning script
-  and into the Python that writes `wp-tests-config.php`, so a password holding
-  a quote could break the syntax or run as code -- the lesson `laravel.yml`
-  already records for its own DB connection. They arrive as environment now.
-
-  Escaping them was not enough either: the sample writes these between single
-  quotes, so a password containing one ended the PHP string early and the
-  config stopped parsing. `php -l` on the generated file said
-  `syntax error, unexpected identifier "x"`. Values are escaped for a PHP
-  single-quoted string, and the round trip is asserted rather than assumed:
-  `p"a$s\w0rd'x` is written, re-read by PHP, and compared to the input.
-
-  And `wp_tests_dir` / `wp_core_dir` are caller input handed straight to
-  `rm -rf`. They must be absolute now, and `/` and the working directory are
-  refused, so `.` cannot delete the checkout.
-
-### Changed
-
-- **`wp-phpunit.yml` calls script-helpers' `ci_wp_phpunit.sh` instead of
-  carrying the provisioning inline.** It was about a hundred lines of bash in
-  YAML, which a developer cannot run: the same work therefore existed twice,
-  once here and once as a `bin/install-wp-tests.sh` in every plugin. There is
-  one copy now, and `ci_wp_phpunit.sh --db-image ... --php-image ...` runs it
-  on a laptop with nothing installed but Docker.
-
-  The preset no longer delegates to `php.yml`, because a reusable workflow
-  cannot add a step to another's job and the script has to run as one. It sets
-  PHP up itself and keeps `install_command`, `lint_command`, `build_command`
-  and `extra_command`.
-
-  The script starts the database and removes it afterwards, so `ci.yml`'s
-  `db_image` is no longer involved: one mechanism rather than two.
-
-  Four inputs go with the delegation, and a caller still passing one gets
-  `not defined in the referenced workflow` rather than a warning:
-  `db_root_password` (the script does not need it), `node_version` (nothing
-  here used it), `concurrency_key` (there is no engine job to key) and `cache`
-  (`ci.yml` never cached composer -- it has no mention of it -- so this loses
-  nothing). `db_wait_seconds` is exposed in their place.
-
-  Nothing outside this repository calls the preset yet: it merged today, and
-  the self-test is its only caller.
-
-  Values reach the script as environment rather than interpolated into the
-  command line, so a password containing a quote cannot break quoting or run
-  as code. The four command inputs are still interpolated, as in every preset
-  here, because they are shell commands by definition.
-
-  script-helpers is cloned to `${{ runner.temp }}`, not left in the plugin
-  directory: `wp-plugin-check.yml` showed what that costs when it reported 146
-  findings from this library against someone else's plugin.
 
 - **script-helpers pinned at 0.35.0**, all twelve checkouts, and the vendored
   copy re-synced to match.
