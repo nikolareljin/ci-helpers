@@ -188,6 +188,7 @@ nav:
           - ci_defaults (module): modules/ci_defaults.md
       - Media and services:
           - svg: modules/svg.md
+          - webshot: modules/webshot.md
           - ollama: modules/ollama.md
           - hub: modules/hub.md
           - cloudflare: modules/cloudflare.md

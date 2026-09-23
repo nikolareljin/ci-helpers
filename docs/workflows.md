@@ -1505,8 +1505,9 @@ disagree about the version under test. `wp_version` takes a full `X.Y.Z`, a
 minor like `7.1` which resolves to its newest patch, or `latest`; those tags are
 always `X.Y.Z`, so a bare minor is resolved rather than requested and 404ing.
 
-The database is the engine's optional `db_image`, the same one `laravel.yml`
-uses, rather than a second mechanism.
+The script starts the database and removes it afterwards, so this does not go
+through `ci.yml`'s `db_image`: one mechanism rather than two. The provisioning
+lives in script-helpers' `ci_wp_phpunit.sh`, so the same code runs on a laptop.
 
 The plugin needs `phpunit/phpunit` and `yoast/phpunit-polyfills` as dev
 dependencies; the default `install_command` runs `composer install`.
@@ -1517,12 +1518,9 @@ without forking this workflow.
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `.`)
-- `concurrency_key` (string, default `""`)
 - `fetch_depth` (number, default `0`)
 - `submodules` (string, default `false`)
-- `cache` (boolean, default `true`)
 - `php_version` (string, default `8.3`)
-- `node_version` (string, default `""`)
 - `wp_version` (string, default `latest`)
 - `wp_multisite` (string, default `0`)
 - `wp_tests_dir` (string, default `/tmp/wordpress-tests-lib`)
@@ -1536,8 +1534,8 @@ Inputs:
 - `db_database` (string, default `wordpress_test`)
 - `db_username` (string, default `wordpress`)
 - `db_password` (string, default `wordpress`)
-- `db_root_password` (string, default `root`)
 - `db_port` (string, default `3306`)
+- `db_wait_seconds` (number, default `60`)
 - `timeout_minutes` (number, default `20`)
 
 Example:

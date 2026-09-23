@@ -213,7 +213,7 @@ apache_modules:
 WPCLI
 
 wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
-container_wp_config_file="/tmp/wp-cli.yml"
+container_wp_config_file="/var/www/html/wp-cli.yml"
 
 run_wp_shell() {
   DEBUG=false docker_compose -f "$compose_file" run --rm \
