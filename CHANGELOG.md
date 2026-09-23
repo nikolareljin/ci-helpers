@@ -500,6 +500,8 @@
   `assert-ran` now covers every leg rather than only the Python one, and still
   treats `skipped` as failure.
 
+
+
 - **`scripts/check_vendor_currency.sh` — say when script-helpers has moved on.**
   `vendor/script-helpers` is a committed copy pinned by
   `vendor/.script-helpers-ref`. Two things already watch it: `vendor-check.yml`
@@ -525,6 +527,7 @@
 
   It reports the current state honestly — the vendored copy is pinned at
   `0.28.0` while upstream `production` is `0.30.0`, three releases back.
+
 
 - **`vendor/.script-helpers-notes.md` — what a pin actually brings.** Upstream's
   `CHANGELOG.md` is not vendored: 116K this repository never reads, and it names
@@ -614,6 +617,7 @@
   after it as arguments for the test runner, so the project is never seen and
   the command fails with `MSB1011`. Measured per subcommand rather than assumed
   from one.
+
 
 - **The sync could not rebuild the tree it replaces.**
   `sync_script_helpers.sh` sources `helpers.sh` from `vendor/script-helpers`, so
