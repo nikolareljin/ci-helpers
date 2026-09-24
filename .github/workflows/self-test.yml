@@ -893,6 +893,66 @@ jobs:
       wp_version: "7.1"
       php_version: "8.3"
 
+  # A real package from a real plugin. The fixture carries files that must ship
+  # and files that must not, so a green run means the exclude list did its job
+  # rather than merely that a zip appeared. `verify_command` is the workflow's
+  # own input, so this exercises that too.
+  wp-build-packages-a-plugin:
+    uses: ./.github/workflows/wp-build.yml
+    with:
+      working_directory: tests/fixtures/wp-build
+      slug: wp-plugin
+      php_version: '8.3'
+      verify_command: |
+        set -euo pipefail
+        list="$(unzip -Z1 "$PACKAGE_ZIP")"
+        for want in wp-plugin/wp-plugin.php wp-plugin/includes/thing.php wp-plugin/vendor/autoload.php; do
+          if ! grep -qx "$want" <<<"$list"; then
+            echo "::error::missing from the package: $want"
+            exit 1
+          fi
+        done
+        for unwanted in "wp-plugin/tests/" "wp-plugin/phpunit.xml.dist"; do
+          if grep -q "^${unwanted}" <<<"$list"; then
+            echo "::error::development file shipped: $unwanted"
+            exit 1
+          fi
+        done
+        echo "package verified: $(wc -l <<<"$list" | tr -d ' ') entries, no development files"
+
+  # The other half of the `zip` input. Nothing exercised `zip: false`, and it is
+  # the branch that decides what gets uploaded: with no archive the artifact has
+  # to be the staged tree instead. A caller using it would have been the one to
+  # find out.
+  wp-build-can-skip-the-zip:
+    uses: ./.github/workflows/wp-build.yml
+    with:
+      working_directory: tests/fixtures/wp-build
+      slug: wp-plugin
+      php_version: '8.3'
+      zip: false
+      # A name of its own: two jobs uploading under one name collide.
+      artifact_name: wp-plugin-tree
+      verify_command: |
+        set -euo pipefail
+        if [[ -n "${PACKAGE_ZIP:-}" ]]; then
+          echo "::error::zip was false but an archive was produced: ${PACKAGE_ZIP}"
+          exit 1
+        fi
+        for want in wp-plugin.php includes/thing.php vendor/autoload.php; do
+          if [[ ! -e "${PACKAGE_DIR}/${want}" ]]; then
+            echo "::error::missing from the staged tree: ${want}"
+            exit 1
+          fi
+        done
+        for unwanted in tests phpunit.xml.dist; do
+          if [[ -e "${PACKAGE_DIR}/${unwanted}" ]]; then
+            echo "::error::development file staged: ${unwanted}"
+            exit 1
+          fi
+        done
+        echo "staged tree verified: the plugin is there and no archive was made"
+
   assert-ran:
     needs:
       - engine-inputs-gate-refuses-a-dropped-forward
@@ -924,6 +984,8 @@ jobs:
       - go-pr-gate-honours-a-named-version
       - wp-check-generates-its-own-stack
       - wp-phpunit-runs-real-wordpress-tests
+      - wp-build-packages-a-plugin
+      - wp-build-can-skip-the-zip
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -960,6 +1022,8 @@ jobs:
             go-pr-gate-honours-a-named-version=${{ needs.go-pr-gate-honours-a-named-version.result }}
             wp-check-generates-its-own-stack=${{ needs.wp-check-generates-its-own-stack.result }}
             wp-phpunit-runs-real-wordpress-tests=${{ needs.wp-phpunit-runs-real-wordpress-tests.result }}
+            wp-build-packages-a-plugin=${{ needs.wp-build-packages-a-plugin.result }}
+            wp-build-can-skip-the-zip=${{ needs.wp-build-can-skip-the-zip.result }}
         run: |
           set -euo pipefail
           failed=0
