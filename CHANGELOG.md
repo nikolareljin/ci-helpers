@@ -29,6 +29,11 @@
   taking `contents: write` here would force every caller that only wants a build
   artifact to grant it.
 
+  `self-test.yml` covers both halves of the `zip` input: one leg builds the
+  archive and one builds with `zip: false` and asserts no archive appears and
+  the artifact is the staged tree instead. That second branch decides what gets
+  uploaded, and a caller would otherwise have been the one to find out.
+
   `self-test.yml` builds `tests/fixtures/wp-build`, a plugin carrying files that
   must ship and files that must not, and asserts the archive holds
   `wp-plugin.php`, `includes/thing.php` and `vendor/autoload.php` while holding
