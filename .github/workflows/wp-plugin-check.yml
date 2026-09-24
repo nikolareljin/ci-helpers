@@ -145,7 +145,10 @@ jobs:
             # A label per leg. A matrix over objects otherwise names each job
             # "map[php:8.4 wp:7.1]", which is what GitHub prints for a struct.
             combos="$(jq -cn --arg wp "${WP_VERSION}" --arg php "${PHP_VERSION}" \
-              '[{wp: $wp, php: $php, label: (if $wp == "" and $php == "" then "default" else (if $wp == "" then "" else "wp" + $wp end) + (if $php == "" then "" else "-php" + $php end) end)}]')"
+              '[{wp: $wp, php: $php,
+                 label: ([(if $wp == "" then empty else "wp" + $wp end),
+                          (if $php == "" then empty else "php" + $php end)]
+                         | if length == 0 then "default" else join("-") end)}]')"
             echo "One leg: wp='${WP_VERSION}' php='${PHP_VERSION}'"
             echo "combos=${combos}" >> "$GITHUB_OUTPUT"
             exit 0
@@ -167,14 +170,20 @@ jobs:
           # uniform shape and `matrix.combo.php` is never null.
           combos="$(printf '%s' "$VERSIONS" | jq -c '
             [ .[] | {wp: .wp, php: (.php // "")}
-              | . + {label: ("wp" + .wp + (if .php == "" then "" else "-php" + .php end))} ]')"
+              | . + {label: ([("wp" + .wp),
+                              (if .php == "" then empty else "php" + .php end)]
+                             | join("-"))} ]')"
 
-          # Two entries naming one pair expand to two legs with the same name.
-          # GitHub refuses that with an error naming neither the input nor the
-          # duplicate.
-          if [ "$(printf '%s' "$combos" | jq '[.[] | {wp, php}] | unique | length')" \
-             != "$(printf '%s' "$combos" | jq 'length')" ]; then
-            echo "::error::versions resolves to duplicate pairs: ${combos}" >&2
+          # Two legs with one name: GitHub refuses that with an error naming
+          # neither the input nor the duplicate.
+          #
+          # Compared on the label, not on {wp, php}, because the label is what
+          # becomes the job name. Distinct pairs can share one:
+          # {"wp":"7.1","php":"8.4"} and {"wp":"7.1-php8.4"} both label
+          # wp7.1-php8.4, and a check on the pairs lets that through.
+          dupes="$(printf '%s' "$combos" | jq -r '[.[].label] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
+          if [ -n "$dupes" ]; then
+            echo "::error::versions resolves to duplicate leg names: ${dupes}" >&2
             exit 1
           fi
 

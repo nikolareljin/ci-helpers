@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A leg was named `check -php8.2` when no WordPress version was given.** The
+  label concatenated `"wp" + wp` and `"-php" + php`, so an empty `wp` left the
+  separator hanging and the name read as though a version were missing. Seen on
+  a real consumer, which passes `php_version` with its own compose file rather
+  than `versions`.
+
+  The parts are collected and joined now, so a missing one takes its separator
+  with it:
+
+  ```
+  wp='',    php='8.2'  ->  php8.2
+  wp='7.1', php='8.4'  ->  wp7.1-php8.4
+  wp='7.1', php=''     ->  wp7.1
+  wp='',    php=''     ->  default
+  ```
+
+- **The duplicate-leg check compared the wrong thing.** It compared
+  `{wp, php}`, but the job name comes from the label, and distinct pairs can
+  share one: `{"wp":"7.1","php":"8.4"}` and `{"wp":"7.1-php8.4"}` both label
+  `wp7.1-php8.4`, so two legs with one name got through -- the failure the
+  check exists to prevent, which GitHub reports without naming the input or
+  the duplicate. It compares labels now, and says which one collided rather
+  than printing the whole array.
+
 ## 2026-09-23 — v0.35.0
 
 ### Added
