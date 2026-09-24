@@ -160,12 +160,17 @@ jobs:
       - name: Build the package
         id: build
         shell: bash
+        # Run from the plugin directory and pass `--workdir .`, rather than
+        # passing the directory and running from the repository root: the
+        # script resolves `--out-dir` against its own working directory, so
+        # with a plugin in a subdirectory the package landed at the repository
+        # root while this step looked for it beside the plugin.
+        working-directory: ${{ inputs.working_directory }}
         # Values as environment, not interpolated into the command line. A
         # plugin whose version or slug held a quote would otherwise break the
         # quoting or run as code -- the same lesson laravel.yml records for its
         # DB connection.
         env:
-          WORKDIR: ${{ inputs.working_directory }}
           SLUG: ${{ inputs.slug }}
           VERSION: ${{ inputs.version }}
           OUT_DIR: ${{ inputs.out_dir }}
@@ -176,7 +181,7 @@ jobs:
           HELPER: ${{ runner.temp }}/script-helpers/scripts/ci_wp_build.sh
         run: |
           set -euo pipefail
-          args=(--workdir "$WORKDIR" --out-dir "$OUT_DIR" \
+          args=(--workdir . --out-dir "$OUT_DIR" \
                 --composer-command "$COMPOSER_COMMAND" \
                 --asset-command "$ASSET_COMMAND" \
                 --zip "$MAKE_ZIP")
@@ -187,8 +192,8 @@ jobs:
 
           # Report what was built rather than recomputing the names here: two
           # places deriving the same path is how they come to disagree.
-          slug="${SLUG:-$(basename "$(cd "$WORKDIR" && pwd -P)")}"
-          out="$(cd "$WORKDIR" && cd "$OUT_DIR" && pwd -P)"
+          slug="${SLUG:-$(basename "$(pwd -P)")}"
+          out="$(cd "$OUT_DIR" && pwd -P)"
           echo "package_dir=${out}/${slug}" >> "$GITHUB_OUTPUT"
           if [[ "$MAKE_ZIP" == "true" ]]; then
             # Exactly one, not the first of several. A dirty workspace on a
@@ -218,9 +223,15 @@ jobs:
             base="$(basename "$zip_path" .zip)"
             echo "package_zip=${zip_path}" >> "$GITHUB_OUTPUT"
             echo "version=${base#"${slug}-"}" >> "$GITHUB_OUTPUT"
+            # The archive, not the staged tree: upload-artifact takes the least
+            # common ancestor of what it matches as the artifact root, so a
+            # directory is uploaded as its *contents* and the plugin's own
+            # directory name -- the name WordPress installs it as -- is lost.
+            echo "artifact_path=${zip_path}" >> "$GITHUB_OUTPUT"
           else
             echo "package_zip=" >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "artifact_path=${out}/${slug}" >> "$GITHUB_OUTPUT"
           fi
 
       # Printed, not just built. A package is read by whoever deploys it, and
@@ -251,6 +262,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
         with:
           name: ${{ inputs.artifact_name }}
-          path: ${{ steps.build.outputs.package_dir }}
+          path: ${{ steps.build.outputs.artifact_path }}
           retention-days: ${{ inputs.retention_days }}
           if-no-files-found: error
