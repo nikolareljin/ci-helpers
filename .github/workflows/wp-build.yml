@@ -1,0 +1,256 @@
+name: wp-build
+# Build a WordPress plugin into the tree and zip that ship.
+#
+# What ships is not what is in the repository: a plugin needs its production
+# dependencies vendored, its front-end assets built, and everything that exists
+# only to develop it left out. Every plugin doing that itself is how two of them
+# end up shipping different things.
+#
+# The build lives in script-helpers' ci_wp_build.sh, not here, so the same code
+# runs in CI and on a laptop -- `scripts/ci_wp_build.sh --workdir .` produces
+# the same package a run of this workflow does.
+#
+# This workflow builds and uploads. It does not create releases or move tags:
+# attaching the zip is the caller's step, with `gh release upload`, so this
+# needs no `contents: write` and a plugin that only wants a build artifact is
+# not made to grant it.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to checkout; a typo is refused by
+      # the action rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      php_version:
+        type: string
+        default: "8.3"
+      node_version:
+        type: string
+        default: "22"
+      # Defaults to the working directory's name, which is what a plugin
+      # repository is usually called. It becomes the directory inside the zip,
+      # and the name WordPress installs the plugin as.
+      slug:
+        type: string
+        default: ""
+      # Empty reads it from the plugin header, which is what WordPress reads.
+      # A zip named from anything else can disagree with what installs.
+      version:
+        type: string
+        default: ""
+      out_dir:
+        type: string
+        default: build
+      composer_command:
+        type: string
+        default: "composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction"
+      # Run only when the plugin has a package.json.
+      asset_command:
+        type: string
+        default: "npm ci && npm run build"
+      # rsync-style excludes. Empty uses the plugin's .distignore when it has
+      # one, and a named default list otherwise.
+      exclude_from:
+        type: string
+        default: ""
+      zip:
+        type: boolean
+        default: true
+      # Anything else this plugin wants checked against the staged tree, run
+      # from the repository root with PACKAGE_DIR and PACKAGE_ZIP exported.
+      verify_command:
+        type: string
+        default: ""
+      upload_artifact:
+        type: boolean
+        default: true
+      artifact_name:
+        type: string
+        default: wp-plugin-package
+      retention_days:
+        type: number
+        default: 7
+      # Applied as the job timeout. Without one a hung job bills until
+      # GitHub's six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
+    outputs:
+      package_dir:
+        description: The staged tree that ships.
+        value: ${{ jobs.build.outputs.package_dir }}
+      package_zip:
+        description: The archive, empty when `zip` is false.
+        value: ${{ jobs.build.outputs.package_zip }}
+      version:
+        description: The version the package was built as.
+        value: ${{ jobs.build.outputs.version }}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    outputs:
+      package_dir: ${{ steps.build.outputs.package_dir }}
+      package_zip: ${{ steps.build.outputs.package_zip }}
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          submodules: ${{ inputs.submodules }}
+
+      - name: Checkout script-helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 47aafe44b2a74ebb99322d38ddccedb3adada160 # 0.36.0
+          path: .script-helpers
+          fetch-depth: 1
+
+      # actions/checkout refuses a path outside the workspace, and the
+      # workspace holds the plugin. A checkout of that library sitting in the
+      # tree is not part of the plugin, and here it would be packaged: the
+      # build rsyncs the working directory, and no exclude list names it. See
+      # wp-plugin-check.yml, where leaving it produced 146 findings against
+      # someone else's plugin.
+      - name: Move script-helpers out of the plugin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ runner.temp }}/script-helpers"
+          mv .script-helpers "${{ runner.temp }}/script-helpers"
+
+      - name: Setup PHP
+        if: ${{ inputs.composer_command != '' }}
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
+        with:
+          php-version: ${{ inputs.php_version }}
+
+      # Only when the plugin has front-end sources. A plugin with no
+      # package.json gets no Node, rather than a toolchain it never uses.
+      - name: Does this plugin build assets?
+        id: assets
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          if [[ -f package.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        if: ${{ steps.assets.outputs.present == 'true' && inputs.asset_command != '' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Build the package
+        id: build
+        shell: bash
+        # Values as environment, not interpolated into the command line. A
+        # plugin whose version or slug held a quote would otherwise break the
+        # quoting or run as code -- the same lesson laravel.yml records for its
+        # DB connection.
+        env:
+          WORKDIR: ${{ inputs.working_directory }}
+          SLUG: ${{ inputs.slug }}
+          VERSION: ${{ inputs.version }}
+          OUT_DIR: ${{ inputs.out_dir }}
+          COMPOSER_COMMAND: ${{ inputs.composer_command }}
+          ASSET_COMMAND: ${{ inputs.asset_command }}
+          EXCLUDE_FROM: ${{ inputs.exclude_from }}
+          MAKE_ZIP: ${{ inputs.zip }}
+          HELPER: ${{ runner.temp }}/script-helpers/scripts/ci_wp_build.sh
+        run: |
+          set -euo pipefail
+          args=(--workdir "$WORKDIR" --out-dir "$OUT_DIR" \
+                --composer-command "$COMPOSER_COMMAND" \
+                --asset-command "$ASSET_COMMAND" \
+                --zip "$MAKE_ZIP")
+          [[ -n "$SLUG" ]] && args+=(--slug "$SLUG")
+          [[ -n "$VERSION" ]] && args+=(--version "$VERSION")
+          [[ -n "$EXCLUDE_FROM" ]] && args+=(--exclude-from "$EXCLUDE_FROM")
+          "$HELPER" "${args[@]}"
+
+          # Report what was built rather than recomputing the names here: two
+          # places deriving the same path is how they come to disagree.
+          slug="${SLUG:-$(basename "$(cd "$WORKDIR" && pwd -P)")}"
+          out="$(cd "$WORKDIR" && cd "$OUT_DIR" && pwd -P)"
+          echo "package_dir=${out}/${slug}" >> "$GITHUB_OUTPUT"
+          if [[ "$MAKE_ZIP" == "true" ]]; then
+            # Exactly one, not the first of several. A dirty workspace on a
+            # self-hosted runner keeps older versions here, and `head -1` would
+            # publish an arbitrary one of them as this build's output.
+            # The slug is matched literally, not as a pattern. It is only
+            # constrained to hold no path characters, so a `[` or `*` in it
+            # would be read as a glob by `find -name` and match nothing. The
+            # quoted prefix inside [[ ]] is literal; the trailing * is not.
+            zip_path=""; found=0
+            while IFS= read -r candidate; do
+              [[ -n "$candidate" ]] || continue
+              base="$(basename "$candidate")"
+              [[ "$base" == "${slug}-"*.zip ]] || continue
+              zip_path="$candidate"; found=$((found + 1))
+            done < <(find "$out" -maxdepth 1 -type f -name '*.zip')
+            if [[ "$found" -eq 0 ]]; then
+              echo "::error::the build reported success but no ${slug}-*.zip is in ${out}"
+              exit 1
+            elif [[ "$found" -gt 1 ]]; then
+              echo "::error::${found} archives match ${slug}-*.zip in ${out}; cannot tell which one this build produced"
+              exit 1
+            fi
+            # Parameter expansion, not sed: the slug is only constrained to
+            # hold no path characters, so a `[` or `*` in it would be read as
+            # a regex and strip the wrong thing.
+            base="$(basename "$zip_path" .zip)"
+            echo "package_zip=${zip_path}" >> "$GITHUB_OUTPUT"
+            echo "version=${base#"${slug}-"}" >> "$GITHUB_OUTPUT"
+          else
+            echo "package_zip=" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Printed, not just built. A package is read by whoever deploys it, and
+      # the cheapest way to catch "it shipped node_modules again" is a listing
+      # in the log.
+      - name: What is in the package
+        shell: bash
+        env:
+          PACKAGE_DIR: ${{ steps.build.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          echo "Top level of ${PACKAGE_DIR}:"
+          ls -A "$PACKAGE_DIR" | sed 's/^/  /'
+          echo "Files: $(find "$PACKAGE_DIR" -type f | wc -l)"
+
+      - name: Verify
+        if: ${{ inputs.verify_command != '' }}
+        shell: bash
+        env:
+          PACKAGE_DIR: ${{ steps.build.outputs.package_dir }}
+          PACKAGE_ZIP: ${{ steps.build.outputs.package_zip }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.verify_command }}
+
+      - name: Upload the package
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ steps.build.outputs.package_dir }}
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: error

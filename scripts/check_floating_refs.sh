@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SCRIPT: check_floating_refs.sh
-# DESCRIPTION: Detect mutable channel-style action refs (@master/@main/@latest/@stable)
-#              in GitHub Actions workflow and action YAML files. Versioned tags (@v5) and
+# DESCRIPTION: Detect mutable refs in GitHub Actions workflow and action YAML files:
+#              channel-style action refs (@master/@main/@latest/@stable), and a
+#              `ref:` checking out a repository at a branch. Versioned tags (@v5) and
 #              SHA-pinned refs (@abc123...) are accepted per repo policy.
 # USAGE: ./scripts/check_floating_refs.sh [--dir <path>]
 # PARAMETERS:
@@ -40,6 +41,28 @@ floating=$(grep -rn --include="*.yml" --include="*.yaml" 'uses:' "$dir" \
   | grep -v 'uses:[[:space:]]*["'"'"']\{0,1\}\./\.' \
   | grep -E "$channel_re" \
   || true)
+
+# `uses:` is not the only way a workflow pulls in someone else's code. A
+# `repository:`/`ref:` checkout does too, and this repo uses one in twelve
+# workflows to fetch script-helpers. A `ref:` naming a branch there would put
+# that library's moving head into every consumer's run -- the same hazard the
+# pattern above exists to stop, and one it cannot see, because there is no
+# `uses:` on the line.
+#
+# `production` is included: it is a branch, and it moves. Consumers pinning
+# ci-helpers itself with `uses: ...@production` stay allowed; this is only
+# about checking out a repository by ref.
+ref_re='^[[:space:]]*ref:[[:space:]]*["'"'"']?(master|main|latest|stable|production)["'"'"']?[[:space:]]*(#.*)?$'
+floating_refs=$(grep -rnE --include="*.yml" --include="*.yaml" "$ref_re" "$dir" || true)
+
+if [[ -n "$floating_refs" ]]; then
+  echo "::warning::Checkout refs naming a moving branch detected:"
+  echo "$floating_refs"
+  echo ""
+  echo "A checked-out repository must be pinned to a commit SHA, annotated"
+  echo "with the release it belongs to: ref: <sha> # <version>"
+  exit 1
+fi
 
 if [[ -n "$floating" ]]; then
   echo "::warning::Mutable channel refs (@master/@main/@latest/@stable) detected:"

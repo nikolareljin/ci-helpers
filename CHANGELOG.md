@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added
+
+- **`wp-build.yml`: the package a WordPress plugin ships, built in CI.** What
+  ships is not what is in the repository -- a plugin needs its production
+  dependencies vendored, its front-end assets built, and everything that exists
+  only to develop it left out. Every plugin doing that itself is how two of them
+  end up shipping different things.
+
+  ```yaml
+  jobs:
+    package:
+      uses: nikolareljin/ci-helpers/.github/workflows/wp-build.yml@production
+      with:
+        php_version: '8.3'
+  ```
+
+  The build itself is script-helpers' `ci_wp_build.sh`, pinned at 0.36.0, so the
+  same code runs here and on a laptop: `scripts/ci_wp_build.sh --workdir .`
+  produces the same package. Node is set up only when the plugin has a
+  `package.json`, rather than installing a toolchain it never uses.
+
+  Outputs `package_dir`, `package_zip` and `version`, so a caller can attach the
+  archive to a release itself. This workflow deliberately does not create
+  releases or move tags: a reusable workflow's `permissions` are static, so
+  taking `contents: write` here would force every caller that only wants a build
+  artifact to grant it.
+
+  The staged tree's top level is printed in the log. A package is read by
+  whoever deploys it, and a listing is the cheapest way to notice that
+  `node_modules` shipped again.
+
+### Changed
+
+- **`check_floating_refs.sh` now also refuses a `ref:` that names a branch.**
+  `uses:` is not the only way a workflow pulls in someone else's code: twelve
+  workflows here check out script-helpers with `repository:` and `ref:`, and a
+  `ref: main` there would put that library's moving head into every consumer's
+  run. The existing pattern could not see it, because there is no `uses:` on the
+  line. All twelve were already SHA-pinned, so nothing had to change to make
+  this pass.
+
 ### Fixed
 
 - **A leg was named `check -php8.2` when no WordPress version was given.** The
