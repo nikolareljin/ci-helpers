@@ -1,0 +1,9 @@
+{
+	"name": "ci-helpers/wp-build-fixture",
+	"description": "No dependencies: the point is that vendor/autoload.php reaches the package.",
+	"license": "GPL-2.0-or-later",
+	"require": {},
+	"config": {
+		"optimize-autoloader": true
+	}
+}

@@ -29,6 +29,12 @@
   taking `contents: write` here would force every caller that only wants a build
   artifact to grant it.
 
+  `self-test.yml` builds `tests/fixtures/wp-build`, a plugin carrying files that
+  must ship and files that must not, and asserts the archive holds
+  `wp-plugin.php`, `includes/thing.php` and `vendor/autoload.php` while holding
+  no `tests/` and no `phpunit.xml.dist`. A self-test that only checked a zip
+  appeared would pass while the package shipped development files.
+
   The staged tree's top level is printed in the log. A package is read by
   whoever deploys it, and a listing is the cheapest way to notice that
   `node_modules` shipped again.

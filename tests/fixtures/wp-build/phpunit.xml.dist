@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- Development-only, and in the build's default exclude list. -->
+<phpunit bootstrap="tests/bootstrap.php">
+	<testsuites>
+		<testsuite name="fixture">
+			<directory suffix="test.php">./tests/</directory>
+		</testsuite>
+	</testsuites>
+</phpunit>
