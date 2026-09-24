@@ -174,12 +174,16 @@ jobs:
                               (if .php == "" then empty else "php" + .php end)]
                              | join("-"))} ]')"
 
-          # Two entries naming one pair expand to two legs with the same name.
-          # GitHub refuses that with an error naming neither the input nor the
-          # duplicate.
-          if [ "$(printf '%s' "$combos" | jq '[.[] | {wp, php}] | unique | length')" \
-             != "$(printf '%s' "$combos" | jq 'length')" ]; then
-            echo "::error::versions resolves to duplicate pairs: ${combos}" >&2
+          # Two legs with one name: GitHub refuses that with an error naming
+          # neither the input nor the duplicate.
+          #
+          # Compared on the label, not on {wp, php}, because the label is what
+          # becomes the job name. Distinct pairs can share one:
+          # {"wp":"7.1","php":"8.4"} and {"wp":"7.1-php8.4"} both label
+          # wp7.1-php8.4, and a check on the pairs lets that through.
+          dupes="$(printf '%s' "$combos" | jq -r '[.[].label] | group_by(.) | map(select(length > 1) | .[0]) | join(", ")')"
+          if [ -n "$dupes" ]; then
+            echo "::error::versions resolves to duplicate leg names: ${dupes}" >&2
             exit 1
           fi
 

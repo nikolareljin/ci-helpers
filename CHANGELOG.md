@@ -20,6 +20,14 @@
   wp='',    php=''     ->  default
   ```
 
+- **The duplicate-leg check compared the wrong thing.** It compared
+  `{wp, php}`, but the job name comes from the label, and distinct pairs can
+  share one: `{"wp":"7.1","php":"8.4"}` and `{"wp":"7.1-php8.4"}` both label
+  `wp7.1-php8.4`, so two legs with one name got through -- the failure the
+  check exists to prevent, which GitHub reports without naming the input or
+  the duplicate. It compares labels now, and says which one collided rather
+  than printing the whole array.
+
 ## 2026-09-23 — v0.35.0
 
 ### Added
