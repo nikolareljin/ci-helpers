@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A leg was named `check -php8.2` when no WordPress version was given.** The
+  label concatenated `"wp" + wp` and `"-php" + php`, so an empty `wp` left the
+  separator hanging and the name read as though a version were missing. Seen on
+  a real consumer, which passes `php_version` with its own compose file rather
+  than `versions`.
+
+  The parts are collected and joined now, so a missing one takes its separator
+  with it:
+
+  ```
+  wp='',    php='8.2'  ->  php8.2
+  wp='7.1', php='8.4'  ->  wp7.1-php8.4
+  wp='7.1', php=''     ->  wp7.1
+  wp='',    php=''     ->  default
+  ```
+
 ## 2026-09-23 — v0.35.0
 
 ### Added
