@@ -1,5 +1,28 @@
 ## Unreleased
 
+### Changed
+
+- **script-helpers 0.40.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
+  ```
+
+  0.40.0 fixes two things this repository ran into while `django.yml` was being
+  written. A step command naming a path inside the project -- `bin/thing`,
+  `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, because
+  the probe looked in the script's own directory. And an environment prefix was
+  read as the program name, which cost a self-test leg a full cycle: the
+  database had started, `psycopg` had installed and the migration had applied
+  when the test step was refused for a program called `EXPECT_DB_NAME=fixture_db`.
+
+  The `django-runs-against-a-real-database` leg works around that today by
+  passing its expectation as a positional argument. The workaround can go once
+  this is pinned, but removing it is a change of its own rather than part of a
+  version bump.
+
 ### Added
 
 - **`django.yml`: the Django preset, and a fixture that drives it.** `python.yml`
