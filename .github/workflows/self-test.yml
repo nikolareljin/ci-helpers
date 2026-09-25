@@ -1005,9 +1005,12 @@ jobs:
       db_password: fixture
       install_command: 'pip install --quiet "psycopg[binary]"'
       migrate_command: 'python manage.py migrate'
-      # EXPECT_DB_NAME makes the fixture fail if the preset connected to some
-      # default rather than to the database this job asked for.
-      test_command: 'EXPECT_DB_NAME=fixture_db python manage.py test'
+      # The second argument makes the fixture fail if the preset connected to
+      # some default rather than to the database this job asked for. An
+      # argument, not an environment prefix: ci_django.sh probes the first word
+      # of a step command for a program, so `NAME=value python ...` is refused
+      # as a program called "NAME=value".
+      test_command: 'python manage.py test fixture_db'
 
   # The other half of db_image: sqlite, no service at all. This is the leg that
   # would have caught the in-memory database bug, where `migrate` reported every

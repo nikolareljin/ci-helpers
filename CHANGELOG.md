@@ -32,6 +32,12 @@
   plausible-looking URL. One leg is postgres with a deliberately non-default
   database name, the other is `db_image: ""`.
 
+  The expected name is passed as an argument, not an environment prefix:
+  `ci_django.sh` treats the first word of a step command as the program to
+  probe for, so `NAME=value python manage.py test` is refused as a program
+  called `NAME=value` before it runs. That is a script-helpers defect with a
+  fix of its own; the fixture works around it rather than waiting.
+
 ### Changed
 
 - **`docs/presets.md` said every preset calls `ci.yml`.** Four do not:

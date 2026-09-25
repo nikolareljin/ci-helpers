@@ -72,8 +72,12 @@ def main() -> None:
             fail(f"the migration's row is not visible from this process: {row!r}")
 
         # 2. and the connection must name the database the caller asked for,
-        #    not a default the script fell back to.
-        want = os.environ.get("EXPECT_DB_NAME")
+        #    not a default the script fell back to. Taken as an argument rather
+        #    than an environment variable: ci_django.sh treats the first word of
+        #    a step command as the program to probe for, so a command written
+        #    `NAME=value python manage.py test` is refused as a program called
+        #    "NAME=value" before it ever runs.
+        want = sys.argv[2] if len(sys.argv) > 2 else None
         if want:
             got = os.environ.get("DJANGO_DB_NAME", "")
             if os.environ.get("DJANGO_DB_ENGINE") == "sqlite":
