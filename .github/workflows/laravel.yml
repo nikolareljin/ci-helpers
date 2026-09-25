@@ -118,10 +118,17 @@ on:
         type: number
         default: 20
 
+# Without concurrency_key the default key carries every input that makes one
+# call distinct from another. It has to: two legs that differ only in db_image
+# shared a group here and the second cancelled the first, which is the same
+# defect ci.yml carried when a matrix over toolchain versions cancelled its own
+# legs. It was caught by this repository's own self-test, where the MySQL leg
+# came back `cancelled` -- and, for one run, `assert-ran` reported success
+# anyway.
 concurrency:
   group: >-
     ci-helpers-laravel-${{ github.workflow }}-${{ inputs.concurrency_key
-    || format('{0}-{1}-php{2}-node{3}', inputs.working_directory, inputs.runner, inputs.php_version, inputs.node_version) }}-${{ github.ref }}
+    || format('{0}-{1}-php{2}-node{3}-db{4}-{5}', inputs.working_directory, inputs.runner, inputs.php_version, inputs.node_version, inputs.db_image, inputs.db_database) }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

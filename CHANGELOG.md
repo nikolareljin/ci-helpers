@@ -93,6 +93,15 @@
 
 ### Fixed
 
+- **`self-test.yml`'s `assert-ran` checked a list of job names kept separately
+  from the jobs it waits on.** The two drifted the first time a job was added:
+  the new Laravel legs were in `needs` and absent from the list, so the gate
+  reported success while one of them had been `cancelled`. It now reads
+  `toJSON(needs)`, which cannot fall behind, and fails if it examines fewer than
+  ten legs -- a malformed object would otherwise loop zero times and pass having
+  checked nothing.
+
+
 - **A leg was named `check -php8.2` when no WordPress version was given.** The
   label concatenated `"wp" + wp` and `"-php" + php`, so an empty `wp` left the
   separator hanging and the name read as though a version were missing. Seen on

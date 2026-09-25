@@ -1029,49 +1029,30 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: A skipped leg is not a pass
+        # `needs` itself, not a hand-written list of the same job names. The
+        # two drifted the moment a job was added: the laravel legs were in
+        # `needs` and absent from the list, so this step reported success
+        # while one of them had been cancelled. toJSON(needs) cannot fall
+        # behind what the job actually waits on.
         env:
-          RESULTS: >-
-            engine-inputs-gate-refuses-a-dropped-forward=${{ needs.engine-inputs-gate-refuses-a-dropped-forward.result }}
-            submodules-recursive-checks-out-the-tree=${{ needs.submodules-recursive-checks-out-the-tree.result }}
-            submodules-default-leaves-the-tree-absent=${{ needs.submodules-default-leaves-the-tree-absent.result }}
-            submodules-guard-refuses-values-checkout-would-ignore=${{ needs.submodules-guard-refuses-values-checkout-would-ignore.result }}
-            cache-probe-maps-every-lockfile=${{ needs.cache-probe-maps-every-lockfile.result }}
-            cache-npm-is-accepted-on-a-real-run=${{ needs.cache-npm-is-accepted-on-a-real-run.result }}
-            pr-gate-probes-and-caches=${{ needs.pr-gate-probes-and-caches.result }}
-            cache-go-is-accepted-on-a-real-run=${{ needs.cache-go-is-accepted-on-a-real-run.result }}
-            cache-maven-is-accepted-on-a-real-run=${{ needs.cache-maven-is-accepted-on-a-real-run.result }}
-            python-install-survives-lint-override=${{ needs.python-install-survives-lint-override.result }}
-            csharp-defaults-can-pass=${{ needs.csharp-defaults-can-pass.result }}
-            csharp-lint-still-fails-on-bad-input=${{ needs.csharp-lint-still-fails-on-bad-input.result }}
-            csharp-guard-accepts-a-real-path=${{ needs.csharp-guard-accepts-a-real-path.result }}
-            csharp-guard-refuses-bad-projects=${{ needs.csharp-guard-refuses-bad-projects.result }}
-            godot-imports-and-tests-a-real-project=${{ needs.godot-imports-and-tests-a-real-project.result }}
-            godot-default-test-command-refuses-to-pass=${{ needs.godot-default-test-command-refuses-to-pass.result }}
-            godot-lint-default-rejects-a-project-that-does-not-parse=${{ needs.godot-lint-default-rejects-a-project-that-does-not-parse.result }}
-            govulncheck-fails-on-a-known-advisory=${{ needs.govulncheck-fails-on-a-known-advisory.result }}
-            go-modules-runs-every-module=${{ needs.go-modules-runs-every-module.result }}
-            go-modules-resolver-refuses-bad-input=${{ needs.go-modules-resolver-refuses-bad-input.result }}
-            engine-inputs-exemption-must-name-a-real-job=${{ needs.engine-inputs-exemption-must-name-a-real-job.result }}
-            csharp-windows-fixture-builds-on-a-windows-runner=${{ needs.csharp-windows-fixture-builds-on-a-windows-runner.result }}
-            csharp-windows-fixture-fails-clearly-on-linux=${{ needs.csharp-windows-fixture-fails-clearly-on-linux.result }}
-            unity-gate-refuses-and-disarms=${{ needs.unity-gate-refuses-and-disarms.result }}
-            changelog-structure-gate-refuses-what-it-must=${{ needs.changelog-structure-gate-refuses-what-it-must.result }}
-            go-pr-gate-uses-the-shared-default=${{ needs.go-pr-gate-uses-the-shared-default.result }}
-            go-pr-gate-honours-a-named-version=${{ needs.go-pr-gate-honours-a-named-version.result }}
-            wp-check-generates-its-own-stack=${{ needs.wp-check-generates-its-own-stack.result }}
-            wp-phpunit-runs-real-wordpress-tests=${{ needs.wp-phpunit-runs-real-wordpress-tests.result }}
-            wp-build-packages-a-plugin=${{ needs.wp-build-packages-a-plugin.result }}
-            wp-build-can-skip-the-zip=${{ needs.wp-build-can-skip-the-zip.result }}
+          RESULTS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           failed=0
-          for pair in $RESULTS; do
-            leg="${pair%%=*}"
-            result="${pair#*=}"
+          count=0
+          while IFS=$'\t' read -r leg result; do
+            count=$((count + 1))
             case "$result" in
               success) echo "$leg passed" ;;
               skipped) echo "::error::$leg was skipped; a skip is not a pass"; failed=1 ;;
               *)       echo "::error::$leg result: $result"; failed=1 ;;
             esac
-          done
+          done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<<"$RESULTS_JSON")
+          # Zero legs examined is the failure this gate is most likely to have:
+          # a malformed object loops no times and reports success having checked
+          # nothing.
+          if (( count < 10 )); then
+            echo "::error::only ${count} leg(s) examined; needs is not being read"
+            failed=1
+          fi
           exit "$failed"
