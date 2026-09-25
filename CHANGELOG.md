@@ -2,6 +2,17 @@
 
 ### Changed
 
+- **Every script-helpers pin is 0.38.1, and the vendored copy with it.** There
+  were four versions of one library in this repository at once: eleven
+  workflows at 0.35.0, `wp-build.yml` at 0.36.0, `laravel.yml` at 0.38.0, and
+  `vendor/script-helpers` at 0.35.0. A preset running an older copy of a script
+  than the one this repository tests against is a difference nothing reports --
+  both are green, and they differ only in the case the newer version fixed.
+
+  0.38.1 matters immediately for `laravel.yml`, which starts a database on every
+  run: before it, `ci_laravel.sh` removed the container without its anonymous
+  volume and left roughly 200 MB behind each time.
+
 - **`laravel.yml` runs script-helpers' `ci_laravel.sh` instead of a shell block
   nobody could run.** The Laravel-specific work -- create `.env`, generate
   `APP_KEY`, start the database, migrate, test, remove the database -- was
@@ -33,6 +44,27 @@
   this pass.
 
 ### Added
+
+- **`scripts/check_script_helpers_pins.sh`, run by `vendor-check.yml`.** Two
+  things name a script-helpers version here -- `vendor/.script-helpers-ref` and
+  a `ref:` in every workflow that checks the library out -- and nothing related
+  them. `release-tag-gate.yml` still carries a comment recording a pin at 0.28.0
+  against a vendored tree at 0.32.0, ending "nothing enforces the relationship".
+  Now something does.
+
+  Two files record what was vendored, and both are compared: the commit in
+  `vendor/.script-helpers-sha` against what each workflow checks out, and the
+  tag in `vendor/.script-helpers-ref` against each pin's comment. Each catches
+  what the other cannot -- a pin whose comment was edited without its SHA reads
+  as correct against the tag, and a pin moved to the right commit with a stale
+  comment misleads every human who reads it. Offline, like
+  `verify_vendor.sh --offline` beside it, because a gate that needs the network
+  is a gate that gets switched off.
+
+  Its own guard against examining zero pins was unreachable when zero pins were
+  examined: the uniqueness check pipes through `grep .`, which exits 1 on empty
+  input, and `pipefail` ended the script first. Found by running the case rather
+  than reading it.
 
 - **`tests/fixtures/laravel-app`, and two `self-test.yml` jobs that drive the
   preset with it.** `laravel.yml` had no caller anywhere: nothing exercised it,
