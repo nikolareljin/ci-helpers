@@ -811,7 +811,11 @@ PY
       rm -f "$log_file"
     }
 
-    trap _ollama_dialog_pull_cleanup EXIT
+    # The command below runs in the background, and a background job inherits this
+
+    # trap: signalled, it would delete the log file it is still writing to.
+
+    trap 'if [[ ${BASHPID-$$} == "$$" ]]; then _ollama_dialog_pull_cleanup; fi' EXIT
 
     "$@" >"$log_file" 2>&1 &
     pid=$!

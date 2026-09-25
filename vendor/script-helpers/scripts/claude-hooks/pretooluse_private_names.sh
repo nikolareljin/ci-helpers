@@ -39,7 +39,13 @@ command -v python3 >/dev/null 2>&1 || exit 0
 # to python on stdin, so a pipe would be overridden and python would end up
 # reading its own source as the payload -- and every call would sail through.
 payload_file="$(mktemp)"
-trap 'rm -f "$payload_file"' EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$payload_file"; fi' EXIT
 cat > "$payload_file"
 
 # One python pass: is this a publishing command, which repository is it aimed

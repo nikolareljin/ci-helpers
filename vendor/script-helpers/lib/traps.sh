@@ -11,7 +11,9 @@ cleanup() {
 
 # Usage: setup_traps; installs EXIT/INT/TERM handlers.
 setup_traps() {
-  trap cleanup EXIT
+  # Guarded here too, though this cleanup only logs: from a signalled subshell it
+  # would print "Script failed with exit code N" for a failure the script never had.
+  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
   trap 'log_error "Script interrupted"; exit 130' INT
   trap 'log_error "Script terminated"; exit 143' TERM
 }

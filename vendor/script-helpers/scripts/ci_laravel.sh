@@ -48,7 +48,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help
+shlib_import logging help ci_stack
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
@@ -114,13 +114,10 @@ abs_workdir="$(cd "$workdir" && pwd -P)"
 # anything starts, so a typo is an argument error rather than a container that
 # comes up and is then talked to in the wrong dialect.
 if [[ -n "$db_image" && -z "$db_connection" ]]; then
-  case "$db_image" in
-    *postgres*|*pgsql*) db_connection="pgsql" ;;
-    *mysql*|*mariadb*) db_connection="mysql" ;;
-    *)
-      log_error "Cannot tell which engine '${db_image}' is. Pass --db-connection mysql or pgsql."
-      exit 2 ;;
-  esac
+  db_connection="$(ci_stack_engine_for_image "$db_image")" || {
+    log_error "Cannot tell which engine '${db_image}' is. Pass --db-connection mysql or pgsql."
+    exit 2
+  }
 fi
 db_connection="${db_connection:-sqlite}"
 
@@ -135,7 +132,7 @@ if [[ "$db_connection" == "sqlite" && -n "$db_image" ]]; then
 fi
 
 if [[ -z "$db_port" ]]; then
-  [[ "$db_connection" == "pgsql" ]] && db_port=5432 || db_port=3306
+  db_port="$(ci_stack_default_port "$db_connection")"
 fi
 
 # The sqlite file lives inside the application, because that is the directory
@@ -165,102 +162,41 @@ cleanup() {
   if [[ -n "$sqlite_file" && -f "$sqlite_file" ]]; then
     rm -f "$sqlite_file"
   fi
-  if [[ -n "$db_container" ]]; then
-    log_info "Removing database container ${db_container}"
-    # -v as well as -f: the mysql and postgres images declare a VOLUME, so
-    # `docker run -d` creates an anonymous volume for every container. Without
-    # -v the container goes and the volume stays -- three runs of this script
-    # left 612 MB of orphans on a laptop before anyone noticed. -v removes only
-    # anonymous volumes; a named one passed by a caller is left alone.
-    docker rm -f -v "$db_container" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$db_network" ]]; then
-    docker network rm "$db_network" >/dev/null 2>&1 || true
-  fi
+  ci_stack_remove ${db_container:+--container "$db_container"} ${db_network:+--network "$db_network"}
 }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 
 # ---------------------------------------------------------------------------
-# The database, when one is asked for.
+# The database, when one is asked for. Started by lib/ci_stack.sh, which is the
+# one copy of this: it used to live here and, separately, in ci_wp_phpunit.sh,
+# and the two drifted until only one of them guarded its EXIT trap.
+#
+# --network or --publish, never both: with --php-image the steps reach the
+# database by container name on a shared network, and publishing a port nothing
+# will use fails the run with "port is already allocated".
 # ---------------------------------------------------------------------------
-start_database() {
+if [[ -n "$db_image" ]]; then
   db_container="laravel-db-$$"
-  local net_args=()
+  publish_arg=""
   if [[ -n "$php_image" ]]; then
-    # A user-defined network rather than --network host: the PHP container
-    # reaches the database by container name, which works the same on Linux and
-    # macOS. Publishing to loopback would only work on Linux.
     db_network="laravel-net-$$"
-    docker network create "$db_network" >/dev/null
-    net_args=(--network "$db_network")
-  fi
-
-  # Publish only when the tests run on the host and need to reach it. With
-  # --php-image they reach it by container name, and publishing anyway fails the
-  # run with "port is already allocated" for a port nothing was going to use.
-  local publish=()
-  local internal_port=3306
-  [[ "$db_connection" == "pgsql" ]] && internal_port=5432
-  if [[ -z "$php_image" ]]; then
-    publish=(-p "${db_host}:${db_port}:${internal_port}")
-    log_info "Starting ${db_image} as ${db_container} on ${db_host}:${db_port}"
   else
-    log_info "Starting ${db_image} as ${db_container} on the ${db_network} network"
+    publish_arg="${db_host}:${db_port}"
   fi
+  ci_stack_start_database \
+    --image "$db_image" --engine "$db_connection" --name "$db_container" \
+    ${db_network:+--network "$db_network"} \
+    ${publish_arg:+--publish "$publish_arg"} \
+    --db "$db_name" --user "$db_user" --password "$db_password" \
+    --root-password "$db_root_password" --wait-seconds "$db_wait_seconds" || exit 1
+fi
 
-  local env_args=()
-  if [[ "$db_connection" == "pgsql" ]]; then
-    env_args=(-e POSTGRES_DB="$db_name" -e POSTGRES_USER="$db_user" -e POSTGRES_PASSWORD="$db_password")
-  else
-    env_args=(-e MYSQL_DATABASE="$db_name" -e MYSQL_USER="$db_user"
-              -e MYSQL_PASSWORD="$db_password")
-    # The image refuses to initialise without one of these, and it dies during
-    # entrypoint rather than on connect -- so the symptom is the readiness poll
-    # timing out after --db-wait-seconds with nothing about a password in it.
-    if [[ -n "$db_root_password" ]]; then
-      env_args+=(-e MYSQL_ROOT_PASSWORD="$db_root_password")
-    else
-      env_args+=(-e MYSQL_ALLOW_EMPTY_PASSWORD=yes)
-    fi
-  fi
-
-  # ${arr[@]+"${arr[@]}"}: bash 3.2, which macOS still ships, treats an empty
-  # array as an unbound variable under `set -u`.
-  docker run -d --name "$db_container" \
-    ${net_args[@]+"${net_args[@]}"} \
-    ${publish[@]+"${publish[@]}"} \
-    "${env_args[@]}" \
-    "$db_image" >/dev/null
-
-  # Poll rather than sleep: the image is ready when it answers, and a fixed
-  # sleep is either too short on a loaded machine or wasted time on a fast one.
-  local waited=0
-  local probe
-  if [[ "$db_connection" == "pgsql" ]]; then
-    probe="pg_isready -U '${db_user}' -d '${db_name}' -h 127.0.0.1"
-  else
-    probe="mysqladmin ping -h 127.0.0.1 --silent"
-  fi
-  while (( waited < db_wait_seconds )); do
-    if docker exec "$db_container" sh -c "$probe" >/dev/null 2>&1; then
-      log_info "Database ready after ${waited}s"
-      return 0
-    fi
-    sleep 2
-    waited=$(( waited + 2 ))
-  done
-  log_error "Database did not become ready within ${db_wait_seconds}s"
-  exit 1
-}
-
-[[ -n "$db_image" ]] && start_database
 
 # Where the tests reach the database from. Inside a PHP container on the shared
 # network that is the container's name; on the host it is what was published.
 if [[ -n "$php_image" && -n "$db_container" ]]; then
   effective_db_host="$db_container"
-  effective_db_port=3306
-  [[ "$db_connection" == "pgsql" ]] && effective_db_port=5432
+  effective_db_port="$(ci_stack_default_port "$db_connection")"
 else
   if [[ -n "$php_image" && "$db_connection" != "sqlite" ]]; then
     case "$db_host" in

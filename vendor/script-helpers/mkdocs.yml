@@ -166,6 +166,7 @@ nav:
           - serve: modules/serve.md
       - Containers:
           - docker: modules/docker.md
+          - ci_stack: modules/ci_stack.md
           - docker_install: modules/docker_install.md
       - Languages and build:
           - python: modules/python.md

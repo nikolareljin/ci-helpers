@@ -118,7 +118,11 @@ case "$mode" in
   check)
     out="$(mktemp -d)"
     # shellcheck disable=SC2064  # expand $out now: it is gone by trap time otherwise
-    trap "rm -rf '$out'" EXIT
+    # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+    # subshell is signalled. ${BASHPID-$$} rather than $BASHPID alone: bash 3.2,
+    # which macOS ships, does not define BASHPID, and $$ is the top-level shell's
+    # pid in every subshell, so the comparison degrades to always-true there.
+    trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf '$out'; fi' EXIT
     "$mkdocs_bin" build --strict --site-dir "$out"
     if [[ ! -f "$out/index.html" ]]; then
       log_error "docs_site: no index.html at the site root; the published site would serve 404"
