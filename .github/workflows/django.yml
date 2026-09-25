@@ -1,0 +1,231 @@
+name: preset-django
+
+# Preset for Django projects: dependencies, lint, then the test suite against a
+# real database.
+#
+# Minimal usage (project at repo root):
+#   uses: nikolareljin/ci-helpers/.github/workflows/django.yml@production
+#
+# Typical usage (project in a subdirectory, postgres, a settings module):
+#   uses: nikolareljin/ci-helpers/.github/workflows/django.yml@production
+#   with:
+#     working_directory: "backend"
+#     db_image: "postgres:16"
+#     settings_module: "config.settings.ci"
+#
+# The Django-specific part -- the database, the connection the settings read,
+# and the migrations applied before the suite -- is script-helpers'
+# ci_django.sh, not this file. `scripts/ci_django.sh --workdir .` runs the same
+# thing on a laptop, so a failure on a runner can be reproduced without guessing
+# at what CI did differently.
+#
+# python.yml remains the preset for a project that needs neither a database nor
+# migrations; it installs and runs pytest and has no notion of either.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      # Distinguishes concurrent calls that share a caller workflow and ref --
+      # matrix legs, most often. The default key carries every input that makes
+      # one call distinct, including the database: two legs differing only in
+      # db_image would otherwise share a group and cancel each other.
+      concurrency_key:
+        type: string
+        default: ""
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to checkout; a typo is refused by
+      # the action rather than read as false.
+      submodules:
+        type: string
+        default: "false"
+      # Restores the pip cache when the project has a requirements file.
+      # actions/setup-python fails the job when told to cache with nothing it
+      # recognises, so "cache everything" is not a conservative default.
+      cache:
+        type: boolean
+        default: true
+      python_version:
+        type: string
+        default: "3.12"
+      # Runs on the runner, in working_directory, before the suite. Empty skips
+      # it. Not a default of `ruff check`: a project without ruff would fail on
+      # a tool it never chose.
+      lint_command:
+        type: string
+        default: ""
+      # Dependency install, performed by ci_django.sh. Empty by default, which
+      # makes the script use `pip install -r requirements.txt` when that file
+      # exists and skip the step when it does not.
+      install_command:
+        type: string
+        default: ""
+      # Schema, run before the suite against the database this preset started.
+      migrate_command:
+        type: string
+        default: "python manage.py migrate --noinput"
+      # The tests. Replace with `pytest` for a pytest-django project.
+      test_command:
+        type: string
+        default: "python manage.py test --noinput"
+      # DJANGO_SETTINGS_MODULE for every step. Empty leaves it unset, for a
+      # project whose manage.py sets its own default.
+      settings_module:
+        type: string
+        default: ""
+      # The database. sqlite needs no service at all -- set db_image to "" and
+      # the script uses a file, not ":memory:", because each step is its own
+      # process.
+      db_image:
+        type: string
+        default: "postgres:16"
+      db_name:
+        type: string
+        default: "django"
+      db_user:
+        type: string
+        default: "django"
+      db_password:
+        type: string
+        default: "django"
+      # The image's own root account, not the application's. postgres ignores
+      # it; MySQL refuses to initialise without it or an explicit empty one.
+      db_root_password:
+        type: string
+        default: "root"
+      db_port:
+        type: string
+        default: ""
+      db_wait_seconds:
+        type: number
+        default: 60
+      # Applied as the job timeout. Without one a hung job bills until GitHub's
+      # six-hour default (#132).
+      timeout_minutes:
+        type: number
+        default: 20
+
+concurrency:
+  group: >-
+    ci-helpers-django-${{ github.workflow }}-${{ inputs.concurrency_key
+    || format('{0}-{1}-py{2}-db{3}-{4}', inputs.working_directory, inputs.runner, inputs.python_version, inputs.db_image, inputs.db_name) }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  django:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          submodules: ${{ inputs.submodules }}
+
+      - name: Checkout script-helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 0879be9e2c431ab0cbd76ca0be416f83b0582d09 # 0.39.0
+          path: .script-helpers
+          fetch-depth: 1
+
+      # actions/checkout refuses a path outside the workspace, and the workspace
+      # holds the project. A checkout of this library sitting in the tree under
+      # test is not part of that project -- a linter would lint it and
+      # `manage.py test` would try to discover in it -- so it is moved before
+      # any step reads the directory.
+      - name: Move script-helpers out of the project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ runner.temp }}/script-helpers"
+          mv .script-helpers "${{ runner.temp }}/script-helpers"
+
+      # Whether the pip cache can be switched on at all. setup-python fails the
+      # whole job when told to cache with no requirements file it recognises.
+      - name: Decide whether pip can be cached
+        id: pip_cache
+        shell: bash
+        env:
+          WORKDIR: ${{ inputs.working_directory }}
+          CACHE: ${{ inputs.cache }}
+        run: |
+          set -euo pipefail
+          use=""
+          if [[ "$CACHE" == "true" ]]; then
+            for f in requirements.txt requirements/base.txt pyproject.toml; do
+              if [[ -f "${WORKDIR}/${f}" ]]; then use="pip"; break; fi
+            done
+            [[ -n "$use" ]] || echo "::notice::python: no requirements file found, not cached"
+          fi
+          echo "use=${use}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0 @ 2026-09-10
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: ${{ steps.pip_cache.outputs.use }}
+
+      - name: Lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
+
+      # The script starts the database, exports the connection, migrates, runs
+      # the suite and removes the database. The steps use the runner's Python,
+      # set up above, so --python-image is deliberately not passed.
+      - name: Django tests
+        shell: bash
+        # Values as environment, not interpolated into the command line: a
+        # password holding a quote would otherwise break the quoting or run as
+        # code. laravel.yml records the same lesson.
+        env:
+          WORKDIR: ${{ inputs.working_directory }}
+          DB_IMAGE: ${{ inputs.db_image }}
+          DB_NAME: ${{ inputs.db_name }}
+          DB_USER: ${{ inputs.db_user }}
+          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_ROOT_PASSWORD: ${{ inputs.db_root_password }}
+          DB_PORT: ${{ inputs.db_port }}
+          DB_WAIT: ${{ inputs.db_wait_seconds }}
+          SETTINGS_MODULE: ${{ inputs.settings_module }}
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          MIGRATE_COMMAND: ${{ inputs.migrate_command }}
+          TEST_COMMAND: ${{ inputs.test_command }}
+          HELPER: ${{ runner.temp }}/script-helpers/scripts/ci_django.sh
+        run: |
+          set -euo pipefail
+          args=(
+            --workdir "$WORKDIR"
+            --db-name "$DB_NAME"
+            --db-user "$DB_USER"
+            --db-password "$DB_PASSWORD"
+            --db-root-password "$DB_ROOT_PASSWORD"
+            --db-wait-seconds "$DB_WAIT"
+            --install-command "$INSTALL_COMMAND"
+            --migrate-command "$MIGRATE_COMMAND"
+            --test-command "$TEST_COMMAND"
+          )
+          # An empty db_image means sqlite, and the script refuses --db-image ''
+          # rather than guessing, so the flag is omitted entirely.
+          if [[ -n "$DB_IMAGE" ]]; then
+            args+=(--db-image "$DB_IMAGE")
+          fi
+          # Likewise: an empty --db-port would be a value the script has to
+          # reject, where omitting it lets the engine's default stand.
+          if [[ -n "$DB_PORT" ]]; then
+            args+=(--db-port "$DB_PORT")
+          fi
+          if [[ -n "$SETTINGS_MODULE" ]]; then
+            args+=(--settings "$SETTINGS_MODULE")
+          fi
+          "$HELPER" "${args[@]}"

@@ -1,5 +1,53 @@
 ## Unreleased
 
+### Added
+
+- **`django.yml`: the Django preset, and a fixture that drives it.** `python.yml`
+  installs and runs pytest. Django needs two things it has no notion of -- a
+  database its settings can reach, and the migrations applied before the suite
+  runs -- so this calls script-helpers' `ci_django.sh` (pinned at 0.39.0), which
+  means `scripts/ci_django.sh --workdir .` reproduces a runner failure on a
+  laptop.
+
+  ```yaml
+  jobs:
+    test:
+      uses: nikolareljin/ci-helpers/.github/workflows/django.yml@production
+      with:
+        working_directory: backend
+        db_image: postgres:16
+        settings_module: config.settings.ci
+  ```
+
+  The connection reaches the project as environment -- `DATABASE_URL` and the
+  discrete `DJANGO_DB_*` variables -- so a settings module that reads
+  `os.environ` works unchanged in both places. `db_image: ""` uses sqlite and no
+  service at all.
+
+  Two `self-test.yml` legs drive it, because a preset nothing exercises is a
+  preset nothing notices breaking. `tests/fixtures/django-app` installs
+  `psycopg` through the preset's own `install_command` and really connects: its
+  `test` step reads the row its `migrate` step wrote, from a different process,
+  so a green run means the preset exported a usable connection rather than a
+  plausible-looking URL. One leg is postgres with a deliberately non-default
+  database name, the other is `db_image: ""`.
+
+  The expected name is passed as an argument, not an environment prefix:
+  `ci_django.sh` treats the first word of a step command as the program to
+  probe for, so `NAME=value python manage.py test` is refused as a program
+  called `NAME=value` before it runs. That is a script-helpers defect with a
+  fix of its own; the fixture works around it rather than waiting.
+
+### Changed
+
+- **`docs/presets.md` said every preset calls `ci.yml`.** Four do not:
+  `laravel.yml`, `django.yml`, `wp-phpunit.yml` and `wp-build.yml` each run
+  their own job and drive a script-helpers script. The page had been describing
+  the old `laravel.yml` since it was rewired, and would have described
+  `django.yml` wrongly the day it landed. It now also records why those four
+  key their concurrency group on `db_image`: two legs differing only in the
+  database shared a group, and the second cancelled the first.
+
 ### Changed
 
 - **script-helpers 0.39.0, vendored and pinned.** All fourteen workflow pins and
