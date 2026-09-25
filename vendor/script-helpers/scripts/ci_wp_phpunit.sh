@@ -146,7 +146,12 @@ db_network=""
 cleanup() {
   if [[ -n "$db_container" ]]; then
     log_info "Removing database container ${db_container}"
-    docker rm -f "$db_container" >/dev/null 2>&1 || true
+    # -v as well as -f: the mysql and postgres images declare a VOLUME, so
+    # `docker run -d` creates an anonymous volume for every container. Without
+    # -v the container goes and the volume stays -- three runs of this script
+    # left 612 MB of orphans on a laptop before anyone noticed. -v removes only
+    # anonymous volumes; a named one passed by a caller is left alone.
+    docker rm -f -v "$db_container" >/dev/null 2>&1 || true
   fi
   if [[ -n "$db_network" ]]; then
     docker network rm "$db_network" >/dev/null 2>&1 || true

@@ -35,3 +35,9 @@ jobs:
       - name: Verify the vendored copy is usable
         shell: bash
         run: ./scripts/verify_vendor.sh --offline
+
+      # The vendored copy and the workflow pins name the same library and were
+      # related by nothing, so they drifted every time: four versions at once at
+      # the point this was written. Offline, like the check above.
+      - name: Workflow pins match the vendored copy
+        run: ./scripts/check_script_helpers_pins.sh
