@@ -953,8 +953,46 @@ jobs:
         done
         echo "staged tree verified: the plugin is there and no archive was made"
 
+  # The Laravel preset, driven end to end. The fixture's artisan asserts that
+  # .env was created, that APP_KEY was generated, and that the row `migrate`
+  # wrote is visible from the separate process that runs the tests -- so a green
+  # run means the preset provisioned a database the steps actually share, not
+  # merely that four commands exited 0.
+  laravel-runs-against-a-real-database:
+    uses: ./.github/workflows/laravel.yml
+    with:
+      working_directory: tests/fixtures/laravel-app
+      php_version: '8.3'
+      # The fixture is not a composer or npm project; the defaults would run
+      # `composer install` and `npm ci` against a directory with neither.
+      lint_command: ""
+      build_command: ""
+      node_version: ""
+      db_database: fixture_test
+      db_username: fixture
+      db_password: fixture
+      # Not the default, so a preset that dropped this input on the floor -- as
+      # it silently did until script-helpers 0.38.0 -- fails here rather than
+      # passing on the hard-coded value.
+      db_root_password: 'not-the-default'
+
+  # The other half of db_image: sqlite, no service at all. This is the leg that
+  # would have caught the in-memory database bug, where `migrate` reported every
+  # migration DONE and the next step could not find the migrations table.
+  laravel-works-with-no-database-service:
+    uses: ./.github/workflows/laravel.yml
+    with:
+      working_directory: tests/fixtures/laravel-app
+      php_version: '8.3'
+      lint_command: ""
+      build_command: ""
+      node_version: ""
+      db_image: ""
+
   assert-ran:
     needs:
+      - laravel-runs-against-a-real-database
+      - laravel-works-with-no-database-service
       - engine-inputs-gate-refuses-a-dropped-forward
       - submodules-recursive-checks-out-the-tree
       - submodules-default-leaves-the-tree-absent

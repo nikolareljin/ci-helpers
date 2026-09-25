@@ -1,7 +1,7 @@
 name: preset-laravel
 
-# Preset for Laravel apps. Builds assets, boots a MySQL service, runs Pint
-# style + the PHPUnit/artisan test suite against it.
+# Preset for Laravel apps: dependencies, style, assets, then the test suite
+# against a real database.
 #
 # Minimal usage (app at repo root):
 #   uses: nikolareljin/ci-helpers/.github/workflows/laravel.yml@production
@@ -13,9 +13,16 @@ name: preset-laravel
 #     php_version: "8.4.1"
 #     db_database: "my_app_test"
 #
-# Built on php.yml -> ci.yml. The DB is started via ci.yml's optional db_image
-# mechanism; the discrete db_* inputs below are composed into that for you.
-
+# The Laravel-specific part -- creating .env, generating APP_KEY, starting the
+# database, migrating, running the suite and removing the database afterwards --
+# is script-helpers' ci_laravel.sh, not this file. It used to be a shell block
+# inlined in a `test_command` here, where a developer could not run it at all:
+# a failure on a runner could only be reproduced by guessing at what CI did.
+# `scripts/ci_laravel.sh --workdir .` now runs the same code on a laptop.
+#
+# That also means the database is started by the script rather than by ci.yml's
+# db_image mechanism. One mechanism, not two -- the same choice wp-phpunit.yml
+# records.
 on:
   workflow_call:
     inputs:
@@ -25,46 +32,62 @@ on:
       working_directory:
         type: string
         default: "."
-      # Passed through to ci.yml; see its description there.
+      # Distinguishes concurrent calls that share a caller workflow and ref --
+      # matrix legs, most often. Without it the default key carries the
+      # directory, runner and both toolchain versions, so a matrix over PHP or
+      # Node versions does not cancel its own legs.
       concurrency_key:
         type: string
         default: ""
       fetch_depth:
         type: number
         default: 0
-      # false / true / recursive. Forwarded to the engine's checkout; see
-      # ci.yml for why a typo is refused rather than read as false.
+      # false / true / recursive. Forwarded to checkout; a typo is refused by
+      # the action rather than read as false.
       submodules:
         type: string
         default: "false"
-      # Restore dependency caches, for the toolchains whose setup action has
-      # the option. The engine decides which from the lockfiles it finds.
+      # Restores the npm cache when the app has a lockfile. Composer is not
+      # cached: setup-php has no cache option and this preset does not add one.
       cache:
         type: boolean
         default: true
       php_version:
         type: string
         default: "8.4"
+      # Set to "" to skip the Node setup entirely, for an API-only app.
       node_version:
         type: string
         default: "22"
-      # Pint style check by default; override to phpcs/phpstan/etc.
+      # Pint style check by default; override to phpcs/phpstan/etc. Runs before
+      # the suite, on the runner, in working_directory.
       lint_command:
         type: string
         default: "composer install --no-interaction --prefer-dist && vendor/bin/pint --test"
-      # Asset build. Set to "" to skip for API-only apps; also set node_version
-      # to "" if you want to skip the Node setup step entirely.
+      # Asset build. Set to "" to skip.
       build_command:
         type: string
         default: "npm ci --include=optional && npm run build"
-      # Test suite. The DB connection is exported as environment (see extra_env
-      # below) before running, so both `migrate` and `test` use the CI MySQL
-      # service. phpunit.xml may still force its own DB_DATABASE (e.g. *_test) —
-      # set db_database to match.
+      # The tests. Runs with the DB_* connection already exported, so both the
+      # migration and the suite reach the database this preset started.
       test_command:
         type: string
         default: "php artisan test"
-      # MySQL service (set db_image: "" to run without a database).
+      # Dependency install performed by ci_laravel.sh before the key is
+      # generated. Empty by default because lint_command already installs;
+      # set it if you replace lint_command with something that does not.
+      install_command:
+        type: string
+        default: ""
+      # Schema. `config:clear` first: a cached config from an earlier step would
+      # otherwise send the migration at whatever DB_* the cache holds rather
+      # than the ones exported here.
+      migrate_command:
+        type: string
+        default: "php artisan config:clear && php artisan migrate --force"
+      # The database. Set db_image to "" to run on sqlite, which needs no
+      # service at all; the script then uses a file, not :memory:, because each
+      # step is its own process.
       db_image:
         type: string
         default: "mysql:8.0"
@@ -77,6 +100,9 @@ on:
       db_password:
         type: string
         default: "secret"
+      # The image's own root account, not the application's. Requires
+      # script-helpers 0.38.0 or newer; before that it was hard-coded and a
+      # caller's value was accepted and discarded.
       db_root_password:
         type: string
         default: "root"
@@ -86,64 +112,137 @@ on:
       db_wait_seconds:
         type: number
         default: 60
-      # Forwarded to the engine, which applies it as the job timeout. Without
-      # one a hung job bills until GitHub's six-hour default (#132).
+      # Applied as the job timeout. Without one a hung job bills until GitHub's
+      # six-hour default (#132).
       timeout_minutes:
         type: number
         default: 20
 
+concurrency:
+  group: >-
+    ci-helpers-laravel-${{ github.workflow }}-${{ inputs.concurrency_key
+    || format('{0}-{1}-php{2}-node{3}', inputs.working_directory, inputs.runner, inputs.php_version, inputs.node_version) }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   laravel:
-    uses: ./.github/workflows/php.yml
-    with:
-      runner: ${{ inputs.runner }}
-      working_directory: ${{ inputs.working_directory }}
-      concurrency_key: ${{ inputs.concurrency_key }}
-      fetch_depth: ${{ inputs.fetch_depth }}
-      php_version: ${{ inputs.php_version }}
-      node_version: ${{ inputs.node_version }}
-      lint_command: ${{ inputs.lint_command }}
-      build_command: ${{ inputs.build_command }}
-      # Prepare .env + key, then migrate/test. The DB_* connection comes from the
-      # process environment (set via extra_env below) rather than being appended
-      # to .env: Laravel's Dotenv loader is immutable and keeps the FIRST value
-      # it sees, so duplicate keys appended after an existing .env.example entry
-      # are silently ignored. Real environment variables take precedence over
-      # .env, so both `migrate` and `test` reliably use them. The copy only runs
-      # when .env.example exists and .env is absent, so real cp errors (missing
-      # source, permissions) surface instead of being swallowed.
-      test_command: |
-        if [ -f .env.example ] && [ ! -f .env ]; then
-          cp .env.example .env
-        fi
-        php artisan key:generate --force
-        php artisan config:clear
-        php artisan migrate --force
-        ${{ inputs.test_command }}
-      # DB connection passed as environment, not interpolated into the shell, so
-      # credentials with quotes or other special characters can't break quoting.
-      extra_env: |
-        DB_CONNECTION=mysql
-        DB_HOST=127.0.0.1
-        DB_PORT=${{ inputs.db_port }}
-        DB_DATABASE=${{ inputs.db_database }}
-        DB_USERNAME=${{ inputs.db_username }}
-        DB_PASSWORD=${{ inputs.db_password }}
-      db_image: ${{ inputs.db_image }}
-      # Bind the published port to loopback only: on self-hosted runners this
-      # keeps the DB off the network while DB_HOST=127.0.0.1 still reaches it.
-      db_ports: ${{ format('127.0.0.1:{0}:3306', inputs.db_port) }}
-      db_env: |
-        MYSQL_DATABASE=${{ inputs.db_database }}
-        MYSQL_USER=${{ inputs.db_username }}
-        MYSQL_PASSWORD=${{ inputs.db_password }}
-        MYSQL_ROOT_PASSWORD=${{ inputs.db_root_password }}
-      # Reference the root password from the container's own environment rather
-      # than interpolating it into the probe string — avoids brittle shell
-      # quoting if the password contains special characters. The probe runs as
-      # `sh -c` inside the DB container, where $MYSQL_ROOT_PASSWORD is set.
-      db_health_cmd: 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
-      db_wait_seconds: ${{ inputs.db_wait_seconds }}
-      timeout_minutes: ${{ inputs.timeout_minutes }}
-      submodules: ${{ inputs.submodules }}
-      cache: ${{ inputs.cache }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          submodules: ${{ inputs.submodules }}
+
+      - name: Checkout script-helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: nikolareljin/script-helpers
+          ref: 3e3dd3962c3a9d1051acd9da5fdb55187c7455cd # 0.38.0
+          path: .script-helpers
+          fetch-depth: 1
+
+      # actions/checkout refuses a path outside the workspace, and the workspace
+      # holds the application. A checkout of this library sitting in the tree
+      # under test is not part of that application -- Pint would lint it and
+      # `artisan test` would discover its shell fixtures -- so it is moved
+      # before any step reads the directory.
+      - name: Move script-helpers out of the application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ runner.temp }}/script-helpers"
+          mv .script-helpers "${{ runner.temp }}/script-helpers"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2 @ 2026-09-10
+        with:
+          php-version: ${{ inputs.php_version }}
+
+      # Whether the npm cache can be switched on at all: actions/setup-node
+      # fails the whole job when told to cache with no lockfile it recognises,
+      # so "cache everything" is not a conservative default.
+      - name: Decide whether npm can be cached
+        id: npm_cache
+        if: ${{ inputs.node_version != '' }}
+        shell: bash
+        env:
+          WORKDIR: ${{ inputs.working_directory }}
+          CACHE: ${{ inputs.cache }}
+        run: |
+          set -euo pipefail
+          use=""
+          if [[ "$CACHE" == "true" ]]; then
+            for f in package-lock.json npm-shrinkwrap.json yarn.lock; do
+              if [[ -f "${WORKDIR}/${f}" ]]; then use="npm"; break; fi
+            done
+            [[ -n "$use" ]] || echo "::notice::node: no lockfile found, not cached"
+          fi
+          echo "use=${use}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: ${{ inputs.node_version != '' }}
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0 @ 2026-09-10
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ steps.npm_cache.outputs.use }}
+          cache-dependency-path: ${{ inputs.working_directory }}/package-lock.json
+
+      - name: Lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      # The script provisions .env and APP_KEY, starts the database, migrates,
+      # runs the suite and removes the database. The steps use the runner's PHP,
+      # set up above, so --php-image is deliberately not passed.
+      - name: Laravel tests
+        shell: bash
+        # Values as environment, not interpolated into the command line: a
+        # password holding a quote would otherwise break the quoting or run as
+        # code. This preset's predecessor recorded the same lesson for its DB
+        # connection.
+        env:
+          WORKDIR: ${{ inputs.working_directory }}
+          DB_IMAGE: ${{ inputs.db_image }}
+          DB_NAME: ${{ inputs.db_database }}
+          DB_USER: ${{ inputs.db_username }}
+          DB_PASSWORD: ${{ inputs.db_password }}
+          DB_ROOT_PASSWORD: ${{ inputs.db_root_password }}
+          DB_PORT: ${{ inputs.db_port }}
+          DB_WAIT: ${{ inputs.db_wait_seconds }}
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+          MIGRATE_COMMAND: ${{ inputs.migrate_command }}
+          TEST_COMMAND: ${{ inputs.test_command }}
+          HELPER: ${{ runner.temp }}/script-helpers/scripts/ci_laravel.sh
+        run: |
+          set -euo pipefail
+          args=(
+            --workdir "$WORKDIR"
+            --db-name "$DB_NAME"
+            --db-user "$DB_USER"
+            --db-password "$DB_PASSWORD"
+            --db-root-password "$DB_ROOT_PASSWORD"
+            --db-port "$DB_PORT"
+            --db-wait-seconds "$DB_WAIT"
+            --install-command "$INSTALL_COMMAND"
+            --migrate-command "$MIGRATE_COMMAND"
+            --test-command "$TEST_COMMAND"
+          )
+          # An empty db_image means sqlite, and the script refuses --db-image ''
+          # rather than guessing, so the flag is omitted entirely.
+          if [[ -n "$DB_IMAGE" ]]; then
+            args+=(--db-image "$DB_IMAGE")
+          fi
+          "$HELPER" "${args[@]}"
