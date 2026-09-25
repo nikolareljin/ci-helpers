@@ -369,42 +369,27 @@ require_pdo_driver() {
 # ---------------------------------------------------------------------------
 require_step_command() {   # <label> <command>
   local label="$1" command="$2"
-  [[ -n "$command" ]] || return 0
+  local program; program="$(ci_stack_command_program "$command")"
+  # Empty means the command is a shell construct, or there is no command at
+  # all; either way there is nothing to look up.
+  [[ -n "$program" ]] || return 0
 
-  # The first word is what has to be on PATH; the rest is arguments.
-  local program="${command%% *}"
-  # A command that is a shell construct rather than a program is left alone.
-  case "$program" in
-    *=*|*\;*|'('|'{') return 0 ;;
-  esac
+  ci_stack_command_available "$abs_workdir" "$php_image" "$docker_user" "$program" && return 0
 
-  local probe="command -v ${program} >/dev/null 2>&1"
-  local ok=0
-  if [[ -z "$php_image" ]]; then
-    bash -c "$probe" || ok=$?
+  local where="this machine"
+  [[ -n "$php_image" ]] && where="$php_image"
+  log_error "${label}: '${program}' is not on PATH in ${where}."
+  if [[ "$program" == "php" ]]; then
+    log_error "Run it in a container with --php-image, or install PHP on this machine."
+  elif [[ "$program" == "composer" ]]; then
+    log_error "The official php images ship no composer. Use an image that has it,"
+    log_error "install the dependencies beforehand and pass --install-command '',"
+    log_error "or build one:  FROM ${php_image:-php:8.4-cli}"
+    log_error "               COPY --from=composer:2 /usr/bin/composer /usr/bin/composer"
   else
-    local user_args=()
-    [[ -n "$docker_user" ]] && user_args=(-u "$docker_user" -e HOME=/tmp)
-    docker run --rm ${user_args[@]+"${user_args[@]}"} "$php_image" \
-      bash -c "$probe" >/dev/null 2>&1 || ok=$?
+    log_error "Pass a command the image has, or an empty one to skip the step."
   fi
-
-  if [[ "$ok" -ne 0 ]]; then
-    local where="this machine"
-    [[ -n "$php_image" ]] && where="$php_image"
-    log_error "${label}: '${program}' is not on PATH in ${where}."
-    if [[ "$program" == "php" ]]; then
-      log_error "Run it in a container with --php-image, or install PHP on this machine."
-    elif [[ "$program" == "composer" ]]; then
-      log_error "The official php images ship no composer. Use an image that has it,"
-      log_error "install the dependencies beforehand and pass --install-command '',"
-      log_error "or build one:  FROM ${php_image:-php:8.4-cli}"
-      log_error "               COPY --from=composer:2 /usr/bin/composer /usr/bin/composer"
-    else
-      log_error "Pass a command the image has, or an empty one to skip the step."
-    fi
-    exit 2
-  fi
+  exit 2
 }
 
 require_pdo_driver

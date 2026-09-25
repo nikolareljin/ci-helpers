@@ -164,6 +164,11 @@ cleanup() {
   if [[ -n "$sqlite_file" && -f "$sqlite_file" ]]; then
     rm -f "$sqlite_file"
   fi
+  # Packages installed for a --python-image run live inside the project so they
+  # survive between steps; they should not survive the run itself.
+  if [[ -n "$python_image" && -d "${abs_workdir}/.ci-python-packages" ]]; then
+    rm -rf "${abs_workdir}/.ci-python-packages"
+  fi
   ci_stack_remove ${db_container:+--container "$db_container"} ${db_network:+--network "$db_network"}
 }
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
@@ -228,21 +233,22 @@ step_failed() {   # <label> <command> <rc>
 # Refuses before running rather than after: a missing interpreter otherwise
 # surfaces as exit 127 from a shell, which names nothing a caller can act on.
 require_step_command() {   # <label> <command>
-  local label="$1" command="$2" program="${command%% *}"
-  local probe="command -v ${program} >/dev/null 2>&1"
+  local label="$1" command="$2"
+  local program; program="$(ci_stack_command_program "$command")"
+  [[ -n "$program" ]] || return 0
+
+  ci_stack_command_available "$abs_workdir" "$python_image" "$docker_user" "$program" && return 0
+
   local where="this machine"
-  if [[ -n "$python_image" ]]; then
-    where="${python_image}"
-    docker run --rm "$python_image" sh -c "$probe" >/dev/null 2>&1 && return 0
-  else
-    eval "$probe" && return 0
-  fi
+  [[ -n "$python_image" ]] && where="$python_image"
   log_error "${label}: '${program}' is not on PATH in ${where}."
   if [[ "$program" == "python" ]]; then
     log_error "The official python images provide 'python'; a system one may only provide 'python3'."
     log_error "Pass --test-command 'python3 manage.py test' or run it with --python-image."
   elif [[ "$program" == "pip" ]]; then
     log_error "Use 'python -m pip' instead of 'pip', or run it with --python-image."
+  else
+    log_error "Pass a command the image has, or an empty one to skip the step."
   fi
   exit 1
 }
@@ -269,11 +275,23 @@ run_step() {   # <label> <command>
   local -a user_args=()
   [[ -n "$docker_user" ]] && user_args=(-u "$docker_user")
   # HOME: pip writes a cache, and with no writable HOME it warns on every run.
+  #
+  # PIP_TARGET and PYTHONPATH point at a directory inside the mounted workdir,
+  # because each step is its own `docker run --rm`: a plain `pip install` puts
+  # packages in the container's site-packages and the next step gets a fresh
+  # container without them. Composer has no such problem -- it writes into the
+  # mounted vendor/ -- so this only bites the Python runner, and it bit it
+  # silently: the install step reported success and the step after it failed
+  # with ModuleNotFoundError.
+  #
   # bash -c, not -lc: a login shell replaces PATH with /etc/profile's default.
   docker run --rm \
     ${net_args[@]+"${net_args[@]}"} \
     ${user_args[@]+"${user_args[@]}"} \
     -e HOME=/tmp \
+    -e PIP_TARGET=/app/.ci-python-packages \
+    -e PYTHONPATH=/app/.ci-python-packages \
+    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
     "${env_args[@]}" \
     -v "${abs_workdir}:/app" -w /app \
     "$python_image" bash -c "$command" || step_failed "$label" "$command" "$?"
