@@ -1,0 +1,79 @@
+#!/usr/bin/env php
+<?php
+// A stand-in for Laravel's artisan, implementing only the four subcommands the
+// preset drives. It is deliberately not Laravel: pulling the framework in would
+// make this fixture a test of composer and of laravel/framework, and it would
+// still not exercise anything in laravel.yml that this does not.
+//
+// What it does test is the part that is ci-helpers' own: that the preset
+// creates .env, generates a key, exports a DB_* connection the steps can
+// actually reach, and runs the migration and the suite as SEPARATE PROCESSES
+// against the SAME database. That last one is not theoretical -- ci_laravel.sh
+// used an in-memory sqlite database and `migrate` reported every migration DONE
+// while the next step answered "Migration table not found".
+//
+// Real Laravel is proven by the applications that call this preset.
+
+$cmd = $argv[1] ?? '';
+
+function env_file(): string { return getcwd() . '/.env'; }
+
+function fail(string $m): never { fwrite(STDERR, "fixture: $m\n"); exit(1); }
+
+function pdo(): PDO {
+    $conn = getenv('DB_CONNECTION') ?: '';
+    $db   = getenv('DB_DATABASE') ?: '';
+    if ($conn === 'sqlite') {
+        if ($db === '' || $db === ':memory:') {
+            fail("DB_DATABASE is '$db'; a file is required, because each step is its own process");
+        }
+        return new PDO("sqlite:$db");
+    }
+    $host = getenv('DB_HOST') ?: '127.0.0.1';
+    $port = getenv('DB_PORT') ?: '3306';
+    $user = getenv('DB_USERNAME') ?: '';
+    $pass = getenv('DB_PASSWORD') ?: '';
+    $driver = $conn === 'pgsql' ? 'pgsql' : 'mysql';
+    return new PDO("$driver:host=$host;port=$port;dbname=$db", $user, $pass);
+}
+
+switch ($cmd) {
+    case 'key:generate':
+        $env = file_exists(env_file()) ? file_get_contents(env_file()) : '';
+        if (preg_match('/^APP_KEY=.+$/m', $env)) {
+            echo "APP_KEY already set, nothing to do\n";
+            break;
+        }
+        file_put_contents(env_file(), rtrim($env, "\n") . "\nAPP_KEY=base64:" . base64_encode(random_bytes(32)) . "\n");
+        echo "Application key set successfully.\n";
+        break;
+
+    case 'config:clear':
+        echo "Configuration cache cleared successfully.\n";
+        break;
+
+    case 'migrate':
+        $pdo = pdo();
+        $pdo->exec('DROP TABLE IF EXISTS ci_helpers_probe');
+        $pdo->exec('CREATE TABLE ci_helpers_probe (note VARCHAR(64))');
+        $pdo->exec("INSERT INTO ci_helpers_probe (note) VALUES ('written by migrate')");
+        echo "  2026_01_01_000000_create_ci_helpers_probe_table ......... DONE\n";
+        break;
+
+    case 'test':
+        // 1. the key the preset was supposed to generate
+        $env = file_exists(env_file()) ? file_get_contents(env_file()) : '';
+        if (!preg_match('/^APP_KEY=.+$/m', $env)) {
+            fail('no APP_KEY in .env, so the preset never generated one');
+        }
+        // 2. the database the migration wrote to, reached from a second process
+        $row = pdo()->query('SELECT note FROM ci_helpers_probe')->fetchColumn();
+        if ($row !== 'written by migrate') {
+            fail("the migration's row is not visible here (got " . var_export($row, true) . ")");
+        }
+        printf("  Tests:    2 passed (2 assertions)   [connection=%s]\n", getenv('DB_CONNECTION'));
+        break;
+
+    default:
+        fail("unsupported command: '$cmd'");
+}

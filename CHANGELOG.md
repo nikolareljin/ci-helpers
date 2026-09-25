@@ -1,8 +1,55 @@
-# Changelog
-
 ## Unreleased
 
+### Changed
+
+- **`laravel.yml` runs script-helpers' `ci_laravel.sh` instead of a shell block
+  nobody could run.** The Laravel-specific work -- create `.env`, generate
+  `APP_KEY`, start the database, migrate, test, remove the database -- was
+  inlined as a `test_command` heredoc in this file. A failure on a runner could
+  only be reproduced by guessing at what CI had done differently.
+  `scripts/ci_laravel.sh --workdir .` now runs the same code on a laptop.
+
+  The input surface is unchanged, so no caller needs editing. Two inputs are
+  added: `install_command` (empty by default, since `lint_command` already
+  installs) and `migrate_command`, which defaults to
+  `php artisan config:clear && php artisan migrate --force` -- the `config:clear`
+  preserves what the inline block did, and matters because a cached config would
+  send the migration at whatever `DB_*` it holds rather than the ones exported.
+
+  `db_root_password` now reaches the database image. It used to be passed to
+  `ci.yml`'s `db_env`; the script hard-coded `root` until script-helpers 0.38.0,
+  so the value would have been accepted and discarded. Pinned at
+  `3e3dd396` # 0.38.0.
+
+  The database is started by the script rather than by `ci.yml`'s `db_image`.
+  One mechanism, not two, which is the choice `wp-phpunit.yml` already records.
+
+- **`check_floating_refs.sh` now also refuses a `ref:` that names a branch.**
+  `uses:` is not the only way a workflow pulls in someone else's code: twelve
+  workflows here check out script-helpers with `repository:` and `ref:`, and a
+  `ref: main` there would put that library's moving head into every consumer's
+  run. The existing pattern could not see it, because there is no `uses:` on the
+  line. All twelve were already SHA-pinned, so nothing had to change to make
+  this pass.
+
 ### Added
+
+- **`tests/fixtures/laravel-app`, and two `self-test.yml` jobs that drive the
+  preset with it.** `laravel.yml` had no caller anywhere: nothing exercised it,
+  so nothing would have noticed it breaking.
+
+  The fixture's `artisan` implements only the four subcommands the preset
+  drives, and each asserts something the preset owns -- that `.env` was created,
+  that `APP_KEY` was generated, and that the row `migrate` wrote is visible from
+  the separate process running the tests. That last assertion is why the fixture
+  is not a `true` command: `ci_laravel.sh` once used an in-memory sqlite
+  database, where `migrate` reported every migration DONE and the next step
+  answered "Migration table not found". Checking exit codes would have passed.
+
+  One leg runs against MySQL with a deliberately non-default `db_root_password`,
+  so a preset that drops that input fails rather than passing on the hard-coded
+  value. The other runs with `db_image: ""` -- sqlite, no service at all.
+
 
 - **`wp-build.yml`: the package a WordPress plugin ships, built in CI.** What
   ships is not what is in the repository -- a plugin needs its production
@@ -44,17 +91,16 @@
   whoever deploys it, and a listing is the cheapest way to notice that
   `node_modules` shipped again.
 
-### Changed
-
-- **`check_floating_refs.sh` now also refuses a `ref:` that names a branch.**
-  `uses:` is not the only way a workflow pulls in someone else's code: twelve
-  workflows here check out script-helpers with `repository:` and `ref:`, and a
-  `ref: main` there would put that library's moving head into every consumer's
-  run. The existing pattern could not see it, because there is no `uses:` on the
-  line. All twelve were already SHA-pinned, so nothing had to change to make
-  this pass.
-
 ### Fixed
+
+- **`self-test.yml`'s `assert-ran` checked a list of job names kept separately
+  from the jobs it waits on.** The two drifted the first time a job was added:
+  the new Laravel legs were in `needs` and absent from the list, so the gate
+  reported success while one of them had been `cancelled`. It now reads
+  `toJSON(needs)`, which cannot fall behind, and fails if it examines fewer than
+  ten legs -- a malformed object would otherwise loop zero times and pass having
+  checked nothing.
+
 
 - **A leg was named `check -php8.2` when no WordPress version was given.** The
   label concatenated `"wp" + wp` and `"-php" + php`, so an empty `wp` left the
@@ -79,6 +125,7 @@
   check exists to prevent, which GitHub reports without naming the input or
   the duplicate. It compares labels now, and says which one collided rather
   than printing the whole array.
+
 
 ## 2026-09-23 — v0.35.0
 
