@@ -183,7 +183,13 @@ cleanup_stack() {
 
   return "$exit_status"
 }
-trap cleanup_stack EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup_stack; fi' EXIT
 
 if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_command" ]]; then
   if [[ -n "$php_lint_command" ]]; then

@@ -91,7 +91,13 @@ if [[ -z "$commit_message" ]]; then
 fi
 
 tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp_dir"; fi' EXIT
 
 # The token must not reach argv (visible in ps) or the tap clone's .git/config.
 # The clone URL therefore carries no credential -- so origin in .git/config

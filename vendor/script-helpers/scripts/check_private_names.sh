@@ -133,7 +133,13 @@ if [[ -n "$REPO" ]]; then
 fi
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
 hard="$work/hard"
 ambiguous="$work/ambiguous"
 entries="$work/entries"

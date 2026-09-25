@@ -42,7 +42,13 @@ _push_is_deletions_only() {
 # needed twice -- for the deletions-only shortcut and to work out which commits
 # are actually going out -- so they are captured first.
 _push_refs="$(mktemp)"
-trap 'rm -f "$_push_refs"' EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$_push_refs"; fi' EXIT
 cat > "$_push_refs"
 
 if _push_is_deletions_only < "$_push_refs"; then

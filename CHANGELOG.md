@@ -2,6 +2,24 @@
 
 ### Changed
 
+- **script-helpers 0.39.0, vendored and pinned.** All fourteen workflow pins and
+  `vendor/script-helpers` move together, which is now one command to verify
+  rather than a thing to remember:
+
+  ```
+  before:  14 script-helpers pin(s) all match the vendored ref 0.38.1 (8da793bb6653)
+  after:   14 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
+  ```
+
+  0.39.0 brings `lib/ci_stack.sh` -- one copy of the disposable-database
+  machinery that `ci_laravel.sh` and `ci_wp_phpunit.sh` had each carried and
+  drifted apart on -- and `scripts/ci_django.sh`, which `django.yml` will call.
+  It also guards every EXIT trap in shipped code against running in an inherited
+  subshell, which matters here because two of those traps run
+  `docker compose down -v --remove-orphans` against the caller's stack.
+
+### Changed
+
 - **Every script-helpers pin is 0.38.1, and the vendored copy with it.** There
   were four versions of one library in this repository at once: eleven
   workflows at 0.35.0, `wp-build.yml` at 0.36.0, `laravel.yml` at 0.38.0, and

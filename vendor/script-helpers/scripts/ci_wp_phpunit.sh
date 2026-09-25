@@ -45,7 +45,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help docker
+shlib_import logging help docker ci_stack
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
@@ -144,73 +144,39 @@ print(sorted(match, key=lambda v: [int(p) for p in v.split(".")])[-1])
 db_container=""
 db_network=""
 cleanup() {
-  if [[ -n "$db_container" ]]; then
-    log_info "Removing database container ${db_container}"
-    # -v as well as -f: the mysql and postgres images declare a VOLUME, so
-    # `docker run -d` creates an anonymous volume for every container. Without
-    # -v the container goes and the volume stays -- three runs of this script
-    # left 612 MB of orphans on a laptop before anyone noticed. -v removes only
-    # anonymous volumes; a named one passed by a caller is left alone.
-    docker rm -f -v "$db_container" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$db_network" ]]; then
-    docker network rm "$db_network" >/dev/null 2>&1 || true
-  fi
+  ci_stack_remove ${db_container:+--container "$db_container"} ${db_network:+--network "$db_network"}
 }
-trap cleanup EXIT
+# Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+# subshell is signalled -- so this could tear down the caller's stack, or
+# delete a directory, while the run is still using it. ${BASHPID-$$} rather
+# than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+# and $$ is the top-level shell's pid in every subshell, so the comparison
+# degrades to always-true there rather than to always-false.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 
-start_database() {
+# The database, started by lib/ci_stack.sh. This used to be a copy of the same
+# function in ci_laravel.sh, and the two drifted until only one of them guarded
+# its EXIT trap -- which is how a signalled subshell could remove the caller's
+# database container mid-run.
+#
+# --network or --publish, never both: with --php-image the tests reach the
+# database by container name on a shared network, and publishing a port nothing
+# will use fails the run with "port is already allocated".
+if [[ -n "$db_image" ]]; then
   db_container="wp-phpunit-db-$$"
-  local net_args=()
+  publish_arg=""
   if [[ -n "$php_image" ]]; then
-    # A user-defined network rather than --network host: the PHP container
-    # reaches the database by container name, which works the same on Linux
-    # and macOS. Publishing to loopback would only work on Linux.
     db_network="wp-phpunit-net-$$"
-    docker network create "$db_network" >/dev/null
-    net_args=(--network "$db_network")
-  fi
-  # Publish the port only when the tests run on the host and need to reach it.
-  # With --php-image they reach the database by container name on the shared
-  # network, and publishing anyway fails the whole run with "port is already
-  # allocated" whenever something else holds that port -- for a port nothing
-  # was going to use.
-  local publish=()
-  if [[ -z "$php_image" ]]; then
-    publish=(-p "${db_host}:${db_port}:3306")
-    log_info "Starting ${db_image} as ${db_container} on ${db_host}:${db_port}"
   else
-    log_info "Starting ${db_image} as ${db_container} on the ${db_network} network"
+    publish_arg="${db_host}:${db_port}"
   fi
-
-  # ${arr[@]+"${arr[@]}"}: bash 3.2, which macOS still ships, treats an empty
-  # array as an unbound variable under `set -u`. Both arrays are empty in one
-  # mode or the other.
-  docker run -d --name "$db_container" \
-    ${net_args[@]+"${net_args[@]}"} \
-    ${publish[@]+"${publish[@]}"} \
-    -e MYSQL_DATABASE="$db_name" \
-    -e MYSQL_USER="$db_user" \
-    -e MYSQL_PASSWORD="$db_password" \
-    -e MYSQL_ROOT_PASSWORD="root" \
-    "$db_image" >/dev/null
-
-  # Poll rather than sleep: the image is ready when it answers, and a fixed
-  # sleep is either too short on a loaded machine or wasted time on a fast one.
-  local waited=0
-  while (( waited < db_wait_seconds )); do
-    if docker exec "$db_container" sh -c 'mysqladmin ping -h 127.0.0.1 --silent' >/dev/null 2>&1; then
-      log_info "Database ready after ${waited}s"
-      return 0
-    fi
-    sleep 2
-    waited=$(( waited + 2 ))
-  done
-  log_error "Database did not become ready within ${db_wait_seconds}s"
-  exit 1
-}
-
-[[ -n "$db_image" ]] && start_database
+  ci_stack_start_database \
+    --image "$db_image" --engine mysql --name "$db_container" \
+    ${db_network:+--network "$db_network"} \
+    ${publish_arg:+--publish "$publish_arg"} \
+    --db "$db_name" --user "$db_user" --password "$db_password" \
+    --wait-seconds "$db_wait_seconds" || exit 1
+fi
 
 # Where the tests will reach the database from. Inside a PHP container on the
 # shared network that is the database container's name on 3306; on the host it
@@ -261,7 +227,13 @@ else
   mkdir -p "$wp_tests_dir" "$wp_core_dir"
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"; cleanup' EXIT
+  # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
+  # subshell is signalled -- so this could tear down the caller's stack, or
+  # delete a directory, while the run is still using it. ${BASHPID-$$} rather
+  # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
+  # and $$ is the top-level shell's pid in every subshell, so the comparison
+  # degrades to always-true there rather than to always-false.
+  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; cleanup; fi' EXIT
   curl -fsSL -o "${tmp}/wordpress-develop.tar.gz" \
     "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${wp_tag}.tar.gz"
   tar -xzf "${tmp}/wordpress-develop.tar.gz" -C "$tmp"
