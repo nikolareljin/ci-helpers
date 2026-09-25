@@ -989,8 +989,42 @@ jobs:
       node_version: ""
       db_image: ""
 
+  # The Django preset, driven end to end against a real postgres. The fixture
+  # installs psycopg through the preset's own install_command and then really
+  # connects: its `test` step reads the row its `migrate` step wrote, from a
+  # different process, so a green run means the preset exported a connection the
+  # project can use rather than a plausible-looking DATABASE_URL.
+  django-runs-against-a-real-database:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: postgres:16
+      db_name: fixture_db
+      db_user: fixture
+      db_password: fixture
+      install_command: 'pip install --quiet "psycopg[binary]"'
+      migrate_command: 'python manage.py migrate'
+      # EXPECT_DB_NAME makes the fixture fail if the preset connected to some
+      # default rather than to the database this job asked for.
+      test_command: 'EXPECT_DB_NAME=fixture_db python manage.py test'
+
+  # The other half of db_image: sqlite, no service at all. This is the leg that
+  # would have caught the in-memory database bug, where `migrate` reported every
+  # migration applied and the next step could not find the migrations table.
+  django-works-with-no-database-service:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: ""
+      migrate_command: 'python manage.py migrate'
+      test_command: 'python manage.py test'
+
   assert-ran:
     needs:
+      - django-runs-against-a-real-database
+      - django-works-with-no-database-service
       - laravel-runs-against-a-real-database
       - laravel-works-with-no-database-service
       - engine-inputs-gate-refuses-a-dropped-forward

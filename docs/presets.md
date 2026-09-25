@@ -19,9 +19,17 @@ Related docs:
 Use a preset if you want a fast setup with minimal inputs, and override any
 command or version as needed.
 
-A preset calls `ci.yml` (Laravel: `php.yml`, then `ci.yml`) by relative path,
-so it runs the `ci.yml` from the same ref you pinned the preset to: pinning
-`node.yml@<tag>` pins the job it runs as well.
+Most presets call `ci.yml` by relative path, so they run the `ci.yml` from the
+same ref you pinned the preset to: pinning `node.yml@<tag>` pins the job it runs
+as well.
+
+Four do not, and run their own job instead: `laravel.yml`, `django.yml`,
+`wp-phpunit.yml` and `wp-build.yml`. Each drives a script-helpers script --
+`ci_laravel.sh`, `ci_django.sh`, `ci_wp_phpunit.sh`, `ci_wp_build.sh` -- so the
+same command runs in CI and on a laptop, and each starts whatever service it
+needs itself rather than going through `ci.yml`'s `db_image`. One mechanism, not
+two. They pin script-helpers by commit; `scripts/check_script_helpers_pins.sh`
+refuses a tree where those pins and `vendor/script-helpers` disagree.
 
 Composite actions have no same-commit form, so the workflows that use one
 still call it at `@production`: `gitleaks-scan.yml` (the `gitleaks-scan`
@@ -34,7 +42,13 @@ working directory, the runner and the toolchain versions (`node_version`,
 `java_version`, `dotnet_version`, `python_version`, `go_version`,
 `flutter_version`/`flutter_channel`, `php_version`, `rust_toolchain`). Two jobs
 in one workflow that share all of those still cancel each other; give each a
-distinct `concurrency_key` (every preset, Laravel included, passes it through).
+distinct `concurrency_key` (every preset passes it through).
+
+The four presets that run their own job key their own group, and include the
+database in it: two legs differing only in `db_image` would otherwise share a
+group and the second would cancel the first. That is not hypothetical -- it
+happened to `laravel.yml`'s own self-test legs before the key carried
+`db_image`.
 
 ## Node
 
