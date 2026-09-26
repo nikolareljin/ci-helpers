@@ -69,6 +69,14 @@ ci_stack_start_database() {
     esac
   done
 
+  # Checked first, and by name: without it the first failure is
+  # `docker network create` and the message blames the network, sending a
+  # reader after a problem they do not have.
+  command -v docker >/dev/null 2>&1 || {
+    log_error "ci_stack_start_database: docker is not on PATH, so no database can be started."
+    log_error "Install docker, or run without --db-image and point the tests at a database you already have."
+    return 1
+  }
   [[ -n "$image" ]] || { log_error "ci_stack_start_database: --image is required"; return 2; }
   [[ -n "$name" ]]  || { log_error "ci_stack_start_database: --name is required"; return 2; }
   [[ "$wait_seconds" =~ ^[0-9]+$ ]] || {
@@ -210,8 +218,14 @@ ci_stack_remove() {
     esac
   done
   if [[ -n "$container" ]]; then
-    log_info "Removing database container ${container}"
-    docker rm -f -v "$container" >/dev/null 2>&1 || true
+    # Only say so when there is something to remove. A caller sets the name
+    # before starting, so on a failed start this announced removing a container
+    # that never existed -- a line that reads like cleanup and describes
+    # nothing.
+    if docker inspect "$container" >/dev/null 2>&1; then
+      log_info "Removing database container ${container}"
+      docker rm -f -v "$container" >/dev/null 2>&1 || true
+    fi
   fi
   if [[ -n "$network" ]]; then
     docker network rm "$network" >/dev/null 2>&1 || true
