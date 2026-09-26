@@ -12,6 +12,10 @@
   ref rewrote the notes, put the name back, and exited 0 at `Already up to
   date` without ever reaching it. Verified by doing exactly that.
 
+  The notes are written to a temporary file and moved into place only after
+  the check passes, so a refused sync leaves the corrected file alone instead
+  of overwriting it and then complaining.
+
   Exit codes are read individually -- 1 is a name and refuses, 2 is "could not
   check" and warns. A vendored gate too old to know `--strict-ambiguous` returns
   2 for the unknown option, and blocking on that would stop every consumer's

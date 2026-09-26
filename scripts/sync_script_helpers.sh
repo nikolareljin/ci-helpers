@@ -204,8 +204,7 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
     echo
     awk '/^## /{ if (seen) exit; seen = 1 } seen { print }' "$notes_src"
   fi
-} > "$notes_file"
-log_info "Wrote $(basename "$notes_file") ($(wc -c < "$notes_file" | tr -d " ") bytes)."
+} > "${notes_file}.new"
 
 # Immediately, and before the up-to-date short circuit below. These notes are
 # upstream prose copied verbatim into a public repository, so a private name in
@@ -221,23 +220,30 @@ log_info "Wrote $(basename "$notes_file") ($(wc -c < "$notes_file" | tr -d " ") 
 # must not block a sync, or every consumer stops until they upgrade.
 notes_gate="$STAGE_DIR/scripts/check_private_names.sh"
 if [[ -f "$notes_gate" ]]; then
-  gate_args=(--file "$notes_file" --only-public --for-repo ci-helpers)
+  gate_args=(--file "${notes_file}.new" --only-public --for-repo ci-helpers)
   # Only when the vendored copy knows it. Passing an unknown option is exit 2.
   if grep -q -- '--strict-ambiguous' "$notes_gate"; then
     gate_args+=(--strict-ambiguous)
   fi
-  bash "$notes_gate" "${gate_args[@]}" >/dev/null 2>&1
-  case "$?" in
+  # `|| notes_rc=$?`, not a bare call then `$?`: set -e aborts on the failing
+  # call, so the case never runs and the sync exits 1 printing nothing.
+  notes_rc=0
+  bash "$notes_gate" "${gate_args[@]}" >/dev/null 2>&1 || notes_rc=$?
+  case "$notes_rc" in
     1)
       log_error "The upstream changelog names a private repository, and these notes are public."
       bash "$notes_gate" "${gate_args[@]}" >&2 || true
       log_error "Edit $(basename "$notes_file") to cite it by code, then stage it by hand."
       log_error "Re-running the sync will not help: the upstream ref does not change."
+      rm -f "${notes_file}.new"
       exit 1
       ;;
     2) log_warn "Could not check the notes for private names; continuing." ;;
   esac
 fi
+
+mv -f "${notes_file}.new" "$notes_file"
+log_info "Wrote $(basename "$notes_file") ($(wc -c < "$notes_file" | tr -d " ") bytes)."
 
 if [[ "$COMMIT_HASH" == "$current_sha" && "$REF_LABEL" == "$current_ref" && -d "$DEST_DIR" ]] \
    && diff -r "$STAGE_DIR" "$DEST_DIR" >/dev/null 2>&1 \
