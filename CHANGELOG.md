@@ -1,5 +1,24 @@
 ## Unreleased
 
+### Fixed
+
+- **`vendor/.script-helpers-notes.md` cited an internal repository by name, and
+  the sync that wrote it now refuses to do that again.** The notes are upstream
+  prose copied verbatim into a public repository, so a name in an upstream
+  changelog lands here. Nothing checked what the copy carried.
+
+  The check runs immediately after the file is written, which is the part that
+  matters: placed beside the staging step instead, a re-sync at an unchanged
+  ref rewrote the notes, put the name back, and exited 0 at `Already up to
+  date` without ever reaching it. Verified by doing exactly that.
+
+  Exit codes are read individually -- 1 is a name and refuses, 2 is "could not
+  check" and warns. A vendored gate too old to know `--strict-ambiguous` returns
+  2 for the unknown option, and blocking on that would stop every consumer's
+  sync until they upgraded. The flag is passed only when the vendored copy has
+  it, so this becomes effective as the pin advances rather than breaking on the
+  way there.
+
 ### Added
 
 - **`django.yml` gains `makemigrations_command`.** Schema drift runs as its own

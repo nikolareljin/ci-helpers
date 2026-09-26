@@ -207,6 +207,38 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
 } > "$notes_file"
 log_info "Wrote $(basename "$notes_file") ($(wc -c < "$notes_file" | tr -d " ") bytes)."
 
+# Immediately, and before the up-to-date short circuit below. These notes are
+# upstream prose copied verbatim into a public repository, so a private name in
+# an upstream changelog lands here -- which is how one did. The sync is a supply
+# chain for text and nothing checked what it carried.
+#
+# Placement matters more than the check: the first version of this sat beside
+# the staging step, and a re-sync at an unchanged ref rewrote the notes, put the
+# name back, and exited 0 at "Already up to date" without ever reaching it.
+#
+# Exit codes are read individually. 1 is a name; 2 is "could not check" -- no
+# list on this machine, or a vendored gate too old to know the flag -- and that
+# must not block a sync, or every consumer stops until they upgrade.
+notes_gate="$STAGE_DIR/scripts/check_private_names.sh"
+if [[ -f "$notes_gate" ]]; then
+  gate_args=(--file "$notes_file" --only-public --for-repo ci-helpers)
+  # Only when the vendored copy knows it. Passing an unknown option is exit 2.
+  if grep -q -- '--strict-ambiguous' "$notes_gate"; then
+    gate_args+=(--strict-ambiguous)
+  fi
+  bash "$notes_gate" "${gate_args[@]}" >/dev/null 2>&1
+  case "$?" in
+    1)
+      log_error "The upstream changelog names a private repository, and these notes are public."
+      bash "$notes_gate" "${gate_args[@]}" >&2 || true
+      log_error "Edit $(basename "$notes_file") to cite it by code, then stage it by hand."
+      log_error "Re-running the sync will not help: the upstream ref does not change."
+      exit 1
+      ;;
+    2) log_warn "Could not check the notes for private names; continuing." ;;
+  esac
+fi
+
 if [[ "$COMMIT_HASH" == "$current_sha" && "$REF_LABEL" == "$current_ref" && -d "$DEST_DIR" ]] \
    && diff -r "$STAGE_DIR" "$DEST_DIR" >/dev/null 2>&1 \
    && diff <(executable_files "$STAGE_DIR") <(executable_files "$DEST_DIR") >/dev/null 2>&1; then
