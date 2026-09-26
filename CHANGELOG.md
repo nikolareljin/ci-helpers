@@ -33,6 +33,12 @@
   stopped forwarding the input would otherwise look exactly like one that
   forwarded it.
 
+  Both sqlite legs carry an explicit `concurrency_key`. The default group is
+  keyed on the inputs that make a call distinct -- working directory, runner,
+  `python_version`, `db_image`, `db_name` -- and the new leg matched the
+  existing one on every one of them, so the pair cancelled each other. Caught
+  by `assert-ran`, which counts a cancelled leg as a failure.
+
 ### Changed
 
 - **script-helpers 0.42.0, vendored and pinned.** All fifteen workflow pins and

@@ -1024,6 +1024,13 @@ jobs:
       working_directory: tests/fixtures/django-app
       python_version: '3.12'
       db_image: ""
+      # Named, because the default group carries only the inputs that make a
+      # call distinct -- workdir, runner, python_version, db_image, db_name --
+      # and the drift opt-out leg below matches this one on every single one of
+      # them. The first run of that pair cancelled the other, and assert-ran
+      # caught it as "a skipped leg is not a pass". presets.md records the same
+      # thing happening to laravel.yml's legs.
+      concurrency_key: django-works-with-no-database-service
       migrate_command: 'python manage.py migrate'
       test_command: 'python manage.py test'
 
@@ -1087,6 +1094,7 @@ jobs:
       working_directory: tests/fixtures/django-app
       python_version: '3.12'
       db_image: ""
+      concurrency_key: django-skips-the-drift-check-when-asked
       migrate_command: 'python manage.py migrate'
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
