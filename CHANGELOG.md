@@ -2,6 +2,37 @@
 
 ### Changed
 
+- **script-helpers 0.41.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
+  ```
+
+  0.41.0 gives `ci_python.sh` an optional database (`--db-image`) and a
+  repeatable `--env NAME=VALUE`. That is what Flask support turned out to be:
+  of the six Flask applications measured, one used a database and five did not,
+  so there is no `ci_flask.sh` and no preset that starts postgres by default.
+
+- **`django-runs-against-a-real-database` is back to the clearer form.** It
+  passed its expected database name as a positional argument, because
+  `ci_django.sh` read the first word of a step command as the program and
+  refused `EXPECT_DB_NAME=fixture_db python manage.py test` as a program called
+  `EXPECT_DB_NAME=fixture_db`. script-helpers 0.40.0 fixed that.
+
+  The expectation is now required for a server engine. If it stopped reaching
+  the step -- which is precisely what the probe bug did -- the check would
+  skip and the leg would pass having verified nothing, which would have made
+  restoring this form prove the opposite of what it is here to prove.
+
+  Writing it as an environment prefix again is also the most direct proof the
+  repin works: against 0.39.0 the command is refused before it runs, and against
+  the vendored copy it runs. The fixture accepts either form, so running it by
+  hand still works.
+
+### Changed
+
 - **script-helpers 0.40.0, vendored and pinned.** All fifteen workflow pins and
   `vendor/script-helpers` move together:
 
