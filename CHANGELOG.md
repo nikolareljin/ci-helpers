@@ -1,6 +1,56 @@
 ## Unreleased
 
+### Added
+
+- **`django.yml` gains `makemigrations_command`.** Schema drift runs as its own
+  step between the schema and the tests, and fails there:
+
+  ```
+  [INFO] Migrations (host): python manage.py makemigrations --check --dry-run --noinput
+  Migrations for 'app':
+      + Add field extra to thing
+  [ERROR] Migrations failed (exit 1)
+  ```
+
+  A model changed without a migration generated for it is invisible to the
+  suite -- `migrate` applies what exists and the tests pass against it -- and
+  it breaks a deployment rather than a test. Its own step so the failure is not
+  attributed to whichever test touched the changed model.
+
+  It runs by default, and `makemigrations_command: ""` skips it. Keep
+  `--noinput` in any replacement: `--check` and `--dry-run` both stop Django
+  writing the migration, but neither stops the autodetector asking, so a
+  renamed field blocks on `input()` until `timeout_minutes`.
+
+  Two self-test legs. `django-drift-fails-at-the-migrations-step` drives the
+  failing direction directly, because a `uses:` job cannot carry
+  `continue-on-error`, and asserts the run stops at `Migrations` with the tests
+  never reached. `django-skips-the-drift-check-when-asked` calls the preset
+  with an empty command and fails if the step runs anyway.
+
+  The fixture writes a marker when the check runs, and its `test` step refuses
+  to pass without it -- a clean tree prints nothing, so a preset that silently
+  stopped forwarding the input would otherwise look exactly like one that
+  forwarded it.
+
+  Both sqlite legs carry an explicit `concurrency_key`. The default group is
+  keyed on the inputs that make a call distinct -- working directory, runner,
+  `python_version`, `db_image`, `db_name` -- and the new leg matched the
+  existing one on every one of them, so the pair cancelled each other. Caught
+  by `assert-ran`, which counts a cancelled leg as a failure.
+
 ### Changed
+
+- **script-helpers 0.42.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
+  ```
+
+  0.42.0 is what `makemigrations_command` forwards to: `ci_django.sh
+  --check-command`.
 
 - **script-helpers 0.41.0, vendored and pinned.** All fifteen workflow pins and
   `vendor/script-helpers` move together:

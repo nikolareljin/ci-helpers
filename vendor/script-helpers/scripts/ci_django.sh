@@ -20,6 +20,9 @@
 #   --install-command <command>   Dependency install. Empty skips it
 #                                 (default: pip install -r requirements.txt, when that file exists).
 #   --migrate-command <command>   Schema. Empty skips it (default: python manage.py migrate --noinput).
+#   --check-command <command>     Schema drift, as its own step between the schema and the
+#                                 tests. Empty skips it (default:
+#                                 python manage.py makemigrations --check --dry-run --noinput).
 #   --test-command <command>      The tests (default: python manage.py test --noinput).
 #   --python-image <image>        Run every step in this image instead of on the host.
 #   --docker-user <user>          User for that image, as uid:gid (default: the invoking user).
@@ -76,6 +79,14 @@ db_wait_seconds=60
 settings_module=""
 install_command="__default__"
 migrate_command="python manage.py migrate --noinput"
+# --noinput is not optional here. --check and --dry-run both stop Django writing
+# the migration, but neither stops the autodetector asking: a renamed field
+# reaches questioner.ask_rename() -> input(), upstream of both flags. With a
+# stdin that never answers -- a CI runner, or a terminal -- the step hangs on
+# "Was thing.old_name renamed to thing.new_name? [y/N]" until the job's time
+# limit; with stdin closed it dies on an EOFError traceback. --noinput answers
+# no and exits 3 with the reason. A rename is the commonest drift there is.
+check_command="python manage.py makemigrations --check --dry-run --noinput"
 test_command="python manage.py test --noinput"
 python_image=""
 docker_user="$(id -u):$(id -g)"
@@ -95,6 +106,7 @@ while [[ $# -gt 0 ]]; do
     --settings) need_value "$@"; settings_module="$2"; shift 2 ;;
     --install-command) need_value "$@"; install_command="$2"; shift 2 ;;
     --migrate-command) need_value "$@"; migrate_command="$2"; shift 2 ;;
+    --check-command) need_value "$@"; check_command="$2"; shift 2 ;;
     --test-command) need_value "$@"; test_command="$2"; shift 2 ;;
     --python-image) need_value "$@"; python_image="$2"; shift 2 ;;
     --docker-user) need_value "$@"; docker_user="$2"; shift 2 ;;
@@ -241,14 +253,32 @@ require_step_command() {   # <label> <command>
 
   local where="this machine"
   [[ -n "$python_image" ]] && where="$python_image"
+
+  # Name the option for the step that actually failed. These lines used to say
+  # --test-command whatever the step was, from when the tests were the only
+  # step likely to miss an interpreter; the drift check now runs by default, so
+  # the commonest way to see this message is at Migrations, being told to fix
+  # the wrong option.
+  local option example
+  case "$label" in
+    Dependencies) option="--install-command"
+                  example="python3 -m pip install -r requirements.txt" ;;
+    Schema)       option="--migrate-command"
+                  example="python3 manage.py migrate --noinput" ;;
+    Migrations)   option="--check-command"
+                  example="python3 manage.py makemigrations --check --dry-run --noinput" ;;
+    *)            option="--test-command"
+                  example="python3 manage.py test --noinput" ;;
+  esac
+
   log_error "${label}: '${program}' is not on PATH in ${where}."
   if [[ "$program" == "python" ]]; then
     log_error "The official python images provide 'python'; a system one may only provide 'python3'."
-    log_error "Pass --test-command 'python3 manage.py test' or run it with --python-image."
+    log_error "Pass ${option} '${example}' or run it with --python-image."
   elif [[ "$program" == "pip" ]]; then
-    log_error "Use 'python -m pip' instead of 'pip', or run it with --python-image."
+    log_error "Use 'python -m pip' instead of 'pip': pass ${option} with that, or --python-image."
   else
-    log_error "Pass a command the image has, or an empty one to skip the step."
+    log_error "Pass ${option} with a command the image has, or an empty one to skip the step."
   fi
   exit 1
 }
@@ -299,6 +329,12 @@ run_step() {   # <label> <command>
 
 run_step "Dependencies" "$install_command"
 run_step "Schema" "$migrate_command"
+# Between the schema and the tests, and labelled for what it checks. A model
+# changed without a migration generated for it is invisible to the suite --
+# `migrate` applies what exists and the tests pass against it -- and it breaks a
+# deployment rather than a test. Its own step so the failure says "Migrations"
+# rather than naming whichever test happened to touch the changed model.
+run_step "Migrations" "$check_command"
 run_step "Tests" "$test_command"
 
 log_info "Django tests passed"

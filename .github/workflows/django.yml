@@ -70,6 +70,20 @@ on:
       migrate_command:
         type: string
         default: "python manage.py migrate --noinput"
+      # Schema drift, between the schema and the tests, as its own step: a
+      # model changed without a migration generated for it is invisible to the
+      # suite, because `migrate` applies what exists and the tests pass against
+      # it. Its own step so the failure reads `Migrations failed` rather than
+      # naming whichever test touched the changed model.
+      #
+      # Keep --noinput in any replacement. --check and --dry-run both stop
+      # Django writing the migration, but neither stops the autodetector
+      # asking, so a renamed field blocks on input() until timeout_minutes.
+      #
+      # Empty skips the step, for a project that generates migrations in CI.
+      makemigrations_command:
+        type: string
+        default: "python manage.py makemigrations --check --dry-run --noinput"
       # The tests. Replace with `pytest` for a pytest-django project.
       test_command:
         type: string
@@ -131,7 +145,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 5a1b0a7a8e95109cf19fe52791a68f6f4e4b9774 # 0.41.0
+          ref: 02b19b9afbf770ca4300adf15f68e6d23c110316 # 0.42.0
           path: .script-helpers
           fetch-depth: 1
 
@@ -200,6 +214,7 @@ jobs:
           SETTINGS_MODULE: ${{ inputs.settings_module }}
           INSTALL_COMMAND: ${{ inputs.install_command }}
           MIGRATE_COMMAND: ${{ inputs.migrate_command }}
+          MAKEMIGRATIONS_COMMAND: ${{ inputs.makemigrations_command }}
           TEST_COMMAND: ${{ inputs.test_command }}
           HELPER: ${{ runner.temp }}/script-helpers/scripts/ci_django.sh
         run: |
@@ -213,6 +228,10 @@ jobs:
             --db-wait-seconds "$DB_WAIT"
             --install-command "$INSTALL_COMMAND"
             --migrate-command "$MIGRATE_COMMAND"
+            # Unconditionally, including when empty: an empty value is how a
+            # caller asks for the step to be skipped, and omitting the flag
+            # would instead leave the script's own default in force.
+            --check-command "$MAKEMIGRATIONS_COMMAND"
             --test-command "$TEST_COMMAND"
           )
           # An empty db_image means sqlite, and the script refuses --db-image ''
