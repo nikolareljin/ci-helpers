@@ -37,3 +37,6 @@ CLAUDE.md
 
 # Godot builds the script class cache next to the fixture project on import.
 .godot/
+
+# Written by tests/fixtures/django-app/manage.py when the drift check runs.
+.fixture-makemigrations-ran

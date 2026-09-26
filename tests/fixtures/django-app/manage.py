@@ -6,8 +6,9 @@ and of Django, and it would still not exercise anything in django.yml that this
 does not.
 
 What it does test is the part ci-helpers owns -- that the preset exports a
-connection the project can actually use, applies the migration, and runs the
-suite as a SEPARATE PROCESS against the SAME database. That last one is not
+connection the project can actually use, applies the migration, runs the drift
+check it was told to run, and runs the suite as a SEPARATE PROCESS against the
+SAME database. That last one is not
 theoretical: ci_laravel.sh shipped with an in-memory sqlite database, where
 `migrate` reported every migration applied and the next step could not find the
 migrations table.
@@ -46,6 +47,9 @@ def connect():
     fail(f"this fixture has no driver for engine {engine!r}")
 
 
+MARKER = ".fixture-makemigrations-ran"
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -60,6 +64,29 @@ def main() -> None:
         cur.execute("INSERT INTO ci_helpers_probe (note) VALUES ('written by migrate')")
         conn.commit()
         print("  Applying app.0001_initial... OK")
+
+    elif cmd == "makemigrations":
+        # Django asks about a renamed field from the autodetector, upstream of
+        # both --check and --dry-run; only --noinput stops it, and without it
+        # the step blocks on input() until the job's time limit. Refused here
+        # so that a preset default which lost the flag fails in seconds.
+        if "--noinput" not in sys.argv[2:]:
+            fail("makemigrations without --noinput; on a renamed field Django "
+                 "would block on input() until the job times out")
+
+        # A marker, read by `test` below. It is what proves the preset actually
+        # forwarded makemigrations_command: without it, a preset that quietly
+        # stopped passing --check-command would look identical to one that
+        # passed it, because the drift check prints nothing on a clean tree.
+        with open(MARKER, "w", encoding="utf-8") as fh:
+            fh.write(" ".join(sys.argv[1:]))
+
+        if os.environ.get("FIXTURE_DRIFT") == "1":
+            sys.stderr.write("Migrations for 'app':\n"
+                             "  app/migrations/0002_thing_extra.py\n"
+                             "    + Add field extra to thing\n")
+            raise SystemExit(1)
+        print("No changes detected")
 
     elif cmd == "test":
         # 1. the connection must name the database the caller asked for, not a
@@ -77,7 +104,21 @@ def main() -> None:
             fail("no EXPECT_DB_NAME reached this step, so the database-name "
                  "check would have been skipped silently")
 
-        # 2. and the connection the preset exported has to be usable from here,
+        # 2. the drift check has to have run before this step, because the
+        #    preset was told to run it. A clean tree prints nothing, so
+        #    without this marker a preset that stopped forwarding
+        #    makemigrations_command would be indistinguishable from one that
+        #    forwarded it. EXPECT_NO_CHECK=1 inverts it, for the leg that
+        #    passes an empty command on purpose.
+        ran = os.path.exists(MARKER)
+        if os.environ.get("EXPECT_NO_CHECK") == "1":
+            if ran:
+                fail("makemigrations_command was empty, but the check ran anyway")
+        elif not ran:
+            fail("the drift check did not run before the tests; the preset did "
+                 "not forward makemigrations_command")
+
+        # 3. and the connection the preset exported has to be usable from here,
         #    which is a different process from the one that migrated.
         conn, _ = connect()
         cur = conn.cursor()

@@ -1027,10 +1027,76 @@ jobs:
       migrate_command: 'python manage.py migrate'
       test_command: 'python manage.py test'
 
+  # The drift check the preset now runs by default, in the direction that
+  # matters. A `uses:` job cannot carry continue-on-error, so a case that must
+  # fail is driven directly -- the same reason the refusal legs above are
+  # written this way.
+  #
+  # What this asserts is attribution, not detection: the run has to stop at a
+  # step called Migrations, and the tests must not run afterwards. A drift
+  # failure reported as "Tests failed" names whichever test happened to touch
+  # the changed model, which is how a missing migration gets diagnosed as a
+  # flaky test.
+  django-drift-fails-at-the-migrations-step:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0 @ 2026-09-10
+        with:
+          python-version: '3.12'
+      - name: Deliberate drift must fail at Migrations, before the tests
+        shell: bash
+        working-directory: tests/fixtures/django-app
+        env:
+          # The vendored copy, which is the one this repository's pins keep in
+          # step with every preset (scripts/check_script_helpers_pins.sh).
+          HELPER: ${{ github.workspace }}/vendor/script-helpers/scripts/ci_django.sh
+          FIXTURE_DRIFT: '1'
+        run: |
+          set -euo pipefail
+          set +e
+          out="$("$HELPER" --workdir . --db-image '' --install-command '' \
+                  --migrate-command 'python manage.py migrate' \
+                  --check-command 'python manage.py makemigrations --check --dry-run --noinput' \
+                  --test-command 'python manage.py test' 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+
+          if [[ $rc -eq 0 ]]; then
+            echo "::error::drift did not fail the run; the gate is blind"
+            exit 1
+          fi
+          if ! grep -q 'Migrations failed' <<<"$out"; then
+            echo "::error::the run failed, but not at the Migrations step"
+            exit 1
+          fi
+          if grep -q 'Tests (' <<<"$out"; then
+            echo "::error::the tests ran after drift was found"
+            exit 1
+          fi
+          echo "drift stopped the run at Migrations, and the tests did not run"
+
+  # And the opt-out, through the preset. EXPECT_NO_CHECK inverts the fixture's
+  # marker assertion, so this leg fails if the step runs anyway -- an input
+  # that is ignored is worse than one that does not exist.
+  django-skips-the-drift-check-when-asked:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: ""
+      migrate_command: 'python manage.py migrate'
+      makemigrations_command: ""
+      test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
+
   assert-ran:
     needs:
       - django-runs-against-a-real-database
       - django-works-with-no-database-service
+      - django-drift-fails-at-the-migrations-step
+      - django-skips-the-drift-check-when-asked
       - laravel-runs-against-a-real-database
       - laravel-works-with-no-database-service
       - engine-inputs-gate-refuses-a-dropped-forward
