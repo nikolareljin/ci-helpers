@@ -107,7 +107,7 @@ jobs:
           # the comment claimed the two tracked each other while the pin was
           # 0.28.0 and the vendored tree was 0.32.0. Nothing enforces the
           # relationship, so it is worth re-reading when either moves.
-          ref: 02b19b9afbf770ca4300adf15f68e6d23c110316 # 0.42.0
+          ref: 110618f1e7307f62744eda42eecf911c56bd9345 # 0.43.0
           path: .script-helpers
           fetch-depth: 1
 

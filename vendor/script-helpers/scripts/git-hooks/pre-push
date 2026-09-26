@@ -77,12 +77,59 @@ _private_names_gate() {
   printf '%s' "$gate"
 }
 
+# A stale dictionary misses every repository created since it was built, and
+# nothing reports that. Kick a refresh into the background when it ages: never
+# blocking, never failing the push, at most one at a time.
+#
+# Deliberately not a systemd timer or a launchd agent: this has to behave the
+# same on Linux, macOS and Windows, and git runs its hooks under bash on all
+# three. Nothing to install.
+_maybe_refresh_private_names() {
+  local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv}"
+  local age_days="${PRIVATE_NAMES_REFRESH_DAYS:-7}"
+  [[ "${PRIVATE_NAMES_AUTO_REFRESH:-true}" == true ]] || return 0
+  command -v gh >/dev/null 2>&1 || return 0
+
+  local refresher=""
+  local candidate
+  for candidate in \
+    "$repo_root/scripts/script-helpers/scripts/refresh_private_names.sh" \
+    "$repo_root/vendor/script-helpers/scripts/refresh_private_names.sh" \
+    "$repo_root/scripts/refresh_private_names.sh"; do
+    [[ -f "$candidate" ]] && { refresher="$candidate"; break; }
+  done
+  [[ -n "$refresher" ]] || return 0
+
+  # Fresh enough, nothing to do. A missing list counts as stale.
+  if [[ -s "$list" ]] && [[ -z "$(find "$list" -mtime "+$age_days" 2>/dev/null)" ]]; then
+    return 0
+  fi
+
+  # One at a time. mkdir is the atomic primitive available everywhere; a stale
+  # lock older than a day is cleared, so a killed refresh cannot wedge it.
+  local lock="${list}.refresh.lock"
+  [[ -d "$lock" ]] && [[ -n "$(find "$lock" -mtime +1 2>/dev/null)" ]] && rmdir "$lock" 2>/dev/null
+  mkdir "$lock" 2>/dev/null || return 0
+
+  echo "[pre-push] private-name list is stale; refreshing in the background."
+  # No EXIT trap here: a trap in a backgrounded subshell is the construct
+  # run_bounded_test refuses, and it buys nothing. A refresh that is killed
+  # leaves the lock, which the day-old check above clears.
+  (
+    bash "$refresher" >"${list}.refresh.log" 2>&1
+    rmdir "$lock" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
 _check_private_names() {
   local gate rc lref lsha rref rsha
   gate="$(_private_names_gate)" || {
     echo "[pre-push] check_private_names.sh not found; private-name check skipped." >&2
     return 0
   }
+
+  _maybe_refresh_private_names
 
   bash "$gate" --tree --only-public
   rc=$?
@@ -193,7 +240,18 @@ run_go_tests_inline() {
   )
 }
 
+# A tests-only escape. Without one, a repository whose suite needs a running
+# stack -- a `make test` that talks to docker -- leaves `--no-verify` as the
+# only way to push, and that skips the private-name gate too. The narrow
+# escape exists so nobody reaches for the wide one.
+_tests_skipped_on_purpose() {
+  [[ "${PRE_PUSH_SKIP_TESTS:-}" == "1" ]] || return 1
+  echo "[pre-push] PRE_PUSH_SKIP_TESTS=1 — tests skipped. Everything else still ran."
+  return 0
+}
+
 run_tests() {
+  _tests_skipped_on_purpose && return 0
   # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
   # package.json for Vite, so once composer.json is present we run the PHP suite
   # (or skip with a clear message) and never fall through to the Node runner.
@@ -205,7 +263,7 @@ run_tests() {
     fi
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_php.sh" ]]; then
       echo "[pre-push] local_test_php.sh --quick"
-      bash "$_scripts_dir/local_test_php.sh" --quick
+      bash "$_scripts_dir/local_test_php.sh" --quick || return $?
       _ran_tests=true
     else
       # Track whether any PHP check actually ran so _ran_tests stays honest.
@@ -218,7 +276,7 @@ run_tests() {
       if [[ "${SKIP_PHP_TESTS:-}" != "1" ]]; then
         if [[ -f artisan ]]; then
           echo "[pre-push] php artisan test"
-          php artisan test
+          php artisan test || return $?
           _php_checked=true
         elif [[ -x vendor/bin/phpunit ]]; then
           echo "[pre-push] vendor/bin/phpunit"
@@ -239,7 +297,7 @@ run_tests() {
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
       echo "[pre-push] local_test_node.sh --quick"
-      bash "$_scripts_dir/local_test_node.sh" --quick
+      bash "$_scripts_dir/local_test_node.sh" --quick || return $?
       _ran_tests=true
       return 0
     elif command -v node &>/dev/null; then
@@ -253,7 +311,7 @@ run_tests() {
       )"
       if [[ -n "$test_script" ]]; then
         echo "[pre-push] npm test"
-        npm test
+        npm test || return $?
         _ran_tests=true
         return 0
       fi
@@ -265,7 +323,7 @@ run_tests() {
   if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[pre-push] local_test_python.sh --quick"
-      bash "$_scripts_dir/local_test_python.sh" --quick
+      bash "$_scripts_dir/local_test_python.sh" --quick || return $?
       _ran_tests=true
       return 0
     else
@@ -293,7 +351,7 @@ run_tests() {
     if [[ -n "$first_gomod" ]]; then
       if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_go.sh" ]]; then
         echo "[pre-push] local_test_go.sh --quick"
-        bash "$_scripts_dir/local_test_go.sh" --quick
+        bash "$_scripts_dir/local_test_go.sh" --quick || return $?
       else
         run_go_tests_inline
       fi
@@ -308,12 +366,12 @@ run_tests() {
   if [[ ! -f pubspec.yaml ]] && { [[ -x ./gradlew ]] || [[ -f settings.gradle ]] || [[ -f settings.gradle.kts ]]; }; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_gradle.sh" ]]; then
       echo "[pre-push] local_test_gradle.sh --quick"
-      bash "$_scripts_dir/local_test_gradle.sh" --quick
+      bash "$_scripts_dir/local_test_gradle.sh" --quick || return $?
       _ran_tests=true
       return 0
     elif [[ -x ./gradlew ]]; then
       echo "[pre-push] ./gradlew test"
-      ./gradlew --no-daemon test
+      ./gradlew --no-daemon test || return $?
       _ran_tests=true
       return 0
     fi
@@ -325,10 +383,10 @@ run_tests() {
   if [[ -f Cargo.toml ]] && command -v cargo &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_rust.sh" ]]; then
       echo "[pre-push] local_test_rust.sh --quick"
-      bash "$_scripts_dir/local_test_rust.sh" --quick
+      bash "$_scripts_dir/local_test_rust.sh" --quick || return $?
     else
       echo "[pre-push] cargo test"
-      cargo test
+      cargo test || return $?
     fi
     _ran_tests=true
     return 0
@@ -338,13 +396,56 @@ run_tests() {
   if [[ -f pubspec.yaml ]] && command -v flutter &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_flutter.sh" ]]; then
       echo "[pre-push] local_test_flutter.sh --quick"
-      bash "$_scripts_dir/local_test_flutter.sh" --quick
+      bash "$_scripts_dir/local_test_flutter.sh" --quick || return $?
     else
       echo "[pre-push] flutter test"
-      flutter test
+      flutter test || return $?
     fi
     _ran_tests=true
     return 0
+  fi
+
+  # Shell repositories. Nothing above matches a repo with no manifest file, so
+  # this hook used to print "No test runner detected" and exit 0 for them -- and
+  # both shared libraries here are shell repos. A broken push reported success.
+  local candidate mk=""
+  for candidate in Makefile makefile GNUmakefile; do
+    [[ -f "$candidate" ]] && { mk="$candidate"; break; }
+  done
+  if [[ -n "$mk" ]] && grep -qE '^test[[:space:]]*:' "$mk"; then
+    echo "[pre-push] make test"
+    make test || return $?
+    _ran_tests=true
+    return 0
+  fi
+
+  local bats_files=()
+  while IFS= read -r candidate; do bats_files+=("$candidate"); done \
+    < <(find tests -maxdepth 1 -name '*.bats' 2>/dev/null | sort)
+  if [[ ${#bats_files[@]} -gt 0 ]] && command -v bats >/dev/null 2>&1; then
+    echo "[pre-push] bats tests"
+    bats tests || return $?
+    _ran_tests=true
+    return 0
+  fi
+
+  # tests/*_test.sh, the convention this library uses for itself.
+  local sh_tests=()
+  while IFS= read -r candidate; do sh_tests+=("$candidate"); done \
+    < <(find tests -maxdepth 1 -name '*_test.sh' 2>/dev/null | sort)
+  if [[ ${#sh_tests[@]} -gt 0 ]]; then
+    echo "[pre-push] ${#sh_tests[@]} shell test file(s) under tests/"
+    for candidate in "${sh_tests[@]}"; do
+      echo "[pre-push]   $candidate"
+      bash "$candidate" || return $?
+    done
+    _ran_tests=true
+    return 0
+  fi
+
+  if [[ ${#bats_files[@]} -gt 0 ]]; then
+    echo "[pre-push] tests/*.bats present but bats is not installed — nothing ran." >&2
+    return 1
   fi
 
   echo "[pre-push] No test runner detected — skipping. Run tests manually before pushing."
@@ -361,7 +462,20 @@ elif [[ "$_preflight_rc" -ne 127 ]]; then
   exit "$_preflight_rc"
 fi
 
-run_tests
+# Captured, not left to `set -e`. Calling run_tests in a `||` context disables
+# -e INSIDE it, so every runner needs its own `|| return $?` -- without them a
+# failing `make test` or `npm test` fell through to `return 0` and the push was
+# allowed. Checked by driving a repo whose tests exit 1.
+_tests_rc=0
+run_tests || _tests_rc=$?
+if [[ "$_tests_rc" -ne 0 ]]; then
+  echo "[pre-push] tests failed — push refused." >&2
+  echo "[pre-push] Fix them, or, if this suite needs services this machine has not got:" >&2
+  echo "[pre-push]   PRE_PUSH_SKIP_TESTS=1 git push    tests only; every other check still runs" >&2
+  echo "[pre-push]   git push --no-verify              skips everything, including the" >&2
+  echo "[pre-push]                                     private-name check. Prefer the first." >&2
+  exit "$_tests_rc"
+fi
 if [[ "$_ran_tests" == "true" ]]; then
   echo "[pre-push] All checks passed."
 fi

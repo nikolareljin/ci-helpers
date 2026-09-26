@@ -1,5 +1,29 @@
 ## Unreleased
 
+### Changed
+
+- **script-helpers 0.43.0, vendored and pinned.**
+
+  ```
+  before:  15 pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
+  after:   15 pin(s) all match the vendored ref 0.43.0 (110618f1e730)
+  ```
+
+  This is the pin that makes the notes gate added last release able to do
+  anything: 0.42.0's copy did not know `--strict-ambiguous`, so it returned 2
+  for the unknown option and the sync warned instead of refusing. Verified
+  against the vendored copy -- a note naming a private repository now exits 1.
+
+  0.43.0 also makes `pre-push` run a shell repository's tests. It changes
+  nothing here: this repo has no `Makefile` test target, no `tests/*_test.sh`
+  and no `tests/*.bats`, so no runner matches and the hook behaves as before.
+
+  Vendoring it needed `index` in `.git/private-names-allow`: the upstream
+  changelog uses the word four times and a private repository is called that.
+  `.git/` is per-clone, so the next clone hits the same refusal and needs the
+  same line.
+
+
 ### Fixed
 
 - **`vendor/.script-helpers-notes.md` cited an internal repository by name, and
