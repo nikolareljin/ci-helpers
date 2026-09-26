@@ -62,7 +62,22 @@ def main() -> None:
         print("  Applying app.0001_initial... OK")
 
     elif cmd == "test":
-        # 1. the connection the preset exported has to be usable from here too,
+        # 1. the connection must name the database the caller asked for, not a
+        #    not a default the script fell back to. Either form works: an
+        #    environment variable is what the self-test uses, and a positional
+        #    argument is kept for running this fixture by hand.
+        want = os.environ.get("EXPECT_DB_NAME") or (sys.argv[2] if len(sys.argv) > 2 else None)
+        # Required for a server engine, because the self-test's postgres leg
+        # exists to prove the preset reached the database it was told to. If the
+        # expectation stops arriving -- which is exactly what the step-command
+        # probe bug did to it -- this check would otherwise skip and the leg
+        # would pass having verified nothing. sqlite runs with no expectation on
+        # purpose: its database is a generated filename, not a caller's choice.
+        if not want and os.environ.get("DJANGO_DB_ENGINE") != "sqlite":
+            fail("no EXPECT_DB_NAME reached this step, so the database-name "
+                 "check would have been skipped silently")
+
+        # 2. and the connection the preset exported has to be usable from here,
         #    which is a different process from the one that migrated.
         conn, _ = connect()
         cur = conn.cursor()
@@ -71,11 +86,7 @@ def main() -> None:
         if not row or row[0] != "written by migrate":
             fail(f"the migration's row is not visible from this process: {row!r}")
 
-        # 2. and the connection must name the database the caller asked for,
-        #    not a default the script fell back to. Either form works: an
-        #    environment variable is what the self-test uses, and a positional
-        #    argument is kept for running this fixture by hand.
-        want = os.environ.get("EXPECT_DB_NAME") or (sys.argv[2] if len(sys.argv) > 2 else None)
+
         if want:
             got = os.environ.get("DJANGO_DB_NAME", "")
             if os.environ.get("DJANGO_DB_ENGINE") == "sqlite":

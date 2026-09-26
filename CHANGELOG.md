@@ -21,6 +21,11 @@
   refused `EXPECT_DB_NAME=fixture_db python manage.py test` as a program called
   `EXPECT_DB_NAME=fixture_db`. script-helpers 0.40.0 fixed that.
 
+  The expectation is now required for a server engine. If it stopped reaching
+  the step -- which is precisely what the probe bug did -- the check would
+  skip and the leg would pass having verified nothing, which would have made
+  restoring this form prove the opposite of what it is here to prove.
+
   Writing it as an environment prefix again is also the most direct proof the
   repin works: against 0.39.0 the command is refused before it runs, and against
   the vendored copy it runs. The fixture accepts either form, so running it by
