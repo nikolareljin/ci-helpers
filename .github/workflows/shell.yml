@@ -47,6 +47,14 @@ on:
         type: string
         default: "warning"
 
+      # Vendored code you do not own, skipped by default. Measured in the
+      # consumers here: this hides 225 of 250 files in one repo and 97 of 120
+      # in another, so the count skipped is printed rather than left implied.
+      # Empty checks everything.
+      exclude_glob:
+        type: string
+        default: "*/script-helpers/*"
+
       # Replaces the whole shellcheck invocation. For a repo that already has
       # its own wrapper, or a .shellcheckrc it wants honoured differently.
       shellcheck_command:
@@ -108,6 +116,7 @@ jobs:
           PATHS: ${{ inputs.shellcheck_paths }}
           SEVERITY: ${{ inputs.shellcheck_severity }}
           OVERRIDE: ${{ inputs.shellcheck_command }}
+          EXCLUDE: ${{ inputs.exclude_glob }}
           FAIL: ${{ inputs.fail_on_findings }}
         run: |
           set -uo pipefail
@@ -121,10 +130,16 @@ jobs:
             # splits a path with a space, and quoted passes one argument that is
             # every path at once -- both check nothing and exit 0.
             files=()
+            excluded=0
             for p in $PATHS; do
               if [[ -d "$p" ]]; then
-                while IFS= read -r f; do files+=("$f"); done \
-                  < <(find "$p" -type f -name '*.sh' -not -path '*/script-helpers/*' | sort)
+                while IFS= read -r f; do
+                  if [[ -n "$EXCLUDE" && "$f" == $EXCLUDE ]]; then
+                    excluded=$((excluded + 1))
+                    continue
+                  fi
+                  files+=("$f")
+                done < <(find "$p" -type f -name '*.sh' | sort)
               elif [[ -f "$p" ]]; then
                 files+=("$p")
               else
@@ -140,7 +155,13 @@ jobs:
               exit 1
             fi
 
-            echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s)"
+            # Said out loud. An exclusion nobody sees is how a caller believes
+            # 250 files were checked when 25 were.
+            if [[ "$excluded" -gt 0 ]]; then
+              echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s); ${excluded} excluded by ${EXCLUDE}"
+            else
+              echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s)"
+            fi
             echo "::group::shellcheck"
             shellcheck -S "$SEVERITY" "${files[@]}"; rc=$?
             echo "::endgroup::"

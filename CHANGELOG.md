@@ -17,6 +17,11 @@
   bats is opt-in because 44 consumers here are Bash-primary and **none** has a
   `.bats` file. A preset that required it would be adopted by nobody.
 
+  `exclude_glob` defaults to `*/script-helpers/*`, and the number excluded is
+  printed next to the number checked. In the consumers here that default hides
+  225 of 250 files in one repository and 97 of 120 in another; an exclusion
+  that size is how a caller believes 250 files were checked when 25 were.
+
   A `shellcheck_paths` entry that does not exist, and a path set matching no
   `*.sh`, both fail. A green run that checked nothing is the shape this epic
   keeps turning up.
