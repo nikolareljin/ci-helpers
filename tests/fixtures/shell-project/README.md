@@ -5,6 +5,7 @@ Drives `.github/workflows/shell.yml`.
 | path | what it is for |
 |---|---|
 | `scripts/clean.sh` | clean at `warning`, which the preset's default must accept |
+| `scripts/script-helpers/vendored.sh` | SC2044, inside the default `exclude_glob`: the passing leg stays green only while it is excluded |
 | `bad/warns.sh` | SC2044, a **warning**, so it fails at the shipped default |
 | `tests/pass.bats` | a passing bats run |
 | `tests-failing/fail.bats` | a failing one, for the leg that must go red |

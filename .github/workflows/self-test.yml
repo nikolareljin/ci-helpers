@@ -1105,7 +1105,9 @@ jobs:
     with:
       concurrency_key: shell-checks-this-repository
 
-  # The fixture, with bats and a clean tree.
+  # The fixture, with bats and a clean tree. scripts/script-helpers/vendored.sh
+  # trips a warning, so this passes only while the default exclude works on a
+  # populated vendored directory.
   shell-runs-bats-and-a-clean-tree:
     uses: ./.github/workflows/shell.yml
     with:
@@ -1145,6 +1147,20 @@ jobs:
             exit 1
           fi
           echo "the fixture fails at warning and passes at error, as intended"
+
+      - name: The vendored fixture trips a warning, so the green leg proves the exclusion
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          # shell-runs-bats-and-a-clean-tree checks scripts/ at the default
+          # exclude. It passes only because scripts/script-helpers/vendored.sh is
+          # excluded; if the file stopped tripping, that pass would prove nothing.
+          if shellcheck -S warning scripts/script-helpers/vendored.sh; then
+            echo "::error::the vendored fixture trips nothing; the green leg no longer tests the exclusion"
+            exit 1
+          fi
+          echo "the vendored fixture fails at warning, so the green leg passing means it was excluded"
 
       - name: A failing bats test fails
         shell: bash

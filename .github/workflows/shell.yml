@@ -123,6 +123,12 @@ jobs:
             bash -c "$OVERRIDE"; rc=$?
             echo "::endgroup::"
           else
+            # No pathname expansion from here on. $PATHS and $EXCLUDE are split
+            # unquoted, and with globbing on `*/script-helpers/*` expanded to the
+            # vendored files that exist -- so a checked-out submodule was matched
+            # against its own file names, excluded nothing, and was all checked.
+            # [[ == $pat ]] still matches patterns with this off.
+            set -f
             # Collected into an array first. `shellcheck $(find ...)` unquoted
             # splits a path with a space, and quoted passes one argument that is
             # every path at once -- both check nothing and exit 0.

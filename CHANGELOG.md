@@ -17,7 +17,10 @@
 
   It defaults to `*/script-helpers/*`, and the number excluded is printed next
   to the number checked: it can hide most of a tree, and an exclusion that size
-  should not be invisible.
+  should not be invisible. Patterns are matched with pathname expansion off:
+  with it on, a populated `scripts/script-helpers/` turned the pattern into its
+  own file names and nothing was excluded (158 of 162 files checked in a real
+  consumer).
 
   A `shellcheck_paths` entry that does not exist, and a path set matching no
   `*.sh`, both fail: a green run that checked nothing looks exactly like one
