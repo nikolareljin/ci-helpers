@@ -1,5 +1,16 @@
 ## Unreleased
 
+### Fixed
+
+- **A bad `--repo` reported a pin mismatch.** `cd` failing under `set -e`
+  exited 1, and 1 is `check_script_helpers_pins.sh`'s code for "at least one
+  pin does not match" -- so a typo in the path looked like a finding, with no
+  message. Exit 2 now, named.
+
+- **A ref that does not exist surfaced as git's bare 128.** The sync now says
+  which ref and which repository, and exits 3 like the other "cannot reach
+  GitHub" failures.
+
 ### Changed
 
 - **script-helpers 0.43.0, vendored and pinned.**
