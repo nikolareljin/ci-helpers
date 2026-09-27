@@ -18,6 +18,12 @@
   nothing here: this repo has no `Makefile` test target, no `tests/*_test.sh`
   and no `tests/*.bats`, so no runner matches and the hook behaves as before.
 
+  `release-tag-gate.yml` carried a ten-line comment about a 0.28.0 pin that
+  has not existed for fifteen releases, ending "Nothing enforces the
+  relationship" -- which stopped being true when
+  `check_script_helpers_pins.sh` shipped. Replaced with three lines that are
+  true, and the claim was checked: moving one pin back makes the gate exit 1.
+
   Vendoring it needed `index` in `.git/private-names-allow`: the upstream
   changelog uses the word four times and a private repository is called that.
   `.git/` is per-clone, so the next clone hits the same refusal and needs the

@@ -98,15 +98,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          # Carries check_changelog_section.sh (used below) as well as
-          # check_release_tag.sh. Both are byte-identical to the 0.28.0 copy
-          # this pin used to name, so the bump changes nothing here; it is for
-          # having one pin in this repository rather than three.
-          #
-          # This matches vendor/.script-helpers-sha again. It had stopped:
-          # the comment claimed the two tracked each other while the pin was
-          # 0.28.0 and the vendored tree was 0.32.0. Nothing enforces the
-          # relationship, so it is worth re-reading when either moves.
+          # Carries check_changelog_section.sh (used below) and
+          # check_release_tag.sh. scripts/check_script_helpers_pins.sh refuses
+          # a tree where this pin and vendor/.script-helpers-sha disagree.
           ref: 110618f1e7307f62744eda42eecf911c56bd9345 # 0.43.0
           path: .script-helpers
           fetch-depth: 1
