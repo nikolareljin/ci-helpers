@@ -56,9 +56,8 @@ happened to `laravel.yml`'s own self-test legs before the key carried
 
 Workflow: `.github/workflows/shell.yml`
 
-For a repository that is mostly Bash. Measured across the consumers here, 44 are
-Bash-primary and none has a single `.bats` file, so bats is opt-in and shellcheck
-is the whole value.
+For a repository that is mostly Bash. shellcheck is the point; bats and a
+formatter check are opt-in.
 
 Defaults:
 
@@ -69,21 +68,17 @@ Defaults:
 - `exclude_glob`: `*/script-helpers/*` -- vendored code you do not own; space-separated, several allowed
 - `fail_on_findings`: `true`
 
-`warning` rather than `error` or `info`, measured over five real repositories:
-
-| severity | findings |
-|---|---|
-| `error` | 0 in all five -- it would never fire |
-| `warning` | 0 in four, 13 in the fifth |
-| `info` | 1 to 95, and `SC2086` is `info`, so it floods |
+`warning` rather than `error` or `info`. `error` alone almost never fires, so it
+gates nothing; `info` includes `SC2086`, common enough to drown everything else.
+`warning` is the line that catches real problems without burying them.
 
 Two things are treated as failures rather than passes: a `shellcheck_paths` entry
 that does not exist, and a path set that matches no `*.sh`. Both are the shape a
 green run that checked nothing takes.
 
-The number of files excluded is printed alongside the number checked. Measured
-in the consumers here, the default hides 225 of 250 files in one repository and
-97 of 120 in another -- a filter that size should not be invisible. Set
+The number of files excluded is printed alongside the number checked: the
+default can hide most of a tree, and a filter that size should not be
+invisible. Set
 `exclude_glob` to `""` to check everything. Patterns are matched against `./path`,
 so `*/vendor/*` excludes a top-level `vendor/` as well as a nested one. Excluding
 everything is an error, reported as that rather than as "no files found".

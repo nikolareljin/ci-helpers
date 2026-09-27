@@ -1099,9 +1099,7 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
-  # The dogfood leg the task asks for: this repository's own scripts/, at the
-  # shipped default severity. Measured 0 warnings over its 13 scripts, so it
-  # gates rather than merely reports.
+  # This repository's own scripts/, at the default severity.
   shell-checks-this-repository:
     uses: ./.github/workflows/shell.yml
     with:
@@ -1116,12 +1114,11 @@ jobs:
       bats_command: "bats tests"
       concurrency_key: shell-runs-bats-and-a-clean-tree
 
-  # And the refusals. A `uses:` job cannot carry continue-on-error, so a case
-  # that must fail is driven directly -- as with every other refusal leg here.
+  # The refusals. A `uses:` job cannot carry continue-on-error, so a case that
+  # must fail is driven directly, as the other refusal legs here are.
   #
-  # Both assertions are about the default severity, not about shellcheck: the
-  # fixture trips SC2044, a warning, and passes at `error`. A fixture that only
-  # tripped `info` would say nothing about what this preset ships.
+  # The fixture trips SC2044 and passes at `error`, so the assertions are about
+  # the default severity rather than about shellcheck.
   shell-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1165,9 +1162,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          # An exclusion nobody sees is how a caller believes 250 files were
-          # checked when 25 were. In the consumers here the default hides 225
-          # of 250 in one repo, so the count has to be in the log.
+          # An exclusion can hide most of a tree, so the count belongs in the
+          # log rather than only in the input.
           root="$(mktemp -d)"
           mkdir -p "$root/scripts/script-helpers/scripts"
           printf '#!/usr/bin/env bash\nset -euo pipefail\necho ok\n' > "$root/scripts/mine.sh"
@@ -1206,7 +1202,7 @@ jobs:
           set -uo pipefail
           mkdir -p /tmp/no-shell-here
           # The preset refuses when no *.sh is found: a green run that checked
-          # nothing is the shape this whole epic keeps finding.
+          # nothing looks exactly like one that passed.
           files=()
           while IFS= read -r f; do files+=("$f"); done \
             < <(find /tmp/no-shell-here -type f -name '*.sh' | sort)

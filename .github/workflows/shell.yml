@@ -1,8 +1,7 @@
 name: preset-shell
 
-# Preset for repositories that are mostly Bash. Measured across the consumers
-# here: 44 are Bash-primary and none has a single .bats file, so bats is opt-in
-# and shellcheck is the whole value.
+# Preset for repositories that are mostly Bash: shellcheck, with optional bats
+# and an optional formatter check.
 #
 # Minimal usage:
 #   uses: nikolareljin/ci-helpers/.github/workflows/shell.yml@production
@@ -40,29 +39,26 @@ on:
         type: string
         default: "scripts"
 
-      # warning, not error or info. Measured over five real repositories:
-      # error found 0 everywhere, so it would never fire; info found 1 to 95,
-      # and SC2086 is info, so it floods; warning was clean on four and found
-      # 13 real ones on the fifth.
+      # warning, not error or info. `error` alone almost never fires, and
+      # `info` includes SC2086, which is common enough to drown the rest.
       shellcheck_severity:
         type: string
         default: "warning"
 
-      # Vendored code you do not own, skipped by default. Measured in the
-      # consumers here: this hides 225 of 250 files in one repo and 97 of 120
-      # in another, so the count skipped is printed rather than left implied.
+      # Vendored code you do not own, skipped by default. It can hide most of
+      # a tree, so the number skipped is printed rather than left implied.
       # Space-separated, several allowed. Empty checks everything.
       exclude_glob:
         type: string
         default: "*/script-helpers/*"
 
       # Replaces the whole shellcheck invocation. For a repo that already has
-      # its own wrapper, or a .shellcheckrc it wants honoured differently.
+      # its own wrapper, or a .shellcheckrc it wants honored differently.
       shellcheck_command:
         type: string
         default: ""
 
-      # Empty skips it. No consumer here has bats yet.
+      # Empty skips it.
       bats_command:
         type: string
         default: ""
@@ -173,8 +169,7 @@ jobs:
               exit 1
             fi
 
-            # Said out loud. An exclusion nobody sees is how a caller believes
-            # 250 files were checked when 25 were.
+            # Stated, not implied: an exclusion can hide most of a tree.
             if [[ "$excluded" -gt 0 ]]; then
               echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s); ${excluded} excluded by ${EXCLUDE}"
             else

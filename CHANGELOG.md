@@ -5,35 +5,28 @@
 - **`shell.yml`: a preset for repositories that are mostly Bash.** shellcheck
   over named paths, with an opt-in bats command and an opt-in formatter check.
 
-  `shellcheck_severity` defaults to `warning`, measured over five real
-  repositories rather than chosen:
+  `shellcheck_severity` defaults to `warning`. `error` alone almost never
+  fires, so it gates nothing; `info` includes `SC2086`, common enough to drown
+  everything else.
 
-  | severity | findings |
-  |---|---|
-  | `error` | 0 in all five -- it would never fire |
-  | `warning` | 0 in four, 13 in the fifth |
-  | `info` | 1 to 95, and `SC2086` is `info` |
-
-  bats is opt-in because 44 consumers here are Bash-primary and **none** has a
-  `.bats` file. A preset that required it would be adopted by nobody.
+  bats is opt-in: a preset that required it would fit almost nothing.
 
   `exclude_glob` takes several space-separated patterns, matched against
   `./path` so a top-level directory can be excluded too, and excluding
   everything is reported as that rather than as "no files found".
 
-  It defaults to `*/script-helpers/*`, and the number excluded is
-  printed next to the number checked. In the consumers here that default hides
-  225 of 250 files in one repository and 97 of 120 in another; an exclusion
-  that size is how a caller believes 250 files were checked when 25 were.
+  It defaults to `*/script-helpers/*`, and the number excluded is printed next
+  to the number checked: it can hide most of a tree, and an exclusion that size
+  should not be invisible.
 
   A `shellcheck_paths` entry that does not exist, and a path set matching no
-  `*.sh`, both fail. A green run that checked nothing is the shape this epic
-  keeps turning up.
+  `*.sh`, both fail: a green run that checked nothing looks exactly like one
+  that passed.
 
-  Three self-test legs: this repository's own `scripts/` at the shipped default,
-  the fixture with bats, and the refusals. The refusal leg asserts the fixture
-  fails at `warning` **and passes at `error`** -- a fixture that only tripped
-  `info` would say nothing about the default that ships.
+  Three self-test legs: this repository's own `scripts/` at the default, the
+  fixture with bats, and the refusals. The refusal leg asserts the fixture
+  fails at `warning` and passes at `error`, so it is testing the default rather
+  than testing shellcheck.
 
 ## 2026-09-27 — v0.36.0
 
