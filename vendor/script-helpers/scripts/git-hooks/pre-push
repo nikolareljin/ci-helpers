@@ -85,7 +85,7 @@ _private_names_gate() {
 # same on Linux, macOS and Windows, and git runs its hooks under bash on all
 # three. Nothing to install.
 _maybe_refresh_private_names() {
-  local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv}"
+  local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   local age_days="${PRIVATE_NAMES_REFRESH_DAYS:-7}"
   [[ "${PRIVATE_NAMES_AUTO_REFRESH:-true}" == true ]] || return 0
   command -v gh >/dev/null 2>&1 || return 0

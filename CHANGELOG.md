@@ -155,12 +155,17 @@
 
 ### Changed
 
-- **script-helpers 0.43.0, vendored and pinned.**
+- **script-helpers 0.43.1, vendored and pinned.**
 
   ```
   before:  15 pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
-  after:   15 pin(s) all match the vendored ref 0.43.0 (110618f1e730)
+  after:   15 pin(s) all match the vendored ref 0.43.1 (4c593d95059a)
   ```
+
+  0.43.1 over 0.43.0 for one fix that matters to a runner: with `HOME` unset
+  the gate exited 1, which is its code for "a private name was found", so the
+  hook refused the push and blamed a leak that was not there. A container or
+  a cron job is exactly where that bites.
 
   This is the pin that makes the notes gate added last release able to do
   anything: 0.42.0's copy did not know `--strict-ambiguous`, so it returned 2
