@@ -91,11 +91,19 @@ trap 'rm -rf "$TMP_DIR" "$STAGE_DIR"' EXIT
 log_info "Cloning ${REPO_URL} @ ${REF} ..."
 # git clone --branch only accepts tag/branch names, not raw SHAs.
 # Detect any hex-only string (7–40 chars) as a SHA and use full clone + checkout.
+# A ref that does not exist used to surface as git's bare 128 with the
+# library's own name nowhere in it. Say which ref, and which repository.
+clone_rc=0
 if [[ "$REF" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-  git clone --quiet "$REPO_URL" "$TMP_DIR/script-helpers"
-  git -C "$TMP_DIR/script-helpers" checkout --quiet "$REF"
+  git clone --quiet "$REPO_URL" "$TMP_DIR/script-helpers" || clone_rc=$?
+  [[ "$clone_rc" -eq 0 ]] && { git -C "$TMP_DIR/script-helpers" checkout --quiet "$REF" || clone_rc=$?; }
 else
-  git clone --quiet --branch "$REF" --depth 1 "$REPO_URL" "$TMP_DIR/script-helpers"
+  git clone --quiet --branch "$REF" --depth 1 "$REPO_URL" "$TMP_DIR/script-helpers" || clone_rc=$?
+fi
+if [[ "$clone_rc" -ne 0 ]]; then
+  log_error "Could not get ${REF} from ${REPO_URL} (git exit ${clone_rc})."
+  log_error "Check the tag or branch exists, and that this machine can reach it."
+  exit 3
 fi
 
 COMMIT_HASH="$(git -C "$TMP_DIR/script-helpers" rev-parse HEAD)"

@@ -77,7 +77,12 @@ try:
 except ValueError:
     # An unparseable command is not a licence to publish: fall back to checking
     # the whole string rather than letting it through unread.
-    print("VERDICT\tcheck")
+    #
+    # Reported, not enforced, for everyday words. We could not parse it, so we
+    # do not know it publishes anything -- and a heredoc of Python containing
+    # `s.index(...)` is not a pull request body. Blocking those trains people
+    # to switch the hook off.
+    print("VERDICT\tcheck-unparsed")
     print("REPO\t")
     print("TEXT")
     print(command)
@@ -186,9 +191,14 @@ if [[ "$verdict" == "no-verify" ]]; then
   exit 2
 fi
 
-[[ "$verdict" == "check" ]] || exit 0
+[[ "$verdict" == "check" || "$verdict" == "check-unparsed" ]] || exit 0
 
+# Strict here, warn elsewhere: nothing reads a warning from a hook that then
+# allows the call. The PR is created and the warning scrolls past.
 gate_args=(--stdin --only-public)
+# Strict only when a publishing command was actually identified. See the
+# unparseable fallback above.
+[[ "$verdict" == "check" ]] && gate_args+=(--strict-ambiguous)
 [[ -n "$repo" ]] && gate_args+=(--for-repo "$repo")
 
 reason="$(printf '%s' "$text" | bash "$GATE" "${gate_args[@]}" 2>&1)"

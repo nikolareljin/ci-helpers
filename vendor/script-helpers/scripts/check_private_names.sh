@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_private_names.sh
 # DESCRIPTION: Fail when the name of a private repository appears in text that is about to become public.
-# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [-h]
+# USAGE: scripts/check_private_names.sh [--tree|--commits <range>|--file <path>|--stdin] [--list <path>] [--names <a,b>] [--repo <path>] [--only-public] [--for-repo <name>] [--strict-ambiguous] [-h]
 # PARAMETERS:
 #   --tree              Scan tracked files (the default when nothing else is given).
 #   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
@@ -12,6 +12,9 @@
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
 #   --for-repo <name>   Judge visibility by this repository name, not the git remote.
+#   --strict-ambiguous  Fail on a bare everyday-word name too, rather than warning, and
+#                       check the tree for one as well. For text about to be posted
+#                       publicly, where nobody will re-read it afterwards.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  no private name found
@@ -105,6 +108,7 @@ LOUD_DAYS="${PRIVATE_NAMES_LOUD_DAYS:-30}"
 REPO=""
 LIST=""
 ONLY_PUBLIC=false
+STRICT_AMBIGUOUS=false
 FOR_REPO=""
 NAMES=""
 COMMITS=""
@@ -121,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --names) NAMES="${2:?--names needs a comma-separated list}"; shift 2 ;;
     --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
     --only-public) ONLY_PUBLIC=true; shift ;;
+    --strict-ambiguous) STRICT_AMBIGUOUS=true; shift ;;
     --for-repo) FOR_REPO="${2:?--for-repo needs a name}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
@@ -187,8 +192,9 @@ else
   if [[ ! -f "$LIST" ]]; then
     log_error "No private-name list at: $(tilde "$LIST")"
     log_error "Without it this check would scan for nothing and report success."
-    log_error "Generate one from your own account:"
-    log_error "  scripts/refresh_private_names.sh --owner <your-user-or-org>"
+    log_error "Build one. With no arguments it indexes every account the token can"
+    log_error "see, which is what you want -- naming one owner leaves the others out:"
+    log_error "  scripts/refresh_private_names.sh"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
@@ -263,6 +269,10 @@ else
       # protection, it is noise, and noise is what gets a gate switched off.
       if (flags ~ /qualified-only/ || flags ~ /ambiguous/ || generic(name)) {
         print "qual\t" ns "/" name "\t" ns "/" name "\t" code "\t" flags > out
+        # Also emitted bare, into the warn-only tier: demoting it was right, but
+        # the bare form passed in silence and nothing ever populated that tier.
+        # generic(name) is excluded -- inferred, not declared, and pure noise.
+        if (flags ~ /ambiguous/) print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
         next
       }
       print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
@@ -281,6 +291,13 @@ else
     log_error "The private-name list has no private names in it: $(tilde "$LIST")"
     log_error "An empty list cannot be told from a clean tree, so this is a failure."
     exit 2
+  fi
+
+  # Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
+  # here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
+  # commit range that carried a real leak gives one. Nobody reads 54 warnings.
+  if [[ "$MODE" == tree && "$STRICT_AMBIGUOUS" != true ]]; then
+    : > "$ambiguous"
   fi
 
   age="$(list_age_days "$LIST")"
@@ -501,7 +518,7 @@ search() {        # search <names-file> <label>
   # or a digit. `/` and `-` are boundaries, so a name still matches inside a path, a URL or
   # a possessive; what stops matching is a name inside a longer word. Substring matching
   # was measured at 508 hits on one public repository against this dictionary, essentially
-  # all of them one organisation repository named `.github`, which is in every workflow
+  # all of them one organization repository named `.github`, which is in every workflow
   # path. Token matching takes the same subject to zero.
   printf '%s\n' "$hits" | awk -F'\t' -v namesfile="$names" '
     function hit(line, needle,   n, pos, before, after) {
@@ -546,7 +563,7 @@ if [[ -s "$hard_hits" ]]; then
   found=1
   cat "$hard_hits" >&2
   log_error "A private repository is named above."
-  # An organisation's repository has no acceptable public form at all -- not its name and
+  # An organization's repository has no acceptable public form at all -- not its name and
   # not a code -- so offering a citation would be advising a quieter version of the
   # disclosure being prevented. A hit mixing both kinds takes the stricter advice.
   if grep -qF "never-name" "$entries" 2>/dev/null && \
@@ -563,7 +580,7 @@ if [[ -s "$hard_hits" ]]; then
       BEGIN { while ((getline l < hits) > 0) lines[++n] = tolower(l) }
       $5 ~ /never-name/ { for (i = 1; i <= n; i++) if (hit(lines[i], tolower($2))) { f = 1; exit } }
       END { exit !f }' "$entries"; then
-    log_error "At least one is owned by an organisation, which has no public form at all"
+    log_error "At least one is owned by an organization, which has no public form at all"
     log_error "-- not its name, and not a code. Remove the reference."
   elif awk -F'\t' '$2 != "-" && $2 != "" { found = 1 } END { exit !found }' "$hard"; then
     log_error "Refer to it by its code instead:"
@@ -576,16 +593,23 @@ fi
 if [[ -s "$qual_hits" ]]; then
   found=1
   cat "$qual_hits" >&2
-  log_error "An organisation, or a private repository named with its namespace, is above."
+  log_error "An organization, or a private repository named with its namespace, is above."
   log_error "There is no public form of it -- remove the reference."
   matched_names "$qualified" "$qual_hits" >&2
 fi
 
 if [[ -s "$amb_hits" ]]; then
-  found=1
   cat "$amb_hits" >&2
   matched_names "$ambiguous" "$amb_hits" token >&2
-  log_error "That is both an everyday word and a private repository, so it needs a person."
+  if [[ "$STRICT_AMBIGUOUS" == true ]]; then
+    found=1
+    log_error "That is both an everyday word and a private repository, so it needs a person."
+  else
+    log_warn "That is both an everyday word and a private repository, so it needs a person."
+    log_warn "Read the lines above. If any of them means the repository, cite it by code."
+    log_warn "This does not fail on its own; --strict-ambiguous makes it."
+    ambiguous_seen=1
+  fi
 fi
 
 if [[ "$found" -eq 1 ]]; then
@@ -599,6 +623,18 @@ if [[ "$found" -eq 1 ]]; then
       sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | head -1)."
   fi
   exit 1
+fi
+
+# After a warning, "no private repository is named" would be false, and a
+# warning that ends in a clean summary reads as a pass.
+if [[ "${ambiguous_seen:-0}" == 1 ]]; then
+  case "$MODE" in
+    tree)    log_warn "no unambiguous private name in tracked files; the warnings above still need a person" ;;
+    commits) log_warn "no unambiguous private name in $COMMITS; the warnings above still need a person" ;;
+    file)    log_warn "no unambiguous private name in $FILE; the warnings above still need a person" ;;
+    stdin)   log_warn "no unambiguous private name in the given text; the warnings above still need a person" ;;
+  esac
+  exit 0
 fi
 
 case "$MODE" in

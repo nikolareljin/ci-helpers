@@ -34,7 +34,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd "$REPO_DIR"
+# A bad --repo is a setup mistake, not a finding. `cd` failing under set -e
+# exited 1, and 1 is this script's code for "a pin does not match" -- so a
+# typo in the path reported a pin mismatch that was never looked for.
+if ! cd "$REPO_DIR" 2>/dev/null; then
+  echo "[ERROR] not a directory: $REPO_DIR" >&2
+  exit 2
+fi
 ref_file="vendor/.script-helpers-ref"
 sha_file="vendor/.script-helpers-sha"
 for f in "$ref_file" "$sha_file"; do
