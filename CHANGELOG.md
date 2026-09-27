@@ -1,3 +1,31 @@
+## Unreleased
+
+### Added
+
+- **`shell.yml`: a preset for repositories that are mostly Bash.** shellcheck
+  over named paths, with an opt-in bats command and an opt-in formatter check.
+
+  `shellcheck_severity` defaults to `warning`, measured over five real
+  repositories rather than chosen:
+
+  | severity | findings |
+  |---|---|
+  | `error` | 0 in all five -- it would never fire |
+  | `warning` | 0 in four, 13 in the fifth |
+  | `info` | 1 to 95, and `SC2086` is `info` |
+
+  bats is opt-in because 44 consumers here are Bash-primary and **none** has a
+  `.bats` file. A preset that required it would be adopted by nobody.
+
+  A `shellcheck_paths` entry that does not exist, and a path set matching no
+  `*.sh`, both fail. A green run that checked nothing is the shape this epic
+  keeps turning up.
+
+  Three self-test legs: this repository's own `scripts/` at the shipped default,
+  the fixture with bats, and the refusals. The refusal leg asserts the fixture
+  fails at `warning` **and passes at `error`** -- a fixture that only tripped
+  `info` would say nothing about the default that ships.
+
 ## 2026-09-27 — v0.36.0
 
 ### Added

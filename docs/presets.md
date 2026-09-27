@@ -23,8 +23,10 @@ Most presets call `ci.yml` by relative path, so they run the `ci.yml` from the
 same ref you pinned the preset to: pinning `node.yml@<tag>` pins the job it runs
 as well.
 
-Four do not, and run their own job instead: `laravel.yml`, `django.yml`,
-`wp-phpunit.yml` and `wp-build.yml`. Each drives a script-helpers script --
+Five do not, and run their own job instead. Four of them -- `laravel.yml`,
+`django.yml`, `wp-phpunit.yml` and `wp-build.yml` -- drive a script-helpers
+script; `shell.yml` runs shellcheck directly, because there is no wrapper worth
+having around it. Each of the four drives a script-helpers script --
 `ci_laravel.sh`, `ci_django.sh`, `ci_wp_phpunit.sh`, `ci_wp_build.sh` -- so the
 same command runs in CI and on a laptop, and each starts whatever service it
 needs itself rather than going through `ci.yml`'s `db_image`. One mechanism, not
@@ -49,6 +51,38 @@ database in it: two legs differing only in `db_image` would otherwise share a
 group and the second would cancel the first. That is not hypothetical -- it
 happened to `laravel.yml`'s own self-test legs before the key carried
 `db_image`.
+
+## Shell
+
+Workflow: `.github/workflows/shell.yml`
+
+For a repository that is mostly Bash. Measured across the consumers here, 44 are
+Bash-primary and none has a single `.bats` file, so bats is opt-in and shellcheck
+is the whole value.
+
+Defaults:
+
+- `shellcheck_paths`: `scripts` -- directories are walked for `*.sh`, files taken as given
+- `shellcheck_severity`: `warning`
+- `bats_command`: empty (skipped)
+- `format_command`: empty (skipped)
+- `fail_on_findings`: `true`
+
+`warning` rather than `error` or `info`, measured over five real repositories:
+
+| severity | findings |
+|---|---|
+| `error` | 0 in all five -- it would never fire |
+| `warning` | 0 in four, 13 in the fifth |
+| `info` | 1 to 95, and `SC2086` is `info`, so it floods |
+
+Two things are treated as failures rather than passes: a `shellcheck_paths` entry
+that does not exist, and a path set that matches no `*.sh`. Both are the shape a
+green run that checked nothing takes.
+
+`shellcheck_command` replaces the whole invocation for a repository that has its
+own wrapper. shellcheck and bats come from the runner's package manager, so no
+tool version is pinned here.
 
 ## Node
 

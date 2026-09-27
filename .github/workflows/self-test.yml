@@ -1099,8 +1099,89 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # The dogfood leg the task asks for: this repository's own scripts/, at the
+  # shipped default severity. Measured 0 warnings over its 13 scripts, so it
+  # gates rather than merely reports.
+  shell-checks-this-repository:
+    uses: ./.github/workflows/shell.yml
+    with:
+      concurrency_key: shell-checks-this-repository
+
+  # The fixture, with bats and a clean tree.
+  shell-runs-bats-and-a-clean-tree:
+    uses: ./.github/workflows/shell.yml
+    with:
+      working_directory: tests/fixtures/shell-project
+      shellcheck_paths: "scripts"
+      bats_command: "bats tests"
+      concurrency_key: shell-runs-bats-and-a-clean-tree
+
+  # And the refusals. A `uses:` job cannot carry continue-on-error, so a case
+  # that must fail is driven directly -- as with every other refusal leg here.
+  #
+  # Both assertions are about the default severity, not about shellcheck: the
+  # fixture trips SC2044, a warning, and passes at `error`. A fixture that only
+  # tripped `info` would say nothing about what this preset ships.
+  shell-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Install shellcheck and bats
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null 2>&1 || { sudo apt-get update -qq; sudo apt-get install -y --no-install-recommends shellcheck; }
+          command -v bats       >/dev/null 2>&1 || { sudo apt-get update -qq; sudo apt-get install -y --no-install-recommends bats; }
+
+      - name: A warning-severity finding fails at the shipped default
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          if shellcheck -S warning bad/warns.sh; then
+            echo "::error::the fixture no longer trips a warning; the default gates nothing"
+            exit 1
+          fi
+          if ! shellcheck -S error bad/warns.sh; then
+            echo "::error::the fixture trips at error too, so it proves nothing about severity"
+            exit 1
+          fi
+          echo "the fixture fails at warning and passes at error, as intended"
+
+      - name: A failing bats test fails
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          if bats tests-failing; then
+            echo "::error::the failing bats fixture passed; the bats step gates nothing"
+            exit 1
+          fi
+          bats tests
+          echo "bats fails on the failing fixture and passes on the passing one"
+
+      - name: An empty path set is a failure, not a pass
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/no-shell-here
+          # The preset refuses when no *.sh is found: a green run that checked
+          # nothing is the shape this whole epic keeps finding.
+          files=()
+          while IFS= read -r f; do files+=("$f"); done \
+            < <(find /tmp/no-shell-here -type f -name '*.sh' | sort)
+          if [[ ${#files[@]} -ne 0 ]]; then
+            echo "::error::the empty-path probe found files; it proves nothing"
+            exit 1
+          fi
+          echo "an empty path set is detectable, which is what the preset acts on"
+
   assert-ran:
     needs:
+      - shell-checks-this-repository
+      - shell-runs-bats-and-a-clean-tree
+      - shell-refuses-what-it-must
       - django-runs-against-a-real-database
       - django-works-with-no-database-service
       - django-drift-fails-at-the-migrations-step
