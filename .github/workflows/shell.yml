@@ -34,7 +34,8 @@ on:
         default: "false"
 
       # What to check. A directory is walked for *.sh; a file is taken as given.
-      # Space-separated, so several can be named.
+      # Space-separated, so several can be named -- which means no path here
+      # may contain a space. One that does is refused by name, not skipped.
       shellcheck_paths:
         type: string
         default: "scripts"
@@ -50,7 +51,7 @@ on:
       # Vendored code you do not own, skipped by default. Measured in the
       # consumers here: this hides 225 of 250 files in one repo and 97 of 120
       # in another, so the count skipped is printed rather than left implied.
-      # Empty checks everything.
+      # Space-separated, several allowed. Empty checks everything.
       exclude_glob:
         type: string
         default: "*/script-helpers/*"
@@ -134,7 +135,18 @@ jobs:
             for p in $PATHS; do
               if [[ -d "$p" ]]; then
                 while IFS= read -r f; do
-                  if [[ -n "$EXCLUDE" && "$f" == $EXCLUDE ]]; then
+                  # Matched against ./path, and against each pattern in turn.
+                  # find prints "a/x.sh" for a top-level directory, which no
+                  # leading */ can match -- so `*/vendor/*` with paths `vendor`
+                  # excluded nothing and said nothing about it.
+                  candidate="$f"
+                  [[ "$candidate" == /* || "$candidate" == ./* ]] || candidate="./$f"
+                  skip=""
+                  for pat in $EXCLUDE; do
+                    # shellcheck disable=SC2053  # a glob on the right is the point
+                    if [[ "$candidate" == $pat ]]; then skip=1; break; fi
+                  done
+                  if [[ -n "$skip" ]]; then
                     excluded=$((excluded + 1))
                     continue
                   fi
@@ -151,7 +163,13 @@ jobs:
             # Nothing to check is a configuration mistake, not a pass: it is the
             # shape a green run that verified nothing takes.
             if [[ ${#files[@]} -eq 0 ]]; then
-              echo "::error::no *.sh found under: ${PATHS}"
+              if [[ "$excluded" -gt 0 ]]; then
+                # "no *.sh found" would be the wrong diagnosis: they were found
+                # and then all filtered out.
+                echo "::error::every *.sh under '${PATHS}' was excluded by '${EXCLUDE}' (${excluded} file(s))"
+              else
+                echo "::error::no *.sh found under: ${PATHS}"
+              fi
               exit 1
             fi
 

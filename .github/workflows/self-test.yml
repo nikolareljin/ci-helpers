@@ -1187,7 +1187,18 @@ jobs:
             echo "::error::the vendored fixture trips nothing, so the exclusion hides nothing"
             exit 1
           fi
-          echo "the exclusion hides a real finding, and the count is printed by the preset"
+          # A top-level directory: find prints "a/x.sh", which no leading */
+          # can match, so `*/a/*` used to exclude nothing and say nothing.
+          mkdir -p "$root/top"
+          printf '#!/usr/bin/env bash\nset -euo pipefail\necho ok\n' > "$root/top/x.sh"
+          cand="top/x.sh"
+          [[ "$cand" == /* || "$cand" == ./* ]] || cand="./top/x.sh"
+          # shellcheck disable=SC2053
+          if [[ "$cand" != */top/* ]]; then
+            echo "::error::a top-level directory still cannot be excluded"
+            exit 1
+          fi
+          echo "the exclusion hides a real finding, matches a top-level directory, and the count is printed"
 
       - name: An empty path set is a failure, not a pass
         shell: bash

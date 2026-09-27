@@ -66,7 +66,7 @@ Defaults:
 - `shellcheck_severity`: `warning`
 - `bats_command`: empty (skipped)
 - `format_command`: empty (skipped)
-- `exclude_glob`: `*/script-helpers/*` -- vendored code you do not own
+- `exclude_glob`: `*/script-helpers/*` -- vendored code you do not own; space-separated, several allowed
 - `fail_on_findings`: `true`
 
 `warning` rather than `error` or `info`, measured over five real repositories:
@@ -84,7 +84,12 @@ green run that checked nothing takes.
 The number of files excluded is printed alongside the number checked. Measured
 in the consumers here, the default hides 225 of 250 files in one repository and
 97 of 120 in another -- a filter that size should not be invisible. Set
-`exclude_glob` to `""` to check everything.
+`exclude_glob` to `""` to check everything. Patterns are matched against `./path`,
+so `*/vendor/*` excludes a top-level `vendor/` as well as a nested one. Excluding
+everything is an error, reported as that rather than as "no files found".
+
+No entry in `shellcheck_paths` may contain a space: the list is space-separated,
+and one that does is refused by name rather than silently skipped.
 
 `shellcheck_command` replaces the whole invocation for a repository that has its
 own wrapper. shellcheck and bats come from the runner's package manager, so no

@@ -17,7 +17,11 @@
   bats is opt-in because 44 consumers here are Bash-primary and **none** has a
   `.bats` file. A preset that required it would be adopted by nobody.
 
-  `exclude_glob` defaults to `*/script-helpers/*`, and the number excluded is
+  `exclude_glob` takes several space-separated patterns, matched against
+  `./path` so a top-level directory can be excluded too, and excluding
+  everything is reported as that rather than as "no files found".
+
+  It defaults to `*/script-helpers/*`, and the number excluded is
   printed next to the number checked. In the consumers here that default hides
   225 of 250 files in one repository and 97 of 120 in another; an exclusion
   that size is how a caller believes 250 files were checked when 25 were.
