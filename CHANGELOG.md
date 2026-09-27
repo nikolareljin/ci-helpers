@@ -1,68 +1,4 @@
-## Unreleased
-
-### Fixed
-
-- **A bad `--repo` reported a pin mismatch.** `cd` failing under `set -e`
-  exited 1, and 1 is `check_script_helpers_pins.sh`'s code for "at least one
-  pin does not match" -- so a typo in the path looked like a finding, with no
-  message. Exit 2 now, named.
-
-- **A ref that does not exist surfaced as git's bare 128.** The sync now says
-  which ref and which repository, and exits 3 like the other "cannot reach
-  GitHub" failures.
-
-### Changed
-
-- **script-helpers 0.43.0, vendored and pinned.**
-
-  ```
-  before:  15 pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
-  after:   15 pin(s) all match the vendored ref 0.43.0 (110618f1e730)
-  ```
-
-  This is the pin that makes the notes gate added last release able to do
-  anything: 0.42.0's copy did not know `--strict-ambiguous`, so it returned 2
-  for the unknown option and the sync warned instead of refusing. Verified
-  against the vendored copy -- a note naming a private repository now exits 1.
-
-  0.43.0 also makes `pre-push` run a shell repository's tests. It changes
-  nothing here: this repo has no `Makefile` test target, no `tests/*_test.sh`
-  and no `tests/*.bats`, so no runner matches and the hook behaves as before.
-
-  `release-tag-gate.yml` carried a ten-line comment about a 0.28.0 pin that
-  has not existed for fifteen releases, ending "Nothing enforces the
-  relationship" -- which stopped being true when
-  `check_script_helpers_pins.sh` shipped. Replaced with three lines that are
-  true, and the claim was checked: moving one pin back makes the gate exit 1.
-
-  Vendoring it needed `index` in `.git/private-names-allow`: the upstream
-  changelog uses the word four times and a private repository is called that.
-  `.git/` is per-clone, so the next clone hits the same refusal and needs the
-  same line.
-
-
-### Fixed
-
-- **`vendor/.script-helpers-notes.md` cited an internal repository by name, and
-  the sync that wrote it now refuses to do that again.** The notes are upstream
-  prose copied verbatim into a public repository, so a name in an upstream
-  changelog lands here. Nothing checked what the copy carried.
-
-  The check runs immediately after the file is written, which is the part that
-  matters: placed beside the staging step instead, a re-sync at an unchanged
-  ref rewrote the notes, put the name back, and exited 0 at `Already up to
-  date` without ever reaching it. Verified by doing exactly that.
-
-  The notes are written to a temporary file and moved into place only after
-  the check passes, so a refused sync leaves the corrected file alone instead
-  of overwriting it and then complaining.
-
-  Exit codes are read individually -- 1 is a name and refuses, 2 is "could not
-  check" and warns. A vendored gate too old to know `--strict-ambiguous` returns
-  2 for the unknown option, and blocking on that would stop every consumer's
-  sync until they upgraded. The flag is passed only when the vendored copy has
-  it, so this becomes effective as the pin advances rather than breaking on the
-  way there.
+## 2026-09-27 — v0.36.0
 
 ### Added
 
@@ -103,73 +39,6 @@
   existing one on every one of them, so the pair cancelled each other. Caught
   by `assert-ran`, which counts a cancelled leg as a failure.
 
-### Changed
-
-- **script-helpers 0.42.0, vendored and pinned.** All fifteen workflow pins and
-  `vendor/script-helpers` move together:
-
-  ```
-  before:  15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
-  after:   15 script-helpers pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
-  ```
-
-  0.42.0 is what `makemigrations_command` forwards to: `ci_django.sh
-  --check-command`.
-
-- **script-helpers 0.41.0, vendored and pinned.** All fifteen workflow pins and
-  `vendor/script-helpers` move together:
-
-  ```
-  before:  15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
-  after:   15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
-  ```
-
-  0.41.0 gives `ci_python.sh` an optional database (`--db-image`) and a
-  repeatable `--env NAME=VALUE`. That is what Flask support turned out to be:
-  of the six Flask applications measured, one used a database and five did not,
-  so there is no `ci_flask.sh` and no preset that starts postgres by default.
-
-- **`django-runs-against-a-real-database` is back to the clearer form.** It
-  passed its expected database name as a positional argument, because
-  `ci_django.sh` read the first word of a step command as the program and
-  refused `EXPECT_DB_NAME=fixture_db python manage.py test` as a program called
-  `EXPECT_DB_NAME=fixture_db`. script-helpers 0.40.0 fixed that.
-
-  The expectation is now required for a server engine. If it stopped reaching
-  the step -- which is precisely what the probe bug did -- the check would
-  skip and the leg would pass having verified nothing, which would have made
-  restoring this form prove the opposite of what it is here to prove.
-
-  Writing it as an environment prefix again is also the most direct proof the
-  repin works: against 0.39.0 the command is refused before it runs, and against
-  the vendored copy it runs. The fixture accepts either form, so running it by
-  hand still works.
-
-### Changed
-
-- **script-helpers 0.40.0, vendored and pinned.** All fifteen workflow pins and
-  `vendor/script-helpers` move together:
-
-  ```
-  before:  15 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
-  after:   15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
-  ```
-
-  0.40.0 fixes two things this repository ran into while `django.yml` was being
-  written. A step command naming a path inside the project -- `bin/thing`,
-  `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, because
-  the probe looked in the script's own directory. And an environment prefix was
-  read as the program name, which cost a self-test leg a full cycle: the
-  database had started, `psycopg` had installed and the migration had applied
-  when the test step was refused for a program called `EXPECT_DB_NAME=fixture_db`.
-
-  The `django-runs-against-a-real-database` leg works around that today by
-  passing its expectation as a positional argument. The workaround can go once
-  this is pinned, but removing it is a change of its own rather than part of a
-  version bump.
-
-### Added
-
 - **`django.yml`: the Django preset, and a fixture that drives it.** `python.yml`
   installs and runs pytest. Django needs two things it has no notion of -- a
   database its settings can reach, and the migrations applied before the suite
@@ -205,79 +74,6 @@
   probe for, so `NAME=value python manage.py test` is refused as a program
   called `NAME=value` before it runs. That is a script-helpers defect with a
   fix of its own; the fixture works around it rather than waiting.
-
-### Changed
-
-- **`docs/presets.md` said every preset calls `ci.yml`.** Four do not:
-  `laravel.yml`, `django.yml`, `wp-phpunit.yml` and `wp-build.yml` each run
-  their own job and drive a script-helpers script. The page had been describing
-  the old `laravel.yml` since it was rewired, and would have described
-  `django.yml` wrongly the day it landed. It now also records why those four
-  key their concurrency group on `db_image`: two legs differing only in the
-  database shared a group, and the second cancelled the first.
-
-### Changed
-
-- **script-helpers 0.39.0, vendored and pinned.** All fourteen workflow pins and
-  `vendor/script-helpers` move together, which is now one command to verify
-  rather than a thing to remember:
-
-  ```
-  before:  14 script-helpers pin(s) all match the vendored ref 0.38.1 (8da793bb6653)
-  after:   14 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
-  ```
-
-  0.39.0 brings `lib/ci_stack.sh` -- one copy of the disposable-database
-  machinery that `ci_laravel.sh` and `ci_wp_phpunit.sh` had each carried and
-  drifted apart on -- and `scripts/ci_django.sh`, which `django.yml` will call.
-  It also guards every EXIT trap in shipped code against running in an inherited
-  subshell, which matters here because two of those traps run
-  `docker compose down -v --remove-orphans` against the caller's stack.
-
-### Changed
-
-- **Every script-helpers pin is 0.38.1, and the vendored copy with it.** There
-  were four versions of one library in this repository at once: eleven
-  workflows at 0.35.0, `wp-build.yml` at 0.36.0, `laravel.yml` at 0.38.0, and
-  `vendor/script-helpers` at 0.35.0. A preset running an older copy of a script
-  than the one this repository tests against is a difference nothing reports --
-  both are green, and they differ only in the case the newer version fixed.
-
-  0.38.1 matters immediately for `laravel.yml`, which starts a database on every
-  run: before it, `ci_laravel.sh` removed the container without its anonymous
-  volume and left roughly 200 MB behind each time.
-
-- **`laravel.yml` runs script-helpers' `ci_laravel.sh` instead of a shell block
-  nobody could run.** The Laravel-specific work -- create `.env`, generate
-  `APP_KEY`, start the database, migrate, test, remove the database -- was
-  inlined as a `test_command` heredoc in this file. A failure on a runner could
-  only be reproduced by guessing at what CI had done differently.
-  `scripts/ci_laravel.sh --workdir .` now runs the same code on a laptop.
-
-  The input surface is unchanged, so no caller needs editing. Two inputs are
-  added: `install_command` (empty by default, since `lint_command` already
-  installs) and `migrate_command`, which defaults to
-  `php artisan config:clear && php artisan migrate --force` -- the `config:clear`
-  preserves what the inline block did, and matters because a cached config would
-  send the migration at whatever `DB_*` it holds rather than the ones exported.
-
-  `db_root_password` now reaches the database image. It used to be passed to
-  `ci.yml`'s `db_env`; the script hard-coded `root` until script-helpers 0.38.0,
-  so the value would have been accepted and discarded. Pinned at
-  `3e3dd396` # 0.38.0.
-
-  The database is started by the script rather than by `ci.yml`'s `db_image`.
-  One mechanism, not two, which is the choice `wp-phpunit.yml` already records.
-
-- **`check_floating_refs.sh` now also refuses a `ref:` that names a branch.**
-  `uses:` is not the only way a workflow pulls in someone else's code: twelve
-  workflows here check out script-helpers with `repository:` and `ref:`, and a
-  `ref: main` there would put that library's moving head into every consumer's
-  run. The existing pattern could not see it, because there is no `uses:` on the
-  line. All twelve were already SHA-pinned, so nothing had to change to make
-  this pass.
-
-### Added
 
 - **`scripts/check_script_helpers_pins.sh`, run by `vendor-check.yml`.** Two
   things name a script-helpers version here -- `vendor/.script-helpers-ref` and
@@ -357,7 +153,197 @@
   whoever deploys it, and a listing is the cheapest way to notice that
   `node_modules` shipped again.
 
+### Changed
+
+- **script-helpers 0.43.1, vendored and pinned.**
+
+  ```
+  before:  15 pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
+  after:   15 pin(s) all match the vendored ref 0.43.1 (4c593d95059a)
+  ```
+
+  0.43.1 over 0.43.0 for one fix that matters to a runner: with `HOME` unset
+  the gate exited 1, which is its code for "a private name was found", so the
+  hook refused the push and blamed a leak that was not there. A container or
+  a cron job is exactly where that bites.
+
+  This is the pin that makes the notes gate added last release able to do
+  anything: 0.42.0's copy did not know `--strict-ambiguous`, so it returned 2
+  for the unknown option and the sync warned instead of refusing. Verified
+  against the vendored copy -- a note naming a private repository now exits 1.
+
+  0.43.0 also makes `pre-push` run a shell repository's tests. It changes
+  nothing here: this repo has no `Makefile` test target, no `tests/*_test.sh`
+  and no `tests/*.bats`, so no runner matches and the hook behaves as before.
+
+  `release-tag-gate.yml` carried a ten-line comment about a 0.28.0 pin that
+  has not existed for fifteen releases, ending "Nothing enforces the
+  relationship" -- which stopped being true when
+  `check_script_helpers_pins.sh` shipped. Replaced with three lines that are
+  true, and the claim was checked: moving one pin back makes the gate exit 1.
+
+  Vendoring it needed `index` in `.git/private-names-allow`: the upstream
+  changelog uses the word four times and a private repository is called that.
+  `.git/` is per-clone, so the next clone hits the same refusal and needs the
+  same line.
+
+- **script-helpers 0.42.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.42.0 (02b19b9afbf7)
+  ```
+
+  0.42.0 is what `makemigrations_command` forwards to: `ci_django.sh
+  --check-command`.
+
+- **script-helpers 0.41.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.41.0 (5a1b0a7a8e95)
+  ```
+
+  0.41.0 gives `ci_python.sh` an optional database (`--db-image`) and a
+  repeatable `--env NAME=VALUE`. That is what Flask support turned out to be:
+  of the six Flask applications measured, one used a database and five did not,
+  so there is no `ci_flask.sh` and no preset that starts postgres by default.
+
+- **`django-runs-against-a-real-database` is back to the clearer form.** It
+  passed its expected database name as a positional argument, because
+  `ci_django.sh` read the first word of a step command as the program and
+  refused `EXPECT_DB_NAME=fixture_db python manage.py test` as a program called
+  `EXPECT_DB_NAME=fixture_db`. script-helpers 0.40.0 fixed that.
+
+  The expectation is now required for a server engine. If it stopped reaching
+  the step -- which is precisely what the probe bug did -- the check would
+  skip and the leg would pass having verified nothing, which would have made
+  restoring this form prove the opposite of what it is here to prove.
+
+  Writing it as an environment prefix again is also the most direct proof the
+  repin works: against 0.39.0 the command is refused before it runs, and against
+  the vendored copy it runs. The fixture accepts either form, so running it by
+  hand still works.
+
+- **script-helpers 0.40.0, vendored and pinned.** All fifteen workflow pins and
+  `vendor/script-helpers` move together:
+
+  ```
+  before:  15 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
+  after:   15 script-helpers pin(s) all match the vendored ref 0.40.0 (7edc91b65b46)
+  ```
+
+  0.40.0 fixes two things this repository ran into while `django.yml` was being
+  written. A step command naming a path inside the project -- `bin/thing`,
+  `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, because
+  the probe looked in the script's own directory. And an environment prefix was
+  read as the program name, which cost a self-test leg a full cycle: the
+  database had started, `psycopg` had installed and the migration had applied
+  when the test step was refused for a program called `EXPECT_DB_NAME=fixture_db`.
+
+  The `django-runs-against-a-real-database` leg works around that today by
+  passing its expectation as a positional argument. The workaround can go once
+  this is pinned, but removing it is a change of its own rather than part of a
+  version bump.
+
+- **`docs/presets.md` said every preset calls `ci.yml`.** Four do not:
+  `laravel.yml`, `django.yml`, `wp-phpunit.yml` and `wp-build.yml` each run
+  their own job and drive a script-helpers script. The page had been describing
+  the old `laravel.yml` since it was rewired, and would have described
+  `django.yml` wrongly the day it landed. It now also records why those four
+  key their concurrency group on `db_image`: two legs differing only in the
+  database shared a group, and the second cancelled the first.
+
+- **script-helpers 0.39.0, vendored and pinned.** All fourteen workflow pins and
+  `vendor/script-helpers` move together, which is now one command to verify
+  rather than a thing to remember:
+
+  ```
+  before:  14 script-helpers pin(s) all match the vendored ref 0.38.1 (8da793bb6653)
+  after:   14 script-helpers pin(s) all match the vendored ref 0.39.0 (0879be9e2c43)
+  ```
+
+  0.39.0 brings `lib/ci_stack.sh` -- one copy of the disposable-database
+  machinery that `ci_laravel.sh` and `ci_wp_phpunit.sh` had each carried and
+  drifted apart on -- and `scripts/ci_django.sh`, which `django.yml` will call.
+  It also guards every EXIT trap in shipped code against running in an inherited
+  subshell, which matters here because two of those traps run
+  `docker compose down -v --remove-orphans` against the caller's stack.
+
+- **Every script-helpers pin is 0.38.1, and the vendored copy with it.** There
+  were four versions of one library in this repository at once: eleven
+  workflows at 0.35.0, `wp-build.yml` at 0.36.0, `laravel.yml` at 0.38.0, and
+  `vendor/script-helpers` at 0.35.0. A preset running an older copy of a script
+  than the one this repository tests against is a difference nothing reports --
+  both are green, and they differ only in the case the newer version fixed.
+
+  0.38.1 matters immediately for `laravel.yml`, which starts a database on every
+  run: before it, `ci_laravel.sh` removed the container without its anonymous
+  volume and left roughly 200 MB behind each time.
+
+- **`laravel.yml` runs script-helpers' `ci_laravel.sh` instead of a shell block
+  nobody could run.** The Laravel-specific work -- create `.env`, generate
+  `APP_KEY`, start the database, migrate, test, remove the database -- was
+  inlined as a `test_command` heredoc in this file. A failure on a runner could
+  only be reproduced by guessing at what CI had done differently.
+  `scripts/ci_laravel.sh --workdir .` now runs the same code on a laptop.
+
+  The input surface is unchanged, so no caller needs editing. Two inputs are
+  added: `install_command` (empty by default, since `lint_command` already
+  installs) and `migrate_command`, which defaults to
+  `php artisan config:clear && php artisan migrate --force` -- the `config:clear`
+  preserves what the inline block did, and matters because a cached config would
+  send the migration at whatever `DB_*` it holds rather than the ones exported.
+
+  `db_root_password` now reaches the database image. It used to be passed to
+  `ci.yml`'s `db_env`; the script hard-coded `root` until script-helpers 0.38.0,
+  so the value would have been accepted and discarded. Pinned at
+  `3e3dd396` # 0.38.0.
+
+  The database is started by the script rather than by `ci.yml`'s `db_image`.
+  One mechanism, not two, which is the choice `wp-phpunit.yml` already records.
+
+- **`check_floating_refs.sh` now also refuses a `ref:` that names a branch.**
+  `uses:` is not the only way a workflow pulls in someone else's code: twelve
+  workflows here check out script-helpers with `repository:` and `ref:`, and a
+  `ref: main` there would put that library's moving head into every consumer's
+  run. The existing pattern could not see it, because there is no `uses:` on the
+  line. All twelve were already SHA-pinned, so nothing had to change to make
+  this pass.
+
 ### Fixed
+
+- **A bad `--repo` reported a pin mismatch.** `cd` failing under `set -e`
+  exited 1, and 1 is `check_script_helpers_pins.sh`'s code for "at least one
+  pin does not match" -- so a typo in the path looked like a finding, with no
+  message. Exit 2 now, named.
+
+- **A ref that does not exist surfaced as git's bare 128.** The sync now says
+  which ref and which repository, and exits 3 like the other "cannot reach
+  GitHub" failures.
+
+- **`vendor/.script-helpers-notes.md` cited an internal repository by name, and
+  the sync that wrote it now refuses to do that again.** The notes are upstream
+  prose copied verbatim into a public repository, so a name in an upstream
+  changelog lands here. Nothing checked what the copy carried.
+
+  The check runs immediately after the file is written, which is the part that
+  matters: placed beside the staging step instead, a re-sync at an unchanged
+  ref rewrote the notes, put the name back, and exited 0 at `Already up to
+  date` without ever reaching it. Verified by doing exactly that.
+
+  The notes are written to a temporary file and moved into place only after
+  the check passes, so a refused sync leaves the corrected file alone instead
+  of overwriting it and then complaining.
+
+  Exit codes are read individually -- 1 is a name and refuses, 2 is "could not
+  check" and warns. A vendored gate too old to know `--strict-ambiguous` returns
+  2 for the unknown option, and blocking on that would stop every consumer's
+  sync until they upgraded. The flag is passed only when the vendored copy has
+  it, so this becomes effective as the pin advances rather than breaking on the
+  way there.
 
 - **`self-test.yml`'s `assert-ran` checked a list of job names kept separately
   from the jobs it waits on.** The two drifted the first time a job was added:
@@ -391,7 +377,6 @@
   check exists to prevent, which GitHub reports without naming the input or
   the duplicate. It compares labels now, and says which one collided rather
   than printing the whole array.
-
 
 ## 2026-09-23 — v0.35.0
 

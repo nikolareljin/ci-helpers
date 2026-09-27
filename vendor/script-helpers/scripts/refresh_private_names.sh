@@ -70,7 +70,7 @@ type log_warn >/dev/null 2>&1 || log_warn() { printf '[WARN] %s\n' "$*" >&2; }
 type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; }
 
 OWNERS=""
-OUT="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
+OUT="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv"
 TO_STDOUT=false
 CHECK=false
 FORCE=false
@@ -79,7 +79,7 @@ GH_LIMIT="${PRIVATE_NAMES_GH_LIMIT:-8000}"
 # One cache per owner, so a re-index touches the owner that changed instead of
 # refetching every account. Assembly reads whatever caches exist, which is also
 # what makes `--owner X` safe: it updates one cache, it does not replace the file.
-CACHE_DIR="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/owners}"
+CACHE_DIR="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/owners}"
 # Days before a cache is refetched. Your own account changes often and is small;
 # an employer organization with thousands of repositories rarely gains one that
 # matters and costs a minute to list.
@@ -87,12 +87,12 @@ TTL_SELF="${PRIVATE_NAMES_TTL_SELF:-1}"
 TTL_ORG="${PRIVATE_NAMES_TTL_ORG:-14}"
 TTL_OVERRIDE=""
 USE_GRAPHQL="${PRIVATE_NAMES_GRAPHQL:-true}"
-CODES_FILE="${PRIVATE_NAMES_CODES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-codes.tsv}"
+CODES_FILE="${PRIVATE_NAMES_CODES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-codes.tsv}"
 WORDLIST="${PRIVATE_NAMES_WORDLIST:-/usr/share/dict/words}"
 
 # Names that are dictionary words but never written as words in the repos this
 # account publishes, so they stay matched bare. One per line, comments allowed.
-NEVER_AMBIGUOUS_FILE="${PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-unambiguous}"
+NEVER_AMBIGUOUS_FILE="${PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-unambiguous}"
 NEVER_AMBIGUOUS="${PRIVATE_NAMES_NEVER_AMBIGUOUS:-}"
 if [[ -f "$NEVER_AMBIGUOUS_FILE" ]]; then
   NEVER_AMBIGUOUS="${NEVER_AMBIGUOUS}
@@ -137,6 +137,21 @@ fi
 # repository rebuilds that one file from THEIR namespace -- silently dropping your own
 # private names from every gate on the machine, with no error and no clue. Naming the
 # owners is the only safe default.
+# A non-numeric TTL or limit is not a smaller number, it is no check at all:
+# `find -mtime +abc` errors, prints nothing, and the cache reads as fresh --
+# so `--ttl abc` silently means "never refetch", and the log said "under abcd".
+for _num in "TTL_OVERRIDE:--ttl:$TTL_OVERRIDE" "TTL_SELF:PRIVATE_NAMES_TTL_SELF:$TTL_SELF" \
+            "TTL_ORG:PRIVATE_NAMES_TTL_ORG:$TTL_ORG" "GH_LIMIT:--limit:$GH_LIMIT"; do
+  _name="${_num%%:*}"; _rest="${_num#*:}"; _flag="${_rest%%:*}"; _val="${_rest#*:}"
+  [[ -z "$_val" ]] && continue
+  if [[ ! "$_val" =~ ^[0-9]+$ ]]; then
+    log_error "${_flag} takes a whole number, got '${_val}'."
+    log_error "Left as it is, the comparison silently passes and nothing is refetched."
+    exit 2
+  fi
+done
+unset _num _name _rest _flag _val
+
 SELF_LOGIN=""
 OWNERS_DISCOVERED=false
 if [[ -z "$OWNERS" ]]; then

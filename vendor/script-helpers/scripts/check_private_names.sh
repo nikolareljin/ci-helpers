@@ -95,13 +95,13 @@ type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; 
 # Paths are printed through this, never raw: an absolute default carries the
 # account name into every message, and these messages end up in CI logs and
 # pasted into issues.
-tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
+tilde() { case "$1" in "${HOME:-/nonexistent}"/*) printf '~%s' "${1#"${HOME:-/nonexistent}"}" ;; *) printf '%s' "$1" ;; esac; }
 
 # One location, and it is config rather than cache: a cache is regenerable and
 # disposable, and this file may be maintained by hand. It sits outside every working
 # tree, so it cannot be committed by accident, and one file serves every repository on
 # the machine.
-DEFAULT_LIST="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names.tsv"
+DEFAULT_LIST="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv"
 STALE_DAYS="${PRIVATE_NAMES_STALE_DAYS:-7}"
 LOUD_DAYS="${PRIVATE_NAMES_LOUD_DAYS:-30}"
 
@@ -194,7 +194,18 @@ else
     log_error "Without it this check would scan for nothing and report success."
     log_error "Build one. With no arguments it indexes every account the token can"
     log_error "see, which is what you want -- naming one owner leaves the others out:"
-    log_error "  scripts/refresh_private_names.sh"
+    # The real path, not one relative to this library: a consumer has it under
+    # scripts/script-helpers or vendor/, where "scripts/refresh_private_names.sh"
+    # does not exist. Relative when it is under the working directory, and
+    # otherwise with $HOME collapsed like the line above -- this text reaches CI
+    # logs and pull request bodies, and a home directory in it is a username
+    # nobody asked to publish.
+    _refresher="${SCRIPT_DIR}/refresh_private_names.sh"
+    case "$_refresher" in
+      "$PWD"/*) _refresher="./${_refresher#"$PWD"/}" ;;
+      *)        _refresher="$(tilde "$_refresher")" ;;
+    esac
+    log_error "  ${_refresher}"
     log_error "or point PRIVATE_NAMES_FILE at a list you already have."
     exit 2
   fi
@@ -380,7 +391,7 @@ fi
 # allowed again in every fresh clone on every machine, and a gate that has to be
 # re-appeased that often is a gate someone eventually removes. It lives in the
 # cache directory, never in a tree.
-machine_allow="${XDG_CONFIG_HOME:-$HOME/.config}/script-helpers/private-names-allow"
+machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
 fi
