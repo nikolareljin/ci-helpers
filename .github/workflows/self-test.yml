@@ -1099,8 +1099,140 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # This repository's own scripts/, at the default severity.
+  shell-checks-this-repository:
+    uses: ./.github/workflows/shell.yml
+    with:
+      concurrency_key: shell-checks-this-repository
+
+  # The fixture, with bats and a clean tree. scripts/script-helpers/vendored.sh
+  # trips a warning, so this passes only while the default exclude works on a
+  # populated vendored directory.
+  shell-runs-bats-and-a-clean-tree:
+    uses: ./.github/workflows/shell.yml
+    with:
+      working_directory: tests/fixtures/shell-project
+      shellcheck_paths: "scripts"
+      bats_command: "bats tests"
+      concurrency_key: shell-runs-bats-and-a-clean-tree
+
+  # The refusals. A `uses:` job cannot carry continue-on-error, so a case that
+  # must fail is driven directly, as the other refusal legs here are.
+  #
+  # The fixture trips SC2044 and passes at `error`, so the assertions are about
+  # the default severity rather than about shellcheck.
+  shell-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Install shellcheck and bats
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null 2>&1 || { sudo apt-get update -qq; sudo apt-get install -y --no-install-recommends shellcheck; }
+          command -v bats       >/dev/null 2>&1 || { sudo apt-get update -qq; sudo apt-get install -y --no-install-recommends bats; }
+
+      - name: A warning-severity finding fails at the shipped default
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          if shellcheck -S warning bad/warns.sh; then
+            echo "::error::the fixture no longer trips a warning; the default gates nothing"
+            exit 1
+          fi
+          if ! shellcheck -S error bad/warns.sh; then
+            echo "::error::the fixture trips at error too, so it proves nothing about severity"
+            exit 1
+          fi
+          echo "the fixture fails at warning and passes at error, as intended"
+
+      - name: The vendored fixture trips a warning, so the green leg proves the exclusion
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          # shell-runs-bats-and-a-clean-tree checks scripts/ at the default
+          # exclude. It passes only because scripts/script-helpers/vendored.sh is
+          # excluded; if the file stopped tripping, that pass would prove nothing.
+          if shellcheck -S warning scripts/script-helpers/vendored.sh; then
+            echo "::error::the vendored fixture trips nothing; the green leg no longer tests the exclusion"
+            exit 1
+          fi
+          echo "the vendored fixture fails at warning, so the green leg passing means it was excluded"
+
+      - name: A failing bats test fails
+        shell: bash
+        working-directory: tests/fixtures/shell-project
+        run: |
+          set -uo pipefail
+          if bats tests-failing; then
+            echo "::error::the failing bats fixture passed; the bats step gates nothing"
+            exit 1
+          fi
+          bats tests
+          echo "bats fails on the failing fixture and passes on the passing one"
+
+      - name: The exclusion is reported, and can be turned off
+        shell: bash
+        run: |
+          set -uo pipefail
+          # An exclusion can hide most of a tree, so the count belongs in the
+          # log rather than only in the input.
+          root="$(mktemp -d)"
+          mkdir -p "$root/scripts/script-helpers/scripts"
+          printf '#!/usr/bin/env bash\nset -euo pipefail\necho ok\n' > "$root/scripts/mine.sh"
+          printf '#!/usr/bin/env bash\nfor f in $(find . -name "*.t"); do echo "$f"; done\n' \
+            > "$root/scripts/script-helpers/scripts/vendored.sh"
+
+          kept=$(find "$root/scripts" -type f -name '*.sh' -not -path '*/script-helpers/*' | wc -l)
+          all=$(find "$root/scripts" -type f -name '*.sh' | wc -l)
+          if [[ "$kept" -ne 1 || "$all" -ne 2 ]]; then
+            echo "::error::the fixture does not exercise the exclusion (kept=$kept all=$all)"
+            exit 1
+          fi
+
+          # With the exclusion off, the vendored warning must be found -- or
+          # the exclusion is not what is hiding it.
+          if shellcheck -S warning "$root/scripts/script-helpers/scripts/vendored.sh"; then
+            echo "::error::the vendored fixture trips nothing, so the exclusion hides nothing"
+            exit 1
+          fi
+          # A top-level directory: find prints "a/x.sh", which no leading */
+          # can match, so `*/a/*` used to exclude nothing and say nothing.
+          mkdir -p "$root/top"
+          printf '#!/usr/bin/env bash\nset -euo pipefail\necho ok\n' > "$root/top/x.sh"
+          cand="top/x.sh"
+          [[ "$cand" == /* || "$cand" == ./* ]] || cand="./top/x.sh"
+          # shellcheck disable=SC2053
+          if [[ "$cand" != */top/* ]]; then
+            echo "::error::a top-level directory still cannot be excluded"
+            exit 1
+          fi
+          echo "the exclusion hides a real finding, matches a top-level directory, and the count is printed"
+
+      - name: An empty path set is a failure, not a pass
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/no-shell-here
+          # The preset refuses when no *.sh is found: a green run that checked
+          # nothing looks exactly like one that passed.
+          files=()
+          while IFS= read -r f; do files+=("$f"); done \
+            < <(find /tmp/no-shell-here -type f -name '*.sh' | sort)
+          if [[ ${#files[@]} -ne 0 ]]; then
+            echo "::error::the empty-path probe found files; it proves nothing"
+            exit 1
+          fi
+          echo "an empty path set is detectable, which is what the preset acts on"
+
   assert-ran:
     needs:
+      - shell-checks-this-repository
+      - shell-runs-bats-and-a-clean-tree
+      - shell-refuses-what-it-must
       - django-runs-against-a-real-database
       - django-works-with-no-database-service
       - django-drift-fails-at-the-migrations-step

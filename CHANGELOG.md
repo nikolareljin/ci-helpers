@@ -1,3 +1,36 @@
+## Unreleased
+
+### Added
+
+- **`shell.yml`: a preset for repositories that are mostly Bash.** shellcheck
+  over named paths, with an opt-in bats command and an opt-in formatter check.
+
+  `shellcheck_severity` defaults to `warning`. `error` alone almost never
+  fires, so it gates nothing; `info` includes `SC2086`, common enough to drown
+  everything else.
+
+  bats is opt-in: a preset that required it would fit almost nothing.
+
+  `exclude_glob` takes several space-separated patterns, matched against
+  `./path` so a top-level directory can be excluded too, and excluding
+  everything is reported as that rather than as "no files found".
+
+  It defaults to `*/script-helpers/*`, and the number excluded is printed next
+  to the number checked: it can hide most of a tree, and an exclusion that size
+  should not be invisible. Patterns are matched with pathname expansion off:
+  with it on, a populated `scripts/script-helpers/` turned the pattern into its
+  own file names and nothing was excluded (158 of 162 files checked in a real
+  consumer).
+
+  A `shellcheck_paths` entry that does not exist, and a path set matching no
+  `*.sh`, both fail: a green run that checked nothing looks exactly like one
+  that passed.
+
+  Three self-test legs: this repository's own `scripts/` at the default, the
+  fixture with bats, and the refusals. The refusal leg asserts the fixture
+  fails at `warning` and passes at `error`, so it is testing the default rather
+  than testing shellcheck.
+
 ## 2026-09-27 — v0.36.0
 
 ### Added

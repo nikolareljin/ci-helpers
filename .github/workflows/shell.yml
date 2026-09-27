@@ -1,0 +1,229 @@
+name: preset-shell
+
+# Preset for repositories that are mostly Bash: shellcheck, with optional bats
+# and an optional formatter check.
+#
+# Minimal usage:
+#   uses: nikolareljin/ci-helpers/.github/workflows/shell.yml@production
+#
+# With tests and a formatter:
+#   uses: nikolareljin/ci-helpers/.github/workflows/shell.yml@production
+#   with:
+#     bats_command: "bats tests"
+#     format_command: "shfmt -d -i 2 ."
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      working_directory:
+        type: string
+        default: "."
+      concurrency_key:
+        type: string
+        default: ""
+      fetch_depth:
+        type: number
+        default: 0
+      # false / true / recursive. Forwarded to checkout, which refuses a typo
+      # rather than reading it as false.
+      submodules:
+        type: string
+        default: "false"
+
+      # What to check. A directory is walked for *.sh; a file is taken as given.
+      # Space-separated, so several can be named -- which means no path here
+      # may contain a space. One that does is refused by name, not skipped.
+      shellcheck_paths:
+        type: string
+        default: "scripts"
+
+      # warning, not error or info. `error` alone almost never fires, and
+      # `info` includes SC2086, which is common enough to drown the rest.
+      shellcheck_severity:
+        type: string
+        default: "warning"
+
+      # Vendored code you do not own, skipped by default. It can hide most of
+      # a tree, so the number skipped is printed rather than left implied.
+      # Space-separated, several allowed. Empty checks everything.
+      exclude_glob:
+        type: string
+        default: "*/script-helpers/*"
+
+      # Replaces the whole shellcheck invocation. For a repo that already has
+      # its own wrapper, or a .shellcheckrc it wants honored differently.
+      shellcheck_command:
+        type: string
+        default: ""
+
+      # Empty skips it.
+      bats_command:
+        type: string
+        default: ""
+
+      # Empty skips it. shfmt is not installed by default: name it in the
+      # command if you want it, e.g. "shfmt -d -i 2 .".
+      format_command:
+        type: string
+        default: ""
+
+      # false turns every step into a report. The gate is the point, so it
+      # defaults on.
+      fail_on_findings:
+        type: boolean
+        default: true
+
+      timeout_minutes:
+        type: number
+        default: 15
+
+concurrency:
+  group: >-
+    ci-helpers-shell-${{ github.workflow }}-${{ inputs.concurrency_key
+    || format('{0}-{1}-{2}', inputs.working_directory, inputs.runner, inputs.shellcheck_severity) }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          submodules: ${{ inputs.submodules }}
+
+      - name: Install shellcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v shellcheck >/dev/null 2>&1; then
+            echo "shellcheck already present: $(shellcheck --version | awk '/version:/ {print $2}')"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+
+      - name: shellcheck
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          PATHS: ${{ inputs.shellcheck_paths }}
+          SEVERITY: ${{ inputs.shellcheck_severity }}
+          OVERRIDE: ${{ inputs.shellcheck_command }}
+          EXCLUDE: ${{ inputs.exclude_glob }}
+          FAIL: ${{ inputs.fail_on_findings }}
+        run: |
+          set -uo pipefail
+
+          if [[ -n "$OVERRIDE" ]]; then
+            echo "::group::${OVERRIDE}"
+            bash -c "$OVERRIDE"; rc=$?
+            echo "::endgroup::"
+          else
+            # No pathname expansion from here on. $PATHS and $EXCLUDE are split
+            # unquoted, and with globbing on `*/script-helpers/*` expanded to the
+            # vendored files that exist -- so a checked-out submodule was matched
+            # against its own file names, excluded nothing, and was all checked.
+            # [[ == $pat ]] still matches patterns with this off.
+            set -f
+            # Collected into an array first. `shellcheck $(find ...)` unquoted
+            # splits a path with a space, and quoted passes one argument that is
+            # every path at once -- both check nothing and exit 0.
+            files=()
+            excluded=0
+            for p in $PATHS; do
+              if [[ -d "$p" ]]; then
+                while IFS= read -r f; do
+                  # Matched against ./path, and against each pattern in turn.
+                  # find prints "a/x.sh" for a top-level directory, which no
+                  # leading */ can match -- so `*/vendor/*` with paths `vendor`
+                  # excluded nothing and said nothing about it.
+                  candidate="$f"
+                  [[ "$candidate" == /* || "$candidate" == ./* ]] || candidate="./$f"
+                  skip=""
+                  for pat in $EXCLUDE; do
+                    # shellcheck disable=SC2053  # a glob on the right is the point
+                    if [[ "$candidate" == $pat ]]; then skip=1; break; fi
+                  done
+                  if [[ -n "$skip" ]]; then
+                    excluded=$((excluded + 1))
+                    continue
+                  fi
+                  files+=("$f")
+                done < <(find "$p" -type f -name '*.sh' | sort)
+              elif [[ -f "$p" ]]; then
+                files+=("$p")
+              else
+                echo "::error::shellcheck_paths names '$p', which does not exist"
+                exit 1
+              fi
+            done
+
+            # Nothing to check is a configuration mistake, not a pass: it is the
+            # shape a green run that verified nothing takes.
+            if [[ ${#files[@]} -eq 0 ]]; then
+              if [[ "$excluded" -gt 0 ]]; then
+                # "no *.sh found" would be the wrong diagnosis: they were found
+                # and then all filtered out.
+                echo "::error::every *.sh under '${PATHS}' was excluded by '${EXCLUDE}' (${excluded} file(s))"
+              else
+                echo "::error::no *.sh found under: ${PATHS}"
+              fi
+              exit 1
+            fi
+
+            # Stated, not implied: an exclusion can hide most of a tree.
+            if [[ "$excluded" -gt 0 ]]; then
+              echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s); ${excluded} excluded by ${EXCLUDE}"
+            else
+              echo "shellcheck -S ${SEVERITY} over ${#files[@]} file(s)"
+            fi
+            echo "::group::shellcheck"
+            shellcheck -S "$SEVERITY" "${files[@]}"; rc=$?
+            echo "::endgroup::"
+          fi
+
+          if [[ $rc -ne 0 ]]; then
+            if [[ "$FAIL" == "true" ]]; then
+              echo "::error::shellcheck found problems at severity ${SEVERITY}"
+              exit "$rc"
+            fi
+            echo "::warning::shellcheck found problems; fail_on_findings is false"
+          fi
+
+      - name: Format check
+        if: ${{ inputs.format_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          CMD: ${{ inputs.format_command }}
+          FAIL: ${{ inputs.fail_on_findings }}
+        run: |
+          set -uo pipefail
+          bash -c "$CMD"; rc=$?
+          if [[ $rc -ne 0 ]]; then
+            [[ "$FAIL" == "true" ]] && { echo "::error::format check failed"; exit "$rc"; }
+            echo "::warning::format check failed; fail_on_findings is false"
+          fi
+
+      - name: bats
+        if: ${{ inputs.bats_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          CMD: ${{ inputs.bats_command }}
+          FAIL: ${{ inputs.fail_on_findings }}
+        run: |
+          set -uo pipefail
+          if ! command -v bats >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends bats
+          fi
+          bash -c "$CMD"; rc=$?
+          if [[ $rc -ne 0 ]]; then
+            [[ "$FAIL" == "true" ]] && { echo "::error::bats tests failed"; exit "$rc"; }
+            echo "::warning::bats tests failed; fail_on_findings is false"
+          fi

@@ -23,8 +23,10 @@ Most presets call `ci.yml` by relative path, so they run the `ci.yml` from the
 same ref you pinned the preset to: pinning `node.yml@<tag>` pins the job it runs
 as well.
 
-Four do not, and run their own job instead: `laravel.yml`, `django.yml`,
-`wp-phpunit.yml` and `wp-build.yml`. Each drives a script-helpers script --
+Five do not, and run their own job instead. Four of them -- `laravel.yml`,
+`django.yml`, `wp-phpunit.yml` and `wp-build.yml` -- drive a script-helpers
+script; `shell.yml` runs shellcheck directly, because there is no wrapper worth
+having around it. Each of the four drives a script-helpers script --
 `ci_laravel.sh`, `ci_django.sh`, `ci_wp_phpunit.sh`, `ci_wp_build.sh` -- so the
 same command runs in CI and on a laptop, and each starts whatever service it
 needs itself rather than going through `ci.yml`'s `db_image`. One mechanism, not
@@ -49,6 +51,44 @@ database in it: two legs differing only in `db_image` would otherwise share a
 group and the second would cancel the first. That is not hypothetical -- it
 happened to `laravel.yml`'s own self-test legs before the key carried
 `db_image`.
+
+## Shell
+
+Workflow: `.github/workflows/shell.yml`
+
+For a repository that is mostly Bash. shellcheck is the point; bats and a
+formatter check are opt-in.
+
+Defaults:
+
+- `shellcheck_paths`: `scripts` -- directories are walked for `*.sh`, files taken as given
+- `shellcheck_severity`: `warning`
+- `bats_command`: empty (skipped)
+- `format_command`: empty (skipped)
+- `exclude_glob`: `*/script-helpers/*` -- vendored code you do not own; space-separated, several allowed
+- `fail_on_findings`: `true`
+
+`warning` rather than `error` or `info`. `error` alone almost never fires, so it
+gates nothing; `info` includes `SC2086`, common enough to drown everything else.
+`warning` is the line that catches real problems without burying them.
+
+Two things are treated as failures rather than passes: a `shellcheck_paths` entry
+that does not exist, and a path set that matches no `*.sh`. Both are the shape a
+green run that checked nothing takes.
+
+The number of files excluded is printed alongside the number checked: the
+default can hide most of a tree, and a filter that size should not be
+invisible. Set
+`exclude_glob` to `""` to check everything. Patterns are matched against `./path`,
+so `*/vendor/*` excludes a top-level `vendor/` as well as a nested one. Excluding
+everything is an error, reported as that rather than as "no files found".
+
+No entry in `shellcheck_paths` may contain a space: the list is space-separated,
+and one that does is refused by name rather than silently skipped.
+
+`shellcheck_command` replaces the whole invocation for a repository that has its
+own wrapper. shellcheck and bats come from the runner's package manager, so no
+tool version is pinned here.
 
 ## Node
 
