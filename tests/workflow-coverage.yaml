@@ -83,8 +83,6 @@ groups:
       - pnpm-scan.yml
       - release-tag-gate.yml
       - rpm-build.yml
-      - rust.yml
-      - rust-scan.yml
       - tauri.yml
       - tauri-scan.yml
       - trivy-scan.yml

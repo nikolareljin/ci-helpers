@@ -19,7 +19,16 @@ on:
         default: "rustfmt, clippy"
       lint_command:
         type: string
-        default: "cargo fmt -- --check && cargo clippy -- -D warnings"
+        # `--all-targets`, because without it clippy checks the library and
+        # nothing else: not tests, not benches, not examples. Measured on
+        # 2026-09-28 with one `len_zero` violation placed in test code --
+        #
+        #   cargo clippy -- -D warnings                 exit 0
+        #   cargo clippy --all-targets -- -D warnings   exit 101
+        #
+        # A lint that cannot see most of what a repository writes is the kind
+        # that reports clean for years.
+        default: "cargo fmt -- --check && cargo clippy --all-targets -- -D warnings"
       test_command:
         type: string
         default: "cargo fetch && cargo test"
