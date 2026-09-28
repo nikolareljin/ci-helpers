@@ -31,6 +31,14 @@
 
   Coverage moves from 25 exercised to 27, `not-yet` from 21 to 19.
 
+  Two of those steps failed in CI first, for reasons worth keeping. `shell:
+  bash` runs with `-e`, so `cargo clippy ... ; rc=$?` ends the step at the
+  clippy run that is *meant* to fail -- locally they had been driven with
+  `bash -c`, which has no `-e`. And the coverage gate's own refusal step named
+  `rust.yml`, which left the list the moment this change gave it a leg: the
+  gate's test carrying a second copy of the gate's data. It reads a name out of
+  the list now.
+
 ### Fixed
 
 - **`java-scan.yml`'s dependency check could not run at all.** Measured on

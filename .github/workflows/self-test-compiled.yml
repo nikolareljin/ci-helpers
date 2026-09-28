@@ -563,10 +563,15 @@ jobs:
             exit 1
           fi
 
-          cargo clippy -- -D warnings > /tmp/lib-only.log 2>&1
-          lib_only=$?
-          cargo clippy --all-targets -- -D warnings > /tmp/all-targets.log 2>&1
-          all_targets=$?
+          # `|| var=$?`, because `shell: bash` runs with -e: a bare failing
+          # command ends the step before the next line can read $?. Locally I
+          # drove these steps with `bash -c`, which has no -e, so this passed
+          # there and died here at exit 101 -- the clippy run that is *meant*
+          # to fail.
+          lib_only=0
+          cargo clippy -- -D warnings > /tmp/lib-only.log 2>&1 || lib_only=$?
+          all_targets=0
+          cargo clippy --all-targets -- -D warnings > /tmp/all-targets.log 2>&1 || all_targets=$?
           cp /tmp/lib.rs.orig src/lib.rs
 
           if [[ "$lib_only" -ne 0 ]]; then

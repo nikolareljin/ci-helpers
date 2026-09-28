@@ -386,24 +386,35 @@ jobs:
             echo "::error::the refusal does not name the unlisted workflow"; cat /tmp/unlisted.txt; exit 1; }
           rm "$root/.github/workflows/brand-new.yml"
 
-          rm "$root/.github/workflows/rust.yml"
+          # Read a name out of the list rather than naming one here. The
+          # hard-coded `rust.yml` broke the moment that workflow gained a leg
+          # and left the list -- the gate's own test carrying a second copy of
+          # the gate's data, which is the failure this repository keeps
+          # finding in other people's code.
+          listed="$(python3 -c "
+          import yaml
+          groups = yaml.safe_load(open('tests/workflow-coverage.yaml'))['groups']
+          print(next(w for g in groups.values() for w in g['workflows']))
+          ")"
+          echo "using the first listed workflow: ${listed}"
+          rm "$root/.github/workflows/${listed}"
           if python3 scripts/check_workflow_coverage.py --root "$root" > /tmp/stale.txt 2>&1; then
             echo "::error::an entry naming a workflow that is gone passed the gate"
             exit 1
           fi
-          grep -q "rust.yml is listed but is not a reusable workflow" /tmp/stale.txt || {
+          grep -q "${listed} is listed but is not a reusable workflow" /tmp/stale.txt || {
             echo "::error::the refusal does not name the stale entry"; cat /tmp/stale.txt; exit 1; }
-          cp .github/workflows/rust.yml "$root/.github/workflows/"
+          cp ".github/workflows/${listed}" "$root/.github/workflows/"
 
           # printf, not a heredoc: a heredoc terminator has to sit at column 0,
           # which ends the YAML block scalar this step is written in.
-          printf '\n  php-leg:\n    uses: ./.github/workflows/php.yml\n    with:\n      working_directory: tests/fixtures/x\n' \
-            >> "$root/.github/workflows/self-test-web.yml"
+          printf '\n  probe-leg:\n    uses: ./.github/workflows/%s\n    with:\n      working_directory: tests/fixtures/x\n' \
+            "${listed}" >> "$root/.github/workflows/self-test-web.yml"
           if python3 scripts/check_workflow_coverage.py --root "$root" > /tmp/covered.txt 2>&1; then
             echo "::error::a listed workflow that gained a leg passed the gate"
             exit 1
           fi
-          grep -q "php.yml is listed as .not-yet. but a self-test leg calls it" /tmp/covered.txt || {
+          grep -q "${listed} is listed as .* but a self-test leg calls it" /tmp/covered.txt || {
             echo "::error::the refusal does not name the newly covered workflow"; cat /tmp/covered.txt; exit 1; }
 
           echo "the gate refuses an unlisted workflow, a stale entry, and a list that has fallen behind"
