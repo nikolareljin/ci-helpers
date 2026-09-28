@@ -31,7 +31,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
 ## Cypress with start-server-and-test (custom script)
@@ -42,7 +42,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev:ci' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev:ci' http://localhost:3000 'npx cypress run'"
 ```
 
 ## Docker build + E2E
@@ -56,7 +56,7 @@ jobs:
     with:
       node_version: "22"
       docker_command: "docker build -t myapp:ci ."
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```
 
 ## PR gate with release tag check

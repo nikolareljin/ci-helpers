@@ -118,7 +118,7 @@ jobs:
       lint_command: "yarn lint"
       test_command: "yarn test"
       build_command: "yarn build"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
 ```
 
 Example (Docker build + E2E):
@@ -130,7 +130,7 @@ jobs:
     with:
       node_version: "22"
       docker_command: "docker build -t myapp:ci ."
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```
 
 ## pr-gate.yml
@@ -170,7 +170,7 @@ jobs:
       node_version: "22"
       lint_command: "yarn lint"
       test_command: "yarn test"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
       check_release_tag: true
       release_branch: ${{ github.head_ref }}
 ```
@@ -855,7 +855,17 @@ Inputs:
 - `java_version` (string, default `17`)
 - `lint_command` (string, default `""`; `mvn -B -DskipTests checkstyle:check` fails on a project with no ruleset)
 - `test_command` (string, default `mvn -B test`)
-- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7`; the plugin's own default threshold of 11 never fails)
+- `dependency_check_command` (string, default `""`). dependency-check 9.0 onward
+  needs an NVD API key; without one the data update fails and takes the build
+  with it. A repository with a key passes the secret `nvd_api_key` and sets:
+
+  ```yaml
+  dependency_check_command: >-
+    mvn -B org.owasp:dependency-check-maven:13.0.0:check
+    -DfailBuildOnCVSS=7 -DnvdApiKey=$NVD_API_KEY
+  ```
+
+  Keep `-DfailBuildOnCVSS`: the plugin's own default threshold of 11 never fails.
 
 Example:
 

@@ -1,5 +1,59 @@
 ## Unreleased
 
+### Fixed
+
+- **`java-scan.yml`'s dependency check could not run at all.** Measured on
+  2026-09-28 against a conventional two-file Maven project:
+
+  ```
+  [ERROR] Error updating the NVD Data
+    caused by NvdApiException: Invalid API Key, length of 0 too short
+  [INFO] BUILD FAILURE (21s)
+  ```
+
+  dependency-check 9.0 onward reads the NVD through an API that wants a key,
+  and the preset neither passed one nor declared a secret for it. It has never
+  had a consumer, so nothing found out.
+
+  `dependency_check_command` is opt-in now, the workflow accepts an optional
+  `nvd_api_key` secret, and the step receives it as an environment variable
+  rather than interpolated into the command, where it could reach a log line.
+  `docs/workflows.md` carries the line that turns it on. The fifth shipped
+  default in this ladder that could not have worked.
+
+### Added
+
+- **Self-test legs for `java-scan.yml`, `python-scan.yml` and `vue-scan.yml`**,
+  against the `jvm-maven`, `python-install` and `node-app` fixtures. The
+  coverage list moves from 22 exercised to 25, and `not-yet` from 24 to 21.
+
+  `jvm-refuses-what-it-must` drives the reason the dependency check is opt-in:
+  it runs the old default and fails the leg if the NVD update ever succeeds
+  without a key, so the reason stays true rather than becoming folklore.
+
+- **The docs stop teaching a command that runs on neither Yarn line.** The
+  defaults dropped `yarn install --frozen-lockfile && yarn dlx ...` in the
+  previous release -- `dlx` is Yarn Berry only and `--frozen-lockfile` is Yarn 1
+  syntax -- but the README and three documentation pages still carried it in
+  copy-paste examples, eleven times. That is how something nobody can run
+  outlives the default it came from. They use `npx` now, which ships with Node
+  and prefers a binary already in `node_modules/.bin`.
+
+  **Yarn Berry with PnP is documented as the exception**: with no
+  `node_modules`, resolving a binary needs Yarn's own resolver, so such a
+  repository overrides with `yarn install --immutable && yarn dlx ...` --
+  Berry's own spelling on both halves. `docs/presets.md` carries it for both
+  browser-runner presets.
+
+  The leg reads the documents too, and refuses **the mixture** rather than the
+  word: `yarn dlx` beside `--frozen-lockfile`. A blunter check refused the
+  correct Berry override the moment it was written down, which is how a gate
+  starts costing more than it catches.
+
+- **The README stops claiming `java-scan.yml` lints and scans by default.** Both
+  are opt-in, for reasons two releases apart: checkstyle fails on a project with
+  no ruleset, and the NVD check needs a key.
+
 ### Added
 
 - **Every reusable workflow now says what exercises it, or why nothing does.**

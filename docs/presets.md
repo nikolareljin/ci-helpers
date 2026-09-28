@@ -1252,10 +1252,25 @@ Workflow: `.github/workflows/playwright.yml`
 Defaults:
 
 - `node_version`: `22`
-- `e2e_command`: `yarn install --frozen-lockfile && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
+- `e2e_command`: `yarn install --frozen-lockfile && npx playwright install --with-deps && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
 
 Notes:
 
+- The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
+  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
+  replaced could not run as written on either line -- measured on 2026-09-28,
+  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  prefers a binary already in `node_modules/.bin`, and fetches only when there
+  is none.
+
+  **Yarn Berry with PnP is the exception.** With no `node_modules`, resolving a
+  binary needs Yarn's own resolver, so such a repository should override:
+
+  ```yaml
+  e2e_command: "yarn install --immutable && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'yarn playwright test'"
+  ```
+
+  Note `--immutable` rather than `--frozen-lockfile`: Berry's own spelling.
 - Uses Yarn. For pnpm monorepos use `pnpm-playwright.yml` instead.
 
 Example:
@@ -1266,7 +1281,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
 ## Cypress (yarn)
@@ -1276,10 +1291,25 @@ Workflow: `.github/workflows/cypress.yml`
 Defaults:
 
 - `node_version`: `22`
-- `e2e_command`: `yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
+- `e2e_command`: `yarn install --frozen-lockfile && npx cypress install && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
 
 Notes:
 
+- The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
+  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
+  replaced could not run as written on either line -- measured on 2026-09-28,
+  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  prefers a binary already in `node_modules/.bin`, and fetches only when there
+  is none.
+
+  **Yarn Berry with PnP is the exception.** With no `node_modules`, resolving a
+  binary needs Yarn's own resolver, so such a repository should override:
+
+  ```yaml
+  e2e_command: "yarn install --immutable && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'yarn cypress test'"
+  ```
+
+  Note `--immutable` rather than `--frozen-lockfile`: Berry's own spelling.
 - Uses Yarn. For pnpm monorepos use `pnpm-cypress.yml` instead.
 
 Example:
@@ -1290,7 +1320,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
 ```
 
 ## Cloudflare Workers
@@ -1565,5 +1595,5 @@ jobs:
     with:
       node_version: "22"
       docker_command: "docker build -t myapp:ci ."
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```

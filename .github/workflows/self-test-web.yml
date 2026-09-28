@@ -305,6 +305,17 @@ jobs:
     with:
       working_directory: tests/fixtures/node-app
 
+  python-scan-defaults-can-pass:
+    uses: ./.github/workflows/python-scan.yml
+    with:
+      working_directory: tests/fixtures/python-install
+      python_version: "3.13"
+
+  vue-scan-defaults-can-pass:
+    uses: ./.github/workflows/vue-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
   pnpm-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -407,7 +418,21 @@ jobs:
               exit 1
             fi
           done
-          echo "yarn 1 has no dlx, and neither default uses it"
+          # The docs taught it after the defaults stopped using it: the README
+          # and three pages carried the command in copy-paste examples, which is
+          # how something nobody can run outlives the default it came from.
+          #
+          # The defect is the *mixture*, not `dlx`. `yarn install --immutable &&
+          # yarn dlx ...` is correct Berry, and docs/presets.md gives exactly
+          # that as the override for a PnP repository, where npx cannot resolve
+          # a binary that lives in no node_modules. What cannot work is Yarn 1's
+          # --frozen-lockfile beside Berry's dlx, so that pairing is what this
+          # refuses.
+          if grep -rn -- "--frozen-lockfile.*yarn dlx\|yarn dlx.*--frozen-lockfile" README.md docs/*.md; then
+            echo "::error::a document pairs Yarn 1's --frozen-lockfile with Berry's dlx; that runs on neither"
+            exit 1
+          fi
+          echo "yarn 1 has no dlx; no default uses it and no document mixes the two lines"
 
   # -- Java, Kotlin and Gradle ------------------------------------------------
   #
@@ -556,6 +581,8 @@ jobs:
   # This repository's own scripts/, at the default severity.
   assert-ran:
     needs:
+      - python-scan-defaults-can-pass
+      - vue-scan-defaults-can-pass
       - python-install-survives-lint-override
       - wp-check-generates-its-own-stack
       - wp-phpunit-runs-real-wordpress-tests
