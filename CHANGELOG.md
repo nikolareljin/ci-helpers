@@ -45,6 +45,18 @@
   own `assert-ran`, which waits on every job in its file -- checked, not
   assumed.
 
+- **A caller granting only `contents: read` cannot call `pnpm.yml` at all.**
+  Its `report` job asks for `checks: write` and `pull-requests: read`, and a
+  called workflow's permissions must be a subset of the caller's. The whole
+  workflow is then rejected before any job starts -- `startup_failure`, no
+  annotation, every other check green -- and the `if:` that would have skipped
+  `report` changes nothing, because permissions are settled before anything
+  runs.
+
+  That is what a repository adopting this preset meets, so the self-test leg
+  grants the three at job level rather than widening the file, and says why.
+  Found by bisecting: the suite started once the pnpm leg was removed.
+
 ### Fixed
 
 - **Two JVM presets shipped defaults that could not pass.** Both were measured

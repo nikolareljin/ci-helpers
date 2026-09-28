@@ -277,6 +277,18 @@ jobs:
   # cancels anything else.
   pnpm-defaults-can-pass:
     uses: ./.github/workflows/pnpm.yml
+    # Granted here, not at the top of the file: pnpm.yml's `report` job asks for
+    # `checks: write` and `pull-requests: read`, and a called workflow's
+    # permissions must be a subset of the caller's. Without this the whole
+    # workflow is rejected before any job starts -- `startup_failure`, no
+    # annotation, every other check green -- and the `if:` that would have
+    # skipped `report` makes no difference, because permissions are settled
+    # before anything runs. That is what a repository adopting this preset with
+    # a `contents: read` workflow will meet.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
     with:
       working_directory: tests/fixtures/pnpm-app
       extra_command: >-
@@ -357,8 +369,7 @@ jobs:
           root="$(mktemp -d)"
           printf '{"name":"y","version":"0.0.0","private":true,"packageManager":"yarn@1.22.22"}\n' > "$root/package.json"
           corepack enable >/dev/null 2>&1 || true
-          ( cd "$root" && corepack yarn@1.22.22 dlx cypress install > /tmp/yarn1.txt 2>&1 )
-          if [[ $? -eq 0 ]]; then
+          if ( cd "$root" && corepack yarn@1.22.22 dlx cypress install > /tmp/yarn1.txt 2>&1 ); then
             echo "::error::yarn 1 now understands dlx; the reason for the default change is gone"
             exit 1
           fi
