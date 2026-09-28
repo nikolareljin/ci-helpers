@@ -316,6 +316,11 @@ jobs:
     with:
       working_directory: tests/fixtures/node-app
 
+  pnpm-scan-defaults-can-pass:
+    uses: ./.github/workflows/pnpm-scan.yml
+    with:
+      working_directory: tests/fixtures/pnpm-app
+
   pnpm-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -368,7 +373,18 @@ jobs:
             echo "::error::pnpm.yml no longer keys its cache on the working directory"
             exit 1
           }
-          echo "the cache and the install read the same lockfile"
+          # Every sibling, not just pnpm.yml. The first fix went into one file
+          # and left the defect in three others, because nothing looked.
+          missing=""
+          for preset in pnpm pnpm-scan pnpm-cypress pnpm-playwright; do
+            grep -qE 'cache-dependency-path:.*inputs\.working_directory.*pnpm-lock\.yaml' \
+              ".github/workflows/${preset}.yml" || missing="${missing} ${preset}.yml"
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::these cache pnpm without keying on the working directory:${missing}"
+            exit 1
+          fi
+          echo "the cache and the install read the same lockfile, in every pnpm preset"
 
       - name: A failing test fails the shipped pnpm test default
         shell: bash
@@ -581,6 +597,7 @@ jobs:
   # This repository's own scripts/, at the default severity.
   assert-ran:
     needs:
+      - pnpm-scan-defaults-can-pass
       - python-scan-defaults-can-pass
       - vue-scan-defaults-can-pass
       - python-install-survives-lint-override

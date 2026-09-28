@@ -78,7 +78,6 @@ groups:
       - playwright.yml
       - pnpm-cypress.yml
       - pnpm-playwright.yml
-      - pnpm-scan.yml
       - rpm-build.yml
       - tauri.yml
       - tauri-scan.yml
