@@ -988,16 +988,27 @@ Inputs (selected):
 - `context` (string, default `"."`)
 - `trivy_severity` (string, default `CRITICAL,HIGH`)
 - `fail_on_findings` (boolean, default `true`)
-- `run_snyk` (boolean, default `true`). The Snyk step needs `snyk_token`. Without
-  it the scan is **skipped with a warning** -- in the run log and in the job
-  summary -- rather than failing the build or passing in silence:
+- `run_snyk` (boolean, default `false`). Snyk needs an account and an API token
+  -- there is no anonymous mode, and the free plan still issues a key -- so it
+  is opt-in:
+
+  ```yaml
+  with:
+    run_snyk: true
+  secrets:
+    snyk_token: ${{ secrets.SNYK_TOKEN }}
+  ```
+
+  Turned on **without** the secret, the scan is skipped with a warning in the
+  run log and a line in the job summary, rather than failing the build or
+  passing in silence:
 
   ```
   Warning: Snyk scan skipped: run_snyk is on but no snyk_token was passed...
   ```
 
-  Set `run_snyk: false` to stop asking. Trivy runs either way and needs no
-  credential.
+  Trivy runs on every call, needs no credential, and covers the same CVE ground
+  for container images.
 
 Example:
 

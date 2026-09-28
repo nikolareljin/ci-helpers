@@ -29,15 +29,19 @@ on:
       fail_on_findings:
         type: boolean
         default: true
-      # On by default, and it warns rather than fails when there is no
-      # credential. Failing would give a repository with no Snyk account a red
-      # build for a scanner it never asked for; skipping in silence would let a
-      # scan that never ran read as a scan that found nothing. The warning is
-      # the middle: visible in the run, in the job summary, and never mistaken
-      # for a pass. Trivy runs either way and needs no credential.
+      # Off by default: Snyk needs an account and an API token -- there is no
+      # anonymous mode, and the free plan still issues a key -- so a preset that
+      # ran it by default would ask every adopter for a credential to get a
+      # green build. Trivy runs on every call, needs no credential, and covers
+      # the same CVE ground for container images.
+      #
+      # Turned on with `run_snyk: true` plus the `snyk_token` secret. Turned on
+      # *without* the secret, it warns and skips rather than failing: a scan
+      # that cannot run should say so, and never read as a scan that found
+      # nothing.
       run_snyk:
         type: boolean
-        default: true
+        default: false
       snyk_severity_threshold:
         type: string
         default: "high"

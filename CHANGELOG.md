@@ -2,15 +2,21 @@
 
 ### Changed
 
-- **`docker-scan.yml` runs Snyk again by default, and warns when it cannot.**
-  Without `snyk_token` the scan is skipped with a `::warning::` in the run and a
-  line in the job summary saying the image **was not scanned by Snyk**, rather
-  than failing the build or passing in silence. Trivy runs either way.
+- **`docker-scan.yml`: Snyk is opt-in, and warns when it is asked for without a
+  token.** Snyk needs an account and an API key -- there is no anonymous mode,
+  and the free plan still issues one -- so running it by default would ask every
+  adopter for a credential to get a green build. `run_snyk: true` plus the
+  `snyk_token` secret turns it on.
 
-  The three outcomes were the whole question: failing gives a repository with
-  no Snyk account a red build for a scanner it never asked for; skipping quietly
-  lets a scan that never ran read as a scan that found nothing; warning is the
-  one that is visible and not mistaken for a pass.
+  Turned on **without** the secret it now skips with a `::warning::` in the run
+  and a line in the job summary saying the image **was not scanned by Snyk**,
+  rather than failing the build with an authentication error or passing in
+  silence. Of the three outcomes, failing punishes a repository for a scanner it
+  never asked for, a silent skip lets a scan that never ran read as a scan that
+  found nothing, and the warning is the one that is visible and not mistaken for
+  a pass.
+
+  Trivy runs on every call and needs no credential.
 
   A self-test step drives the workflow's own credential check with an empty
   token and with one, asserting the warning, the summary line and that the exit
