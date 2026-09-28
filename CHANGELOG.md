@@ -18,9 +18,18 @@
   the docs. A check that fires on correct input gets switched off, so it is
   worse than one that is absent.
 
+  `java-scan.yml` carried the same checkstyle default and is now empty too --
+  it has no consumer at all, so it had never fired on anything.
+
   Neither change can surprise a caller: all five call sites on `java.yml`,
   `java-gradle.yml` and `kotlin.yml` override every command, which is how these
   defaults survived unexercised while the workflows had consumers.
+
+  The same wrong commands were written in three more places, each now
+  corrected: `docs/workflows.md` listed the checkstyle default, the README
+  presented the Android tasks as Kotlin's defaults, and
+  `docs/private-repo-ci-strategy.md` told a **JVM** Gradle project to run
+  `./gradlew lint`, which it does not have.
 
 ### Added
 
@@ -34,6 +43,11 @@
   `assembleDebug` are asserted **absent** on the Kotlin fixture, the old
   checkstyle default is asserted to fail on correct code, and a failing test is
   added to each fixture in turn to prove both test defaults can fail.
+
+  The Gradle distribution is pinned by `distributionSha256Sum` and the wrapper
+  jar is the one Gradle 8.10 ships. The first version of this fixture committed
+  the wrapper jar from the machine's system Gradle -- 4.4.1, from 2017 -- which
+  worked and was not what any repository has.
 
   `maven-surefire-plugin` is pinned at 3.5.2 in the Maven fixture because
   Maven's built-in 2.12.4 does not know about JUnit 5: the suite ran zero tests

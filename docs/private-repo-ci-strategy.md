@@ -246,10 +246,13 @@ with:
 
 ### Java / Gradle
 
+`lint` is an Android Gradle plugin task; a JVM project answers `Task 'lint' not
+found in root project`.
+
 ```yaml
 with:
   java_version: "17"
-  lint_command: "./gradlew lint"
+  lint_command: "./gradlew check -x test"
   test_command: "./gradlew test"
   build_command: ""
 ```
