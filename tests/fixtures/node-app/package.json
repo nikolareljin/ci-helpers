@@ -1,0 +1,11 @@
+{
+  "name": "node-app-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drives preset-node and preset-react against their shipped defaults.",
+  "scripts": {
+    "lint": "node scripts/lint.js",
+    "test": "node --test",
+    "build": "node scripts/build.js"
+  }
+}

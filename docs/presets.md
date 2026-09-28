@@ -97,9 +97,19 @@ Workflow: `.github/workflows/node.yml`
 Defaults:
 
 - `node_version`: `22`
-- `lint_command`: `npm ci && npm run --if-present lint`
-- `test_command`: `npm ci && npm test`
+- `install_command`: `npm ci`
+- `lint_command`: `npm run --if-present lint`
+- `test_command`: `npm test`
 - `build_command`: `npm run build`
+
+`npm ci` runs once, in the install step. It needs `package-lock.json`: without
+one it fails with `npm ci can only install packages when your package.json and
+package-lock.json are in sync`, and a repository that installs some other way
+sets `install_command` to it.
+
+`build_command` is not guarded by `--if-present`, unlike lint: a package that
+builds and has lost its build script should fail rather than pass quietly. A
+package that does not build sets `build_command: ""`.
 
 Example:
 
@@ -115,17 +125,14 @@ jobs:
 
 Workflow: `.github/workflows/react.yml`
 
-Defaults:
+Defaults: identical to `preset-node`'s, including `install_command: npm ci`.
 
-- `node_version`: `22`
-- `lint_command`: `npm ci && npm run --if-present lint`
-- `test_command`: `npm ci && npm test`
-- `build_command`: `npm run build`
-
-These are identical to `preset-node`'s. That is deliberate: a React project
-needs nothing in CI that a Node project does not, and this preset exists so a
-call site can say what the repository *is* rather than what it runs. Keep the
-two in step — if one gains an input or a default, the other should too.
+That is deliberate: a React project needs nothing in CI that a Node project
+does not, and this preset exists so a call site can say what the repository
+*is* rather than what it runs. Keep the two in step — if one gains an input or
+a default, the other should too. `node-refuses-what-it-must` in `self-test.yml`
+fails the build if they drift, which nothing checked while `react.yml` had no
+consumer and had never run.
 
 Example:
 

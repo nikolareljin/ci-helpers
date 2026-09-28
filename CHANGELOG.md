@@ -1,3 +1,37 @@
+## Unreleased
+
+### Added
+
+- **A fixture and self-test legs for `node.yml` and `react.yml`.** `react.yml`
+  had no consumer and had never executed. Both presets now run against
+  `tests/fixtures/node-app` at their **shipped defaults** -- nothing in the legs
+  overrides `lint_command`, `test_command` or `build_command` -- so a default
+  that cannot work fails the build instead of waiting for the first adopter.
+
+  The fixture's scripts are silent when they succeed, so each writes a marker
+  and the legs pass an `extra_command` that refuses to pass unless install,
+  lint, test and build all left one. A step that quietly stopped running
+  otherwise looks exactly like one that passed.
+
+  `node-refuses-what-it-must` drives the failing direction, which a `uses:` job
+  cannot: a failing test fails the test default; a package with no build script
+  fails the build default and is told which script is missing; and the two
+  presets are diffed, because `docs/presets.md` has always said to keep them in
+  step and nothing checked it.
+
+### Changed
+
+- **`node.yml` and `react.yml` install once.** `install_command` defaults to
+  `npm ci`, and the lint and test defaults drop the `npm ci &&` they each
+  carried. `npm ci` deletes `node_modules` and installs from the lockfile, so
+  the old defaults did the whole install twice on every run.
+
+  Behaviour change for callers on the defaults: the install now happens in the
+  `Install` step rather than inside `Lint`. A caller that overrides
+  `lint_command` or `test_command` and relied on the install inside them is
+  covered by the new default; one that sets `install_command: ""` must keep
+  whatever installs in its own commands.
+
 ## 2026-09-27 — v0.37.0
 
 ### Added

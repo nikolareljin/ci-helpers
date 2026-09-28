@@ -27,15 +27,22 @@ on:
       node_version:
         type: string
         default: "22"
+      # Installed once, here, rather than at the head of every command.
+      # `npm ci` deletes node_modules and installs from the lockfile, so a lint
+      # default of `npm ci && ...` beside a test default of `npm ci && ...` did
+      # the whole install twice per run.
       install_command:
         type: string
-        default: ""
+        default: "npm ci"
       lint_command:
         type: string
-        default: "npm ci && npm run --if-present lint"
+        default: "npm run --if-present lint"
       test_command:
         type: string
-        default: "npm ci && npm test"
+        default: "npm test"
+      # Not guarded by --if-present, unlike lint: a package that builds and has
+      # lost its build script should fail rather than pass quietly. A package
+      # that does not build at all sets `build_command: ""`.
       build_command:
         type: string
         default: "npm run build"
