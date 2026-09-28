@@ -988,9 +988,16 @@ Inputs (selected):
 - `context` (string, default `"."`)
 - `trivy_severity` (string, default `CRITICAL,HIGH`)
 - `fail_on_findings` (boolean, default `true`)
-- `run_snyk` (boolean, default `false`). The Snyk step needs `snyk_token`; with
-  the default at true a repository without a Snyk account met a failing scan
-  step on its first run. Trivy runs either way and needs no credential.
+- `run_snyk` (boolean, default `true`). The Snyk step needs `snyk_token`. Without
+  it the scan is **skipped with a warning** -- in the run log and in the job
+  summary -- rather than failing the build or passing in silence:
+
+  ```
+  Warning: Snyk scan skipped: run_snyk is on but no snyk_token was passed...
+  ```
+
+  Set `run_snyk: false` to stop asking. Trivy runs either way and needs no
+  credential.
 
 Example:
 

@@ -403,6 +403,45 @@ jobs:
           }
           echo "a false assertion fails the build, and the fixture builds"
 
+      - name: Snyk without a token warns rather than fails
+        shell: bash
+        run: |
+          set -uo pipefail
+          # The behaviour asked for: a scan that cannot run says so loudly and
+          # does not fail the build, and never reads as a scan that found
+          # nothing. Driven by running the workflow's own step with an empty
+          # token, so this cannot drift from what ships.
+          python3 - <<'PYTHON' > /tmp/snyk-step.sh
+          import yaml
+          doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
+          step = next(
+              s for j in doc["jobs"].values() for s in j.get("steps", [])
+              if s.get("id") == "snyk_token"
+          )
+          print(step["run"])
+          PYTHON
+          out="$(mktemp)"; summary="$(mktemp)"
+          SNYK_TOKEN="" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
+            bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /tmp/snyk-out.log 2>&1
+          rc=$?
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::error::no token made the step fail; it was asked to warn"
+            cat /tmp/snyk-out.log
+            exit 1
+          fi
+          grep -q "present=false" "$out" || {
+            echo "::error::the step did not report the credential as absent"; cat "$out"; exit 1; }
+          grep -q "::warning title=Snyk scan skipped" /tmp/snyk-out.log || {
+            echo "::error::no warning was emitted"; cat /tmp/snyk-out.log; exit 1; }
+          grep -q "was not scanned by Snyk" "$summary" || {
+            echo "::error::the job summary does not say the scan did not run"; cat "$summary"; exit 1; }
+
+          SNYK_TOKEN="pretend-token" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
+            bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /dev/null 2>&1
+          grep -q "present=true" "$out" || {
+            echo "::error::a token present was not reported"; cat "$out"; exit 1; }
+          echo "no token: warns, does not fail, and says so in the summary; a token: runs"
+
       - name: The image refuses what is not a number
         shell: bash
         working-directory: tests/fixtures/docker-image

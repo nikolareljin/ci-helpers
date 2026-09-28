@@ -29,13 +29,15 @@ on:
       fail_on_findings:
         type: boolean
         default: true
-      # Opt-in, because the step it gates needs `snyk_token`: with the default
-      # at true, a repository adopting this preset without a Snyk account gets
-      # a failing scan step on its first run, for a scanner it never asked for.
-      # Trivy runs either way and needs no credential.
+      # On by default, and it warns rather than fails when there is no
+      # credential. Failing would give a repository with no Snyk account a red
+      # build for a scanner it never asked for; skipping in silence would let a
+      # scan that never ran read as a scan that found nothing. The warning is
+      # the middle: visible in the run, in the job summary, and never mistaken
+      # for a pass. Trivy runs either way and needs no credential.
       run_snyk:
         type: boolean
-        default: false
+        default: true
       snyk_severity_threshold:
         type: string
         default: "high"
@@ -69,8 +71,33 @@ jobs:
           ignore-unfixed: ${{ inputs.trivy_ignore_unfixed }}
           exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
 
-      - name: Snyk scan
+      # Read once, into an output, so the Snyk step's `if:` does not have to
+      # test a secret -- a secret is not available to a job-level `if:` and is
+      # masked in logs, so testing it there fails in ways that read as "the
+      # step simply did not run".
+      - name: Is there a Snyk credential
+        id: snyk_token
         if: ${{ inputs.run_snyk }}
+        shell: bash
+        env:
+          SNYK_TOKEN: ${{ secrets.snyk_token }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${SNYK_TOKEN:-}" ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Snyk scan skipped::run_snyk is on but no snyk_token was passed, so the Snyk scan did not run. Pass the secret to enable it, or set run_snyk: false to stop asking."
+            {
+              echo "### Snyk scan skipped"
+              echo
+              echo "\`run_snyk\` is on and no \`snyk_token\` was passed, so **the image was not scanned by Snyk**."
+              echo "Trivy still ran. Pass the secret to enable Snyk, or set \`run_snyk: false\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Snyk scan
+        if: ${{ inputs.run_snyk && steps.snyk_token.outputs.present == 'true' }}
         uses: snyk/actions/docker@12140f4059e244892ae643824a95459a102120dd # master @ 2026-08-08
         env:
           SNYK_TOKEN: ${{ secrets.snyk_token }}

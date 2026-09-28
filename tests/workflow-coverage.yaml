@@ -100,7 +100,8 @@ notes:
   docker-scan.yml: >-
     Exercised as far as the credential: `docker-scan-defaults-can-pass` builds
     the fixture and runs Trivy. The Snyk step needs `snyk_token` and stays
-    unexercised, and so does `fail_on_findings: true` -- whether a scan finds
+    unexercised -- though the step that decides whether it *can* run is driven
+    with and without a token -- and so does `fail_on_findings: true` -- whether a scan finds
     anything depends on the CVE state of a public base image, which changes
     without us.
   release-rc-pr.yml: >-

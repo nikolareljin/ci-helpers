@@ -1,5 +1,21 @@
 ## Unreleased
 
+### Changed
+
+- **`docker-scan.yml` runs Snyk again by default, and warns when it cannot.**
+  Without `snyk_token` the scan is skipped with a `::warning::` in the run and a
+  line in the job summary saying the image **was not scanned by Snyk**, rather
+  than failing the build or passing in silence. Trivy runs either way.
+
+  The three outcomes were the whole question: failing gives a repository with
+  no Snyk account a red build for a scanner it never asked for; skipping quietly
+  lets a scan that never ran read as a scan that found nothing; warning is the
+  one that is visible and not mistaken for a pass.
+
+  A self-test step drives the workflow's own credential check with an empty
+  token and with one, asserting the warning, the summary line and that the exit
+  is zero -- so the behaviour cannot drift from what ships.
+
 ### Added
 
 - **The release tag gate is tested on the decision it makes, not only on the
