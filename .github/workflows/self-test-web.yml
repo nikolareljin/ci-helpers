@@ -379,7 +379,10 @@ jobs:
             exit 1
           }
           for preset in cypress playwright; do
-            if grep -q "yarn dlx" ".github/workflows/${preset}.yml"; then
+            # The default line only: the comment above it says "yarn dlx" to
+            # explain what was replaced, and matching that made this gate fail
+            # on the very change it is guarding.
+            if grep -qE '^\s*default:.*yarn dlx' ".github/workflows/${preset}.yml"; then
               echo "::error::${preset}.yml is back to yarn dlx, which Yarn 1 does not have"
               exit 1
             fi

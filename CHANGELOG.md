@@ -45,6 +45,15 @@
   own `assert-ran`, which waits on every job in its file -- checked, not
   assumed.
 
+- **`pnpm.yml` could not cache for a project in a subdirectory.** `setup-node`
+  with `cache: pnpm` looks for `pnpm-lock.yaml` at the **repository root**, so
+  every consumer passing `working_directory` -- a monorepo package, anything
+  not at the top -- failed with `Dependencies lock file is not found`. The
+  cache is keyed on `${{ inputs.working_directory }}/pnpm-lock.yaml` now, the
+  same file the install reads. Found by the new fixture, which lives in
+  `tests/fixtures/pnpm-app` and so was the first caller to pass a
+  `working_directory` at all.
+
 - **A caller granting only `contents: read` cannot call `pnpm.yml` at all.**
   Its `report` job asks for `checks: write` and `pull-requests: read`, and a
   called workflow's permissions must be a subset of the caller's. The whole
