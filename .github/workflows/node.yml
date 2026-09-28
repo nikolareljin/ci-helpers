@@ -39,7 +39,7 @@ on:
       #
       # A repository that wants one install sets `install_command: "npm ci"`
       # and drops it from its own commands. `node-installs-once-when-asked`
-      # in self-test.yml exercises exactly that.
+      # in self-test-web.yml exercises exactly that.
       install_command:
         type: string
         default: ""

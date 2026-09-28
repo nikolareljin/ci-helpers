@@ -145,7 +145,7 @@ to avoid it.
 That is deliberate: a React project needs nothing in CI that a Node project
 does not, and this preset exists so a call site can say what the repository
 *is* rather than what it runs. Keep the two in step — if one gains an input or
-a default, the other should too. `node-refuses-what-it-must` in `self-test.yml`
+a default, the other should too. `node-refuses-what-it-must` in `self-test-web.yml`
 fails the build if they drift, which nothing checked while `react.yml` had no
 consumer and had never run.
 

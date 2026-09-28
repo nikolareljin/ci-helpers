@@ -33,6 +33,18 @@
   The pnpm and scan presets take no `concurrency_key`: they run their own job
   rather than calling `ci.yml`, and none declares a concurrency group.
 
+- **The self-test suite is three files now.** GitHub allows a workflow to call
+  at most **20 unique reusable workflows**; one file holding every preset
+  reached it, and the way that surfaces is a `startup_failure` with no
+  annotation while every other check stays green. Adding three legs is what
+  crossed it -- 19 to 22.
+
+  `self-test.yml` keeps the engine and this repository's own gates (3 called
+  workflows), `self-test-web.yml` takes Node, PHP and Python (11), and
+  `self-test-compiled.yml` takes JVM, .NET, Go and Godot (8). Each carries its
+  own `assert-ran`, which waits on every job in its file -- checked, not
+  assumed.
+
 ### Fixed
 
 - **Two JVM presets shipped defaults that could not pass.** Both were measured
