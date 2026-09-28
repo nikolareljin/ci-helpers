@@ -988,7 +988,9 @@ Inputs (selected):
 - `context` (string, default `"."`)
 - `trivy_severity` (string, default `CRITICAL,HIGH`)
 - `fail_on_findings` (boolean, default `true`)
-- `run_snyk` (boolean, default `true`)
+- `run_snyk` (boolean, default `false`). The Snyk step needs `snyk_token`; with
+  the default at true a repository without a Snyk account met a failing scan
+  step on its first run. Trivy runs either way and needs no credential.
 
 Example:
 

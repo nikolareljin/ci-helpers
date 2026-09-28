@@ -31,6 +31,11 @@
   the same shape as `java-scan.yml`'s NVD key. It is opt-in now; Trivy runs
   either way and needs no credential.
 
+  The evidence that the default was wrong is in the call sites: **both**
+  repositories on this preset pass `run_snyk: false`, on all seven of their
+  calls between them. Nobody has ever used the default, which is why nothing
+  reported it.
+
   The leg also passes `fail_on_findings: false`, and the reason is in the
   workflow beside it: Trivy found CVEs in the Alpine base the first time this
   ran, which is the preset working. Whether a scan finds anything depends on
