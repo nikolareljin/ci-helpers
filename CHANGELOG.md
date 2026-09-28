@@ -1,5 +1,30 @@
 ## Unreleased
 
+### Changed
+
+- **One pass over the action pins, replacing four dependabot pull requests**
+  (#231, #232, #233, #234). Every SHA was resolved from the GitHub API rather
+  than taken from the pull request that proposed it:
+
+  | action | version |
+  |---|---|
+  | `actions/setup-node` | v7.0.0 |
+  | `actions/setup-python` | v7.0.0 |
+  | `github/codeql-action/upload-sarif` | v4.38.2 |
+  | `ruby/setup-ruby` | v1.327.0 |
+
+  Dependabot moves the SHA and leaves the comment beside it alone, so its four
+  pull requests would each have left a pin reading `# v6.0.0` on a v7.0.0
+  commit -- and that comment is not decoration: `scripts/update_pinned_actions.sh`
+  reads it to decide which ref to re-resolve. A stale one points the next
+  refresh at the wrong version.
+
+  The same four actions were also pinned inconsistently across the tree -- the
+  same SHA annotated `v7.0.0 @ 2026-09-10` in one file and `v7 @ 2026-07-21` in
+  another, where `v7` is a moving tag. All 35 lines now carry the exact version
+  and the date they were verified. `update_pinned_actions.sh --check` reports
+  269 up-to-date, 0 stale, 0 warnings.
+
 ### Added
 
 - **A fixture and self-test legs for `node.yml` and `react.yml`.** `react.yml`
