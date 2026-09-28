@@ -426,6 +426,57 @@ jobs:
           fi
           echo "the image adds correctly and refuses what is not a number"
 
+  # The release tag gate, end to end: called on this pull request, whose head is
+  # not a release branch, so the gate should decide not to check and pass.
+  release-tag-gate-defaults-can-pass:
+    uses: ./.github/workflows/release-tag-gate.yml
+
+  # And its decision table. Three of the four paths skip the tag check, and
+  # until now nothing tested which path a branch takes.
+  release-tag-gate-decides-correctly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-28
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML
+        shell: bash
+        run: python -m pip install --quiet pyyaml
+
+      - name: Every branch takes the path it should
+        shell: bash
+        run: python3 tests/release_tag_gate_decisions.py
+
+      - name: The table is read from the workflow, not copied from it
+        shell: bash
+        run: |
+          set -uo pipefail
+          # If the step is renamed or removed, the table must fail loudly rather
+          # than silently testing nothing -- which is what a copied script does.
+          cp .github/workflows/release-tag-gate.yml /tmp/gate.yml.orig
+          python3 - <<'PYTHON'
+          import pathlib
+          p = pathlib.Path(".github/workflows/release-tag-gate.yml")
+          p.write_text(p.read_text().replace(
+              "name: Decide whether to check release tag",
+              "name: Decide whether to check the release tag",
+          ))
+          PYTHON
+          rc=0
+          python3 tests/release_tag_gate_decisions.py > /tmp/renamed.log 2>&1 || rc=$?
+          cp /tmp/gate.yml.orig .github/workflows/release-tag-gate.yml
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::the table passed against a workflow whose step it could not find"
+            exit 1
+          fi
+          grep -q "not found" /tmp/renamed.log || {
+            echo "::error::it failed for some other reason"; cat /tmp/renamed.log; exit 1; }
+          python3 tests/release_tag_gate_decisions.py > /dev/null || {
+            echo "::error::the restored workflow no longer passes its own table"; exit 1; }
+          echo "the table reads the shipped step, and says so when it cannot find it"
+
   workflow-coverage-is-declared:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -681,6 +732,8 @@ jobs:
 
   assert-ran:
     needs:
+      - release-tag-gate-defaults-can-pass
+      - release-tag-gate-decides-correctly
       - docker-defaults-can-pass
       - docker-scan-defaults-can-pass
       - docker-refuses-what-it-must
