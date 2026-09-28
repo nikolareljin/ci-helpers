@@ -349,6 +349,77 @@ jobs:
   # counting: 73 reusable workflows, 22 of them exercised. The other 51 were
   # invisible -- not listed anywhere, not counted anywhere, and three defects
   # this month were in workflows nothing had ever run.
+  # Docker. `docker.yml`'s default is `docker build .`, so the fixture is a
+  # Dockerfile that asserts its own contents at build time -- a green build
+  # then means the image is right, not merely that a build ran.
+  docker-defaults-can-pass:
+    uses: ./.github/workflows/docker.yml
+    with:
+      working_directory: tests/fixtures/docker-image
+      concurrency_key: docker-defaults-can-pass
+
+  # The Trivy half of docker-scan. Its Snyk step needs `snyk_token` and stays
+  # unexercised; verification stops at the credential, as
+  # tests/workflow-coverage.yaml records.
+  docker-scan-defaults-can-pass:
+    uses: ./.github/workflows/docker-scan.yml
+    with:
+      dockerfile: tests/fixtures/docker-image/Dockerfile
+      context: tests/fixtures/docker-image
+      image_name: ci-helpers-selftest:latest
+
+  docker-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      - name: A Dockerfile whose own assertion fails fails the build
+        shell: bash
+        working-directory: tests/fixtures/docker-image
+        run: |
+          set -uo pipefail
+          # The preset's default is `docker build .`, so this is what stands
+          # between a broken image and a green run.
+          cp Dockerfile /tmp/Dockerfile.orig
+          printf '\nRUN test "$(total 1 2)" = "99"\n' >> Dockerfile
+          built=0
+          docker build -q . > /tmp/broken-build.log 2>&1 || built=$?
+          cp /tmp/Dockerfile.orig Dockerfile
+          if [[ "$built" -eq 0 ]]; then
+            echo "::error::a Dockerfile with a false assertion built successfully"
+            exit 1
+          fi
+          docker build -q . > /tmp/clean-build.log 2>&1 || {
+            echo "::error::the fixture itself no longer builds"
+            tail -20 /tmp/clean-build.log
+            exit 1
+          }
+          echo "a false assertion fails the build, and the fixture builds"
+
+      - name: The image refuses what is not a number
+        shell: bash
+        working-directory: tests/fixtures/docker-image
+        run: |
+          set -uo pipefail
+          # In ash, $((sum + not-a-number)) is 0 and exits 0, so without the
+          # guard in total.sh the image would answer 0 to `total abc` -- a
+          # fixture that lies about its own arithmetic proves nothing about the
+          # preset that builds it.
+          image="$(docker build -q .)"
+          answer="$(docker run --rm "$image" 1 2 39)"
+          if [[ "$answer" != "42" ]]; then
+            echo "::error::the image answered ${answer}, not 42"
+            exit 1
+          fi
+          rc=0
+          docker run --rm "$image" abc > /dev/null 2>&1 || rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::the image accepted a non-numeric amount"
+            exit 1
+          fi
+          echo "the image adds correctly and refuses what is not a number"
+
   workflow-coverage-is-declared:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -604,6 +675,9 @@ jobs:
 
   assert-ran:
     needs:
+      - docker-defaults-can-pass
+      - docker-scan-defaults-can-pass
+      - docker-refuses-what-it-must
       - workflow-coverage-is-declared
       - engine-inputs-gate-refuses-a-dropped-forward
       - submodules-recursive-checks-out-the-tree

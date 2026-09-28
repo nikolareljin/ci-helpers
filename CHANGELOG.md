@@ -1,5 +1,28 @@
 ## Unreleased
 
+### Added
+
+- **A Docker fixture, and legs for `docker.yml` and `docker-scan.yml`.**
+  `tests/fixtures/docker-image` is an Alpine base pinned by digest with a
+  Dockerfile that **asserts its own contents at build time**, so a green
+  `docker build .` -- the preset's shipped default -- means the image is right
+  rather than that a build ran.
+
+  `docker-scan.yml` is exercised as far as the credential: the leg builds the
+  fixture and runs Trivy, while the Snyk step needs `snyk_token` and stays
+  unexercised. `tests/workflow-coverage.yaml` says exactly that, so the claim
+  and the gap are both written down.
+
+  `docker-refuses-what-it-must` drives two failing directions: a Dockerfile
+  whose own assertion is false fails the build, and the built image refuses a
+  non-numeric amount. The second exists because the fixture's first version
+  did not -- in ash, `$((sum + not-a-number))` is **0 and exits 0**, so
+  `total abc` answered 0, and a fixture that lies about its own arithmetic
+  proves nothing about the preset that builds it.
+
+  Coverage moves from 27 exercised to 29, credential-bound from 12 to 11,
+  `not-yet` from 19 to 18.
+
 ### Fixed
 
 - **`rust-scan.yml` and `tauri-scan.yml` linted the library and nothing else.**

@@ -26,7 +26,6 @@ groups:
     workflows:
       - cloudflare-deploy.yml
       - docker-multiarch.yml
-      - docker-scan.yml
       - flutter-release.yml
       - go-deploy.yml
       - homebrew-package.yml
@@ -70,7 +69,6 @@ groups:
       - csharp-scan.yml
       - cypress.yml
       - deb-build.yml
-      - docker.yml
       - gitleaks-scan.yml
       - go-scan.yml
       - php.yml
@@ -101,8 +99,9 @@ notes:
   trivy-scan.yml: >-
     As gitleaks-scan.yml.
   docker-scan.yml: >-
-    Credential-bound on `snyk_token`, but the Trivy half runs without one and a
-    leg could reach it.
+    Exercised as far as the credential: `docker-scan-defaults-can-pass` builds
+    the fixture and runs Trivy. The Snyk step needs `snyk_token` and stays
+    unexercised, which is the whole of what is not claimed here.
   release-rc-pr.yml: >-
     Needs `GH_PAT` because the default token cannot open a pull request that
     triggers further workflows. Its refusal path -- a 403 logged as a warning
