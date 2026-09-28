@@ -2,6 +2,28 @@
 
 ### Added
 
+- **The release tag gate is tested on the decision it makes, not only on the
+  path that runs.** Three of the four paths in `release-tag-gate.yml`'s
+  decision step **skip** the tag check -- wrong base branch, no base branch, not
+  a release branch -- and nothing tested which path a branch takes. A gate that
+  skips is not a gate that passes (ADR-0034).
+
+  `tests/release_tag_gate_decisions.py` reads that step **out of the workflow**
+  and runs it against ten branch names: the four that should check, five that
+  should skip, and `release/$(touch /tmp/pwned)`. The last is the case the
+  step's own comment is about -- a ref a fork author controls reaches the script
+  through the environment, never spliced into it -- and the table fails if that
+  file ever appears.
+
+  A second step renames the shipped step and requires the table to **fail**, so
+  a table that has quietly stopped finding its subject cannot report ten passes.
+
+  `release-tag-gate-defaults-can-pass` calls the workflow itself on this pull
+  request, whose head is not a release branch, so the gate decides not to check
+  and passes. Coverage moves from 29 exercised to 30, `not-yet` from 18 to 17.
+
+### Added
+
 - **A Docker fixture, and legs for `docker.yml` and `docker-scan.yml`.**
   `tests/fixtures/docker-image` is an Alpine base pinned by digest with a
   Dockerfile that **asserts its own contents at build time**, so a green

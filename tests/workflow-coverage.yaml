@@ -79,7 +79,6 @@ groups:
       - pnpm-cypress.yml
       - pnpm-playwright.yml
       - pnpm-scan.yml
-      - release-tag-gate.yml
       - rpm-build.yml
       - tauri.yml
       - tauri-scan.yml
