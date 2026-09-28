@@ -411,19 +411,31 @@ jobs:
           # does not fail the build, and never reads as a scan that found
           # nothing. Driven by running the workflow's own step with an empty
           # token, so this cannot drift from what ships.
-          python3 - <<'PYTHON' > /tmp/snyk-step.sh
+          # `if` and `|| rc=$?` rather than a bare call and `$?`, because this
+          # runs under the runner's `bash -e`: a failing command ends the step
+          # at that line, so every check below it would be a silent exit 1
+          # reported as "the step simply did not run".
+          if ! python3 - <<'PYTHON' > /tmp/snyk-step.sh 2> /tmp/snyk-step.err
           import yaml
           doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
           step = next(
-              s for j in doc["jobs"].values() for s in j.get("steps", [])
-              if s.get("id") == "snyk_token"
+              (s for j in doc["jobs"].values() for s in j.get("steps", [])
+               if s.get("id") == "snyk_token"),
+              None,
           )
+          if step is None:
+              raise SystemExit("no step with id `snyk_token` in docker-scan.yml")
           print(step["run"])
           PYTHON
+          then
+            echo "::error::$(cat /tmp/snyk-step.err)"
+            exit 1
+          fi
           out="$(mktemp)"; summary="$(mktemp)"
+          rc=0
           SNYK_TOKEN="" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
-            bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /tmp/snyk-out.log 2>&1
-          rc=$?
+            bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /tmp/snyk-out.log 2>&1 \
+            || rc=$?
           if [[ "$rc" -ne 0 ]]; then
             echo "::error::no token made the step fail; it was asked to warn"
             cat /tmp/snyk-out.log
@@ -441,6 +453,72 @@ jobs:
           grep -q "present=true" "$out" || {
             echo "::error::a token present was not reported"; cat "$out"; exit 1; }
           echo "no token: warns, does not fail, and says so in the summary; a token: runs"
+
+      - name: The Snyk call is well formed, and pulls nothing when it is off
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Two things, and the first is why the second exists.
+          #
+          # A Docker-container action's image is pulled in the job's setup
+          # phase, before any `if:` is read, so `uses: snyk/actions/docker`
+          # behind a condition pulled `snyk/snyk:docker` on every run with
+          # Snyk off. The step is a plain `docker run` now, which is only
+          # reached when the condition holds -- and that swapped a verified
+          # action for a command line of our own, so the command line is run.
+          #
+          # With a deliberately invalid token, because that is as far as a
+          # repository without the account can honestly go: an authentication
+          # failure proves the CLI parsed the command, the flags and the image
+          # and got to the credential. A usage error would not.
+          # `if`, not `$?`: this runs under the runner's `bash -e`, where a
+          # failing command exits the step before the line that reads its
+          # status -- so the refusal below would have been a silent exit 1.
+          if python3 - <<'PYTHON' > /tmp/snyk-scan-step.sh 2> /tmp/snyk-scan-step.err
+          import yaml
+          doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
+          steps = [s for j in doc["jobs"].values() for s in j.get("steps", [])]
+          scan = next(s for s in steps if s.get("name") == "Snyk scan")
+          if "uses" in scan:
+              raise SystemExit(
+                  "the Snyk scan is a container action again; its image is "
+                  "pulled during job setup whether or not the step runs"
+              )
+          if "${{" in scan["run"]:
+              raise SystemExit(
+                  "the step interpolates into its own shell; this leg runs "
+                  "that script, and an expression it cannot expand would make "
+                  "the leg test something other than what ships"
+              )
+          print(scan["run"])
+          PYTHON
+          then
+            :
+          else
+            echo "::error::$(cat /tmp/snyk-scan-step.err)"
+            exit 1
+          fi
+
+          docker build -q -t snyk-selftest:local tests/fixtures/docker-image > /dev/null
+
+          rc=0
+          SNYK_TOKEN="deliberately-invalid" \
+          IMAGE_NAME="snyk-selftest:local" \
+          SEVERITY_THRESHOLD="high" \
+            bash --noprofile --norc -e -o pipefail /tmp/snyk-scan-step.sh \
+            > /tmp/snyk-scan.log 2>&1 || rc=$?
+
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::an invalid token scanned successfully, which cannot be true"
+            cat /tmp/snyk-scan.log
+            exit 1
+          fi
+          if ! grep -qi "authentication" /tmp/snyk-scan.log; then
+            echo "::error::the call failed before the credential; the command line is wrong"
+            cat /tmp/snyk-scan.log
+            exit 1
+          fi
+          echo "the Snyk call parses and reaches authentication (rc=$rc)"
 
       - name: The image refuses what is not a number
         shell: bash

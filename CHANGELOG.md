@@ -1,3 +1,33 @@
+## Unreleased
+
+### Fixed
+
+- **`docker-scan.yml` pulled the Snyk image on every run with Snyk switched
+  off.** A Docker-container action's image is pulled in the job's setup phase,
+  before any step's `if:` is evaluated, so `uses: snyk/actions/docker` behind a
+  condition pulled `snyk/snyk:docker` and then skipped the step that wanted it.
+  Measured on the first consumer run after 0.38.0: 9 to 19 seconds a job, 76
+  seconds across six `docker-scan` jobs of one Security Checks run, for an image
+  nothing used.
+
+  The step is the same call by hand -- `snyk test --severity-threshold=... --docker
+  <image>`, the two `SNYK_INTEGRATION_*` variables and the docker socket the
+  runner mounts into a container action -- so nothing is pulled unless the step
+  runs. Behaviour with a token is unchanged.
+
+  Swapping a published action for a command line of our own needs the command
+  line exercised, so a self-test leg runs it against the Docker fixture with a
+  deliberately invalid token and asserts the failure is **authentication** and
+  not a usage error. That is as far as a repository without the account can
+  honestly go. The leg also refuses a return to `uses:`, and refuses a step that
+  interpolates `${{ }}` into its own shell, since the leg executes that script.
+
+- **Two self-test legs failed silently when their own extraction failed.**
+  Both read `$?` after a command, under a shell GitHub starts with `-e`, so a
+  failure ended the step before the line meant to report it -- the check would
+  have exited 1 with nothing in the log. Both now use `if` and `|| rc=$?`.
+  Driven by renaming the step they extract: the refusal is printed.
+
 ## 2026-09-28 — v0.38.0
 
 ### Changed
