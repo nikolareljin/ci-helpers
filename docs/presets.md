@@ -97,9 +97,33 @@ Workflow: `.github/workflows/node.yml`
 Defaults:
 
 - `node_version`: `22`
+- `install_command`: `""`
 - `lint_command`: `npm ci && npm run --if-present lint`
 - `test_command`: `npm ci && npm test`
 - `build_command`: `npm run build`
+
+The lint and test defaults each install, so a run on the defaults installs
+twice — `npm ci` deletes `node_modules` and installs from the lockfile, so the
+second is the whole install again. **To install once**, set it explicitly and
+drop it from the commands:
+
+```yaml
+with:
+  install_command: "npm ci"
+  lint_command: "npm run --if-present lint"
+  test_command: "npm test"
+```
+
+That is not the default because of what the callers do: three of the six
+repositories on these presets override `lint_command` with their own
+`npm ci && ...`, which an install step would turn into a third install, and one
+drives pnpm through this preset, where a default `npm ci` fails for want of a
+`package-lock.json`. Changing it is a change to make with those call sites in
+hand, not a tidy-up.
+
+`build_command` is not guarded by `--if-present`, unlike lint: a package that
+builds and has lost its build script should fail rather than pass quietly. A
+package that does not build sets `build_command: ""`.
 
 Example:
 
@@ -115,17 +139,15 @@ jobs:
 
 Workflow: `.github/workflows/react.yml`
 
-Defaults:
+Defaults: identical to `preset-node`'s, including the double install and how
+to avoid it.
 
-- `node_version`: `22`
-- `lint_command`: `npm ci && npm run --if-present lint`
-- `test_command`: `npm ci && npm test`
-- `build_command`: `npm run build`
-
-These are identical to `preset-node`'s. That is deliberate: a React project
-needs nothing in CI that a Node project does not, and this preset exists so a
-call site can say what the repository *is* rather than what it runs. Keep the
-two in step — if one gains an input or a default, the other should too.
+That is deliberate: a React project needs nothing in CI that a Node project
+does not, and this preset exists so a call site can say what the repository
+*is* rather than what it runs. Keep the two in step — if one gains an input or
+a default, the other should too. `node-refuses-what-it-must` in `self-test.yml`
+fails the build if they drift, which nothing checked while `react.yml` had no
+consumer and had never run.
 
 Example:
 

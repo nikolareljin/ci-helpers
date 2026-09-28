@@ -1099,6 +1099,152 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # -- Node and React --------------------------------------------------------
+  #
+  # Both presets at their shipped defaults: nothing below overrides
+  # lint_command, test_command or build_command, so a default that cannot work
+  # fails the run. react.yml had no consumer and had never executed.
+  #
+  # extra_command runs after build, and refuses to pass unless every step left
+  # its marker: a step that quietly stopped running looks exactly like one that
+  # passed, and the fixture's scripts are silent when they succeed.
+  node-defaults-can-pass:
+    uses: ./.github/workflows/node.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: node-defaults-can-pass
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran"
+
+  react-defaults-can-pass:
+    uses: ./.github/workflows/react.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: react-defaults-can-pass
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran"
+
+  # Installing once is available to a repository that wants it, and this is the
+  # leg that proves it works: one `npm ci` in the install step, with lint and
+  # test carrying none. It is not the default -- see node.yml for the four
+  # consumers that would break or get slower if it were.
+  node-installs-once-when-asked:
+    uses: ./.github/workflows/node.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: node-installs-once-when-asked
+      install_command: "npm ci"
+      lint_command: "npm run --if-present lint"
+      test_command: "npm test"
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "one install, and every step still ran"
+
+  # The refusals, and the two properties the defaults rest on. A `uses:` job
+  # cannot carry continue-on-error, so a case that must fail is driven here.
+  node-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-10
+        with:
+          node-version: '22'
+
+      - name: A failing test fails the shipped test default
+        shell: bash
+        working-directory: tests/fixtures/node-app
+        run: |
+          set -uo pipefail
+          # The gate has to be able to fail, or a green leg proves only that
+          # npm exists. The broken file is removed either way, and the suite is
+          # then run again to show the fixture itself is sound.
+          printf 'const t=require("node:test");const a=require("node:assert");\nt.test("broken",()=>{a.equal(1,2)});\n' > tests/broken.test.js
+          npm ci --silent
+          if npm test; then
+            echo "::error::a failing test passed; the test default gates nothing"
+            rm -f tests/broken.test.js
+            exit 1
+          fi
+          rm -f tests/broken.test.js
+          # Checked, not merely run: this step sets -u and -o pipefail but not
+          # -e, so an `npm test` followed by an `echo` would report success
+          # whatever the suite did -- which is the failure this whole leg is
+          # about.
+          if ! npm test; then
+            echo "::error::the fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: A package with no build script fails the shipped build default
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `npm run build` is deliberately not --if-present. A library that
+          # does not build sets build_command: "" -- this is what it would hit
+          # otherwise, and the message names the missing script.
+          root="$(mktemp -d)"
+          printf '{"name":"no-build","version":"0.0.0","private":true}\n' > "$root/package.json"
+          cd "$root"
+          if npm run build 2> /tmp/build-err.txt; then
+            echo "::error::npm run build passed on a package with no build script"
+            exit 1
+          fi
+          grep -q 'Missing script: "build"' /tmp/build-err.txt || {
+            echo "::error::the failure no longer names the missing script"
+            cat /tmp/build-err.txt
+            exit 1
+          }
+          echo "a package with no build script fails, and is told which script is missing"
+
+      - name: The defaults still install for themselves
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Moving the install into install_command looks like an improvement
+          # and is not safe as a default: three consumers override lint_command
+          # with their own `npm ci && ...`, so they would install twice, and one
+          # drives pnpm through this preset, where `npm ci` fails for want of a
+          # package-lock.json. A repository that wants one install asks for it,
+          # which node-installs-once-when-asked exercises.
+          #
+          # Asserted here so the change is made deliberately, with those
+          # consumers in hand, rather than because it reads better.
+          for preset in node react; do
+            file=".github/workflows/${preset}.yml"
+            grep -q 'default: "npm ci && npm run --if-present lint"' "$file" || {
+              echo "::error::${file} lint default changed; check the consumers that embed their own install"
+              exit 1
+            }
+            grep -q 'default: "npm ci && npm test"' "$file" || {
+              echo "::error::${file} test default changed; check the consumers that embed their own install"
+              exit 1
+            }
+          done
+          echo "both presets still install inside lint and test, as their consumers expect"
+
+      - name: node.yml and react.yml stay in step
+        shell: bash
+        run: |
+          set -uo pipefail
+          # The two are identical by design -- react.yml exists so a call site
+          # can say what the repository *is*. Documented in docs/presets.md,
+          # and until now nothing checked it: react.yml has never run.
+          a=$(sed 's/^name: preset-node$/name: PRESET/' .github/workflows/node.yml)
+          b=$(sed 's/^name: preset-react$/name: PRESET/' .github/workflows/react.yml)
+          if [[ "$a" != "$b" ]]; then
+            echo "::error::node.yml and react.yml have drifted"
+            diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") || true
+            exit 1
+          fi
+          echo "the two presets are identical apart from their name"
+
   # This repository's own scripts/, at the default severity.
   shell-checks-this-repository:
     uses: ./.github/workflows/shell.yml
@@ -1230,6 +1376,10 @@ jobs:
 
   assert-ran:
     needs:
+      - node-defaults-can-pass
+      - node-installs-once-when-asked
+      - react-defaults-can-pass
+      - node-refuses-what-it-must
       - shell-checks-this-repository
       - shell-runs-bats-and-a-clean-tree
       - shell-refuses-what-it-must

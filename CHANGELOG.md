@@ -1,3 +1,35 @@
+## Unreleased
+
+### Added
+
+- **A fixture and self-test legs for `node.yml` and `react.yml`.** `react.yml`
+  had no consumer and had never executed. Both presets now run against
+  `tests/fixtures/node-app` at their **shipped defaults** -- nothing in the legs
+  overrides `lint_command`, `test_command` or `build_command` -- so a default
+  that cannot work fails the build instead of waiting for the first adopter.
+
+  The fixture's scripts are silent when they succeed, so each writes a marker
+  and the legs pass an `extra_command` that refuses to pass unless install,
+  lint, test and build all left one. A step that quietly stopped running
+  otherwise looks exactly like one that passed.
+
+  `node-refuses-what-it-must` drives the failing direction, which a `uses:` job
+  cannot: a failing test fails the test default; a package with no build script
+  fails the build default and is told which script is missing; and the two
+  presets are diffed, because `docs/presets.md` has always said to keep them in
+  step and nothing checked it.
+
+  **The defaults are unchanged, deliberately.** They were going to install once
+  -- `install_command: npm ci`, with the `npm ci &&` dropped from lint and test
+  -- until the call sites were read: of the six repositories on these two
+  presets, three override `lint_command` with their own `npm ci && ...` (an
+  install step would make that a third install, not a saving) and one drives
+  pnpm through the preset, where a default `npm ci` fails outright for want of
+  a `package-lock.json`. The double install is documented in `docs/presets.md`
+  with the three lines that avoid it, `node-installs-once-when-asked` proves
+  that path works, and a self-test step fails if the defaults change without
+  those consumers in hand.
+
 ## 2026-09-27 — v0.37.0
 
 ### Added
