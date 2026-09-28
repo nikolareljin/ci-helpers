@@ -474,11 +474,13 @@ jobs:
           # `if`, not `$?`: this runs under the runner's `bash -e`, where a
           # failing command exits the step before the line that reads its
           # status -- so the refusal below would have been a silent exit 1.
-          if python3 - <<'PYTHON' > /tmp/snyk-scan-step.sh 2> /tmp/snyk-scan-step.err
+          if ! python3 - <<'PYTHON' > /tmp/snyk-scan-step.sh 2> /tmp/snyk-scan-step.err
           import yaml
           doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
           steps = [s for j in doc["jobs"].values() for s in j.get("steps", [])]
-          scan = next(s for s in steps if s.get("name") == "Snyk scan")
+          scan = next((s for s in steps if s.get("name") == "Snyk scan"), None)
+          if scan is None:
+              raise SystemExit("no step named `Snyk scan` in docker-scan.yml")
           if "uses" in scan:
               raise SystemExit(
                   "the Snyk scan is a container action again; its image is "
@@ -493,13 +495,17 @@ jobs:
           print(scan["run"])
           PYTHON
           then
-            :
-          else
             echo "::error::$(cat /tmp/snyk-scan-step.err)"
             exit 1
           fi
 
-          docker build -q -t snyk-selftest:local tests/fixtures/docker-image > /dev/null
+          # Also under `-e`, so this says why rather than ending the step.
+          docker build -q -t snyk-selftest:local tests/fixtures/docker-image \
+            > /tmp/snyk-fixture-build.log 2>&1 || {
+              echo "::error::the Docker fixture no longer builds, so the Snyk call cannot be driven"
+              tail -20 /tmp/snyk-fixture-build.log
+              exit 1
+            }
 
           rc=0
           SNYK_TOKEN="deliberately-invalid" \
