@@ -510,6 +510,12 @@ jobs:
         test -f target/jvm-maven-fixture-0.0.1.jar
         && echo "the Maven preset's defaults ran"
 
+  java-scan-defaults-can-pass:
+    uses: ./.github/workflows/java-scan.yml
+    with:
+      working_directory: tests/fixtures/jvm-maven
+      java_version: "21"
+
   jvm-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -562,6 +568,28 @@ jobs:
             exit 1
           fi
           echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: The dependency check cannot run without an NVD key
+        shell: bash
+        working-directory: tests/fixtures/jvm-maven
+        run: |
+          set -uo pipefail
+          # Why java-scan's dependency_check_command defaults to empty.
+          # dependency-check 9.0 onward reads the NVD through an API that wants
+          # a key; without one the update fails and takes the build with it, in
+          # about twenty seconds. Asserted here so the reason stays true rather
+          # than becoming folklore.
+          if mvn -B org.owasp:dependency-check-maven:13.0.0:check \
+               -DfailBuildOnCVSS=7 > /tmp/dependency-check.log 2>&1; then
+            echo "::error::the dependency check passed with no NVD key; the default could be restored"
+            exit 1
+          fi
+          grep -qiE "NvdApiException|Invalid API Key|Error updating the NVD" /tmp/dependency-check.log || {
+            echo "::error::it failed for some other reason"
+            tail -25 /tmp/dependency-check.log
+            exit 1
+          }
+          echo "no key, no NVD update, and the build fails -- which is why it is opt-in"
 
       - name: The old Maven lint default fails on a conventional project
         shell: bash
@@ -617,6 +645,7 @@ jobs:
   # passed, and the fixture's scripts are silent when they succeed.
   assert-ran:
     needs:
+      - java-scan-defaults-can-pass
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
       - csharp-guard-accepts-a-real-path

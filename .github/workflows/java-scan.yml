@@ -29,7 +29,28 @@ on:
       # CVSS maximum of 10, so it never failed the build.
       dependency_check_command:
         type: string
-        default: "mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7"
+        # Empty, because the plugin cannot run without a credential this
+        # repository does not have. Measured 2026-09-28 against a conventional
+        # two-file project:
+        #
+        #   [ERROR] Error updating the NVD Data
+        #     caused by NvdApiException: Invalid API Key, length of 0 too short
+        #   [INFO] BUILD FAILURE (21s)
+        #
+        # dependency-check 9.0 onward reads the NVD through an API that wants a
+        # key; without one the data update fails and takes the build with it.
+        # The preset has never had a consumer, so nothing found out.
+        #
+        # A repository with a key turns it on -- `nvd_api_key` is a secret this
+        # workflow accepts, and docs/presets.md carries the line.
+        default: ""
+
+    secrets:
+      # Optional. dependency-check refuses to update the NVD without one, so
+      # `dependency_check_command` defaults to empty and a repository with a
+      # key turns it on; see docs/presets.md.
+      nvd_api_key:
+        required: false
 
 jobs:
   scan:
@@ -67,6 +88,11 @@ jobs:
         if: ${{ inputs.dependency_check_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          # dependency-check 9.0 onward reads the NVD through an API that wants
+          # a key. Passed as an environment variable rather than interpolated
+          # into the command, so it cannot reach a log line or a `ps` listing.
+          NVD_API_KEY: ${{ secrets.nvd_api_key }}
         run: |
           set -euo pipefail
           ${{ inputs.dependency_check_command }}

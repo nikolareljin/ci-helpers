@@ -305,6 +305,17 @@ jobs:
     with:
       working_directory: tests/fixtures/node-app
 
+  python-scan-defaults-can-pass:
+    uses: ./.github/workflows/python-scan.yml
+    with:
+      working_directory: tests/fixtures/python-install
+      python_version: "3.13"
+
+  vue-scan-defaults-can-pass:
+    uses: ./.github/workflows/vue-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
   pnpm-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -556,6 +567,8 @@ jobs:
   # This repository's own scripts/, at the default severity.
   assert-ran:
     needs:
+      - python-scan-defaults-can-pass
+      - vue-scan-defaults-can-pass
       - python-install-survives-lint-override
       - wp-check-generates-its-own-stack
       - wp-phpunit-runs-real-wordpress-tests

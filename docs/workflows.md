@@ -855,7 +855,17 @@ Inputs:
 - `java_version` (string, default `17`)
 - `lint_command` (string, default `""`; `mvn -B -DskipTests checkstyle:check` fails on a project with no ruleset)
 - `test_command` (string, default `mvn -B test`)
-- `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7`; the plugin's own default threshold of 11 never fails)
+- `dependency_check_command` (string, default `""`). dependency-check 9.0 onward
+  needs an NVD API key; without one the data update fails and takes the build
+  with it. A repository with a key passes the secret `nvd_api_key` and sets:
+
+  ```yaml
+  dependency_check_command: >-
+    mvn -B org.owasp:dependency-check-maven:13.0.0:check
+    -DfailBuildOnCVSS=7 -DnvdApiKey=$NVD_API_KEY
+  ```
+
+  Keep `-DfailBuildOnCVSS`: the plugin's own default threshold of 11 never fails.
 
 Example:
 

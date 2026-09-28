@@ -73,7 +73,6 @@ groups:
       - docker.yml
       - gitleaks-scan.yml
       - go-scan.yml
-      - java-scan.yml
       - php.yml
       - php-scan.yml
       - pimcore.yml
@@ -82,7 +81,6 @@ groups:
       - pnpm-cypress.yml
       - pnpm-playwright.yml
       - pnpm-scan.yml
-      - python-scan.yml
       - release-tag-gate.yml
       - rpm-build.yml
       - rust.yml
@@ -90,7 +88,6 @@ groups:
       - tauri.yml
       - tauri-scan.yml
       - trivy-scan.yml
-      - vue-scan.yml
 
 # Notes on entries whose group does not tell the whole story. A note never
 # excuses an entry from its group; it records what a future leg can still reach.
