@@ -31,6 +31,17 @@
   it runs the old default and fails the leg if the NVD update ever succeeds
   without a key, so the reason stays true rather than becoming folklore.
 
+- **The docs stop teaching `yarn dlx`.** The defaults dropped it in the previous
+  release -- `dlx` is Yarn Berry only, and the `--frozen-lockfile` beside it is
+  Yarn 1 syntax -- but the README and three documentation pages still carried it
+  in copy-paste examples, eleven times. That is how a command nobody can run
+  outlives the default it came from. Replaced with `npx`, and the leg that
+  asserts the presets do not use it now reads the documents too.
+
+- **The README stops claiming `java-scan.yml` lints and scans by default.** Both
+  are opt-in, for reasons two releases apart: checkstyle fails on a project with
+  no ruleset, and the NVD check needs a key.
+
 ### Added
 
 - **Every reusable workflow now says what exercises it, or why nothing does.**

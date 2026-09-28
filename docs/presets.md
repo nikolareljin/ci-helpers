@@ -1252,7 +1252,7 @@ Workflow: `.github/workflows/playwright.yml`
 Defaults:
 
 - `node_version`: `22`
-- `e2e_command`: `yarn install --frozen-lockfile && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
+- `e2e_command`: `yarn install --frozen-lockfile && npx playwright install --with-deps && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'`
 
 Notes:
 
@@ -1266,7 +1266,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:4173 'npx playwright test'"
 ```
 
 ## Cypress (yarn)
@@ -1276,7 +1276,7 @@ Workflow: `.github/workflows/cypress.yml`
 Defaults:
 
 - `node_version`: `22`
-- `e2e_command`: `yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
+- `e2e_command`: `yarn install --frozen-lockfile && npx cypress install && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'`
 
 Notes:
 
@@ -1290,7 +1290,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/cypress.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:4173 'npx cypress run'"
 ```
 
 ## Cloudflare Workers
@@ -1565,5 +1565,5 @@ jobs:
     with:
       node_version: "22"
       docker_command: "docker build -t myapp:ci ."
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
 ```

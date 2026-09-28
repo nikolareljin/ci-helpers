@@ -418,7 +418,14 @@ jobs:
               exit 1
             fi
           done
-          echo "yarn 1 has no dlx, and neither default uses it"
+          # The docs taught it after the defaults stopped using it: the README
+          # and three pages carried `yarn dlx` in copy-paste examples, which is
+          # how a command nobody can run outlives the default it came from.
+          if grep -rn "yarn dlx" README.md docs/*.md; then
+            echo "::error::a document still teaches yarn dlx, which Yarn 1 does not have"
+            exit 1
+          fi
+          echo "yarn 1 has no dlx; neither default uses it and no document teaches it"
 
   # -- Java, Kotlin and Gradle ------------------------------------------------
   #

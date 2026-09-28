@@ -71,7 +71,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/playwright.yml@production
     with:
       node_version: "22"
-      e2e_command: "yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
+      e2e_command: "npx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
 ```
 
 ## Layout
@@ -85,7 +85,10 @@ jobs:
 - `.github/workflows/python-scan.yml`: reusable Python scan workflow (lint + unit + Django)
 - `.github/workflows/go-scan.yml`: reusable Go scan workflow (lint + tests + gosec)
 - `.github/workflows/rust-scan.yml`: reusable Rust scan workflow (lint + tests + audit)
-- `.github/workflows/java-scan.yml`: reusable Java scan workflow (lint + tests + dependency check)
+- `.github/workflows/java-scan.yml`: reusable Java scan workflow (tests; the
+  checkstyle lint and the NVD dependency check are opt-in, the first because
+  it fails on a project with no ruleset and the second because it needs an NVD
+  API key)
 - `.github/workflows/csharp-scan.yml`: reusable C# scan workflow (lint + tests + vulnerable packages)
 - `.github/workflows/node-scan.yml`: reusable Node.js scan workflow (lint/test/audit)
 - `.github/workflows/react-scan.yml`: reusable React scan workflow (lint/test/build/audit)
