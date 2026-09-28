@@ -2,6 +2,75 @@
 
 ### Fixed
 
+- **`cypress.yml` and `playwright.yml` shipped an `e2e_command` that mixed the
+  two Yarn lines.** `--frozen-lockfile` is Yarn 1 syntax and `dlx` exists only
+  in Yarn Berry, so the default could not run as written. Measured on
+  2026-09-28:
+
+  ```
+  yarn 1.22.22:  yarn install --frozen-lockfile   ok
+                 yarn dlx cypress install         error Command "dlx" not found.
+  ```
+
+  Both now use `npx`, which ships with Node and works on either line -- and
+  which the tail of the same command already relied on. Neither workflow has a
+  consumer, so nothing was running this to find out.
+
+### Added
+
+- **A fixture and self-test legs for `pnpm.yml`, `node-scan.yml` and
+  `react-scan.yml`.** `tests/fixtures/pnpm-app` is a dependency-free pnpm
+  project with its lockfile committed, because `pnpm install
+  --frozen-lockfile` is what the preset runs. The scan presets run against the
+  existing `node-app` fixture, since they share node.yml's npm shape.
+
+  `pnpm-refuses-what-it-must` drives three failing directions: a repository with
+  no lockfile is refused at install with `ERR_PNPM_NO_LOCKFILE`, a failing test
+  fails the shipped test default, and Yarn 1 is shown to have no `dlx` -- so the
+  reason the browser-runner defaults changed stays true rather than becoming
+  folklore.
+
+  The pnpm and scan presets take no `concurrency_key`: they run their own job
+  rather than calling `ci.yml`, and none declares a concurrency group.
+
+- **The self-test suite is three files now.** GitHub allows a workflow to call
+  at most **20 unique reusable workflows**; one file holding every preset
+  reached it, and the way that surfaces is a `startup_failure` with no
+  annotation while every other check stays green. Adding three legs is what
+  crossed it -- 19 to 22.
+
+  `self-test.yml` keeps the engine and this repository's own gates (3 called
+  workflows), `self-test-web.yml` takes Node, PHP and Python (11), and
+  `self-test-compiled.yml` takes JVM, .NET, Go and Godot (8). Each carries its
+  own `assert-ran`, which waits on every job in its file -- checked, not
+  assumed. Its "did this read `needs` at all" guard now trips on **zero** legs
+  rather than fewer than ten: a floor is a second copy of how many legs a file
+  holds, and with three files of 12, 19 and 21 the next leg moved between them
+  would have failed a correct suite.
+
+- **`pnpm.yml` could not cache for a project in a subdirectory.** `setup-node`
+  with `cache: pnpm` looks for `pnpm-lock.yaml` at the **repository root**, so
+  every consumer passing `working_directory` -- a monorepo package, anything
+  not at the top -- failed with `Dependencies lock file is not found`. The
+  cache is keyed on `${{ inputs.working_directory }}/pnpm-lock.yaml` now, the
+  same file the install reads. Found by the new fixture, which lives in
+  `tests/fixtures/pnpm-app` and so was the first caller to pass a
+  `working_directory` at all.
+
+- **A caller granting only `contents: read` cannot call `pnpm.yml` at all.**
+  Its `report` job asks for `checks: write` and `pull-requests: read`, and a
+  called workflow's permissions must be a subset of the caller's. The whole
+  workflow is then rejected before any job starts -- `startup_failure`, no
+  annotation, every other check green -- and the `if:` that would have skipped
+  `report` changes nothing, because permissions are settled before anything
+  runs.
+
+  That is what a repository adopting this preset meets, so the self-test leg
+  grants the three at job level rather than widening the file, and says why.
+  Found by bisecting: the suite started once the pnpm leg was removed.
+
+### Fixed
+
 - **Two JVM presets shipped defaults that could not pass.** Both were measured
   on 2026-09-28 rather than read:
 

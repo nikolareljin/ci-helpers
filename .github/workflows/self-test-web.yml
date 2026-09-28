@@ -1,0 +1,615 @@
+# REPO-LOCAL. Not a reusable workflow.
+#
+# The Node, PHP and Python presets. Split out of self-test.yml: GitHub allows
+# a workflow to call at most 20 unique reusable workflows, and one file holding
+# every preset reached that limit -- which surfaces as a startup failure with no
+# annotation, not as an error naming the limit.
+#
+# Calls this repository's own presets by RELATIVE path against committed
+# fixtures, so a pull request editing a preset runs the edited file rather than
+# whatever @production happens to hold. Same reasoning as docs-site.yml, which
+# publishes this repository's site through its own pages preset.
+#
+# No `paths:` filter, deliberately: a filter that never matches the files under
+# test reports green without having run.
+name: self-test (web)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Overrides lint_command only. If installation still lived in that default,
+  # the dependency would be missing and the import in the fixture would fail.
+  python-install-survives-lint-override:
+    uses: ./.github/workflows/python.yml
+    with:
+      working_directory: tests/fixtures/python-install
+      python_version: "3.13"
+      lint_command: "python -c 'print(\"lint overridden; install must still have run\")'"
+      test_command: "python -m pip install pytest && python -m pytest -q"
+
+  # The C# defaults could not pass anywhere: the lint default installed the
+  # standalone dotnet-format tool and handed it --verify-no-changes, a flag only
+  # the SDK built-in accepts, so it read the flag as a file name and exited 1.
+  # Nothing noticed because no repository had ever called this preset.
+  #
+  # The fixture holds Solution.sln beside App.csproj. That combination fails a
+  # bare `dotnet build` with MSB1011 -- and only because the base names differ;
+  # with App.sln it would silently succeed and prove nothing. Passing `project`
+  # is what resolves it, so this leg exercises the input and the repaired lint
+  # default at once.
+  wp-check-generates-its-own-stack:
+    uses: ./.github/workflows/wp-plugin-check.yml
+    with:
+      plugin_slug: wp-plugin/wp-plugin.php
+      plugin_src: tests/fixtures/wp-plugin
+      versions: '[{"wp":"7.1","php":"8.4"},{"wp":"7.0","php":"8.2"}]'
+      fail_on_findings: true
+  # Real WordPress tests against a real database: the fixture asserts
+  # wp_insert_post exists, so a green run proves WordPress actually loaded
+  # rather than the assertions passing in isolation.
+  wp-phpunit-runs-real-wordpress-tests:
+    uses: ./.github/workflows/wp-phpunit.yml
+    with:
+      working_directory: tests/fixtures/wp-phpunit
+      wp_version: "7.1"
+      php_version: "8.3"
+
+  # A real package from a real plugin. The fixture carries files that must ship
+  # and files that must not, so a green run means the exclude list did its job
+  # rather than merely that a zip appeared. `verify_command` is the workflow's
+  # own input, so this exercises that too.
+  wp-build-packages-a-plugin:
+    uses: ./.github/workflows/wp-build.yml
+    with:
+      working_directory: tests/fixtures/wp-build
+      slug: wp-plugin
+      php_version: '8.3'
+      verify_command: |
+        set -euo pipefail
+        list="$(unzip -Z1 "$PACKAGE_ZIP")"
+        for want in wp-plugin/wp-plugin.php wp-plugin/includes/thing.php wp-plugin/vendor/autoload.php; do
+          if ! grep -qx "$want" <<<"$list"; then
+            echo "::error::missing from the package: $want"
+            exit 1
+          fi
+        done
+        for unwanted in "wp-plugin/tests/" "wp-plugin/phpunit.xml.dist"; do
+          if grep -q "^${unwanted}" <<<"$list"; then
+            echo "::error::development file shipped: $unwanted"
+            exit 1
+          fi
+        done
+        echo "package verified: $(wc -l <<<"$list" | tr -d ' ') entries, no development files"
+
+  # The other half of the `zip` input. Nothing exercised `zip: false`, and it is
+  # the branch that decides what gets uploaded: with no archive the artifact has
+  # to be the staged tree instead. A caller using it would have been the one to
+  # find out.
+  wp-build-can-skip-the-zip:
+    uses: ./.github/workflows/wp-build.yml
+    with:
+      working_directory: tests/fixtures/wp-build
+      slug: wp-plugin
+      php_version: '8.3'
+      zip: false
+      # A name of its own: two jobs uploading under one name collide.
+      artifact_name: wp-plugin-tree
+      verify_command: |
+        set -euo pipefail
+        if [[ -n "${PACKAGE_ZIP:-}" ]]; then
+          echo "::error::zip was false but an archive was produced: ${PACKAGE_ZIP}"
+          exit 1
+        fi
+        for want in wp-plugin.php includes/thing.php vendor/autoload.php; do
+          if [[ ! -e "${PACKAGE_DIR}/${want}" ]]; then
+            echo "::error::missing from the staged tree: ${want}"
+            exit 1
+          fi
+        done
+        for unwanted in tests phpunit.xml.dist; do
+          if [[ -e "${PACKAGE_DIR}/${unwanted}" ]]; then
+            echo "::error::development file staged: ${unwanted}"
+            exit 1
+          fi
+        done
+        echo "staged tree verified: the plugin is there and no archive was made"
+
+  # The Laravel preset, driven end to end. The fixture's artisan asserts that
+  # .env was created, that APP_KEY was generated, and that the row `migrate`
+  # wrote is visible from the separate process that runs the tests -- so a green
+  # run means the preset provisioned a database the steps actually share, not
+  # merely that four commands exited 0.
+  laravel-runs-against-a-real-database:
+    uses: ./.github/workflows/laravel.yml
+    with:
+      working_directory: tests/fixtures/laravel-app
+      php_version: '8.3'
+      # The fixture is not a composer or npm project; the defaults would run
+      # `composer install` and `npm ci` against a directory with neither.
+      lint_command: ""
+      build_command: ""
+      node_version: ""
+      db_database: fixture_test
+      db_username: fixture
+      db_password: fixture
+      # Not the default, so a preset that dropped this input on the floor -- as
+      # it silently did until script-helpers 0.38.0 -- fails here rather than
+      # passing on the hard-coded value.
+      db_root_password: 'not-the-default'
+
+  # The other half of db_image: sqlite, no service at all. This is the leg that
+  # would have caught the in-memory database bug, where `migrate` reported every
+  # migration DONE and the next step could not find the migrations table.
+  laravel-works-with-no-database-service:
+    uses: ./.github/workflows/laravel.yml
+    with:
+      working_directory: tests/fixtures/laravel-app
+      php_version: '8.3'
+      lint_command: ""
+      build_command: ""
+      node_version: ""
+      db_image: ""
+
+  # The Django preset, driven end to end against a real postgres. The fixture
+  # installs psycopg through the preset's own install_command and then really
+  # connects: its `test` step reads the row its `migrate` step wrote, from a
+  # different process, so a green run means the preset exported a connection the
+  # project can use rather than a plausible-looking DATABASE_URL.
+  django-runs-against-a-real-database:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: postgres:16
+      db_name: fixture_db
+      db_user: fixture
+      db_password: fixture
+      install_command: 'pip install --quiet "psycopg[binary]"'
+      migrate_command: 'python manage.py migrate'
+      # EXPECT_DB_NAME makes the fixture fail if the preset connected to some
+      # default rather than to the database this job asked for.
+      #
+      # An environment prefix on purpose. It used to be a positional argument,
+      # because ci_django.sh read the first word of a step command as the
+      # program and refused this one as a program called "EXPECT_DB_NAME=...".
+      # script-helpers 0.40.0 fixed that, and writing it this way again is what
+      # proves the fix reaches a caller through the preset.
+      test_command: 'EXPECT_DB_NAME=fixture_db python manage.py test'
+
+  # The other half of db_image: sqlite, no service at all. This is the leg that
+  # would have caught the in-memory database bug, where `migrate` reported every
+  # migration applied and the next step could not find the migrations table.
+  django-works-with-no-database-service:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: ""
+      # Named, because the default group carries only the inputs that make a
+      # call distinct -- workdir, runner, python_version, db_image, db_name --
+      # and the drift opt-out leg below matches this one on every single one of
+      # them. The first run of that pair cancelled the other, and assert-ran
+      # caught it as "a skipped leg is not a pass". presets.md records the same
+      # thing happening to laravel.yml's legs.
+      concurrency_key: django-works-with-no-database-service
+      migrate_command: 'python manage.py migrate'
+      test_command: 'python manage.py test'
+
+  # The drift check the preset now runs by default, in the direction that
+  # matters. A `uses:` job cannot carry continue-on-error, so a case that must
+  # fail is driven directly -- the same reason the refusal legs above are
+  # written this way.
+  #
+  # What this asserts is attribution, not detection: the run has to stop at a
+  # step called Migrations, and the tests must not run afterwards. A drift
+  # failure reported as "Tests failed" names whichever test happened to touch
+  # the changed model, which is how a missing migration gets diagnosed as a
+  # flaky test.
+  django-drift-fails-at-the-migrations-step:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-28
+        with:
+          python-version: '3.12'
+      - name: Deliberate drift must fail at Migrations, before the tests
+        shell: bash
+        working-directory: tests/fixtures/django-app
+        env:
+          # The vendored copy, which is the one this repository's pins keep in
+          # step with every preset (scripts/check_script_helpers_pins.sh).
+          HELPER: ${{ github.workspace }}/vendor/script-helpers/scripts/ci_django.sh
+          FIXTURE_DRIFT: '1'
+        run: |
+          set -euo pipefail
+          set +e
+          out="$("$HELPER" --workdir . --db-image '' --install-command '' \
+                  --migrate-command 'python manage.py migrate' \
+                  --check-command 'python manage.py makemigrations --check --dry-run --noinput' \
+                  --test-command 'python manage.py test' 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+
+          if [[ $rc -eq 0 ]]; then
+            echo "::error::drift did not fail the run; the gate is blind"
+            exit 1
+          fi
+          if ! grep -q 'Migrations failed' <<<"$out"; then
+            echo "::error::the run failed, but not at the Migrations step"
+            exit 1
+          fi
+          if grep -q 'Tests (' <<<"$out"; then
+            echo "::error::the tests ran after drift was found"
+            exit 1
+          fi
+          echo "drift stopped the run at Migrations, and the tests did not run"
+
+  # And the opt-out, through the preset. EXPECT_NO_CHECK inverts the fixture's
+  # marker assertion, so this leg fails if the step runs anyway -- an input
+  # that is ignored is worse than one that does not exist.
+  django-skips-the-drift-check-when-asked:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-app
+      python_version: '3.12'
+      db_image: ""
+      concurrency_key: django-skips-the-drift-check-when-asked
+      migrate_command: 'python manage.py migrate'
+      makemigrations_command: ""
+      test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
+
+  # -- pnpm, the scan presets, and the browser runners -------------------------
+  #
+  # The one repository on the pnpm presets overrides every command and empties
+  # three of them, so these defaults had never run either. Same for the three
+  # `*-scan` presets, which share the npm shape of node.yml.
+  # None of these three takes `concurrency_key`: they run their own job rather
+  # than calling ci.yml, and none declares a concurrency group, so nothing here
+  # cancels anything else.
+  pnpm-defaults-can-pass:
+    uses: ./.github/workflows/pnpm.yml
+    # Granted here, not at the top of the file: pnpm.yml's `report` job asks for
+    # `checks: write` and `pull-requests: read`, and a called workflow's
+    # permissions must be a subset of the caller's. Without this the whole
+    # workflow is rejected before any job starts -- `startup_failure`, no
+    # annotation, every other check green -- and the `if:` that would have
+    # skipped `report` makes no difference, because permissions are settled
+    # before anything runs. That is what a repository adopting this preset with
+    # a `contents: read` workflow will meet.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    with:
+      working_directory: tests/fixtures/pnpm-app
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/build && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran under pnpm"
+
+  node-scan-defaults-can-pass:
+    uses: ./.github/workflows/node-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
+  react-scan-defaults-can-pass:
+    uses: ./.github/workflows/react-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
+  pnpm-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-28
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 @ 2026-09-14
+        with:
+          version: 'latest'
+
+      - name: A repository with no lockfile is told which flag to drop
+        shell: bash
+        run: |
+          set -uo pipefail
+          # What the first adopter of these presets meets. The preset installs
+          # with --frozen-lockfile, which is right for CI and unforgiving of a
+          # repository that has never committed one; the message names the way
+          # out, and docs/presets.md quotes it.
+          root="$(mktemp -d)"
+          printf '{"name":"no-lock","version":"0.0.0","private":true}\n' > "$root/package.json"
+          cd "$root"
+          if pnpm install --frozen-lockfile > /tmp/nolock.txt 2>&1; then
+            echo "::error::--frozen-lockfile succeeded without a lockfile"
+            exit 1
+          fi
+          grep -q "ERR_PNPM_NO_LOCKFILE" /tmp/nolock.txt || {
+            echo "::error::the failure no longer names ERR_PNPM_NO_LOCKFILE"
+            cat /tmp/nolock.txt
+            exit 1
+          }
+          echo "no lockfile fails at install, naming the flag to drop"
+
+      - name: The pnpm cache is keyed on the working directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The step before the install. setup-node's default looks for the
+          # lockfile at the repository root, so without this every consumer
+          # whose project is in a subdirectory fails with "Dependencies lock
+          # file is not found" -- which is what this fixture hit, being the
+          # first caller ever to pass a working_directory.
+          # The pattern matches the input name rather than the expression that
+          # wraps it: GitHub expands expression syntax inside a run step, so a
+          # literal one cannot be grepped for -- actionlint refuses it as an
+          # undefined `inputs` context, which is how this was caught.
+          grep -qE 'cache-dependency-path:.*inputs\.working_directory.*pnpm-lock\.yaml' \
+            .github/workflows/pnpm.yml || {
+            echo "::error::pnpm.yml no longer keys its cache on the working directory"
+            exit 1
+          }
+          echo "the cache and the install read the same lockfile"
+
+      - name: A failing test fails the shipped pnpm test default
+        shell: bash
+        working-directory: tests/fixtures/pnpm-app
+        run: |
+          set -uo pipefail
+          printf 'const t=require("node:test");const a=require("node:assert");\nt.test("broken",()=>{a.equal(1,2)});\n' > tests/broken.test.js
+          pnpm install --frozen-lockfile
+          if pnpm run test; then
+            echo "::error::a failing test passed; the pnpm test default gates nothing"
+            rm -f tests/broken.test.js
+            exit 1
+          fi
+          rm -f tests/broken.test.js
+          if ! pnpm run test; then
+            echo "::error::the fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the pnpm test default fails on a failing test and passes on the fixture"
+
+      - name: The browser runners no longer mix the two Yarn lines
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `dlx` is Yarn Berry only; `--frozen-lockfile` beside it is Yarn 1
+          # syntax. The defaults carried both, so on Yarn 1 the run stopped at
+          # `error Command "dlx" not found.` -- measured, and asserted here so
+          # the reason for the change stays true.
+          root="$(mktemp -d)"
+          printf '{"name":"y","version":"0.0.0","private":true,"packageManager":"yarn@1.22.22"}\n' > "$root/package.json"
+          corepack enable >/dev/null 2>&1 || true
+          if ( cd "$root" && corepack yarn@1.22.22 dlx cypress install > /tmp/yarn1.txt 2>&1 ); then
+            echo "::error::yarn 1 now understands dlx; the reason for the default change is gone"
+            exit 1
+          fi
+          grep -q 'Command "dlx" not found' /tmp/yarn1.txt || {
+            echo "::error::yarn 1 failed for some other reason"
+            cat /tmp/yarn1.txt
+            exit 1
+          }
+          for preset in cypress playwright; do
+            # The default line only: the comment above it says "yarn dlx" to
+            # explain what was replaced, and matching that made this gate fail
+            # on the very change it is guarding.
+            if grep -qE '^\s*default:.*yarn dlx' ".github/workflows/${preset}.yml"; then
+              echo "::error::${preset}.yml is back to yarn dlx, which Yarn 1 does not have"
+              exit 1
+            fi
+          done
+          echo "yarn 1 has no dlx, and neither default uses it"
+
+  # -- Java, Kotlin and Gradle ------------------------------------------------
+  #
+  # Three presets whose defaults had never run: all five call sites across the
+  # fleet override every command, so nothing ever met what the presets ship.
+  # Two of those defaults could not have worked -- see the comments in
+  # kotlin.yml and java.yml, and jvm-refuses-what-it-must below, which drives
+  # the failing direction rather than asserting it.
+  node-defaults-can-pass:
+    uses: ./.github/workflows/node.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: node-defaults-can-pass
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran"
+
+  react-defaults-can-pass:
+    uses: ./.github/workflows/react.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: react-defaults-can-pass
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran"
+
+  # Installing once is available to a repository that wants it, and this is the
+  # leg that proves it works: one `npm ci` in the install step, with lint and
+  # test carrying none. It is not the default -- see node.yml for the four
+  # consumers that would break or get slower if it were.
+  node-installs-once-when-asked:
+    uses: ./.github/workflows/node.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: node-installs-once-when-asked
+      install_command: "npm ci"
+      lint_command: "npm run --if-present lint"
+      test_command: "npm test"
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "one install, and every step still ran"
+
+  # The refusals, and the two properties the defaults rest on. A `uses:` job
+  # cannot carry continue-on-error, so a case that must fail is driven here.
+  node-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-28
+        with:
+          node-version: '22'
+
+      - name: A failing test fails the shipped test default
+        shell: bash
+        working-directory: tests/fixtures/node-app
+        run: |
+          set -uo pipefail
+          # The gate has to be able to fail, or a green leg proves only that
+          # npm exists. The broken file is removed either way, and the suite is
+          # then run again to show the fixture itself is sound.
+          printf 'const t=require("node:test");const a=require("node:assert");\nt.test("broken",()=>{a.equal(1,2)});\n' > tests/broken.test.js
+          npm ci --silent
+          if npm test; then
+            echo "::error::a failing test passed; the test default gates nothing"
+            rm -f tests/broken.test.js
+            exit 1
+          fi
+          rm -f tests/broken.test.js
+          # Checked, not merely run: this step sets -u and -o pipefail but not
+          # -e, so an `npm test` followed by an `echo` would report success
+          # whatever the suite did -- which is the failure this whole leg is
+          # about.
+          if ! npm test; then
+            echo "::error::the fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: A package with no build script fails the shipped build default
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `npm run build` is deliberately not --if-present. A library that
+          # does not build sets build_command: "" -- this is what it would hit
+          # otherwise, and the message names the missing script.
+          root="$(mktemp -d)"
+          printf '{"name":"no-build","version":"0.0.0","private":true}\n' > "$root/package.json"
+          cd "$root"
+          if npm run build 2> /tmp/build-err.txt; then
+            echo "::error::npm run build passed on a package with no build script"
+            exit 1
+          fi
+          grep -q 'Missing script: "build"' /tmp/build-err.txt || {
+            echo "::error::the failure no longer names the missing script"
+            cat /tmp/build-err.txt
+            exit 1
+          }
+          echo "a package with no build script fails, and is told which script is missing"
+
+      - name: The defaults still install for themselves
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Moving the install into install_command looks like an improvement
+          # and is not safe as a default: three consumers override lint_command
+          # with their own `npm ci && ...`, so they would install twice, and one
+          # drives pnpm through this preset, where `npm ci` fails for want of a
+          # package-lock.json. A repository that wants one install asks for it,
+          # which node-installs-once-when-asked exercises.
+          #
+          # Asserted here so the change is made deliberately, with those
+          # consumers in hand, rather than because it reads better.
+          for preset in node react; do
+            file=".github/workflows/${preset}.yml"
+            grep -q 'default: "npm ci && npm run --if-present lint"' "$file" || {
+              echo "::error::${file} lint default changed; check the consumers that embed their own install"
+              exit 1
+            }
+            grep -q 'default: "npm ci && npm test"' "$file" || {
+              echo "::error::${file} test default changed; check the consumers that embed their own install"
+              exit 1
+            }
+          done
+          echo "both presets still install inside lint and test, as their consumers expect"
+
+      - name: node.yml and react.yml stay in step
+        shell: bash
+        run: |
+          set -uo pipefail
+          # The two are identical by design -- react.yml exists so a call site
+          # can say what the repository *is*. Documented in docs/presets.md,
+          # and until now nothing checked it: react.yml has never run.
+          a=$(sed 's/^name: preset-node$/name: PRESET/' .github/workflows/node.yml)
+          b=$(sed 's/^name: preset-react$/name: PRESET/' .github/workflows/react.yml)
+          if [[ "$a" != "$b" ]]; then
+            echo "::error::node.yml and react.yml have drifted"
+            diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") || true
+            exit 1
+          fi
+          echo "the two presets are identical apart from their name"
+
+  # This repository's own scripts/, at the default severity.
+  assert-ran:
+    needs:
+      - python-install-survives-lint-override
+      - wp-check-generates-its-own-stack
+      - wp-phpunit-runs-real-wordpress-tests
+      - wp-build-packages-a-plugin
+      - wp-build-can-skip-the-zip
+      - laravel-runs-against-a-real-database
+      - laravel-works-with-no-database-service
+      - django-runs-against-a-real-database
+      - django-works-with-no-database-service
+      - django-drift-fails-at-the-migrations-step
+      - django-skips-the-drift-check-when-asked
+      - pnpm-defaults-can-pass
+      - node-scan-defaults-can-pass
+      - react-scan-defaults-can-pass
+      - pnpm-refuses-what-it-must
+      - node-defaults-can-pass
+      - react-defaults-can-pass
+      - node-installs-once-when-asked
+      - node-refuses-what-it-must
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A skipped leg is not a pass
+        # `needs` itself, not a hand-written list of the same job names. The
+        # two drifted the moment a job was added: the laravel legs were in
+        # `needs` and absent from the list, so this step reported success
+        # while one of them had been cancelled. toJSON(needs) cannot fall
+        # behind what the job actually waits on.
+        env:
+          RESULTS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          failed=0
+          count=0
+          while IFS=$'\t' read -r leg result; do
+            count=$((count + 1))
+            case "$result" in
+              success) echo "$leg passed" ;;
+              skipped) echo "::error::$leg was skipped; a skip is not a pass"; failed=1 ;;
+              *)       echo "::error::$leg result: $result"; failed=1 ;;
+            esac
+          done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<<"$RESULTS_JSON")
+          # Zero legs examined is the failure this gate is most likely to have:
+          # a malformed object loops no times and reports success having checked
+          # nothing.
+          #
+          # Zero, not a floor of ten. A floor is a second copy of how many legs
+          # the file holds, and the suite was split into three files of 12, 19
+          # and 21 -- the next move of a leg between them would have made this
+          # fail on a correct suite, which is the false alarm this repository
+          # keeps removing elsewhere.
+          if (( count == 0 )); then
+            echo "::error::no legs examined; needs is not being read"
+            failed=1
+          fi
+          exit "$failed"

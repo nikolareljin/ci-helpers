@@ -1,0 +1,1 @@
+const fs=require("fs"),p=require("path");const r=p.join(__dirname,"..");fs.mkdirSync(p.join(r,"dist"),{recursive:true});fs.writeFileSync(p.join(r,"dist","bundle.js"),"module.exports=42;\n");fs.mkdirSync(p.join(r,".marks"),{recursive:true});fs.writeFileSync(p.join(r,".marks","build"),"ran\n");console.log("build: wrote dist/bundle.js");

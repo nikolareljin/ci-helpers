@@ -68,6 +68,13 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
           cache: pnpm
+          # Without this, the cache step looks for pnpm-lock.yaml at the
+          # repository root and fails with "Dependencies lock file is not
+          # found" for every consumer whose project is in a subdirectory --
+          # a monorepo package, or anything passing working_directory. The
+          # install below reads the lockfile from working_directory, so the
+          # cache must be keyed on the same file.
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash

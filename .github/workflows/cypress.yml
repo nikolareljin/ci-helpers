@@ -44,7 +44,13 @@ on:
         default: ""
       e2e_command:
         type: string
-        default: "yarn install --frozen-lockfile && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
+        # `npx`, not `yarn dlx`. The default used to mix the two Yarn lines:
+        # `--frozen-lockfile` is Yarn 1 syntax, and `dlx` exists only in Yarn
+        # Berry, so on Yarn 1 -- measured 2026-09-28 -- the second command is
+        # `error Command "dlx" not found.` and the run stops there. npx ships
+        # with Node and works on both, which the tail of this command already
+        # relied on.
+        default: "yarn install --frozen-lockfile && npx cypress install && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx cypress run'"
       extra_command:
         type: string
         default: ""

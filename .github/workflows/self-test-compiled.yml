@@ -1,0 +1,678 @@
+# REPO-LOCAL. Not a reusable workflow.
+#
+# The JVM, .NET, Go and Godot presets. Split out of self-test.yml: GitHub allows
+# a workflow to call at most 20 unique reusable workflows, and one file holding
+# every preset reached that limit -- which surfaces as a startup failure with no
+# annotation, not as an error naming the limit.
+#
+# Calls this repository's own presets by RELATIVE path against committed
+# fixtures, so a pull request editing a preset runs the edited file rather than
+# whatever @production happens to hold. Same reasoning as docs-site.yml, which
+# publishes this repository's site through its own pages preset.
+#
+# No `paths:` filter, deliberately: a filter that never matches the files under
+# test reports green without having run.
+name: self-test (compiled)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  csharp-defaults-can-pass:
+    uses: ./.github/workflows/csharp.yml
+    with:
+      working_directory: tests/fixtures/csharp-project
+      project: Solution.sln
+
+  # The other direction. A gate that only ever passes is not a gate, and this
+  # one had been green-by-never-running; asserting that unformatted source still
+  # fails is what makes the passing leg above mean something.
+  csharp-lint-still-fails-on-bad-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        with:
+          dotnet-version: "8.0.x"
+      - name: Unformatted source must fail the lint default
+        shell: bash
+        working-directory: tests/fixtures/csharp-project
+        run: |
+          set -euo pipefail
+          printf 'namespace App;\npublic class Bad {   public int X  =>  1; }\n' > Bad.cs
+          trap 'rm -f Bad.cs' EXIT
+          if dotnet format "Solution.sln" --verify-no-changes; then
+            echo "::error::lint passed on deliberately unformatted source; the gate is blind"
+            exit 1
+          fi
+          echo "lint correctly rejected unformatted source"
+
+  # The guard itself, called the way a preset calls it. Asserting it through a
+  # copy of its regex is what let csharp-scan.yml drift to having no check at
+  # all while the self-test stayed green.
+  csharp-guard-accepts-a-real-path:
+    uses: ./.github/workflows/validate-dotnet-project.yml
+    with:
+      project: "src/My App/App.csproj"
+
+  # And the refusals, which cannot be asserted by calling the workflow: a
+  # reusable workflow that fails fails the run. This drives the same script the
+  # workflow runs, from the workflow file, so there is no second copy of the
+  # rule to drift.
+  csharp-guard-refuses-bad-projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every refusal case is refused, every real path is not
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Extract the guard body from the workflow that owns it, so this test
+          # cannot pass against a rule that has since changed.
+          python3 - <<'PY' > /tmp/guard.sh
+          import re, pathlib
+          t = pathlib.Path('.github/workflows/validate-dotnet-project.yml').read_text()
+          body = t.split('run: |', 1)[1]
+          lines = []
+          for line in body.split('\n'):
+              if line.strip() and not line.startswith('          '):
+                  break
+              lines.append(line[10:])
+          pathlib.Path('/tmp/guard.sh').write_text('\n'.join(lines))
+          PY
+          test -s /tmp/guard.sh || { echo "::error::could not extract the guard"; exit 1; }
+          for bad in '-p:X=Y' 'a.csproj; id' 'a.csproj && id' 'a.csproj$(id)' 'a"b.csproj' "a'b.csproj"; do
+            if PROJECT="$bad" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard accepted '$bad'"; exit 1
+            fi
+          done
+          for good in 'App.csproj' 'src/My App/App.csproj' 'a-b/c.sln' ''; do
+            if ! PROJECT="$good" bash /tmp/guard.sh >/dev/null 2>&1; then
+              echo "::error::guard refused a legitimate value '$good'"; exit 1
+            fi
+          done
+          echo "guard accepts real paths and refuses the rest"
+
+  # The anti-drift gate, driven against a tree built to be broken. A gate whose
+  # failing direction is never exercised is the same shape as the C# preset that
+  # looked correct because nothing had ever called it -- so this asserts the
+  # refusal, not just the pass. The real tree's passing direction is asserted by
+  # workflow-yaml-check.yml on every pull request.
+  cache-go-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/go.yml
+    with:
+      concurrency_key: cache-go-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-go
+      go_version: "1.24"
+      test_command: |
+        grep -q 'go: enabled' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe enabled the Go cache, and setup-go accepted its dependency path"
+
+  # Maven, the last cache branch that could fail hard and had no leg.
+  #
+  # setup-java's cache is opt-in, so `cache: maven` is new behaviour for every Java
+  # consumer -- and a wrong cache-dependency-path fails the step rather than quietly
+  # skipping the cache. The commands are stubbed because what is under test is the cache
+  # wiring, not Maven.
+  cache-maven-is-accepted-on-a-real-run:
+    uses: ./.github/workflows/java.yml
+    with:
+      concurrency_key: cache-maven-is-accepted-on-a-real-run
+      working_directory: tests/fixtures/cache-maven
+      java_version: "17"
+      lint_command: echo "lint is not what this leg proves"
+      build_command: echo "build is not what this leg proves"
+      test_command: |
+        grep -q 'java: maven' "${RUNNER_TEMP}/cache-decisions.txt"
+        echo "the probe chose maven, and setup-java accepted its dependency path"
+
+  # Godot, proven rather than asserted. The fixture's test runner refers to a
+  # `class_name`, which only resolves after an import -- so if the preset ever
+  # stops importing, this leg fails to parse and (because Godot exits 0 anyway)
+  # is caught by the log check, not by the exit status.
+  godot-imports-and-tests-a-real-project:
+    uses: ./.github/workflows/godot.yml
+    with:
+      concurrency_key: godot-imports-and-tests-a-real-project
+      working_directory: tests/fixtures/godot-project
+      godot_version: "4.3.0"
+      test_command: |
+        set -uo pipefail
+        log="$(mktemp)"
+        godot --headless --import
+        godot --headless --script res://tests/TestRunner.gd 2>&1 | tee "$log"
+        if grep -nE "ERROR:|Failed to load|Parse Error" "$log" | grep -vE 'Parameter "m" is null'; then
+          echo "::error::the fixture produced engine errors while exiting 0"
+          exit 1
+        fi
+        grep -q "all tests passed" "$log" || { echo "::error::the runner never reported success"; exit 1; }
+
+  # The default test_command must FAIL. A Godot preset whose default passes is
+  # a gate that cannot fail, because Godot exits 0 after an error -- so this
+  # runs the default the preset actually declares, read out of the file rather
+  # than copied, and fails the leg if it succeeds.
+  godot-default-test-command-refuses-to-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: The declared default must refuse to pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          default="$(python3 -c "
+          import yaml, sys
+          doc = yaml.safe_load(open('.github/workflows/godot.yml'))
+          on = doc.get('on', doc.get(True))
+          print(on['workflow_call']['inputs']['test_command']['default'])
+          ")"
+          [ -n "$default" ] || { echo "::error::godot.yml declares no test_command default"; exit 1; }
+          if bash -c "$default"; then
+            echo "::error::the default test_command succeeded; a Godot preset that passes by default cannot fail"
+            exit 1
+          fi
+          echo "the default test_command refused to pass, as it must"
+
+  # `godot --headless --import` exits 0 over a project whose scripts do not
+  # parse -- it prints `SCRIPT ERROR: Parse Error` and returns success. The
+  # obvious lint default is therefore a gate that cannot fail, and this repo
+  # shipped exactly that for one commit. The default now reads the log; this
+  # leg runs the default **as declared in godot.yml** against a fixture that
+  # deliberately does not parse, and fails if it passes.
+  godot-lint-default-rejects-a-project-that-does-not-parse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: chickensoft-games/setup-godot@c233594225991af5aec714e52457cc76d6df8fa2 # v2.4.2 @ 2026-09-20
+        with:
+          version: "4.3.0"
+          use-dotnet: false
+      - name: The declared lint default must reject it, and accept the good one
+        shell: bash
+        run: |
+          set -euo pipefail
+          default="$(python3 -c "
+          import yaml
+          doc = yaml.safe_load(open('.github/workflows/godot.yml'))
+          on = doc.get('on', doc.get(True))
+          print(on['workflow_call']['inputs']['lint_command']['default'])
+          ")"
+          [ -n "$default" ] || { echo "::error::godot.yml declares no lint_command default"; exit 1; }
+
+          if (cd tests/fixtures/godot-broken && bash -c "$default"); then
+            echo "::error::the lint default passed on a project that does not parse; it is trusting Godot's exit status"
+            exit 1
+          fi
+          echo "the lint default rejected the broken project"
+
+          if ! (cd tests/fixtures/godot-project && bash -c "$default"); then
+            echo "::error::the lint default failed on a project that imports cleanly"
+            exit 1
+          fi
+          echo "the lint default accepted the clean project"
+
+  # govulncheck must FAIL on a module with a reachable advisory. A vulnerability
+  # checker is easy to write so that it finds none, and nothing about a green
+  # scan distinguishes "no advisories" from "never looked".
+  #
+  # govulncheck exits 3, not 1, when it finds something. The step relies on
+  # non-zero, not on a specific code.
+  govulncheck-fails-on-a-known-advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
+        with:
+          go-version: "1.25"
+      - name: The pinned govulncheck must reject the fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(python3 -c "
+          import yaml
+          d = yaml.safe_load(open('.github/workflows/go-scan.yml'))
+          on = d.get('on', d.get(True))
+          print(on['workflow_call']['inputs']['govulncheck_version']['default'])
+          ")"
+          echo "pinned version from go-scan.yml: $ver"
+          go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
+          cd tests/fixtures/go-vuln
+          if "$(go env GOPATH)/bin/govulncheck" ./...; then
+            echo "::error::govulncheck passed on a module with a reachable advisory"
+            exit 1
+          fi
+          echo "govulncheck rejected the fixture, as it must"
+
+  # Three modules, one holding go.mod and nothing else. The empty one is the
+  # point: `go vet ./...` and `go test ./...` both exit 1 on "no packages", so
+  # until the preset guarded its commands a repository with one such module
+  # could not adopt it at all. The other two prove a leg runs in its own module
+  # -- each test asserts its own module's name, so a leg that ran in the
+  # repository root or in its neighbour fails rather than passes.
+  go-modules-runs-every-module:
+    uses: ./.github/workflows/go.yml
+    with:
+      working_directory: tests/fixtures/go-modules
+      modules: '["api", "worker", "empty"]'
+
+  # The refusals, which cannot be asserted by calling the workflow: a reusable
+  # workflow that fails fails the run. This drives the resolver the preset owns,
+  # extracted from the preset, so there is no second copy of the rule to drift.
+  go-modules-resolver-refuses-bad-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: Every refusal is refused, and every accepted value normalises
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="${RUNNER_TEMP}/resolve.sh"
+          python3 - "$script" <<'PY'
+          import pathlib, sys, yaml
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/go.yml').read_text())
+          step = doc['jobs']['resolve-modules']['steps'][0]
+          pathlib.Path(sys.argv[1]).write_text(step['run'])
+          PY
+          test -s "$script" || { echo "::error::could not extract the resolver"; exit 1; }
+
+          resolve() {
+            local out="${RUNNER_TEMP}/resolve-out"
+            : > "$out"
+            MODULES="$1" WORKDIR="${2:-.}" GITHUB_OUTPUT="$out" \
+              bash "$script" >/dev/null 2>&1 || return 1
+            sed -n 's/^modules=//p' "$out"
+          }
+
+          # Each of these must fail loudly. A value that resolved to nothing
+          # would expand to a zero-leg matrix, which reports as a skipped job,
+          # and a skipped job reads like a pass.
+          for bad in '' '[]' 'not json' '{"a":1}' '["  "]' '["/etc"]' \
+                     '["../escape"]' '["a", "./a"]' '["api", "api"]'; do
+            if resolve "$bad" >/dev/null 2>&1; then
+              echo "::error::resolver accepted '${bad}'"; exit 1
+            fi
+          done
+
+          # And the accepted direction, with the value each must produce.
+          # '["a", "./a"]' above is refused only because both normalise to `a`;
+          # an incomplete normalisation would let it through as two legs for
+          # one directory, so these two cases hold each other up.
+          while IFS='|' read -r modules workdir want; do
+            [ -n "$modules" ] || continue
+            got="$(resolve "$modules" "$workdir")"
+            if [ "$got" != "$want" ]; then
+              echo "::error::resolve(${modules}, ${workdir}) = ${got}, want ${want}"
+              exit 1
+            fi
+          done <<'CASES'
+          ["api"]|.|["api"]
+          ["./api"]|.|["api"]
+          ["api/"]|src|["src/api"]
+          ["."]|.|["."]
+          ["api", "worker", "empty"]|tests/fixtures/go-modules|["tests/fixtures/go-modules/api","tests/fixtures/go-modules/worker","tests/fixtures/go-modules/empty"]
+          CASES
+          echo "the resolver refuses what it cannot expand and normalises the rest"
+
+  # go.yml's fan-out job derives working_directory and concurrency_key per leg,
+  # so the engine-inputs gate exempts that one job. An exemption naming a job
+  # that no longer exists would go on excusing whatever is written in its place,
+  # which is the silent widening the exemption dict was shaped to prevent.
+  csharp-windows-fixture-builds-on-a-windows-runner:
+    uses: ./.github/workflows/csharp.yml
+    with:
+      runner: windows-latest
+      working_directory: tests/fixtures/csharp-windows
+      project: WindowsApp.csproj
+
+  # And the direction that makes the leg above mean something. "It builds on
+  # Windows" would pass just as well if the fixture's target were not
+  # Windows-only at all, which is the shape of every gate here that turned out
+  # to be blind to its own subject.
+  #
+  # This drives `dotnet build` directly rather than calling the preset, for the
+  # same reason csharp-guard-refuses-bad-projects drives its script directly: a
+  # reusable workflow that fails fails the run, so a refusal cannot be asserted
+  # by calling it. What is proved here is the fixture's Windows-only target, on
+  # which the preset's Linux behaviour then rests.
+  csharp-windows-fixture-fails-clearly-on-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      # Guarantees an SDK is present. It does not pin which one builds: the
+      # runner image ships newer SDKs and the observed run resolved
+      # /usr/share/dotnet/sdk/10.0.400. The assertion below does not depend on
+      # the version -- every SDK that can target Windows refuses to do it here.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        with:
+          dotnet-version: "8.0.x"
+      - name: A Windows-only target must fail on Linux, and say why
+        shell: bash
+        working-directory: tests/fixtures/csharp-windows
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/linux-build.log"
+          if dotnet build "WindowsApp.csproj" -c Release > "$out" 2>&1; then
+            echo "::error::a Windows-only target built on Linux; the fixture proves nothing"
+            cat "$out"
+            exit 1
+          fi
+          echo "--- it failed, as it must; full output follows ---"
+          cat "$out"
+          # Failing is not enough. A missing SDK or a restore error would fail
+          # too, and this test would read as a pass while proving nothing about
+          # Windows targeting.
+          if ! grep -qEi "NETSDK1100|EnableWindowsTargeting|target Windows" "$out"; then
+            echo "::error::the build failed for some other reason; see the output above"
+            exit 1
+          fi
+          {
+            echo "### Windows-only target on Linux"
+            echo ""
+            echo "Refused, as it must:"
+            echo ""
+            echo '```'
+            grep -Ei "NETSDK1100|EnableWindowsTargeting|target Windows" "$out" | head -3
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Unity cannot be exercised here: an editor run needs a licence this
+  # repository does not have and bills by the minute, which is the whole reason
+  # the preset is armed by a repository variable. What can be exercised, and is
+  # the part that protects the bill, is the gate that decides whether any of it
+  # runs. It is driven from the workflow that owns it, so this cannot pass
+  # against a gate that has since changed.
+  unity-gate-refuses-and-disarms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - name: The gate refuses bad input, and stays off unless armed
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="${RUNNER_TEMP}/decide.sh"
+          python3 - "$script" <<'PY'
+          import pathlib, sys, yaml
+          doc = yaml.safe_load(pathlib.Path('.github/workflows/unity.yml').read_text())
+          pathlib.Path(sys.argv[1]).write_text(doc['jobs']['decide']['steps'][0]['run'])
+          PY
+          test -s "$script" || { echo "::error::could not extract the gate"; exit 1; }
+
+          # enabled | test_mode | project_path | license | serial | email | password
+          decide() {
+            local out="${RUNNER_TEMP}/decide-out"
+            : > "$out"
+            IN_ENABLED="" VAR_ENABLED="$1" IN_TEST_MODE="$2" IN_PROJECT_PATH="$3" \
+            HAS_LICENSE="$4" HAS_SERIAL="$5" HAS_EMAIL="$6" HAS_PASSWORD="$7" \
+            GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="${RUNNER_TEMP}/decide-sum" \
+              bash "$script" >/dev/null 2>&1 || return 1
+            sed -n 's/^mode=//p' "$out"
+          }
+
+          # Each of these must fail before anything bills.
+          while IFS='|' read -r en tm pp lic ser em pw why; do
+            [ -n "${en}${tm}" ] || continue
+            if decide "$en" "$tm" "$pp" "$lic" "$ser" "$em" "$pw" >/dev/null 2>&1; then
+              echo "::error::gate accepted what it must refuse: ${why}"
+              exit 1
+            fi
+          done <<'REFUSE'
+          true|bogus|.|true|false|true|true|an unknown test_mode
+          |all|/abs|false|false|false|false|an absolute project_path
+          |all|a/../b|false|false|false|false|a project_path containing ..
+          true|all|.|false|false|false|false|armed with no licence and no serial
+          true|all|.|true|false|false|true|armed with a licence but no email
+          REFUSE
+
+          # And the accepted direction. The first two are the ones that protect
+          # the bill: an unarmed repository is inert and is never asked for a
+          # credential it has no reason to hold.
+          while IFS='|' read -r en tm pp lic ser em pw want; do
+            [ -n "${tm}" ] || continue
+            got="$(decide "$en" "$tm" "$pp" "$lic" "$ser" "$em" "$pw")"
+            if [ "$got" != "$want" ]; then
+              echo "::error::gate(enabled=${en:-<unset>}) = ${got}, want ${want}"
+              exit 1
+            fi
+          done <<'ACCEPT'
+          |all|.|false|false|false|false|disabled
+          false|all|.|false|false|false|false|disabled
+          true|all|.|true|false|true|true|test
+          true|editmode|.|false|true|true|true|test
+          ACCEPT
+          echo "the gate refuses bad input and stays off unless armed"
+
+  # The gate that would have caught a real defect on 2026-09-21: a second
+  # `## Unreleased` added above the existing one, which drops everything under
+  # the lower heading from the release notes while the file still appears to
+  # contain it. Asserting the refusals is the point -- a structure check is easy
+  # to write so that it finds nothing.
+  go-pr-gate-uses-the-shared-default:
+    uses: ./.github/workflows/go-pr-gate.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      test_command: 'go version && go version | grep -q "go1\.25\." && echo "the shared default is in force"'
+      build_command: ""
+
+  # And this leg names a version the image does not ship, so it can only pass if
+  # the gate actually ran its Setup Go step.
+  go-pr-gate-honours-a-named-version:
+    uses: ./.github/workflows/go-pr-gate.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      go_version: "1.24"
+      lint_command: ""
+      test_command: 'go version && go version | grep -q "go1\.24\." && echo "Setup Go ran; the image ships a different version"'
+      build_command: ""
+
+  # Two legs from one input, each on a stack this repository generates rather
+  # than one the caller wrote. The fixture plugin passes cleanly, so a failure
+  # here is the workflow's, not the plugin's.
+  kotlin-defaults-can-pass:
+    uses: ./.github/workflows/kotlin.yml
+    with:
+      working_directory: tests/fixtures/jvm-gradle
+      java_version: "21"
+      concurrency_key: kotlin-defaults-can-pass
+      extra_command: >-
+        test -f build/libs/jvm-fixture.jar
+        && echo "check, test and build all ran on a Kotlin/JVM project"
+
+  java-gradle-defaults-can-pass:
+    uses: ./.github/workflows/java-gradle.yml
+    with:
+      working_directory: tests/fixtures/jvm-gradle
+      java_version: "21"
+      concurrency_key: java-gradle-defaults-can-pass
+      extra_command: >-
+        test -f build/libs/jvm-fixture.jar
+        && echo "the Gradle preset's defaults ran"
+
+  java-defaults-can-pass:
+    uses: ./.github/workflows/java.yml
+    with:
+      working_directory: tests/fixtures/jvm-maven
+      java_version: "21"
+      concurrency_key: java-defaults-can-pass
+      extra_command: >-
+        test -f target/jvm-maven-fixture-0.0.1.jar
+        && echo "the Maven preset's defaults ran"
+
+  jvm-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1 @ 2026-09-14
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: The Android tasks the old Kotlin defaults used are absent here
+        shell: bash
+        working-directory: tests/fixtures/jvm-gradle
+        run: |
+          set -uo pipefail
+          # This is why the defaults changed. `lint` and `assembleDebug` come
+          # from the Android Gradle plugin; a Kotlin/JVM project has neither,
+          # and the preset shipped both as defaults from the day it was written.
+          for task in lint assembleDebug; do
+            if ./gradlew "$task" > "/tmp/${task}.log" 2>&1; then
+              echo "::error::./gradlew ${task} succeeded here; the fixture is an Android project and proves nothing"
+              exit 1
+            fi
+            grep -q "Task '${task}' not found" "/tmp/${task}.log" || {
+              echo "::error::./gradlew ${task} failed for some other reason"
+              tail -20 "/tmp/${task}.log"
+              exit 1
+            }
+          done
+          echo "lint and assembleDebug are both absent, as an Android-only task should be"
+
+      - name: A failing test fails the Gradle test default
+        shell: bash
+        working-directory: tests/fixtures/jvm-gradle
+        run: |
+          set -uo pipefail
+          cat > src/test/kotlin/BrokenTest.kt <<'KOTLIN'
+          import kotlin.test.Test
+          import kotlin.test.assertEquals
+          class BrokenTest { @Test fun broken() { assertEquals(1, 2) } }
+          KOTLIN
+          if ./gradlew test > /tmp/broken-test.log 2>&1; then
+            echo "::error::a failing test passed; the test default gates nothing"
+            rm -f src/test/kotlin/BrokenTest.kt
+            exit 1
+          fi
+          rm -f src/test/kotlin/BrokenTest.kt
+          if ! ./gradlew test; then
+            echo "::error::the fixture's own suite fails; the green legs prove nothing"
+            exit 1
+          fi
+          echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: The old Maven lint default fails on a conventional project
+        shell: bash
+        working-directory: tests/fixtures/jvm-maven
+        run: |
+          set -uo pipefail
+          # `checkstyle:check` resolves the plugin whether or not the project
+          # configures it, and then applies Sun's rules. On this fixture --
+          # two files, no style violations anybody would name -- that is a red
+          # build. A check that fires on correct input gets switched off.
+          if mvn -B -DskipTests checkstyle:check > /tmp/checkstyle.log 2>&1; then
+            echo "::error::checkstyle passed here; the reason for the default change no longer holds"
+            exit 1
+          fi
+          grep -qE "Checkstyle violation|You have [0-9]+ Checkstyle violations" /tmp/checkstyle.log || {
+            echo "::error::checkstyle failed for some other reason"
+            tail -20 /tmp/checkstyle.log
+            exit 1
+          }
+          echo "the old default fails on correct code, which is why it is no longer the default"
+
+      - name: A failing test fails the Maven test default
+        shell: bash
+        working-directory: tests/fixtures/jvm-maven
+        run: |
+          set -uo pipefail
+          cat > src/test/java/app/BrokenTest.java <<'JAVA'
+          package app;
+          import org.junit.jupiter.api.Test;
+          import static org.junit.jupiter.api.Assertions.assertEquals;
+          class BrokenTest { @Test void broken(){ assertEquals(1, 2); } }
+          JAVA
+          if mvn -B test > /tmp/mvn-broken.log 2>&1; then
+            echo "::error::a failing test passed; the Maven test default gates nothing"
+            rm -f src/test/java/app/BrokenTest.java
+            exit 1
+          fi
+          rm -f src/test/java/app/BrokenTest.java
+          if ! mvn -B test; then
+            echo "::error::the Maven fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the Maven test default fails on a failing test and passes on the fixture"
+
+  # -- Node and React --------------------------------------------------------
+  #
+  # Both presets at their shipped defaults: nothing below overrides
+  # lint_command, test_command or build_command, so a default that cannot work
+  # fails the run. react.yml had no consumer and had never executed.
+  #
+  # extra_command runs after build, and refuses to pass unless every step left
+  # its marker: a step that quietly stopped running looks exactly like one that
+  # passed, and the fixture's scripts are silent when they succeed.
+  assert-ran:
+    needs:
+      - csharp-defaults-can-pass
+      - csharp-lint-still-fails-on-bad-input
+      - csharp-guard-accepts-a-real-path
+      - csharp-guard-refuses-bad-projects
+      - cache-go-is-accepted-on-a-real-run
+      - cache-maven-is-accepted-on-a-real-run
+      - godot-imports-and-tests-a-real-project
+      - godot-default-test-command-refuses-to-pass
+      - godot-lint-default-rejects-a-project-that-does-not-parse
+      - govulncheck-fails-on-a-known-advisory
+      - go-modules-runs-every-module
+      - go-modules-resolver-refuses-bad-input
+      - csharp-windows-fixture-builds-on-a-windows-runner
+      - csharp-windows-fixture-fails-clearly-on-linux
+      - unity-gate-refuses-and-disarms
+      - go-pr-gate-uses-the-shared-default
+      - go-pr-gate-honours-a-named-version
+      - kotlin-defaults-can-pass
+      - java-gradle-defaults-can-pass
+      - java-defaults-can-pass
+      - jvm-refuses-what-it-must
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A skipped leg is not a pass
+        # `needs` itself, not a hand-written list of the same job names. The
+        # two drifted the moment a job was added: the laravel legs were in
+        # `needs` and absent from the list, so this step reported success
+        # while one of them had been cancelled. toJSON(needs) cannot fall
+        # behind what the job actually waits on.
+        env:
+          RESULTS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          failed=0
+          count=0
+          while IFS=$'\t' read -r leg result; do
+            count=$((count + 1))
+            case "$result" in
+              success) echo "$leg passed" ;;
+              skipped) echo "::error::$leg was skipped; a skip is not a pass"; failed=1 ;;
+              *)       echo "::error::$leg result: $result"; failed=1 ;;
+            esac
+          done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<<"$RESULTS_JSON")
+          # Zero legs examined is the failure this gate is most likely to have:
+          # a malformed object loops no times and reports success having checked
+          # nothing.
+          #
+          # Zero, not a floor of ten. A floor is a second copy of how many legs
+          # the file holds, and the suite was split into three files of 12, 19
+          # and 21 -- the next move of a leg between them would have made this
+          # fail on a correct suite, which is the false alarm this repository
+          # keeps removing elsewhere.
+          if (( count == 0 )); then
+            echo "::error::no legs examined; needs is not being read"
+            failed=1
+          fi
+          exit "$failed"

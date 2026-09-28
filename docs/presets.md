@@ -145,7 +145,7 @@ to avoid it.
 That is deliberate: a React project needs nothing in CI that a Node project
 does not, and this preset exists so a call site can say what the repository
 *is* rather than what it runs. Keep the two in step — if one gains an input or
-a default, the other should too. `node-refuses-what-it-must` in `self-test.yml`
+a default, the other should too. `node-refuses-what-it-must` in `self-test-web.yml`
 fails the build if they drift, which nothing checked while `react.yml` had no
 consumer and had never run.
 
@@ -770,6 +770,33 @@ Defaults:
 - `lint_command`: `pnpm run --if-present lint`
 - `test_command`: `pnpm run test`
 - `build_command`: `pnpm run build`
+
+Dependencies are installed once, by the preset itself, with
+`pnpm install --frozen-lockfile`, and `pnpm-lock.yaml` must be committed and in
+step with `package.json`.
+
+A repository without one does not reach the install: the cache step goes first
+and stops there,
+
+```
+Dependencies lock file is not found in /home/runner/work/<repo>/<repo>.
+Supported file patterns: pnpm-lock.yaml
+```
+
+and had it got that far, `pnpm install --frozen-lockfile` would refuse in its
+own words:
+
+```
+ERR_PNPM_NO_LOCKFILE  Run `pnpm install` without --frozen-lockfile to create one.
+```
+
+Both are the right answer for CI: an install that quietly writes a lockfile is
+an install that can drift from what was reviewed.
+
+The cache is keyed on `${{ inputs.working_directory }}/pnpm-lock.yaml`, so a
+package inside a monorepo caches on its own lockfile. Keyed at the repository
+root -- which is `setup-node`'s default -- every such consumer fails at that
+same step.
 
 Optional test result upload:
 
