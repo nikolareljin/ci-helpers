@@ -1,0 +1,114 @@
+# What exercises each reusable workflow, and what does not.
+#
+# Every workflow with a `workflow_call` trigger is either driven by a leg in one
+# of the self-test suites or listed here with the reason it is not.
+# `scripts/check_workflow_coverage.py` fails when one is in neither, when one
+# listed here has since gained a leg, and when an entry names a workflow that no
+# longer exists.
+#
+# The list exists because an unverified claim is worse than an absent one. This
+# repository shipped `csharp.yml` with a lint command built on a tool delisted
+# four framework versions earlier, `kotlin.yml` with Android-only tasks as its
+# defaults, and `cypress.yml` with a command that could not run on either Yarn
+# line -- each for its whole life, because nothing ran them. The count below is
+# how much of that surface is still unexamined.
+#
+# Verification stops at the credential on purpose: a deliberately invalid token
+# proves a failure lands at the authentication step and not before, and that is
+# the most a repository without the account can honestly claim.
+
+groups:
+  credential-bound:
+    reason: >-
+      Declares a secret this repository does not hold -- a signing key, a store
+      or registry credential, a deploy key. A self-test can go as far as the
+      authentication step and no further, so nothing past it is claimed here.
+    workflows:
+      - cloudflare-deploy.yml
+      - docker-multiarch.yml
+      - docker-scan.yml
+      - flutter-release.yml
+      - go-deploy.yml
+      - homebrew-package.yml
+      - ppa-deb.yml
+      - release-rc-pr.yml
+      - rust-release-tarballs.yml
+      - tauri-release.yml
+      - unity.yml
+      - winget-submit.yml
+
+  changes-this-repository:
+    reason: >-
+      Running it would tag, release, deploy or push. There is no way to execute
+      it against this repository in a pull request without changing the thing
+      the run is meant to observe, so the parts worth proving are covered by
+      gates over their inputs instead (see `release-tag-check`,
+      `changelog-structure-gate-refuses-what-it-must`).
+    workflows:
+      - auto-tag.yml
+      - auto-tag-release.yml
+      - cloudflare-build.yml
+      - create-github-release.yml
+      - deploy.yml
+      - fpc-release.yml
+      - go-release.yml
+      - manifest-version.yml
+      - pages.yml
+      - pages-build.yml
+      - pages-deploy.yml
+      - pnpm-pages.yml
+      - release-build.yml
+      - rust-release.yml
+      - update-production.yml
+
+  not-yet:
+    reason: >-
+      No blocker: it needs a fixture and a leg, and has not had one written.
+      Listed so the gap is countable rather than invisible. Each rung of the
+      adoption-readiness work moves names out of this group.
+    workflows:
+      - csharp-scan.yml
+      - cypress.yml
+      - deb-build.yml
+      - docker.yml
+      - gitleaks-scan.yml
+      - go-scan.yml
+      - java-scan.yml
+      - php.yml
+      - php-scan.yml
+      - pimcore.yml
+      - pimcore-bundle-check.yml
+      - playwright.yml
+      - pnpm-cypress.yml
+      - pnpm-playwright.yml
+      - pnpm-scan.yml
+      - python-scan.yml
+      - release-tag-gate.yml
+      - rpm-build.yml
+      - rust.yml
+      - rust-scan.yml
+      - tauri.yml
+      - tauri-scan.yml
+      - trivy-scan.yml
+      - vue-scan.yml
+
+# Notes on entries whose group does not tell the whole story. A note never
+# excuses an entry from its group; it records what a future leg can still reach.
+notes:
+  deb-build.yml: >-
+    The build half is testable and the upload half is not: attaching the .deb to
+    a release needs a release to attach it to.
+  rpm-build.yml: >-
+    As deb-build.yml -- the build is reachable, the upload is not.
+  gitleaks-scan.yml: >-
+    Runs a scan and uploads SARIF. The scan is reachable; the upload needs
+    `security-events: write`, which a fork's pull request does not get.
+  trivy-scan.yml: >-
+    As gitleaks-scan.yml.
+  docker-scan.yml: >-
+    Credential-bound on `snyk_token`, but the Trivy half runs without one and a
+    leg could reach it.
+  release-rc-pr.yml: >-
+    Needs `GH_PAT` because the default token cannot open a pull request that
+    triggers further workflows. Its refusal path -- a 403 logged as a warning
+    while the job exits 0 -- is the failure that prompted this list.

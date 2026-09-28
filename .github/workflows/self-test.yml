@@ -345,6 +345,69 @@ jobs:
   # application targets a Windows-only framework, so the preset could not serve
   # it at all. This is the acceptance for the runner input: the fixture builds
   # where it can build, through the preset rather than around it.
+  # Every reusable workflow is exercised by a leg or says why not. Added after
+  # counting: 73 reusable workflows, 22 of them exercised. The other 51 were
+  # invisible -- not listed anywhere, not counted anywhere, and three defects
+  # this month were in workflows nothing had ever run.
+  workflow-coverage-is-declared:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-28
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML
+        shell: bash
+        run: python -m pip install --quiet pyyaml
+
+      - name: The tree agrees with the coverage list
+        shell: bash
+        run: python3 scripts/check_workflow_coverage.py
+
+      - name: The gate refuses what it must
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Three ways to be wrong, each driven rather than asserted. A gate
+          # that has never failed is a gate nobody has tested.
+          root="$(mktemp -d)"
+          mkdir -p "$root/.github/workflows" "$root/tests"
+          cp .github/workflows/*.yml "$root/.github/workflows/"
+          cp tests/workflow-coverage.yaml "$root/tests/"
+
+          printf 'name: brand-new\non:\n  workflow_call:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n' \
+            > "$root/.github/workflows/brand-new.yml"
+          if python3 scripts/check_workflow_coverage.py --root "$root" > /tmp/unlisted.txt 2>&1; then
+            echo "::error::a reusable workflow nobody listed passed the gate"
+            exit 1
+          fi
+          grep -q "brand-new.yml is a reusable workflow that nothing exercises" /tmp/unlisted.txt || {
+            echo "::error::the refusal does not name the unlisted workflow"; cat /tmp/unlisted.txt; exit 1; }
+          rm "$root/.github/workflows/brand-new.yml"
+
+          rm "$root/.github/workflows/rust.yml"
+          if python3 scripts/check_workflow_coverage.py --root "$root" > /tmp/stale.txt 2>&1; then
+            echo "::error::an entry naming a workflow that is gone passed the gate"
+            exit 1
+          fi
+          grep -q "rust.yml is listed but is not a reusable workflow" /tmp/stale.txt || {
+            echo "::error::the refusal does not name the stale entry"; cat /tmp/stale.txt; exit 1; }
+          cp .github/workflows/rust.yml "$root/.github/workflows/"
+
+          # printf, not a heredoc: a heredoc terminator has to sit at column 0,
+          # which ends the YAML block scalar this step is written in.
+          printf '\n  php-leg:\n    uses: ./.github/workflows/php.yml\n    with:\n      working_directory: tests/fixtures/x\n' \
+            >> "$root/.github/workflows/self-test-web.yml"
+          if python3 scripts/check_workflow_coverage.py --root "$root" > /tmp/covered.txt 2>&1; then
+            echo "::error::a listed workflow that gained a leg passed the gate"
+            exit 1
+          fi
+          grep -q "php.yml is listed as .not-yet. but a self-test leg calls it" /tmp/covered.txt || {
+            echo "::error::the refusal does not name the newly covered workflow"; cat /tmp/covered.txt; exit 1; }
+
+          echo "the gate refuses an unlisted workflow, a stale entry, and a list that has fallen behind"
+
   changelog-structure-gate-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -530,6 +593,7 @@ jobs:
 
   assert-ran:
     needs:
+      - workflow-coverage-is-declared
       - engine-inputs-gate-refuses-a-dropped-forward
       - submodules-recursive-checks-out-the-tree
       - submodules-default-leaves-the-tree-absent
