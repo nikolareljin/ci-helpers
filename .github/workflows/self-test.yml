@@ -1128,6 +1128,23 @@ jobs:
         && test -f dist/bundle.js
         && echo "install, lint, test and build all ran"
 
+  # Installing once is available to a repository that wants it, and this is the
+  # leg that proves it works: one `npm ci` in the install step, with lint and
+  # test carrying none. It is not the default -- see node.yml for the four
+  # consumers that would break or get slower if it were.
+  node-installs-once-when-asked:
+    uses: ./.github/workflows/node.yml
+    with:
+      working_directory: tests/fixtures/node-app
+      concurrency_key: node-installs-once-when-asked
+      install_command: "npm ci"
+      lint_command: "npm run --if-present lint"
+      test_command: "npm test"
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/test && test -f .marks/build
+        && test -f dist/bundle.js
+        && echo "one install, and every step still ran"
+
   # The refusals, and the two properties the defaults rest on. A `uses:` job
   # cannot carry continue-on-error, so a case that must fail is driven here.
   node-refuses-what-it-must:
@@ -1186,25 +1203,31 @@ jobs:
           }
           echo "a package with no build script fails, and is told which script is missing"
 
-      - name: The install step is what installs, exactly once
+      - name: The defaults still install for themselves
         shell: bash
         run: |
           set -euo pipefail
-          # The defaults used to carry `npm ci &&` at the head of both lint and
-          # test, so every run installed twice -- npm ci deletes node_modules
-          # first, so it was the whole install, not a no-op.
+          # Moving the install into install_command looks like an improvement
+          # and is not safe as a default: three consumers override lint_command
+          # with their own `npm ci && ...`, so they would install twice, and one
+          # drives pnpm through this preset, where `npm ci` fails for want of a
+          # package-lock.json. A repository that wants one install asks for it,
+          # which node-installs-once-when-asked exercises.
+          #
+          # Asserted here so the change is made deliberately, with those
+          # consumers in hand, rather than because it reads better.
           for preset in node react; do
             file=".github/workflows/${preset}.yml"
-            grep -q 'default: "npm ci"' "$file" || {
-              echo "::error::${file} no longer installs in the install step"
+            grep -q 'default: "npm ci && npm run --if-present lint"' "$file" || {
+              echo "::error::${file} lint default changed; check the consumers that embed their own install"
               exit 1
             }
-            if grep -E 'default: "npm ci &&' "$file"; then
-              echo "::error::${file} installs inside another command again"
+            grep -q 'default: "npm ci && npm test"' "$file" || {
+              echo "::error::${file} test default changed; check the consumers that embed their own install"
               exit 1
-            fi
+            }
           done
-          echo "both presets install once, in the install step"
+          echo "both presets still install inside lint and test, as their consumers expect"
 
       - name: node.yml and react.yml stay in step
         shell: bash
@@ -1354,6 +1377,7 @@ jobs:
   assert-ran:
     needs:
       - node-defaults-can-pass
+      - node-installs-once-when-asked
       - react-defaults-can-pass
       - node-refuses-what-it-must
       - shell-checks-this-repository

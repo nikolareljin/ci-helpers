@@ -27,19 +27,28 @@ on:
       node_version:
         type: string
         default: "22"
-      # Installed once, here, rather than at the head of every command.
-      # `npm ci` deletes node_modules and installs from the lockfile, so a lint
-      # default of `npm ci && ...` beside a test default of `npm ci && ...` did
-      # the whole install twice per run.
+      # Empty, and the lint and test defaults each install for themselves.
+      #
+      # That does the install twice -- `npm ci` deletes node_modules and
+      # installs from the lockfile, so the second is not a no-op -- and moving
+      # it here would be the obvious fix. It is not safe as a default: of the
+      # six consumers of these two presets, three override `lint_command` with
+      # their own `npm ci && ...` (which would then install a third time) and
+      # one drives pnpm through this preset entirely, where a default `npm ci`
+      # fails outright for want of a package-lock.json.
+      #
+      # A repository that wants one install sets `install_command: "npm ci"`
+      # and drops it from its own commands. `node-installs-once-when-asked`
+      # in self-test.yml exercises exactly that.
       install_command:
         type: string
-        default: "npm ci"
+        default: ""
       lint_command:
         type: string
-        default: "npm run --if-present lint"
+        default: "npm ci && npm run --if-present lint"
       test_command:
         type: string
-        default: "npm test"
+        default: "npm ci && npm test"
       # Not guarded by --if-present, unlike lint: a package that builds and has
       # lost its build script should fail rather than pass quietly. A package
       # that does not build at all sets `build_command: ""`.

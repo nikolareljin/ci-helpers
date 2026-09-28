@@ -19,18 +19,16 @@
   presets are diffed, because `docs/presets.md` has always said to keep them in
   step and nothing checked it.
 
-### Changed
-
-- **`node.yml` and `react.yml` install once.** `install_command` defaults to
-  `npm ci`, and the lint and test defaults drop the `npm ci &&` they each
-  carried. `npm ci` deletes `node_modules` and installs from the lockfile, so
-  the old defaults did the whole install twice on every run.
-
-  Behaviour change for callers on the defaults: the install now happens in the
-  `Install` step rather than inside `Lint`. A caller that overrides
-  `lint_command` or `test_command` and relied on the install inside them is
-  covered by the new default; one that sets `install_command: ""` must keep
-  whatever installs in its own commands.
+  **The defaults are unchanged, deliberately.** They were going to install once
+  -- `install_command: npm ci`, with the `npm ci &&` dropped from lint and test
+  -- until the call sites were read: of the six repositories on these two
+  presets, three override `lint_command` with their own `npm ci && ...` (an
+  install step would make that a third install, not a saving) and one drives
+  pnpm through the preset, where a default `npm ci` fails outright for want of
+  a `package-lock.json`. The double install is documented in `docs/presets.md`
+  with the three lines that avoid it, `node-installs-once-when-asked` proves
+  that path works, and a self-test step fails if the defaults change without
+  those consumers in hand.
 
 ## 2026-09-27 — v0.37.0
 
