@@ -1155,7 +1155,14 @@ jobs:
             exit 1
           fi
           rm -f tests/broken.test.js
-          npm test
+          # Checked, not merely run: this step sets -u and -o pipefail but not
+          # -e, so an `npm test` followed by an `echo` would report success
+          # whatever the suite did -- which is the failure this whole leg is
+          # about.
+          if ! npm test; then
+            echo "::error::the fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
           echo "the test default fails on a failing test and passes on the fixture"
 
       - name: A package with no build script fails the shipped build default
