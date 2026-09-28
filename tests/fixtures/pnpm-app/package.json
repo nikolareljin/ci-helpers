@@ -1,0 +1,10 @@
+{
+  "name": "pnpm-app-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "node scripts/lint.js",
+    "test": "node --test",
+    "build": "node scripts/build.js"
+  }
+}

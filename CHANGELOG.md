@@ -2,6 +2,39 @@
 
 ### Fixed
 
+- **`cypress.yml` and `playwright.yml` shipped an `e2e_command` that mixed the
+  two Yarn lines.** `--frozen-lockfile` is Yarn 1 syntax and `dlx` exists only
+  in Yarn Berry, so the default could not run as written. Measured on
+  2026-09-28:
+
+  ```
+  yarn 1.22.22:  yarn install --frozen-lockfile   ok
+                 yarn dlx cypress install         error Command "dlx" not found.
+  ```
+
+  Both now use `npx`, which ships with Node and works on either line -- and
+  which the tail of the same command already relied on. Neither workflow has a
+  consumer, so nothing was running this to find out.
+
+### Added
+
+- **A fixture and self-test legs for `pnpm.yml`, `node-scan.yml` and
+  `react-scan.yml`.** `tests/fixtures/pnpm-app` is a dependency-free pnpm
+  project with its lockfile committed, because `pnpm install
+  --frozen-lockfile` is what the preset runs. The scan presets run against the
+  existing `node-app` fixture, since they share node.yml's npm shape.
+
+  `pnpm-refuses-what-it-must` drives three failing directions: a repository with
+  no lockfile is refused at install with `ERR_PNPM_NO_LOCKFILE`, a failing test
+  fails the shipped test default, and Yarn 1 is shown to have no `dlx` -- so the
+  reason the browser-runner defaults changed stays true rather than becoming
+  folklore.
+
+  The pnpm and scan presets take no `concurrency_key`: they run their own job
+  rather than calling `ci.yml`, and none declares a concurrency group.
+
+### Fixed
+
 - **Two JVM presets shipped defaults that could not pass.** Both were measured
   on 2026-09-28 rather than read:
 

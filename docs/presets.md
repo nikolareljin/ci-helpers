@@ -771,6 +771,17 @@ Defaults:
 - `test_command`: `pnpm run test`
 - `build_command`: `pnpm run build`
 
+Dependencies are installed once, by the preset itself, with
+`pnpm install --frozen-lockfile`. That needs `pnpm-lock.yaml` committed and in
+step with `package.json`; a repository without one gets
+
+```
+ERR_PNPM_NO_LOCKFILE  Run `pnpm install` without --frozen-lockfile to create one.
+```
+
+which is the right answer for CI: an install that quietly writes a lockfile is
+an install that can drift from what was reviewed.
+
 Optional test result upload:
 
 - `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`

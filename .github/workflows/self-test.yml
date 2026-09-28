@@ -1099,6 +1099,114 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # -- pnpm, the scan presets, and the browser runners -------------------------
+  #
+  # The one repository on the pnpm presets overrides every command and empties
+  # three of them, so these defaults had never run either. Same for the three
+  # `*-scan` presets, which share the npm shape of node.yml.
+  # None of these three takes `concurrency_key`: they run their own job rather
+  # than calling ci.yml, and none declares a concurrency group, so nothing here
+  # cancels anything else.
+  pnpm-defaults-can-pass:
+    uses: ./.github/workflows/pnpm.yml
+    with:
+      working_directory: tests/fixtures/pnpm-app
+      extra_command: >-
+        test -f .marks/lint && test -f .marks/build && test -f dist/bundle.js
+        && echo "install, lint, test and build all ran under pnpm"
+
+  node-scan-defaults-can-pass:
+    uses: ./.github/workflows/node-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
+  react-scan-defaults-can-pass:
+    uses: ./.github/workflows/react-scan.yml
+    with:
+      working_directory: tests/fixtures/node-app
+
+  pnpm-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 @ 2026-09-28
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 @ 2026-09-14
+        with:
+          version: 'latest'
+
+      - name: A repository with no lockfile is told which flag to drop
+        shell: bash
+        run: |
+          set -uo pipefail
+          # What the first adopter of these presets meets. The preset installs
+          # with --frozen-lockfile, which is right for CI and unforgiving of a
+          # repository that has never committed one; the message names the way
+          # out, and docs/presets.md quotes it.
+          root="$(mktemp -d)"
+          printf '{"name":"no-lock","version":"0.0.0","private":true}\n' > "$root/package.json"
+          cd "$root"
+          if pnpm install --frozen-lockfile > /tmp/nolock.txt 2>&1; then
+            echo "::error::--frozen-lockfile succeeded without a lockfile"
+            exit 1
+          fi
+          grep -q "ERR_PNPM_NO_LOCKFILE" /tmp/nolock.txt || {
+            echo "::error::the failure no longer names ERR_PNPM_NO_LOCKFILE"
+            cat /tmp/nolock.txt
+            exit 1
+          }
+          echo "no lockfile fails at install, naming the flag to drop"
+
+      - name: A failing test fails the shipped pnpm test default
+        shell: bash
+        working-directory: tests/fixtures/pnpm-app
+        run: |
+          set -uo pipefail
+          printf 'const t=require("node:test");const a=require("node:assert");\nt.test("broken",()=>{a.equal(1,2)});\n' > tests/broken.test.js
+          pnpm install --frozen-lockfile
+          if pnpm run test; then
+            echo "::error::a failing test passed; the pnpm test default gates nothing"
+            rm -f tests/broken.test.js
+            exit 1
+          fi
+          rm -f tests/broken.test.js
+          if ! pnpm run test; then
+            echo "::error::the fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the pnpm test default fails on a failing test and passes on the fixture"
+
+      - name: The browser runners no longer mix the two Yarn lines
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `dlx` is Yarn Berry only; `--frozen-lockfile` beside it is Yarn 1
+          # syntax. The defaults carried both, so on Yarn 1 the run stopped at
+          # `error Command "dlx" not found.` -- measured, and asserted here so
+          # the reason for the change stays true.
+          root="$(mktemp -d)"
+          printf '{"name":"y","version":"0.0.0","private":true,"packageManager":"yarn@1.22.22"}\n' > "$root/package.json"
+          corepack enable >/dev/null 2>&1 || true
+          ( cd "$root" && corepack yarn@1.22.22 dlx cypress install > /tmp/yarn1.txt 2>&1 )
+          if [[ $? -eq 0 ]]; then
+            echo "::error::yarn 1 now understands dlx; the reason for the default change is gone"
+            exit 1
+          fi
+          grep -q 'Command "dlx" not found' /tmp/yarn1.txt || {
+            echo "::error::yarn 1 failed for some other reason"
+            cat /tmp/yarn1.txt
+            exit 1
+          }
+          for preset in cypress playwright; do
+            if grep -q "yarn dlx" ".github/workflows/${preset}.yml"; then
+              echo "::error::${preset}.yml is back to yarn dlx, which Yarn 1 does not have"
+              exit 1
+            fi
+          done
+          echo "yarn 1 has no dlx, and neither default uses it"
+
   # -- Java, Kotlin and Gradle ------------------------------------------------
   #
   # Three presets whose defaults had never run: all five call sites across the
@@ -1509,6 +1617,10 @@ jobs:
 
   assert-ran:
     needs:
+      - pnpm-defaults-can-pass
+      - node-scan-defaults-can-pass
+      - react-scan-defaults-can-pass
+      - pnpm-refuses-what-it-must
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
       - java-defaults-can-pass

@@ -44,7 +44,10 @@ on:
         default: ""
       e2e_command:
         type: string
-        default: "yarn install --frozen-lockfile && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
+        # `npx`, not `yarn dlx`: see cypress.yml. `dlx` is Yarn Berry only, and
+        # `--frozen-lockfile` beside it is Yarn 1 syntax, so the default could
+        # not run on either line as written.
+        default: "yarn install --frozen-lockfile && npx playwright install --with-deps && npx start-server-and-test 'yarn dev' http://localhost:3000 'npx playwright test'"
       extra_command:
         type: string
         default: ""
