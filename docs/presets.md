@@ -1256,6 +1256,21 @@ Defaults:
 
 Notes:
 
+- The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
+  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
+  replaced could not run as written on either line -- measured on 2026-09-28,
+  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  prefers a binary already in `node_modules/.bin`, and fetches only when there
+  is none.
+
+  **Yarn Berry with PnP is the exception.** With no `node_modules`, resolving a
+  binary needs Yarn's own resolver, so such a repository should override:
+
+  ```yaml
+  e2e_command: "yarn install --immutable && yarn dlx playwright install --with-deps && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'yarn playwright test'"
+  ```
+
+  Note `--immutable` rather than `--frozen-lockfile`: Berry's own spelling.
 - Uses Yarn. For pnpm monorepos use `pnpm-playwright.yml` instead.
 
 Example:
@@ -1280,6 +1295,21 @@ Defaults:
 
 Notes:
 
+- The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
+  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
+  replaced could not run as written on either line -- measured on 2026-09-28,
+  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  prefers a binary already in `node_modules/.bin`, and fetches only when there
+  is none.
+
+  **Yarn Berry with PnP is the exception.** With no `node_modules`, resolving a
+  binary needs Yarn's own resolver, so such a repository should override:
+
+  ```yaml
+  e2e_command: "yarn install --immutable && yarn dlx cypress install && yarn dlx start-server-and-test 'yarn dev' http://localhost:3000 'yarn cypress test'"
+  ```
+
+  Note `--immutable` rather than `--frozen-lockfile`: Berry's own spelling.
 - Uses Yarn. For pnpm monorepos use `pnpm-cypress.yml` instead.
 
 Example:

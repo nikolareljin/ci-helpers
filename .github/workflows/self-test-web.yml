@@ -419,13 +419,20 @@ jobs:
             fi
           done
           # The docs taught it after the defaults stopped using it: the README
-          # and three pages carried `yarn dlx` in copy-paste examples, which is
-          # how a command nobody can run outlives the default it came from.
-          if grep -rn "yarn dlx" README.md docs/*.md; then
-            echo "::error::a document still teaches yarn dlx, which Yarn 1 does not have"
+          # and three pages carried the command in copy-paste examples, which is
+          # how something nobody can run outlives the default it came from.
+          #
+          # The defect is the *mixture*, not `dlx`. `yarn install --immutable &&
+          # yarn dlx ...` is correct Berry, and docs/presets.md gives exactly
+          # that as the override for a PnP repository, where npx cannot resolve
+          # a binary that lives in no node_modules. What cannot work is Yarn 1's
+          # --frozen-lockfile beside Berry's dlx, so that pairing is what this
+          # refuses.
+          if grep -rn -- "--frozen-lockfile.*yarn dlx\|yarn dlx.*--frozen-lockfile" README.md docs/*.md; then
+            echo "::error::a document pairs Yarn 1's --frozen-lockfile with Berry's dlx; that runs on neither"
             exit 1
           fi
-          echo "yarn 1 has no dlx; neither default uses it and no document teaches it"
+          echo "yarn 1 has no dlx; no default uses it and no document mixes the two lines"
 
   # -- Java, Kotlin and Gradle ------------------------------------------------
   #

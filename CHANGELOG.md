@@ -31,12 +31,24 @@
   it runs the old default and fails the leg if the NVD update ever succeeds
   without a key, so the reason stays true rather than becoming folklore.
 
-- **The docs stop teaching `yarn dlx`.** The defaults dropped it in the previous
-  release -- `dlx` is Yarn Berry only, and the `--frozen-lockfile` beside it is
-  Yarn 1 syntax -- but the README and three documentation pages still carried it
-  in copy-paste examples, eleven times. That is how a command nobody can run
-  outlives the default it came from. Replaced with `npx`, and the leg that
-  asserts the presets do not use it now reads the documents too.
+- **The docs stop teaching a command that runs on neither Yarn line.** The
+  defaults dropped `yarn install --frozen-lockfile && yarn dlx ...` in the
+  previous release -- `dlx` is Yarn Berry only and `--frozen-lockfile` is Yarn 1
+  syntax -- but the README and three documentation pages still carried it in
+  copy-paste examples, eleven times. That is how something nobody can run
+  outlives the default it came from. They use `npx` now, which ships with Node
+  and prefers a binary already in `node_modules/.bin`.
+
+  **Yarn Berry with PnP is documented as the exception**: with no
+  `node_modules`, resolving a binary needs Yarn's own resolver, so such a
+  repository overrides with `yarn install --immutable && yarn dlx ...` --
+  Berry's own spelling on both halves. `docs/presets.md` carries it for both
+  browser-runner presets.
+
+  The leg reads the documents too, and refuses **the mixture** rather than the
+  word: `yarn dlx` beside `--frozen-lockfile`. A blunter check refused the
+  correct Berry override the moment it was written down, which is how a gate
+  starts costing more than it catches.
 
 - **The README stops claiming `java-scan.yml` lints and scans by default.** Both
   are opt-in, for reasons two releases apart: checkstyle fails on a project with
