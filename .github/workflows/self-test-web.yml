@@ -339,6 +339,26 @@ jobs:
           }
           echo "no lockfile fails at install, naming the flag to drop"
 
+      - name: The pnpm cache is keyed on the working directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The step before the install. setup-node's default looks for the
+          # lockfile at the repository root, so without this every consumer
+          # whose project is in a subdirectory fails with "Dependencies lock
+          # file is not found" -- which is what this fixture hit, being the
+          # first caller ever to pass a working_directory.
+          # The pattern matches the input name rather than the expression that
+          # wraps it: GitHub expands expression syntax inside a run step, so a
+          # literal one cannot be grepped for -- actionlint refuses it as an
+          # undefined `inputs` context, which is how this was caught.
+          grep -qE 'cache-dependency-path:.*inputs\.working_directory.*pnpm-lock\.yaml' \
+            .github/workflows/pnpm.yml || {
+            echo "::error::pnpm.yml no longer keys its cache on the working directory"
+            exit 1
+          }
+          echo "the cache and the install read the same lockfile"
+
       - name: A failing test fails the shipped pnpm test default
         shell: bash
         working-directory: tests/fixtures/pnpm-app
@@ -582,8 +602,14 @@ jobs:
           # Zero legs examined is the failure this gate is most likely to have:
           # a malformed object loops no times and reports success having checked
           # nothing.
-          if (( count < 10 )); then
-            echo "::error::only ${count} leg(s) examined; needs is not being read"
+          #
+          # Zero, not a floor of ten. A floor is a second copy of how many legs
+          # the file holds, and the suite was split into three files of 12, 19
+          # and 21 -- the next move of a leg between them would have made this
+          # fail on a correct suite, which is the false alarm this repository
+          # keeps removing elsewhere.
+          if (( count == 0 )); then
+            echo "::error::no legs examined; needs is not being read"
             failed=1
           fi
           exit "$failed"

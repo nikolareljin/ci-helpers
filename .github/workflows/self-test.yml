@@ -569,8 +569,14 @@ jobs:
           # Zero legs examined is the failure this gate is most likely to have:
           # a malformed object loops no times and reports success having checked
           # nothing.
-          if (( count < 10 )); then
-            echo "::error::only ${count} leg(s) examined; needs is not being read"
+          #
+          # Zero, not a floor of ten. A floor is a second copy of how many legs
+          # the file holds, and the suite was split into three files of 12, 19
+          # and 21 -- the next move of a leg between them would have made this
+          # fail on a correct suite, which is the false alarm this repository
+          # keeps removing elsewhere.
+          if (( count == 0 )); then
+            echo "::error::no legs examined; needs is not being read"
             failed=1
           fi
           exit "$failed"

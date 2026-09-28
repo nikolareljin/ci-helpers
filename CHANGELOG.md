@@ -43,7 +43,10 @@
   workflows), `self-test-web.yml` takes Node, PHP and Python (11), and
   `self-test-compiled.yml` takes JVM, .NET, Go and Godot (8). Each carries its
   own `assert-ran`, which waits on every job in its file -- checked, not
-  assumed.
+  assumed. Its "did this read `needs` at all" guard now trips on **zero** legs
+  rather than fewer than ten: a floor is a second copy of how many legs a file
+  holds, and with three files of 12, 19 and 21 the next leg moved between them
+  would have failed a correct suite.
 
 - **`pnpm.yml` could not cache for a project in a subdirectory.** `setup-node`
   with `cache: pnpm` looks for `pnpm-lock.yaml` at the **repository root**, so
