@@ -60,6 +60,12 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
           cache: pnpm
+          # Without this the cache step looks for pnpm-lock.yaml at the
+          # repository root and fails with "Dependencies lock file is not
+          # found" for every consumer whose project is in a subdirectory. Fixed
+          # in pnpm.yml first; these three kept the defect because nothing
+          # looked at the siblings.
+          cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash
