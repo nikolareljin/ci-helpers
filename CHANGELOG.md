@@ -1,5 +1,47 @@
 ## Unreleased
 
+### Added
+
+- **A Docker fixture, and legs for `docker.yml` and `docker-scan.yml`.**
+  `tests/fixtures/docker-image` is an Alpine base pinned by digest with a
+  Dockerfile that **asserts its own contents at build time**, so a green
+  `docker build .` -- the preset's shipped default -- means the image is right
+  rather than that a build ran.
+
+  `docker-scan.yml` is exercised as far as the credential: the leg builds the
+  fixture and runs Trivy, while the Snyk step needs `snyk_token` and stays
+  unexercised. `tests/workflow-coverage.yaml` says exactly that, so the claim
+  and the gap are both written down.
+
+  `docker-refuses-what-it-must` drives two failing directions: a Dockerfile
+  whose own assertion is false fails the build, and the built image refuses a
+  non-numeric amount. The second exists because the fixture's first version
+  did not -- in ash, `$((sum + not-a-number))` is **0 and exits 0**, so
+  `total abc` answered 0, and a fixture that lies about its own arithmetic
+  proves nothing about the preset that builds it.
+
+  Coverage moves from 27 exercised to 29, credential-bound from 12 to 11,
+  `not-yet` from 19 to 18.
+
+### Fixed
+
+- **`docker-scan.yml` ran Snyk by default, which needs a credential.** With
+  `run_snyk: true` a repository adopting this preset without a Snyk account got
+  a failing scan step on its first run, for a scanner it never asked for --
+  the same shape as `java-scan.yml`'s NVD key. It is opt-in now; Trivy runs
+  either way and needs no credential.
+
+  The evidence that the default was wrong is in the call sites: **both**
+  repositories on this preset pass `run_snyk: false`, on all seven of their
+  calls between them. Nobody has ever used the default, which is why nothing
+  reported it.
+
+  The leg also passes `fail_on_findings: false`, and the reason is in the
+  workflow beside it: Trivy found CVEs in the Alpine base the first time this
+  ran, which is the preset working. Whether a scan finds anything depends on
+  the CVE state of a public image, so an assertion resting on it would go red
+  on somebody else's schedule.
+
 ### Fixed
 
 - **`rust-scan.yml` and `tauri-scan.yml` linted the library and nothing else.**
