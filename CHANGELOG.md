@@ -1,5 +1,30 @@
 ## Unreleased
 
+### Added
+
+- **Every reusable workflow now says what exercises it, or why nothing does.**
+  Counted while writing it: **73** reusable workflows, **22** driven by a
+  self-test leg. The other 51 were invisible -- not listed, not counted, and
+  three defects found this month were in workflows nothing had ever run.
+
+  `tests/workflow-coverage.yaml` puts each of the 51 in one of three groups,
+  each with its reason: 12 **credential-bound** (a signing key, a store or
+  registry credential, a deploy key -- verification stops at the
+  authentication step and nothing past it is claimed), 15 that **change this
+  repository** (running them would tag, release, deploy or push), and 24
+  **not yet** covered, which is a rung of work rather than a blocker.
+
+  `scripts/check_workflow_coverage.py` fails when a reusable workflow is in
+  neither the suites nor the list, when a listed workflow has since gained a
+  leg, and when an entry names a workflow that no longer exists.
+  `workflow-coverage-is-declared` runs it and then drives all three refusals,
+  because a gate that has never failed is a gate nobody has tested.
+
+  The gate reads each suite's parsed jobs rather than grepping for `uses:`.
+  Grepping counted the example call written inside the step that drives its own
+  refusal, so it reported a workflow as covered because another step's shell
+  script mentioned it.
+
 ### Fixed
 
 - **`cypress.yml` and `playwright.yml` shipped an `e2e_command` that mixed the
