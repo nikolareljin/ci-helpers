@@ -2,6 +2,37 @@
 
 ### Fixed
 
+- **`rust-scan.yml` and `tauri-scan.yml` linted the library and nothing else.**
+  `cargo clippy` checks the lib target unless told otherwise, so warnings in
+  tests, benches and examples never reached the gate. Measured on 2026-09-28
+  with one `len_zero` violation placed in test code:
+
+  ```
+  cargo clippy -- -D warnings                 exit 0
+  cargo clippy --all-targets -- -D warnings   exit 101   error: length comparison to zero
+  ```
+
+  Both defaults carry `--all-targets` now, and the documentation pages that
+  repeated the old line carry it too. A lint that cannot see most of what a
+  repository writes is the kind that reports clean for years.
+
+### Added
+
+- **A Rust fixture, and legs for `rust.yml` and `rust-scan.yml`.**
+  `tests/fixtures/rust-crate` is a dependency-free crate with its `Cargo.lock`
+  committed, because `cargo audit` reads the lock file and a fixture that
+  generated one per run would audit something different every time.
+
+  `rust-refuses-what-it-must` drives three failing directions rather than
+  asserting them: a warning in test code passes the old lint default and fails
+  the shipped one, a failing test fails `cargo test --verbose`, and unformatted
+  code fails `cargo fmt -- --check`. Each restores the fixture and re-runs the
+  clean case, so a leg cannot pass by leaving the crate broken.
+
+  Coverage moves from 25 exercised to 27, `not-yet` from 21 to 19.
+
+### Fixed
+
 - **`java-scan.yml`'s dependency check could not run at all.** Measured on
   2026-09-28 against a conventional two-file Maven project:
 

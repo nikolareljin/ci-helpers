@@ -831,7 +831,9 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `rust_toolchain` (string, default `stable`)
 - `rust_components` (string, default `rustfmt, clippy`)
-- `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
+- `lint_command` (string, default `cargo fmt -- --check && cargo clippy --all-targets -- -D warnings`).
+  `--all-targets` because clippy otherwise checks the library and nothing else:
+  a warning in test code passes `cargo clippy -- -D warnings` and fails with it.
 - `test_command` (string, default `cargo fetch && cargo test`)
 - `audit_command` (string, default `cargo audit`)
 
@@ -1663,7 +1665,9 @@ Inputs:
 - `rust_toolchain` (string, default `stable`)
 - `rust_components` (string, default `rustfmt,clippy`)
 - `apt_packages` (string, default: full Tauri v2 WebKit2GTK deps)
-- `lint_command` (string, default `cargo fmt -- --check && cargo clippy -- -D warnings`)
+- `lint_command` (string, default `cargo fmt -- --check && cargo clippy --all-targets -- -D warnings`).
+  `--all-targets` because clippy otherwise checks the library and nothing else:
+  a warning in test code passes `cargo clippy -- -D warnings` and fails with it.
 - `check_command` (string, default `cargo check`)
 - `node_version` (string, default `""`)
 - `frontend_dir` (string, default `""` — skip frontend steps when empty)

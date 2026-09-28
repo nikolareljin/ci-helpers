@@ -228,7 +228,7 @@ No `install_command` needed — `go` fetches modules automatically.
 with:
   rust_toolchain: "stable"
   rust_components: "clippy"
-  lint_command: "cargo check && cargo clippy -- -D warnings"
+  lint_command: "cargo check --all-targets && cargo clippy --all-targets -- -D warnings"
   test_command: "cargo test"
   build_command: ""
 ```

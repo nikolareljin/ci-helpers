@@ -36,7 +36,16 @@ on:
       lint_command:
         description: Lint command (fmt check + clippy)
         type: string
-        default: "cargo fmt -- --check && cargo clippy -- -D warnings"
+        # `--all-targets`, because without it clippy checks the library and
+        # nothing else: not tests, not benches, not examples. Measured on
+        # 2026-09-28 with one `len_zero` violation placed in test code --
+        #
+        #   cargo clippy -- -D warnings                 exit 0
+        #   cargo clippy --all-targets -- -D warnings   exit 101
+        #
+        # A lint that cannot see most of what a repository writes is the kind
+        # that reports clean for years.
+        default: "cargo fmt -- --check && cargo clippy --all-targets -- -D warnings"
       check_command:
         description: Compile-check command (no full build — keeps scan fast)
         type: string

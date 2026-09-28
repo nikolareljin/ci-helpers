@@ -516,6 +516,123 @@ jobs:
       working_directory: tests/fixtures/jvm-maven
       java_version: "21"
 
+  rust-defaults-can-pass:
+    uses: ./.github/workflows/rust.yml
+    with:
+      working_directory: tests/fixtures/rust-crate
+      concurrency_key: rust-defaults-can-pass
+
+  rust-scan-defaults-can-pass:
+    uses: ./.github/workflows/rust-scan.yml
+    with:
+      working_directory: tests/fixtures/rust-crate
+
+  rust-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: A warning in test code is invisible without --all-targets
+        shell: bash
+        working-directory: tests/fixtures/rust-crate
+        run: |
+          set -uo pipefail
+          # Why the lint default changed. clippy checks the library target and
+          # nothing else unless told otherwise, so a warning in tests -- where
+          # a good deal of a crate's code lives -- never reaches the gate.
+          cp src/lib.rs /tmp/lib.rs.orig
+          python3 - <<'PYTHON'
+          import pathlib
+          p = pathlib.Path("src/lib.rs")
+          s = p.read_text()
+          p.write_text(s.replace(
+              "        assert_eq!(total(&[]), 0);",
+              "        let amounts: Vec<i64> = Vec::new();\n"
+              "        assert!(amounts.len() == 0);\n"
+              "        assert_eq!(total(&[]), 0);",
+          ))
+          PYTHON
+          if ! grep -q "amounts.len() == 0" src/lib.rs; then
+            echo "::error::the fixture no longer matches the edit this step makes"
+            cp /tmp/lib.rs.orig src/lib.rs
+            exit 1
+          fi
+
+          cargo clippy -- -D warnings > /tmp/lib-only.log 2>&1
+          lib_only=$?
+          cargo clippy --all-targets -- -D warnings > /tmp/all-targets.log 2>&1
+          all_targets=$?
+          cp /tmp/lib.rs.orig src/lib.rs
+
+          if [[ "$lib_only" -ne 0 ]]; then
+            echo "::error::clippy now sees test code without --all-targets; the default could be simplified"
+            exit 1
+          fi
+          if [[ "$all_targets" -eq 0 ]]; then
+            echo "::error::--all-targets did not catch the warning; the gate proves nothing"
+            tail -20 /tmp/all-targets.log
+            exit 1
+          fi
+          grep -q "len_zero\|length comparison to zero" /tmp/all-targets.log || {
+            echo "::error::it failed for some other reason"
+            tail -20 /tmp/all-targets.log
+            exit 1
+          }
+          echo "a warning in tests passes the old default and fails the shipped one"
+
+      - name: A failing test fails the shipped test default
+        shell: bash
+        working-directory: tests/fixtures/rust-crate
+        run: |
+          set -uo pipefail
+          cp src/lib.rs /tmp/lib.rs.orig
+          cat >> src/lib.rs <<'RUST'
+
+          #[cfg(test)]
+          mod deliberately_broken {
+              #[test]
+              fn wrong() {
+                  assert_eq!(1, 2);
+              }
+          }
+          RUST
+          if cargo test --verbose > /tmp/broken.log 2>&1; then
+            echo "::error::a failing test passed; the test default gates nothing"
+            cp /tmp/lib.rs.orig src/lib.rs
+            exit 1
+          fi
+          cp /tmp/lib.rs.orig src/lib.rs
+          if ! cargo test --verbose > /tmp/clean.log 2>&1; then
+            echo "::error::the fixture's own suite fails; the green legs prove nothing"
+            tail -20 /tmp/clean.log
+            exit 1
+          fi
+          echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: Unformatted code fails the shipped lint default
+        shell: bash
+        working-directory: tests/fixtures/rust-crate
+        run: |
+          set -uo pipefail
+          cp src/lib.rs /tmp/lib.rs.orig
+          printf '\npub fn  ugly( x:i64 )->i64{x+1}\n' >> src/lib.rs
+          if cargo fmt -- --check > /tmp/fmt.log 2>&1; then
+            echo "::error::rustfmt accepted unformatted code; the lint default gates nothing"
+            cp /tmp/lib.rs.orig src/lib.rs
+            exit 1
+          fi
+          cp /tmp/lib.rs.orig src/lib.rs
+          cargo fmt -- --check || {
+            echo "::error::the fixture itself is not formatted"
+            exit 1
+          }
+          echo "rustfmt refuses unformatted code and accepts the fixture"
+
   jvm-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -645,6 +762,9 @@ jobs:
   # passed, and the fixture's scripts are silent when they succeed.
   assert-ran:
     needs:
+      - rust-defaults-can-pass
+      - rust-scan-defaults-can-pass
+      - rust-refuses-what-it-must
       - java-scan-defaults-can-pass
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
