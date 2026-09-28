@@ -486,7 +486,11 @@ jobs:
                   "the Snyk scan is a container action again; its image is "
                   "pulled during job setup whether or not the step runs"
               )
-          if "${{" in scan["run"]:
+          # Split, because actionlint lexes a literal dollar-brace-brace in a
+          # workflow file as an expression to parse -- including one inside a
+          # string in a script. The check for interpolation cannot be written
+          # with interpolation in it.
+          if ("$" + "{{") in scan["run"]:
               raise SystemExit(
                   "the step interpolates into its own shell; this leg runs "
                   "that script, and an expression it cannot expand would make "
