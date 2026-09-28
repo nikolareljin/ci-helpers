@@ -30,15 +30,23 @@ on:
       install_command:
         type: string
         default: ""
+      # `check -x test`, not `lint`. `lint` and `assembleDebug` are Android
+      # Gradle plugin tasks: on a plain Kotlin/JVM project Gradle answers
+      # "Task 'lint' not found in root project", measured 2026-09-28. Every
+      # call site on this preset overrides all three commands, which is why
+      # nothing ever met that.
+      #
+      # An Android app passes its own -- `lintDebug`, `testDebugUnitTest`,
+      # `assembleDebug` -- and docs/presets.md says so.
       lint_command:
         type: string
-        default: "./gradlew lint"
+        default: "./gradlew check -x test"
       test_command:
         type: string
         default: "./gradlew test"
       build_command:
         type: string
-        default: "./gradlew assembleDebug"
+        default: "./gradlew build"
       e2e_command:
         type: string
         default: ""

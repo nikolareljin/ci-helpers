@@ -368,9 +368,23 @@ Workflow: `.github/workflows/java.yml`
 Defaults:
 
 - `java_version`: `17`
-- `lint_command`: `mvn -B -DskipTests checkstyle:check`
+- `lint_command`: `""`
 - `test_command`: `mvn -B test`
 - `build_command`: `mvn -B package`
+
+Lint is opt-in. The default used to be
+`mvn -B -DskipTests checkstyle:check`, which resolves the checkstyle plugin
+whether or not the project configures it and then applies Sun's rules: on a
+conventional two-file project that is **12 violations** and a red build on
+correct code. A check that fires on correct input gets switched off, so it is
+worse than one that is absent.
+
+A project with a ruleset asks for it:
+
+```yaml
+with:
+  lint_command: "mvn -B -DskipTests checkstyle:check"
+```
 
 Example:
 
@@ -410,10 +424,25 @@ Workflow: `.github/workflows/kotlin.yml`
 Defaults:
 
 - `java_version`: `17`
-- `lint_command`: `./gradlew lint`
+- `lint_command`: `./gradlew check -x test`
 - `test_command`: `./gradlew test`
-- `build_command`: `./gradlew assembleDebug`
+- `build_command`: `./gradlew build`
 - `timeout_minutes`: `20` (passed through to `ci.yml`)
+
+The defaults are the tasks a Kotlin/JVM project has. They used to be
+`./gradlew lint` and `./gradlew assembleDebug`, which come from the **Android**
+Gradle plugin — on a plain Kotlin/JVM project Gradle answers `Task 'lint' not
+found in root project`, so the preset could never have worked for one. Every
+call site overrode all three commands, which is why nothing ever met that.
+
+An Android app passes its own:
+
+```yaml
+with:
+  lint_command: "./gradlew lintDebug"
+  test_command: "./gradlew testDebugUnitTest"
+  build_command: "./gradlew assembleDebug"
+```
 
 Example:
 

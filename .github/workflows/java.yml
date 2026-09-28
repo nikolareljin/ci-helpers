@@ -30,9 +30,18 @@ on:
       install_command:
         type: string
         default: ""
+      # Empty, deliberately. The default was
+      # `mvn -B -DskipTests checkstyle:check`, which resolves the checkstyle
+      # plugin whether or not the project configures it and then applies
+      # Sun's rules: measured on a conventional two-file Maven project on
+      # 2026-09-28, that is 12 violations and a red build on correct code.
+      #
+      # A check that fires on correct input gets switched off, so it is worse
+      # than one that is absent. A project with a ruleset asks for it --
+      # docs/presets.md carries the line.
       lint_command:
         type: string
-        default: "mvn -B -DskipTests checkstyle:check"
+        default: ""
       test_command:
         type: string
         default: "mvn -B test"
