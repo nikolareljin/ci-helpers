@@ -1,5 +1,59 @@
 ## Unreleased
 
+### Fixed
+
+- **Two JVM presets shipped defaults that could not pass.** Both were measured
+  on 2026-09-28 rather than read:
+
+  `kotlin.yml` defaulted to `./gradlew lint` and `./gradlew assembleDebug`.
+  Those are Android Gradle plugin tasks; on a plain Kotlin/JVM project Gradle
+  answers `Task 'lint' not found in root project`. The defaults are now
+  `./gradlew check -x test`, `./gradlew test` and `./gradlew build`, and the
+  Android forms are in `docs/presets.md` for an app to pass.
+
+  `java.yml` defaulted to `mvn -B -DskipTests checkstyle:check`, which resolves
+  the checkstyle plugin whether or not the project configures it and then
+  applies Sun's rules: **12 violations** on a conventional two-file project, a
+  red build on correct code. Lint is opt-in now, with the line to enable it in
+  the docs. A check that fires on correct input gets switched off, so it is
+  worse than one that is absent.
+
+  `java-scan.yml` carried the same checkstyle default and is now empty too --
+  it has no consumer at all, so it had never fired on anything.
+
+  Neither change can surprise a caller: all five call sites on `java.yml`,
+  `java-gradle.yml` and `kotlin.yml` override every command, which is how these
+  defaults survived unexercised while the workflows had consumers.
+
+  The same wrong commands were written in three more places, each now
+  corrected: `docs/workflows.md` listed the checkstyle default, the README
+  presented the Android tasks as Kotlin's defaults, and
+  `docs/private-repo-ci-strategy.md` told a **JVM** Gradle project to run
+  `./gradlew lint`, which it does not have.
+
+### Added
+
+- **Fixtures and self-test legs for `java.yml`, `java-gradle.yml` and
+  `kotlin.yml`.** `tests/fixtures/jvm-gradle` is a Kotlin/JVM Gradle project
+  with its wrapper committed, as any Gradle repository has; `tests/fixtures/jvm-maven`
+  is a conventional Maven project. Each preset runs against one at its shipped
+  defaults and asserts the built artifact exists.
+
+  `jvm-refuses-what-it-must` drives the failing direction: `lint` and
+  `assembleDebug` are asserted **absent** on the Kotlin fixture, the old
+  checkstyle default is asserted to fail on correct code, and a failing test is
+  added to each fixture in turn to prove both test defaults can fail.
+
+  The Gradle distribution is pinned by `distributionSha256Sum` and the wrapper
+  jar is the one Gradle 8.10 ships. The first version of this fixture committed
+  the wrapper jar from the machine's system Gradle -- 4.4.1, from 2017 -- which
+  worked and was not what any repository has.
+
+  `maven-surefire-plugin` is pinned at 3.5.2 in the Maven fixture because
+  Maven's built-in 2.12.4 does not know about JUnit 5: the suite ran zero tests
+  and the build was green, so the leg driving a failing test through it would
+  have proved nothing.
+
 ### Changed
 
 - **One pass over the action pins, replacing four dependabot pull requests**

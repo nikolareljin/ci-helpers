@@ -14,9 +14,13 @@ on:
       java_version:
         type: string
         default: "17"
+      # Empty, for the reason java.yml's is: `checkstyle:check` resolves the
+      # plugin whether or not the project configures it and applies Sun's
+      # rules, which is 12 violations on a conventional two-file project. A
+      # scan that fires on correct input is one people stop reading.
       lint_command:
         type: string
-        default: "mvn -B -DskipTests checkstyle:check"
+        default: ""
       test_command:
         type: string
         default: "mvn -B test"

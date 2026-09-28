@@ -269,7 +269,9 @@ jobs:
       build_command: "./gradlew build"
 ```
 
-Kotlin (Gradle/Android defaults):
+Kotlin. The defaults suit a Kotlin/JVM project (`check -x test`, `test`,
+`build`); an Android app passes the variant-qualified tasks, as here, because
+`lint` and `assembleDebug` come from the Android Gradle plugin:
 
 ```yaml
 jobs:
@@ -277,8 +279,8 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/kotlin.yml@production
     with:
       java_version: "17"
-      lint_command: "./gradlew lint"
-      test_command: "./gradlew test"
+      lint_command: "./gradlew lintDebug"
+      test_command: "./gradlew testDebugUnitTest"
       build_command: "./gradlew assembleDebug"
 ```
 

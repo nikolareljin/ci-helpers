@@ -853,7 +853,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `java_version` (string, default `17`)
-- `lint_command` (string, default `mvn -B -DskipTests checkstyle:check`)
+- `lint_command` (string, default `""`; `mvn -B -DskipTests checkstyle:check` fails on a project with no ruleset)
 - `test_command` (string, default `mvn -B test`)
 - `dependency_check_command` (string, default `mvn -B org.owasp:dependency-check-maven:13.0.0:check -DfailBuildOnCVSS=7`; the plugin's own default threshold of 11 never fails)
 

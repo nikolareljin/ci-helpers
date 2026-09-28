@@ -1099,6 +1099,139 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # -- Java, Kotlin and Gradle ------------------------------------------------
+  #
+  # Three presets whose defaults had never run: all five call sites across the
+  # fleet override every command, so nothing ever met what the presets ship.
+  # Two of those defaults could not have worked -- see the comments in
+  # kotlin.yml and java.yml, and jvm-refuses-what-it-must below, which drives
+  # the failing direction rather than asserting it.
+  kotlin-defaults-can-pass:
+    uses: ./.github/workflows/kotlin.yml
+    with:
+      working_directory: tests/fixtures/jvm-gradle
+      java_version: "21"
+      concurrency_key: kotlin-defaults-can-pass
+      extra_command: >-
+        test -f build/libs/jvm-fixture.jar
+        && echo "check, test and build all ran on a Kotlin/JVM project"
+
+  java-gradle-defaults-can-pass:
+    uses: ./.github/workflows/java-gradle.yml
+    with:
+      working_directory: tests/fixtures/jvm-gradle
+      java_version: "21"
+      concurrency_key: java-gradle-defaults-can-pass
+      extra_command: >-
+        test -f build/libs/jvm-fixture.jar
+        && echo "the Gradle preset's defaults ran"
+
+  java-defaults-can-pass:
+    uses: ./.github/workflows/java.yml
+    with:
+      working_directory: tests/fixtures/jvm-maven
+      java_version: "21"
+      concurrency_key: java-defaults-can-pass
+      extra_command: >-
+        test -f target/jvm-maven-fixture-0.0.1.jar
+        && echo "the Maven preset's defaults ran"
+
+  jvm-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1 @ 2026-09-14
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: The Android tasks the old Kotlin defaults used are absent here
+        shell: bash
+        working-directory: tests/fixtures/jvm-gradle
+        run: |
+          set -uo pipefail
+          # This is why the defaults changed. `lint` and `assembleDebug` come
+          # from the Android Gradle plugin; a Kotlin/JVM project has neither,
+          # and the preset shipped both as defaults from the day it was written.
+          for task in lint assembleDebug; do
+            if ./gradlew "$task" > "/tmp/${task}.log" 2>&1; then
+              echo "::error::./gradlew ${task} succeeded here; the fixture is an Android project and proves nothing"
+              exit 1
+            fi
+            grep -q "Task '${task}' not found" "/tmp/${task}.log" || {
+              echo "::error::./gradlew ${task} failed for some other reason"
+              tail -20 "/tmp/${task}.log"
+              exit 1
+            }
+          done
+          echo "lint and assembleDebug are both absent, as an Android-only task should be"
+
+      - name: A failing test fails the Gradle test default
+        shell: bash
+        working-directory: tests/fixtures/jvm-gradle
+        run: |
+          set -uo pipefail
+          cat > src/test/kotlin/BrokenTest.kt <<'KOTLIN'
+          import kotlin.test.Test
+          import kotlin.test.assertEquals
+          class BrokenTest { @Test fun broken() { assertEquals(1, 2) } }
+          KOTLIN
+          if ./gradlew test > /tmp/broken-test.log 2>&1; then
+            echo "::error::a failing test passed; the test default gates nothing"
+            rm -f src/test/kotlin/BrokenTest.kt
+            exit 1
+          fi
+          rm -f src/test/kotlin/BrokenTest.kt
+          if ! ./gradlew test; then
+            echo "::error::the fixture's own suite fails; the green legs prove nothing"
+            exit 1
+          fi
+          echo "the test default fails on a failing test and passes on the fixture"
+
+      - name: The old Maven lint default fails on a conventional project
+        shell: bash
+        working-directory: tests/fixtures/jvm-maven
+        run: |
+          set -uo pipefail
+          # `checkstyle:check` resolves the plugin whether or not the project
+          # configures it, and then applies Sun's rules. On this fixture --
+          # two files, no style violations anybody would name -- that is a red
+          # build. A check that fires on correct input gets switched off.
+          if mvn -B -DskipTests checkstyle:check > /tmp/checkstyle.log 2>&1; then
+            echo "::error::checkstyle passed here; the reason for the default change no longer holds"
+            exit 1
+          fi
+          grep -qE "Checkstyle violation|You have [0-9]+ Checkstyle violations" /tmp/checkstyle.log || {
+            echo "::error::checkstyle failed for some other reason"
+            tail -20 /tmp/checkstyle.log
+            exit 1
+          }
+          echo "the old default fails on correct code, which is why it is no longer the default"
+
+      - name: A failing test fails the Maven test default
+        shell: bash
+        working-directory: tests/fixtures/jvm-maven
+        run: |
+          set -uo pipefail
+          cat > src/test/java/app/BrokenTest.java <<'JAVA'
+          package app;
+          import org.junit.jupiter.api.Test;
+          import static org.junit.jupiter.api.Assertions.assertEquals;
+          class BrokenTest { @Test void broken(){ assertEquals(1, 2); } }
+          JAVA
+          if mvn -B test > /tmp/mvn-broken.log 2>&1; then
+            echo "::error::a failing test passed; the Maven test default gates nothing"
+            rm -f src/test/java/app/BrokenTest.java
+            exit 1
+          fi
+          rm -f src/test/java/app/BrokenTest.java
+          if ! mvn -B test; then
+            echo "::error::the Maven fixture's own suite fails; the green leg proves nothing"
+            exit 1
+          fi
+          echo "the Maven test default fails on a failing test and passes on the fixture"
+
   # -- Node and React --------------------------------------------------------
   #
   # Both presets at their shipped defaults: nothing below overrides
@@ -1376,6 +1509,10 @@ jobs:
 
   assert-ran:
     needs:
+      - kotlin-defaults-can-pass
+      - java-gradle-defaults-can-pass
+      - java-defaults-can-pass
+      - jvm-refuses-what-it-must
       - node-defaults-can-pass
       - node-installs-once-when-asked
       - react-defaults-can-pass
