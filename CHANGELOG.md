@@ -25,6 +25,20 @@
 
 ### Fixed
 
+- **`docker-scan.yml` ran Snyk by default, which needs a credential.** With
+  `run_snyk: true` a repository adopting this preset without a Snyk account got
+  a failing scan step on its first run, for a scanner it never asked for --
+  the same shape as `java-scan.yml`'s NVD key. It is opt-in now; Trivy runs
+  either way and needs no credential.
+
+  The leg also passes `fail_on_findings: false`, and the reason is in the
+  workflow beside it: Trivy found CVEs in the Alpine base the first time this
+  ran, which is the preset working. Whether a scan finds anything depends on
+  the CVE state of a public image, so an assertion resting on it would go red
+  on somebody else's schedule.
+
+### Fixed
+
 - **`rust-scan.yml` and `tauri-scan.yml` linted the library and nothing else.**
   `cargo clippy` checks the lib target unless told otherwise, so warnings in
   tests, benches and examples never reached the gate. Measured on 2026-09-28

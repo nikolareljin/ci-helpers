@@ -367,6 +367,12 @@ jobs:
       dockerfile: tests/fixtures/docker-image/Dockerfile
       context: tests/fixtures/docker-image
       image_name: ci-helpers-selftest:latest
+      # The one default this leg overrides, and why: Trivy found CVEs in the
+      # Alpine base the first time this ran, which is the preset working. The
+      # leg is here to prove the build and the scan execute, and a public base
+      # image's CVE count changes without us -- an assertion resting on it
+      # would go red on somebody else's schedule, for no defect of ours.
+      fail_on_findings: false
 
   docker-refuses-what-it-must:
     runs-on: ubuntu-latest

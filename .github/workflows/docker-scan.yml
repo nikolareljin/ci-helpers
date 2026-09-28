@@ -29,9 +29,13 @@ on:
       fail_on_findings:
         type: boolean
         default: true
+      # Opt-in, because the step it gates needs `snyk_token`: with the default
+      # at true, a repository adopting this preset without a Snyk account gets
+      # a failing scan step on its first run, for a scanner it never asked for.
+      # Trivy runs either way and needs no credential.
       run_snyk:
         type: boolean
-        default: true
+        default: false
       snyk_severity_threshold:
         type: string
         default: "high"
