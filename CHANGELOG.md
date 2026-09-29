@@ -2,6 +2,22 @@
 
 ### Fixed
 
+- **A gitleaks scan of anything that is not a git work tree passed without
+  scanning.** `detect` reads git history. Pointed at an unpacked archive, a
+  build output, a generated directory -- anything with no history -- gitleaks
+  logs `git error encountered`, writes an empty report and exits 0, and the
+  action then printed "No Gitleaks findings detected." A secret scan that
+  scanned nothing read exactly like one that found nothing.
+
+  The action now scans the files instead when there is no history to read, and
+  refuses to report a result at all when a work-tree scan logs a git error. A
+  leg plants a key in such a directory and drives both directions; it also runs
+  plain `detect` there and fails if the silent pass ever stops happening, since
+  that is the only thing the new branch exists for.
+
+  `scan_path` is also documented for what it does: in a work tree the scan
+  covers the repository's history, so naming a subdirectory does not narrow it.
+
 - **`docker-scan.yml` pulled the Snyk image on every run with Snyk switched
   off.** A Docker-container action's image is pulled in the job's setup phase,
   before any step's `if:` is evaluated, so `uses: snyk/actions/docker` behind a
@@ -39,6 +55,17 @@
   failure ended the step before the line meant to report it -- the check would
   have exited 1 with nothing in the log. Both now use `if` and `|| rc=$?`.
   Driven by renaming the step they extract: the refusal is printed.
+
+### Added
+
+- **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
+  against the fixture pinned to a published advisory, and the failing direction
+  is driven with `exit-code: 1` and asserted to fail *on that advisory* rather
+  than on anything that happens to be red. SARIF upload stays off in the self
+  test: it would file code-scanning alerts against this repository for a
+  dependency that is vulnerable on purpose.
+
+  33 of 73 reusable workflows are now driven by a leg, 14 left in `not-yet`.
 
 ## 2026-09-28 — v0.38.0
 

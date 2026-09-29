@@ -69,7 +69,6 @@ groups:
       - csharp-scan.yml
       - cypress.yml
       - deb-build.yml
-      - gitleaks-scan.yml
       - go-scan.yml
       - php.yml
       - php-scan.yml
@@ -81,7 +80,6 @@ groups:
       - rpm-build.yml
       - tauri.yml
       - tauri-scan.yml
-      - trivy-scan.yml
 
 # Notes on entries whose group does not tell the whole story. A note never
 # excuses an entry from its group; it records what a future leg can still reach.
@@ -92,10 +90,21 @@ notes:
   rpm-build.yml: >-
     As deb-build.yml -- the build is reachable, the upload is not.
   gitleaks-scan.yml: >-
-    Runs a scan and uploads SARIF. The scan is reachable; the upload needs
-    `security-events: write`, which a fork's pull request does not get.
+    Driven at its defaults, and the action it calls is driven in both
+    directions against a directory with a planted key. Two things stay
+    unexercised: the SARIF upload, which needs `security-events: write` and so
+    cannot run from a fork's pull request; and the action *as this branch has
+    it* when reached through the preset, because the preset must reference it
+    as `@production` -- a reusable workflow called from another repository
+    resolves a relative `uses:` against the caller's checkout. A change to the
+    action is therefore exercised by `gitleaks-refuses-what-it-must` and not by
+    the preset leg.
   trivy-scan.yml: >-
-    As gitleaks-scan.yml.
+    Driven against the fixture pinned to a published advisory, and the failing
+    direction is driven through the action with `exit-code: 1`. The SARIF
+    upload is off on purpose rather than unreachable: uploading would file
+    code-scanning alerts against this repository for a dependency that is
+    vulnerable by design.
   docker-scan.yml: >-
     Exercised as far as the credential: `docker-scan-defaults-can-pass` builds
     the fixture and runs Trivy, the step that decides whether Snyk *can* run is
