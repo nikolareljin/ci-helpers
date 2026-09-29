@@ -10,10 +10,17 @@
   scanned nothing read exactly like one that found nothing.
 
   The action now scans the files instead when there is no history to read, and
-  refuses to report a result at all when a work-tree scan logs a git error. A
-  leg plants a key in such a directory and drives both directions; it also runs
-  plain `detect` there and fails if the silent pass ever stops happening, since
-  that is the only thing the new branch exists for.
+  refuses to report a result at all when the scan examined nothing -- either a
+  git error in the log, or `scanned ~0 bytes`. A leg generates a key in such a
+  directory and drives both directions; it also runs plain `detect` there and
+  fails if the silent pass ever stops happening, since that is the only thing
+  the new branch exists for.
+
+  Two things this cost, both measured against the pinned gitleaks 8.30.1 rather
+  than the one on the machine: the fixture cannot be a documented example
+  credential, because those are allowlisted on purpose and 8.30.1 reports
+  AWS's example key clean; and the error wording is not stable across releases,
+  so the guard matches both spellings and falls back to the byte count.
 
   `scan_path` is also documented for what it does: in a work tree the scan
   covers the repository's history, so naming a subdirectory does not narrow it.

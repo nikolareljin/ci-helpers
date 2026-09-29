@@ -888,16 +888,23 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
 
-      - name: A directory with a planted key
+      - name: A directory with a real key in it
         shell: bash
         run: |
           set -euo pipefail
-          # Built from parts, and written at run time rather than committed:
-          # the literal never appears in this repository, so this repository's
-          # own secret scan has nothing to find and no allowlist is needed.
+          # Generated, not written down. Nothing is committed, so this
+          # repository's own secret scan has nothing to find and no allowlist
+          # is needed -- and a generated key cannot be on anyone's list of
+          # known example values.
+          #
+          # The first version of this used AWS's documented example key, and
+          # gitleaks 8.30.1 reported it clean: well-known example credentials
+          # are allowlisted on purpose. A planted secret the scanner is meant
+          # to ignore proves nothing, so the probe has to be run with the
+          # pinned version rather than with whatever is on the machine.
           leaky="${RUNNER_TEMP}/leaky"
           mkdir -p "$leaky"
-          printf 'aws_access_key_id = "%s%s"\n' 'AKIA' 'IOSFODNN7EXAMPLE' > "$leaky/conf.ini"
+          openssl genrsa -out "$leaky/id_rsa" 2048
           echo "LEAKY=$leaky" >> "$GITHUB_ENV"
 
       - name: Findings fail the scan when asked
@@ -957,12 +964,12 @@ jobs:
             echo "::error::plain gitleaks now reports $found finding(s) on a non-work-tree; the --no-git branch is no longer what makes the scan happen"
             exit 1
           fi
-          grep -q "git error encountered" /tmp/plain.log || {
-            echo "::error::no git error was logged, so this is not the case the branch was written for"
+          grep -qE "git error encountered|fatal: not a git repository|scanned ~0 bytes" /tmp/plain.log || {
+            echo "::error::nothing in the log says the scan read nothing, so this is not the case the branch was written for"
             cat /tmp/plain.log
             exit 1
           }
-          echo "plain gitleaks: exit 0, 0 findings, git error logged -- the silent pass this action now refuses"
+          echo "plain gitleaks: exit 0, 0 findings, and a log saying it read nothing -- the silent pass this action now refuses"
 
   # trivy-scan.yml against the fixture pinned to an advisory for the
   # govulncheck leg. `upload_sarif` is off: a self-test that uploaded would

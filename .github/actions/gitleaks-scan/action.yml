@@ -194,10 +194,19 @@ runs:
         "${GL_BIN}" "${args[@]}" 2>&1 | tee "${log}"
 
         # The other half of the same failure: a work tree whose history cannot
-        # be read -- a bad --config, an unreadable object -- also ends in a
-        # partial scan and exit 0.
-        if grep -q "git error encountered" "${log}"; then
+        # be read also ends in a partial scan and exit 0. Two spellings,
+        # because the wording is not stable across gitleaks releases -- 8.30.1
+        # logs `fatal: not a git repository`, other builds log `git error
+        # encountered`.
+        if grep -qE "git error encountered|fatal: not a git repository" "${log}"; then
           echo "::error::gitleaks could not read the git history of ${SCAN_PATH}; the scan was partial and its result means nothing." >&2
+          exit 1
+        fi
+
+        # And the version-independent form of the same question: a scan that
+        # examined nothing must not report that it found nothing.
+        if grep -qE "scanned ~0 bytes" "${log}"; then
+          echo "::error::gitleaks examined 0 bytes under ${SCAN_PATH}; it found nothing because it read nothing." >&2
           exit 1
         fi
     - name: Evaluate findings
