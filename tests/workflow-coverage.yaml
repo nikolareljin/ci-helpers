@@ -87,12 +87,21 @@ notes:
   codeql-scan.yml: >-
     Driven at `languages: python` against a fixture whose finding the leg
     asserts by count, and its refusal of an empty `languages` is driven
-    separately. Four things stay unexercised and are worth knowing before a
-    first adopter finds them: the SARIF upload, which a self test must not do
-    because it would file code-scanning alerts against this repository;
-    `build_mode` for a compiled language, where CodeQL has to observe a build;
-    `build_command`, which only matters with `build_mode: manual`; and
-    `queries`, since the leg runs the default suite.
+    separately. Five things stay unexercised and are worth knowing before a
+    first adopter finds them.
+
+    The first is the shipped default of `diff_informed`, and it is the one to
+    read twice: the leg sets it **false**, because with GitHub's default of
+    true a pull request reports only alerts inside its own diff -- which is how
+    this leg came to pass on the pull request that added its fixture and fail
+    on the release branch that followed. So the mode a consumer gets by default
+    is the mode no leg runs.
+
+    Then: the SARIF upload, which a self test must not do because it would file
+    code-scanning alerts against this repository; `build_mode` for a compiled
+    language, where CodeQL has to observe a build; `build_command`, which only
+    matters with `build_mode: manual`; and `queries`, since the leg runs the
+    default suite.
   php-scan.yml: >-
     Not driven whole -- that needs a PHP project with phpunit and a framework,
     which is the php rung. Its one security stage is driven though:

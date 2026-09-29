@@ -53,6 +53,17 @@ on:
           larger ones; empty means the default suite.
         type: string
         default: ""
+      diff_informed:
+        description: >
+          On a pull request, CodeQL restricts alerts to the lines the pull
+          request touches -- it logs `Computing PR diff ranges` and reports
+          nothing outside them. That is what GitHub does by default and it is
+          usually what a reviewer wants, but it means a pull request gate says
+          nothing about code it did not touch, and a repository adopting this
+          workflow will see far less on its first run than it expects.
+          Set false to analyse everything on every event.
+        type: boolean
+        default: true
       upload:
         description: >
           Upload results to the Security tab. Off is for a caller that wants
@@ -89,6 +100,14 @@ jobs:
     outputs:
       results: ${{ steps.report.outputs.results }}
       rules: ${{ steps.report.outputs.rules }}
+    env:
+      # The action reads this rather than an input, and its own tests name the
+      # variable and both values -- so it is spelled out rather than guessed.
+      #
+      # At the job, not on `analyze`: the diff ranges are computed during
+      # `init`. Set on the later step it arrived seven seconds too late, and
+      # the run still logged `Computing PR diff ranges` and reported nothing.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: ${{ inputs.diff_informed }}
     steps:
       # An empty `languages` is not a no-op: `init` fails on it with a message
       # about an unknown language, which is loud but reads as a broken action

@@ -138,9 +138,12 @@ function Get-ConfiguredStacks {
     return $out
 }
 
-$configured = Get-ConfiguredStacks
-$Configured = [bool]$configured
-$detected = if ($configured) { $configured } else { @(Get-DetectedStacks) }
+# Two names, not $configured and $Configured: PowerShell variable names ignore
+# case, so the flag overwrote the list with $true, and every repository with a
+# .preflight threw on $true.Stack, checked nothing, and reported all checks passed.
+$configuredStacks = @(Get-ConfiguredStacks | Where-Object { $_ })
+$IsConfigured = $configuredStacks.Count -gt 0
+$detected = if ($IsConfigured) { $configuredStacks } else { @(Get-DetectedStacks) }
 
 if ($List) {
     if (-not $detected -or @($detected).Count -eq 0) {
@@ -165,6 +168,10 @@ if ($SkipSecurity -and $SecurityOnly) {
     log_error 'preflight: -SkipSecurity and -SecurityOnly cannot be combined'
     exit 2
 }
+
+# The projects whose dependencies the security step audits, kept before
+# -SecurityOnly empties $pairs; see SCAN_PAIRS in preflight.sh.
+$scanPairs = @($pairs)
 
 # The scan reads the repository, not a stack: none is needed for it.
 if ($SecurityOnly) { $pairs = @() }
@@ -275,35 +282,82 @@ function Check-Simple {
     }
 }
 
+# One ci_security.sh run as a step. Exit 3 with a reason in PREFLIGHT_SKIP_FILE
+# means nothing it was asked for could run (a missing tool, no lockfile): SKIP.
+function Invoke-ScanStep {
+    param([string]$Label, [string]$BashPath, [string[]]$ScanArgs)
+    log_info "preflight: $Label"
+    $skipFile = New-TemporaryFile
+    $env:PREFLIGHT_SKIP_FILE = $skipFile.FullName
+    $rc = 1
+    try { & $BashPath @ScanArgs; $rc = $LASTEXITCODE } catch { $rc = 1 }
+    finally { Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue }
+    $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
+    Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
+    if ($rc -eq 0) { $Results.Add("PASS  $Label") }
+    elseif ($rc -eq 3 -and $reason) { Add-Skip $Label $reason }
+    else {
+        $Results.Add("FAIL  $Label")
+        $script:Failed = $true
+        log_error "preflight: $Label FAILED"
+    }
+}
+
 function Check-Security {
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if (-not $bash) { Add-Skip 'security scan' 'ci_security.sh needs bash (Git for Windows ships it)'; return }
     $script = Join-Path $SCRIPT_HELPERS_DIR 'scripts/ci_security.sh'
     if (-not (Test-Path $script)) { Add-Skip 'security scan' 'ci_security.sh not found'; return }
-    $a = @($script, '--workdir', '.')
-    if (-not $Docker) { $a += '--no-docker' }
+    $common = @()
+    if (-not $Docker) { $common += '--no-docker' }
     # `./dev scan` fails on findings; the pre-push run reports them without
     # blocking, as it always has, and says so in the summary.
-    $label = 'security scan (report only)'
-    if ($SecurityOnly) { $a += '--fail-on-findings'; $label = 'security scan' }
+    $suffix = ' (report only)'
+    if ($SecurityOnly) { $common += '--fail-on-findings'; $suffix = '' }
+    $repoArgs = @('--workdir', '.', '--skip-python', '--skip-node')
+    $haveGitleaks = $true; $haveFoxguard = $true
     if (-not $Docker -and -not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
-        $a += '--skip-gitleaks'
+        $repoArgs += '--skip-gitleaks'
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
         # In the summary too: without it, "PASS  security scan" read as if secrets
         # had been scanned.
         Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
+        $haveGitleaks = $false
     }
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
     & $bash.Source $script --check-foxguard *> $null
-    if ($LASTEXITCODE -ne 0) { Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard" }
-    Invoke-Step $label { & $bash.Source @a }
+    if ($LASTEXITCODE -ne 0) {
+        Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard"
+        $haveFoxguard = $false
+    }
+    # The repository-wide part: the secret scan and foxguard; see check_security
+    # in preflight.sh.
+    if ($haveGitleaks -or $haveFoxguard) {
+        Invoke-ScanStep "security scan$suffix" $bash.Source (@($script) + $common + $repoArgs)
+    }
+    # The dependency audits, one step per project, in the project's directory.
+    # Not with -Quick (the pre-push run); see check_security in preflight.sh.
+    if ($Quick -and -not $SecurityOnly) {
+        if (@($scanPairs | Where-Object { $_ -and ($_.Stack -eq 'python' -or $_.Stack -eq 'node') }).Count -gt 0) {
+            Add-Skip 'dependency audits' 'not run with -Quick; ./dev scan runs them'
+        }
+        return
+    }
+    foreach ($p in $scanPairs) {
+        if (-not $p) { continue }
+        $target = Join-Path $ProjectDir $p.Dir
+        switch ($p.Stack) {
+            'python' { Invoke-ScanStep "$(Get-Label 'python' $p.Dir) dependency audit$suffix" $bash.Source (@($script) + $common + @('--workdir', $target, '--skip-node', '--skip-gitleaks', '--skip-foxguard')) }
+            'node'   { Invoke-ScanStep "$(Get-Label 'node' $p.Dir) dependency audit$suffix" $bash.Source (@($script) + $common + @('--workdir', $target, '--skip-python', '--skip-gitleaks', '--skip-foxguard')) }
+        }
+    }
 }
 
 # --- run -------------------------------------------------------------------
 
 log_info "preflight: $ProjectDir"
 $suffix = ''
-if ($Configured) { $suffix += ' from .preflight' }
+if ($IsConfigured) { $suffix += ' from .preflight' }
 if ($Quick)      { $suffix += ' (quick)' }
 if ($Docker)     { $suffix += ' (docker)' }
 if ($SecurityOnly) { log_info 'preflight: security scan only' }

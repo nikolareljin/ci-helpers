@@ -432,6 +432,11 @@ if [[ "$SKIP_SECURITY" == "true" && "$SECURITY_ONLY" == "true" ]]; then
   exit 2
 fi
 
+# The projects whose dependencies the security step audits, kept before the
+# security-only mode empties PAIRS: a dependency audit reads a project's
+# manifest, so it has to run where the project is, not only at the root.
+SCAN_PAIRS=("${PAIRS[@]-}")
+
 # The scan reads the repository, not a stack: none is needed for it.
 if [[ "$SECURITY_ONLY" == "true" ]]; then
   PAIRS=()
@@ -699,16 +704,16 @@ check_php() {
 }
 
 check_security() {
-  local scanner
+  local scanner pair stack dir
   scanner="$(helper_script ci_security.sh)"
   [[ -f "$scanner" ]] || { skip_step "security" "ci_security.sh not found"; return; }
-  local args=(--workdir .) label="security scan (report only)"
-  [[ "$USE_DOCKER" == "true" ]] || args+=(--no-docker)
+  local common=() args=(--workdir . --skip-python --skip-node) suffix=" (report only)" have_gitleaks=true have_foxguard=true
+  [[ "$USE_DOCKER" == "true" ]] || common+=(--no-docker)
   # `./dev scan` fails on findings; the pre-push run reports them without
   # blocking, as it always has, and says so in the summary.
   if [[ "$SECURITY_ONLY" == "true" ]]; then
-    args+=(--fail-on-findings)
-    label="security scan"
+    common+=(--fail-on-findings)
+    suffix=""
   fi
   # gitleaks on the host needs the binary; in Docker mode it comes from the image.
   if [[ "$USE_DOCKER" == "false" ]] && ! command -v gitleaks >/dev/null 2>&1; then
@@ -717,12 +722,40 @@ check_security() {
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
     skip_step "gitleaks secret scan" "gitleaks is not installed — $(install_hint gitleaks gitleaks), or run with --docker"
+    have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.
   if ! foxguard_bin >/dev/null; then
     skip_step "foxguard code scan" "foxguard is not installed; bash $scanner --install-foxguard"
+    have_foxguard=false
   fi
-  run_step "$label" bash "$scanner" "${args[@]+"${args[@]}"}"
+  # The repository-wide part: the secret scan and foxguard. Not run when both are
+  # missing; the two SKIP lines above already say so.
+  [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  # The dependency audits, one step per project, in the project's directory. At
+  # the root only, a repository with backend/ and frontend/ got gitleaks alone
+  # and "PASS  security scan". Not in --quick, the pre-push run: they go to the
+  # network (pip-audit resolves the project: 14 s measured, npm audit 1 s), per
+  # project, on every push. ./dev scan and a full preflight run them.
+  if [[ "$QUICK" == "true" && "$SECURITY_ONLY" != "true" ]]; then
+    for pair in "${SCAN_PAIRS[@]+"${SCAN_PAIRS[@]}"}"; do
+      case "${pair%%	*}" in python|node)
+        skip_step "dependency audits" "not run with --quick; ./dev scan runs them"
+        return ;;
+      esac
+    done
+    return
+  fi
+  for pair in "${SCAN_PAIRS[@]+"${SCAN_PAIRS[@]}"}"; do
+    [[ -n "$pair" ]] || continue
+    stack="${pair%%	*}"; dir="${pair#*	}"
+    case "$stack" in
+      python) run_step "$(label python "$dir") dependency audit$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" \
+                --workdir "$PROJECT_DIR/$dir" --skip-node --skip-gitleaks --skip-foxguard ;;
+      node)   run_step "$(label node "$dir") dependency audit$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" \
+                --workdir "$PROJECT_DIR/$dir" --skip-python --skip-gitleaks --skip-foxguard ;;
+    esac
+  done
 }
 
 # ---------------------------------------------------------------------------

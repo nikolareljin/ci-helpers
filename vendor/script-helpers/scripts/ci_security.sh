@@ -34,6 +34,9 @@
 #                          foxguard.yml, foxguard.yaml); elsewhere they are
 #                          reported, not counted.
 #   -h, --help             Show this help message.
+# EXIT CODES: 0 clean (or reported only); 1 findings with --fail-on-findings;
+#   3 only under preflight (PREFLIGHT_SKIP_FILE set): nothing it was asked for
+#   could run (a missing tool, no manifest, no lockfile), reason in that file.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -139,6 +142,23 @@ finding() {
   if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
 }
 
+# ran / skipped <reason>; what this run actually checked. Under preflight
+# (PREFLIGHT_SKIP_FILE set), a run in which nothing it was asked for could run
+# exits 3 with the first reason, which preflight reports as SKIP: a missing
+# pip-audit or a project without a lockfile used to end in "PASS  security scan"
+# after checking nothing. A --skip-* flag is not a skip; the caller chose it.
+# bandit is not counted: it is static analysis, and "python audit" means the
+# dependency audit.
+RAN=0
+SKIPPED=()
+ran() { RAN=$((RAN + 1)); }
+skipped() { log_warn "$1"; SKIPPED+=("$1"); }
+
+# bandit reads every .py under the project, and a local virtualenv holds
+# thousands that are not the project's. Measured: `bandit -r .` in a project
+# with a .venv failed on a finding inside the venv.
+BANDIT_EXCLUDE="./.venv,./venv,./node_modules,./build,./dist"
+
 # gitleaks arguments: git mode (tracked content, history) when findings fail the
 # run and this is a git work tree; otherwise every file on disk, as before.
 gitleaks_args() {
@@ -152,12 +172,29 @@ gitleaks_args() {
 # them it errors, which is not a finding about the project: skip, and say why.
 node_auditable() {
   if [[ ! -f "$1/package.json" ]]; then
-    log_info "No package.json; skipping npm audit."
+    skipped "No package.json; npm audit did not run."
     return 1
   fi
   if [[ ! -f "$1/package-lock.json" && ! -f "$1/npm-shrinkwrap.json" ]]; then
-    log_warn "No package-lock.json; npm audit needs one. Skipping npm audit."
+    skipped "No package-lock.json; npm audit needs one and did not run."
     return 1
+  fi
+}
+
+# python_target <dir>; sets PY_TARGET to what pip-audit reads there: "req" for a
+# requirements file (PYTHON_REQ, or requirements.txt, which it sets), "project"
+# for a pyproject.toml, which pip-audit resolves itself (`pip-audit .`), or "".
+# safety reads only a requirements file. Called directly, not in $(...): it
+# sets PYTHON_REQ, and a subshell would drop that.
+python_target() {
+  PY_TARGET=""
+  if [[ -z "$PYTHON_REQ" && -f "$1/requirements.txt" ]]; then
+    PYTHON_REQ="requirements.txt"
+  fi
+  if [[ -n "$PYTHON_REQ" ]]; then
+    PY_TARGET=req
+  elif [[ -f "$1/pyproject.toml" ]]; then
+    PY_TARGET=project
   fi
 }
 
@@ -173,9 +210,10 @@ run_foxguard() {
   local bin dir top prefix path sub out n config="" rc=0
   local -a args=()
   if ! bin="$(foxguard_bin)"; then
-    log_warn "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+    skipped "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
     return 0
   fi
+  ran
   if [[ "$("$bin" --version 2>/dev/null)" != "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]]; then
     log_warn "foxguard: $bin is not the pinned $CI_DEFAULT_FOXGUARD_VERSION, so results may differ; bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
   fi
@@ -229,23 +267,28 @@ if [[ "$USE_DOCKER" == "true" ]]; then
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
   if [[ "$SKIP_PYTHON" == "false" ]]; then
-    if [[ -z "$PYTHON_REQ" && -f "$ABS_WORKDIR/requirements.txt" ]]; then
-      PYTHON_REQ="requirements.txt"
-    fi
-    if [[ -n "$PYTHON_REQ" ]]; then
+    python_target "$ABS_WORKDIR"; py_target="$PY_TARGET"
+    if [[ -n "$py_target" ]]; then
+      if [[ "$py_target" == "req" ]]; then
+        py_audit="{ pip-audit -r \"$PYTHON_REQ\" || rc=1; } && { safety check -r \"$PYTHON_REQ\" --full-report || rc=1; }"
+      else
+        py_audit="{ pip-audit . || rc=1; }"
+      fi
       # bash -c, not -lc: see ci_go.sh. A login shell replaces the image's PATH
       # with /etc/profile's default. Measured 2026-09-22 on python:3.12-slim.
       docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
-        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && rc=0 && { pip-audit -r \"$PYTHON_REQ\" || rc=1; } && { safety check -r \"$PYTHON_REQ\" --full-report || rc=1; } && { bandit -r . -ll || rc=1; } && exit \$rc" \
+        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && rc=0 && $py_audit && { bandit -r . -ll -x \"$BANDIT_EXCLUDE\" || rc=1; } && exit \$rc" \
         || finding "python audit (pip-audit / safety / bandit)"
+      ran
     else
-      log_warn "No requirements file found; skipping python audit."
+      skipped "No requirements.txt or pyproject.toml; the Python dependency audit did not run."
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]] && node_auditable "$ABS_WORKDIR"; then
     # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:24-bookworm.
     docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
       bash -c "$NODE_CMD" || finding "npm audit"
+    ran
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     # In git mode the container needs the repository's .git: mount the top of the
@@ -261,6 +304,7 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     docker run --pull=always --rm -t -v "$gl_mount":/work -w /work \
       -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
       "$GITLEAKS_IMAGE" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+    ran
   fi
 else
   pushd "$WORKDIR" >/dev/null
@@ -270,32 +314,44 @@ else
     fi
   fi
   if [[ "$SKIP_PYTHON" == "false" ]]; then
-    if [[ -z "$PYTHON_REQ" && -f "requirements.txt" ]]; then
-      PYTHON_REQ="requirements.txt"
-    fi
-    if [[ -n "$PYTHON_REQ" ]]; then
+    python_target .; py_target="$PY_TARGET"
+    if [[ -n "$py_target" ]]; then
       if command -v pip-audit >/dev/null 2>&1; then
-        pip-audit -r "$PYTHON_REQ" || finding "pip-audit"
+        if [[ "$py_target" == "req" ]]; then
+          pip-audit -r "$PYTHON_REQ" || finding "pip-audit"
+        else
+          pip-audit . || finding "pip-audit"
+        fi
+        ran
       else
-        log_warn "pip-audit not found; skipping."
+        skipped "pip-audit is not installed; the Python dependency audit did not run."
       fi
-      if command -v safety >/dev/null 2>&1; then
+      if [[ "$py_target" != "req" ]]; then
+        log_info "safety reads only a requirements file; not run for pyproject.toml."
+      elif command -v safety >/dev/null 2>&1; then
         safety check -r "$PYTHON_REQ" --full-report || finding "safety"
+        ran
       else
         log_warn "safety not found; skipping."
       fi
       if command -v bandit >/dev/null 2>&1; then
-        bandit -r . -ll || finding "bandit"
+        bandit -r . -ll -x "$BANDIT_EXCLUDE" || finding "bandit"
       else
         log_warn "bandit not found; skipping."
       fi
+    else
+      skipped "No requirements.txt or pyproject.toml; the Python dependency audit did not run."
     fi
   fi
   if [[ "$SKIP_NODE" == "false" ]] && node_auditable .; then
     if command -v npm >/dev/null 2>&1; then
-      bash -lc "$NODE_CMD" || finding "npm audit"
+      # bash -c, not -lc: a login shell rereads /etc/profile, which on Alpine sets
+      # PATH outright, so the npm found above was "not found" in it and counted as
+      # a finding (measured in the bash:3.2 image). See ci_go.sh for the image case.
+      bash -c "$NODE_CMD" || finding "npm audit"
+      ran
     else
-      log_warn "npm not found; skipping."
+      skipped "npm is not installed; npm audit did not run."
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
@@ -308,8 +364,9 @@ else
       else
         gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
       fi
+      ran
     else
-      log_warn "gitleaks not found; skipping."
+      skipped "gitleaks is not installed; the secret scan did not run."
     fi
   fi
   popd >/dev/null
@@ -322,4 +379,8 @@ fi
 if [[ "$FINDINGS" -gt 0 ]]; then
   log_error "security scan: $FINDINGS check(s) reported findings."
   exit 1
+fi
+if [[ "$RAN" -eq 0 && ${#SKIPPED[@]} -gt 0 && -n "${PREFLIGHT_SKIP_FILE:-}" ]]; then
+  printf '%s\n' "${SKIPPED[0]}" > "$PREFLIGHT_SKIP_FILE"
+  exit 3
 fi
