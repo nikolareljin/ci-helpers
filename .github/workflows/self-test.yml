@@ -1064,6 +1064,14 @@ jobs:
           format: json
           output: ${{ runner.temp }}/misconfig-bad.json
           severity: CRITICAL,HIGH
+          # The vulnerability-only flags `trivy-scan.yml` always sends. Passed
+          # here too, so this leg reproduces what a caller setting
+          # `scanners: misconfig` on the preset actually gets, rather than a
+          # reduced version of it. Measured with trivy 0.74.0: they make no
+          # difference to a misconfiguration scan, and this is what keeps that
+          # true rather than assumed.
+          vuln-type: os,library
+          ignore-unfixed: "true"
           exit-code: "1"
 
       - name: The same Dockerfile with a USER does not
@@ -1075,6 +1083,14 @@ jobs:
           format: json
           output: ${{ runner.temp }}/misconfig-good.json
           severity: CRITICAL,HIGH
+          # The vulnerability-only flags `trivy-scan.yml` always sends. Passed
+          # here too, so this leg reproduces what a caller setting
+          # `scanners: misconfig` on the preset actually gets, rather than a
+          # reduced version of it. Measured with trivy 0.74.0: they make no
+          # difference to a misconfiguration scan, and this is what keeps that
+          # true rather than assumed.
+          vuln-type: os,library
+          ignore-unfixed: "true"
           exit-code: "1"
 
       - name: It failed on the rule the fixture exists for
