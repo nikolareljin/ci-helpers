@@ -57,7 +57,7 @@ on:
         description: >
           Upload results to the Security tab. Off is for a caller that wants
           the analysis to run without filing alerts -- a self test, or a
-          repository trying the preset out.
+          repository trying this workflow out.
         type: boolean
         default: true
       fetch_depth:

@@ -1,14 +1,21 @@
 # python-vuln
 
-A fixture that fails two scans on purpose:
+A fixture that fails three scans on purpose:
 
 | file | tool | why it fails |
 |---|---|---|
 | `requirements.txt` | `pip-audit` | `urllib3` and `Jinja2` pinned to versions with published advisories |
 | `app/unsafe.py` | `bandit` | `subprocess.call(..., shell=True)`, B602, high severity |
+| `app/web.py` | CodeQL | a Flask request parameter reaching `os.system`, `py/command-line-injection`, in the default suite |
 
-Do not bump the pins and do not fix the module. Both are what make the green
+Do not bump the pins and do not fix the modules. They are what make the green
 legs mean something: a scanner that finds nothing here is not scanning.
+
+**One file could not serve all three.** bandit is syntactic -- `shell=True` is
+enough on its own -- while CodeQL is taint-based and needs a source, and a
+function parameter is not one. `app/unsafe.py` produces nothing in CodeQL and
+`app/web.py` needs no packages installed, because CodeQL models Flask itself.
+A fixture proves only the tool it was built for.
 
 This fixture is scanned by this repository's own weekly Trivy run as well, the
 same way `tests/fixtures/go-vuln` is, so its advisories appear in the Security
