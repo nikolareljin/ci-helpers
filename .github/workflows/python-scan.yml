@@ -34,24 +34,30 @@ on:
       # repositories and not a side effect of a shared library.
       audit_command:
         description: >
-          Dependency advisories, off unless set. Note the shape of the
-          recommended value: bare `pip-audit` audits the *ambient* environment,
-          so on a runner it reports the runner's own `pip` and fails a build
-          over a package the project never chose. `-r` and `.` audit the
-          project. Recommended value:
-          python -m pip install pip-audit && if [ -f requirements.txt ]; then pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pip-audit .; fi
+          Dependency advisories, off unless set. Two things about the shape
+          of the recommended value, both measured. Bare `pip-audit` audits the
+          *ambient* environment, so on a runner it reports the runner's own
+          `pip` and fails a build over a package the project never chose --
+          `-r` and `.` audit the project. And it runs through `pipx`, not
+          `pip install`: installing the tool into the project's environment
+          moved `packaging` 21.0 to 26.3 and `requests` 2.28.0 to 2.34.2 on a
+          fixture, so the lint and the tests after it would run against
+          versions the project did not pin. Recommended value:
+          if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; fi
         type: string
         default: ""
       # Python SAST. Off for the same kind of reason: four of those five fail
       # it today, between 1 and 12 findings each at medium severity or above.
       bandit_command:
         description: >
-          Python SAST, off unless set. The exclusions in the recommended value
-          are not optional: without them bandit walks any local virtualenv and
-          reports third-party code as the project's -- on three of this
-          preset's callers that is 132, 275 and 126 findings, against 1, 12 and
-          1 in code they own. Recommended value:
-          python -m pip install bandit && bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist
+          Python SAST, off unless set. Through `pipx` for the same reason as
+          `audit_command`: a tool installed into the project's environment
+          changes what everything after it runs against. The exclusions are not
+          optional either -- without them bandit walks any local virtualenv and
+          reports third-party code as the project's, which on three of this
+          preset's callers is 132, 275 and 126 findings against 1, 12 and 1 in
+          code they own. Recommended value:
+          pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist
         type: string
         default: ""
 

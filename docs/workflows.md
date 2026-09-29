@@ -851,8 +851,8 @@ repository, where the finding can be looked at:
 
 ```yaml
 with:
-  audit_command: "python -m pip install pip-audit && if [ -f requirements.txt ]; then pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pip-audit .; fi"
-  bandit_command: "python -m pip install bandit && bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
+  audit_command: "if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; fi"
+  bandit_command: "pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
 ```
 
 Two things about those lines, both measured rather than stylistic:

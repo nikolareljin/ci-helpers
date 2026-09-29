@@ -324,8 +324,8 @@ jobs:
     with:
       working_directory: tests/fixtures/python-install
       python_version: "3.13"
-      audit_command: "python -m pip install pip-audit && if [ -f requirements.txt ]; then pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pip-audit .; fi"
-      bandit_command: "python -m pip install bandit && bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
+      audit_command: "if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; fi"
+      bandit_command: "pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
 
   python-refuses-what-it-must:
     runs-on: ubuntu-latest
@@ -442,9 +442,21 @@ jobs:
           set -euo pipefail
           # Without this, both assertions above are satisfied by a tool that
           # fails on everything.
+          #
+          # The environment is also compared across the two runs. Both commands
+          # go through `pipx` precisely so they cannot change what the lint and
+          # the tests after them run against: installing pip-audit with
+          # `pip install` moved `packaging` 21.0 to 26.3 and `requests` 2.28.0
+          # to 2.34.2 on a fixture, and these stages run before both.
+          python3 -m pip freeze | sort > /tmp/env-before.txt
           eval "$AUDIT_COMMAND"
           eval "$BANDIT_COMMAND"
-          echo "the clean fixture passes both, so the failures above are about the fixture"
+          python3 -m pip freeze | sort > /tmp/env-after.txt
+          if ! diff -u /tmp/env-before.txt /tmp/env-after.txt; then
+            echo "::error::the scan stages changed the project's environment; every stage after them now runs against something the project did not pin"
+            exit 1
+          fi
+          echo "the clean fixture passes both, and neither touched the environment"
 
   # `composer audit` is on by default here, so this leg is what holds it up.
   # Driving `php-scan.yml` whole needs a PHP project with phpunit and a
