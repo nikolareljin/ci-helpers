@@ -1,0 +1,7 @@
+# Keeps the CodeQL leg to two files instead of the whole repository.
+#
+# The point of the leg is that the preset wires up and reports what it read,
+# not that CodeQL can analyse Python -- so it analyses the smallest tree that
+# contains any, and the run stays in the low minutes rather than the high ones.
+paths:
+  - tests/fixtures/python-vuln

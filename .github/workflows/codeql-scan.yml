@@ -1,0 +1,150 @@
+name: codeql-scan
+# Static analysis with CodeQL.
+#
+# There was none in this repository before: the `codeql-action` references in
+# `trivy-scan.yml` and `security-weekly.yml` are `upload-sarif` only, used to
+# get *other* tools' reports into the Security tab. Nothing analysed any code,
+# and of the ten language presets here only Go had a static analyser at all
+# (gosec).
+#
+# The caller must grant `security-events: write`, and `actions: read` for a
+# private repository. GitHub compares a called workflow's **declared**
+# permissions against the caller's when it resolves the call -- before any job
+# runs, and regardless of whether `upload` is on -- so a caller granting less
+# is refused with a `startup_failure` and no annotation. See trivy-scan.yml,
+# which carries the same note for the same reason.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      languages:
+        description: >
+          Comma-separated CodeQL languages: actions, c-cpp, csharp, go, java-kotlin,
+          javascript-typescript, python, ruby, rust, swift. There is no default
+          and an empty value is refused -- CodeQL accepts a language it cannot
+          find source for and reports no findings, which is indistinguishable
+          from a clean analysis.
+        type: string
+        default: ""
+      build_mode:
+        description: >
+          `none` for interpreted languages, `autobuild` for compiled ones, or
+          `manual` when the caller builds in `build_command`. Left empty, the
+          action picks: `none` where it can and `autobuild` otherwise.
+        type: string
+        default: ""
+      build_command:
+        description: >
+          Run between init and analyse. Only meaningful with
+          `build_mode: manual`, where CodeQL observes this build to find the
+          code.
+        type: string
+        default: ""
+      config_file:
+        description: >
+          Path to a CodeQL config (query selection, `paths`, `paths-ignore`).
+        type: string
+        default: ""
+      queries:
+        description: >
+          Query suite. `security-extended` and `security-and-quality` are the
+          larger ones; empty means the default suite.
+        type: string
+        default: ""
+      upload:
+        description: >
+          Upload results to the Security tab. Off is for a caller that wants
+          the analysis to run without filing alerts -- a self test, or a
+          repository trying the preset out.
+        type: boolean
+        default: true
+      fetch_depth:
+        type: number
+        default: 0
+      timeout_minutes:
+        type: number
+        default: 45
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      # An empty `languages` is not a no-op: `init` fails on it with a message
+      # about an unknown language, which is loud but reads as a broken action
+      # rather than a missing input. Said plainly here instead.
+      - name: An analysis has to analyse something
+        shell: bash
+        env:
+          LANGUAGES: ${{ inputs.languages }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${LANGUAGES// /}" ]]; then
+            echo "::error::languages is empty. Name at least one of actions, c-cpp, csharp, go, java-kotlin, javascript-typescript, python, ruby, rust, swift -- CodeQL has no sensible default and an analysis of nothing reports no findings." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 @ 2026-09-28
+        with:
+          languages: ${{ inputs.languages }}
+          build-mode: ${{ inputs.build_mode }}
+          config-file: ${{ inputs.config_file }}
+          queries: ${{ inputs.queries }}
+
+      - name: Build
+        if: ${{ inputs.build_command != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build_command }}
+
+      - name: Analyze
+        id: analyze
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 @ 2026-09-28
+        with:
+          upload: ${{ inputs.upload && 'always' || 'never' }}
+          output: ${{ runner.temp }}/codeql-results
+
+      # `analyze` is happy to produce an empty database. Saying "no findings"
+      # about a language whose source was never located is the failure this
+      # repository keeps finding, so the run says how much it read.
+      - name: Say what was analysed
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          RESULTS_DIR: ${{ runner.temp }}/codeql-results
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          reports=("$RESULTS_DIR"/*.sarif)
+          if [[ ${#reports[@]} -eq 0 ]]; then
+            echo "::error::CodeQL wrote no SARIF report, so nothing was analysed." >&2
+            exit 1
+          fi
+          python3 - "${reports[@]}" <<'PYTHON'
+          import json, sys
+
+          total = 0
+          for path in sys.argv[1:]:
+              data = json.load(open(path))
+              for run in data.get("runs") or []:
+                  results = run.get("results") or []
+                  total += len(results)
+                  tool = (run.get("tool") or {}).get("driver") or {}
+                  rules = len(tool.get("rules") or [])
+                  print(f"{path.rsplit('/', 1)[-1]}: {len(results)} result(s), {rules} rule(s)")
+          print(f"CodeQL: {total} result(s) across {len(sys.argv) - 1} report(s)")
+          PYTHON
