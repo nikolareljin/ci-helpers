@@ -472,6 +472,20 @@ jobs:
           AUDIT_COMMAND: ${{ steps.default_audit.outputs.command }}
         run: |
           set -uo pipefail
+          # Composer 2.9 refuses to *resolve* a package with a known
+          # advisory (`policy.advisories.block`), so the fixture cannot be
+          # installed the ordinary way -- the run before this one failed here,
+          # listing fourteen PKSA ids. That block is the reason `composer
+          # audit` is still worth a stage: it applies when Composer resolves,
+          # and `composer install` from an existing `composer.lock` does not
+          # resolve. A lock file written while its packages were clean keeps
+          # installing after they stop being clean, and `composer audit` is
+          # what reads it.
+          #
+          # So the fixture stands in for that lock file: the block is turned
+          # off for the install, and the audit is then asked the question a
+          # real repository would be asking.
+          composer config --no-plugins policy.advisories.block false
           # Not --quiet. The first run of this leg failed here and said only
           # "the fixture no longer installs", because the flag hiding the
           # reason was mine.
@@ -480,6 +494,11 @@ jobs:
             tail -30 /tmp/php-install.log
             exit 1
           }
+          if ! grep -q "Installing guzzlehttp/guzzle (7.4.0)" /tmp/php-install.log; then
+            echo "::error::the vulnerable package was not installed, so the audit below proves nothing"
+            tail -30 /tmp/php-install.log
+            exit 1
+          fi
           rc=0
           eval "$AUDIT_COMMAND" > /tmp/php-audit-vuln.log 2>&1 || rc=$?
           if [[ "$rc" -eq 0 ]]; then
