@@ -143,8 +143,59 @@
   than on anything that happens to be red. SARIF upload stays off in the self
   test: it would file code-scanning alerts against this repository for a
   dependency that is vulnerable on purpose.
+- **Python and PHP ran no security tool.** `python-scan.yml` was install, ruff,
+  pytest and Django tests; `php-scan.yml` was composer install, phpunit and
+  phpcs, while Node, Rust, Go, C# and the container presets all scanned
+  something.
 
-  33 of 73 reusable workflows are now driven by a leg, 14 left in `not-yet`.
+  `php-scan.yml` gains `audit_command`, defaulting to
+  `composer audit --no-interaction`. **On by default**: it ships with Composer
+  2.4, needs no account and no key, and this preset has no call sites anywhere
+  in the workspace to surprise.
+
+  The PHP gap turned out to be narrower than "nothing", and the fixture is what
+  showed it: Composer 2.9 refuses to **resolve** a package with a known
+  advisory (`policy.advisories.block`), so `composer install` already fails on
+  one. It failed on the fixture, listing fourteen PKSA ids. What that block
+  does not cover is the case the audit stage is for: `composer install` from an
+  existing `composer.lock` does not resolve, so a lock written while its
+  packages were clean goes on installing after they stop being clean. The leg
+  turns the block off to stand in for such a lock, and asserts the vulnerable
+  version really was installed before asking the audit anything.
+
+  `python-scan.yml` gains `audit_command` (pip-audit) and `bandit_command`,
+  both **off** by default -- and that choice was measured, not hedged. Of the
+  five repositories calling this preset, two fail `pip-audit` today
+  (`django 4.2.30`, `starlette 0.37.2`) and four fail `bandit`. Turning them on
+  in a shared library would have turned those builds red on the next
+  `production` release, which is a decision for those repositories. The lines
+  to copy are in the docs and in the input descriptions.
+
+  Two measurements are baked into those recommended lines:
+
+  | | |
+  |---|---|
+  | bare `pip-audit` | audits the **ambient environment**, so on a runner it reports the runner's own `pip` and fails a build over a package the project never chose |
+  | `pip install pip-audit` | moves the project's own pins: `packaging` 21.0 to 26.3 and `requests` 2.28.0 to 2.34.2 on a fixture, so every stage after it runs against versions the project did not choose. Both tools go through `pipx` instead |
+  | `bandit -r .` without exclusions | walks any local virtualenv: 132, 275 and 126 findings of third-party code on three callers, against 1, 12 and 1 in code they own |
+  | the audit line with no `else` | a working directory holding neither `requirements.txt` nor `pyproject.toml` gave a green audit stage that audited nothing. It fails now, naming the directory |
+
+  `.gitignore` covers what the PHP legs generate -- `vendor/` and the
+  `composer.lock` that `composer install` writes in both fixtures. The lock is
+  deliberately absent from the tree: the fixture stands in for one written while
+  its packages were clean, and committing it would pin the advisory set to
+  whatever it was on the day it was generated.
+
+  The two stages run straight after the install, before lint and the tests, so
+  an advisory is reported without waiting for a test run -- which is only safe
+  because of the `pipx` line above. A leg compares `pip freeze` across both
+  commands and fails if either changes the environment.
+
+  Fixtures pinned to published advisories drive the failing direction for both
+  ecosystems (`urllib3 1.26.4` and `Jinja2 2.11.3`; `guzzlehttp/guzzle 6.5.0`),
+  a clean fixture drives the passing one so the failures are about the fixture
+  and not about a tool that fails on everything, and a gate refuses a leg whose
+  command has drifted from the one the preset recommends.
 
 ## 2026-09-28 — v0.38.0
 
@@ -1252,7 +1303,18 @@
 
 - **`scripts/check_changelog_structure.py`, run by `pre-commit` and by
   `workflow-yaml-check.yml`.** Release notes are cut from one CHANGELOG section.
-  On 2026-09-21 a second `## Unreleased` was added above the existing one, and
+  On 2026-09-21 a second `
+
+- **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
+  against the fixture pinned to a published advisory, and the failing direction
+  is driven with `exit-code: 1` and asserted to fail *on that advisory* rather
+  than on anything that happens to be red. SARIF upload stays off in the self
+  test: it would file code-scanning alerts against this repository for a
+  dependency that is vulnerable on purpose.
+
+  33 of 73 reusable workflows are now driven by a leg, 14 left in `not-yet`.
+
+## Unreleased` was added above the existing one, and
   everything under the lower heading -- a feature merged that morning -- would
   have been dropped from the next release while the file still appeared to
   contain it. `check_changelog_section.sh` did not notice, because it asks

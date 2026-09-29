@@ -84,6 +84,13 @@ groups:
 # Notes on entries whose group does not tell the whole story. A note never
 # excuses an entry from its group; it records what a future leg can still reach.
 notes:
+  php-scan.yml: >-
+    Not driven whole -- that needs a PHP project with phpunit and a framework,
+    which is the php rung. Its one security stage is driven though:
+    `php-audit-refuses-what-it-must` runs the shipped `audit_command` default
+    against a fixture pinned to a published advisory and against a clean one,
+    so the default this preset turns on for every adopter is not taken on
+    trust.
   deb-build.yml: >-
     The build half is testable and the upload half is not: attaching the .deb to
     a release needs a release to attach it to.

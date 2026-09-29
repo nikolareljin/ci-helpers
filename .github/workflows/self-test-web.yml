@@ -311,6 +311,240 @@ jobs:
       working_directory: tests/fixtures/python-install
       python_version: "3.13"
 
+  # The two new stages, at the values the preset recommends, against a fixture
+  # that is clean. Green here means the stages wire up and a clean project
+  # passes; `python-refuses-what-it-must` is what makes green mean the
+  # scanners ran at all.
+  #
+  # The values are written out because a `uses:` job's `with:` cannot be
+  # computed. `python-refuses-what-it-must` asserts they still match what the
+  # preset recommends, so the two cannot drift apart in silence.
+  python-scan-audits-and-scans-when-asked:
+    uses: ./.github/workflows/python-scan.yml
+    with:
+      working_directory: tests/fixtures/python-install
+      python_version: "3.13"
+      audit_command: 'if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; else echo "::error::audit_command is set but $(pwd) has neither requirements.txt nor pyproject.toml, so nothing was audited"; exit 1; fi'
+      bandit_command: "pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
+
+  python-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-28
+        with:
+          python-version: "3.13"
+
+      - name: The commands under test are the ones the preset recommends
+        id: commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `setup-python` puts its own interpreter first, and that one has no
+          # PyYAML -- the runner's system python3 does, which is why every
+          # other leg here gets away without this line.
+          python -m pip install --quiet pyyaml
+          # Read out of the preset, and checked against what the leg above
+          # passes. A leg keeping its own copy of a command proves that copy
+          # works, which is not the question anyone is asking.
+          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import yaml
+
+          preset = yaml.safe_load(open(".github/workflows/python-scan.yml"))
+          inputs = (preset.get(True) or preset.get("on"))["workflow_call"]["inputs"]
+          suite = yaml.safe_load(open(".github/workflows/self-test-web.yml"))
+          passed = suite["jobs"]["python-scan-audits-and-scans-when-asked"]["with"]
+
+          for key in ("audit_command", "bandit_command"):
+              description = inputs[key]["description"]
+              if "Recommended value:" not in description:
+                  raise SystemExit(
+                      f"{key} no longer documents a recommended value, so there "
+                      f"is nothing for an adopter to copy and nothing to test"
+                  )
+              recommended = description.split("Recommended value:", 1)[1].strip()
+              if passed.get(key, "").strip() != recommended:
+                  raise SystemExit(
+                      f"the green leg passes a different {key} from the one the "
+                      f"preset recommends:\n  leg:         {passed.get(key)}\n"
+                      f"  recommended: {recommended}"
+                  )
+              # The third copy. `docs/workflows.md` is where an adopter reads
+              # the line, and a doc that has drifted from the preset is worse
+              # than no doc: it is a line somebody will paste.
+              if recommended not in open("docs/workflows.md").read():
+                  raise SystemExit(
+                      f"docs/workflows.md does not contain the {key} value the "
+                      f"preset recommends, so the line an adopter copies is not "
+                      f"the line this leg tests:\n  {recommended}"
+                  )
+              print(f"{key}={recommended}")
+          PYTHON
+
+      - name: A pinned advisory fails the audit
+        shell: bash
+        working-directory: tests/fixtures/python-vuln
+        env:
+          AUDIT_COMMAND: ${{ steps.commands.outputs.audit_command }}
+        run: |
+          set -uo pipefail
+          rc=0
+          eval "$AUDIT_COMMAND" > /tmp/audit-vuln.log 2>&1 || rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::pip-audit passed on urllib3 1.26.4 and Jinja2 2.11.3"
+            tail -20 /tmp/audit-vuln.log
+            exit 1
+          fi
+          grep -qiE "jinja2|urllib3" /tmp/audit-vuln.log || {
+            echo "::error::it failed, but not on the pinned packages"
+            tail -20 /tmp/audit-vuln.log
+            exit 1
+          }
+          echo "pip-audit fails on the pinned advisories (rc=$rc)"
+
+      - name: shell=True fails the SAST scan
+        shell: bash
+        working-directory: tests/fixtures/python-vuln
+        env:
+          BANDIT_COMMAND: ${{ steps.commands.outputs.bandit_command }}
+        run: |
+          set -uo pipefail
+          # The fixture must not carry a suppression marker. Bandit reads
+          # `# nosec` anywhere in a comment, and the first version of this
+          # fixture said `# nosec-free on purpose` -- which silenced the
+          # finding and made this assertion pass for the wrong reason.
+          if grep -rn "nosec" app/; then
+            echo "::error::the fixture suppresses the finding it exists to produce"
+            exit 1
+          fi
+          rc=0
+          eval "$BANDIT_COMMAND" > /tmp/bandit-vuln.log 2>&1 || rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::bandit passed on subprocess.call(..., shell=True)"
+            tail -20 /tmp/bandit-vuln.log
+            exit 1
+          fi
+          grep -q "B602" /tmp/bandit-vuln.log || {
+            echo "::error::it failed, but not on B602"
+            tail -20 /tmp/bandit-vuln.log
+            exit 1
+          }
+          echo "bandit fails on B602 (rc=$rc)"
+
+      - name: And neither fails on a clean project
+        shell: bash
+        working-directory: tests/fixtures/python-install
+        env:
+          AUDIT_COMMAND: ${{ steps.commands.outputs.audit_command }}
+          BANDIT_COMMAND: ${{ steps.commands.outputs.bandit_command }}
+        run: |
+          set -euo pipefail
+          # Without this, both assertions above are satisfied by a tool that
+          # fails on everything.
+          #
+          # The environment is also compared across the two runs. Both commands
+          # go through `pipx` precisely so they cannot change what the lint and
+          # the tests after them run against: installing pip-audit with
+          # `pip install` moved `packaging` 21.0 to 26.3 and `requests` 2.28.0
+          # to 2.34.2 on a fixture, and these stages run before both.
+          python3 -m pip freeze | sort > /tmp/env-before.txt
+          eval "$AUDIT_COMMAND"
+          eval "$BANDIT_COMMAND"
+          python3 -m pip freeze | sort > /tmp/env-after.txt
+          if ! diff -u /tmp/env-before.txt /tmp/env-after.txt; then
+            echo "::error::the scan stages changed the project's environment; every stage after them now runs against something the project did not pin"
+            exit 1
+          fi
+          echo "the clean fixture passes both, and neither touched the environment"
+
+  # `composer audit` is on by default here, so this leg is what holds it up.
+  # Driving `php-scan.yml` whole needs a PHP project with phpunit and a
+  # framework, which is the php rung; the preset stays listed until then.
+  php-audit-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240
+        with:
+          php-version: "8.4"
+          tools: composer
+
+      - name: The default is what runs here
+        id: default_audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import yaml
+          doc = yaml.safe_load(open(".github/workflows/php-scan.yml"))
+          inputs = (doc.get(True) or doc.get("on"))["workflow_call"]["inputs"]
+          command = inputs["audit_command"]["default"]
+          if not command:
+              raise SystemExit("php-scan no longer audits by default")
+          print(f"command={command}")
+          PYTHON
+
+      - name: A pinned advisory fails the audit
+        shell: bash
+        working-directory: tests/fixtures/php-vuln
+        env:
+          AUDIT_COMMAND: ${{ steps.default_audit.outputs.command }}
+        run: |
+          set -uo pipefail
+          # Composer 2.9 refuses to *resolve* a package with a known
+          # advisory (`policy.advisories.block`), so the fixture cannot be
+          # installed the ordinary way -- the run before this one failed here,
+          # listing fourteen PKSA ids. That block is the reason `composer
+          # audit` is still worth a stage: it applies when Composer resolves,
+          # and `composer install` from an existing `composer.lock` does not
+          # resolve. A lock file written while its packages were clean keeps
+          # installing after they stop being clean, and `composer audit` is
+          # what reads it.
+          #
+          # So the fixture stands in for that lock file: the block is turned
+          # off for the install, and the audit is then asked the question a
+          # real repository would be asking.
+          composer config --no-plugins policy.advisories.block false
+          # Not --quiet. The first run of this leg failed here and said only
+          # "the fixture no longer installs", because the flag hiding the
+          # reason was mine.
+          composer install --no-interaction > /tmp/php-install.log 2>&1 || {
+            echo "::error::the fixture no longer installs"
+            tail -30 /tmp/php-install.log
+            exit 1
+          }
+          if ! grep -q "Installing guzzlehttp/guzzle (7.4.0)" /tmp/php-install.log; then
+            echo "::error::the vulnerable package was not installed, so the audit below proves nothing"
+            tail -30 /tmp/php-install.log
+            exit 1
+          fi
+          rc=0
+          eval "$AUDIT_COMMAND" > /tmp/php-audit-vuln.log 2>&1 || rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::composer audit passed on guzzlehttp/guzzle 6.5.0"
+            tail -30 /tmp/php-audit-vuln.log
+            exit 1
+          fi
+          grep -qi "guzzle" /tmp/php-audit-vuln.log || {
+            echo "::error::it failed, but not on the pinned package"
+            tail -30 /tmp/php-audit-vuln.log
+            exit 1
+          }
+          echo "composer audit fails on the pinned advisory (rc=$rc)"
+
+      - name: And it does not fail on a clean project
+        shell: bash
+        working-directory: tests/fixtures/php-clean
+        env:
+          AUDIT_COMMAND: ${{ steps.default_audit.outputs.command }}
+        run: |
+          set -euo pipefail
+          composer install --no-interaction
+          eval "$AUDIT_COMMAND"
+          echo "the clean fixture passes, so the failure above is about the dependency"
+
   vue-scan-defaults-can-pass:
     uses: ./.github/workflows/vue-scan.yml
     with:
@@ -599,6 +833,9 @@ jobs:
     needs:
       - pnpm-scan-defaults-can-pass
       - python-scan-defaults-can-pass
+      - python-scan-audits-and-scans-when-asked
+      - python-refuses-what-it-must
+      - php-audit-refuses-what-it-must
       - vue-scan-defaults-can-pass
       - python-install-survives-lint-override
       - wp-check-generates-its-own-stack

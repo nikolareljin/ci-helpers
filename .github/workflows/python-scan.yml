@@ -26,6 +26,43 @@ on:
       django_command:
         type: string
         default: "if [ -f manage.py ]; then python manage.py test; fi"
+      # Dependency advisories. Off by default, and the reason is measured
+      # rather than cautious: of the five repositories calling this preset on
+      # 2026-09-29, two fail it today -- one on `django 4.2.30`, one on
+      # `starlette 0.37.2`. Turning it on here would turn their builds red on
+      # the next `production` release, which is a decision for those
+      # repositories and not a side effect of a shared library.
+      audit_command:
+        description: >
+          Dependency advisories, off unless set. Two things about the shape
+          of the recommended value, both measured. Bare `pip-audit` audits the
+          *ambient* environment, so on a runner it reports the runner's own
+          `pip` and fails a build over a package the project never chose --
+          `-r` and `.` audit the project, and the trailing `else` refuses
+          rather than passing -- a working directory holding neither file
+          would otherwise give a green audit stage that audited nothing.
+          It runs through `pipx`, not
+          `pip install`: installing the tool into the project's environment
+          moved `packaging` 21.0 to 26.3 and `requests` 2.28.0 to 2.34.2 on a
+          fixture, so the lint and the tests after it would run against
+          versions the project did not pin. Recommended value:
+          if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; else echo "::error::audit_command is set but $(pwd) has neither requirements.txt nor pyproject.toml, so nothing was audited"; exit 1; fi
+        type: string
+        default: ""
+      # Python SAST. Off for the same kind of reason: four of those five fail
+      # it today, between 1 and 12 findings each at medium severity or above.
+      bandit_command:
+        description: >
+          Python SAST, off unless set. Through `pipx` for the same reason as
+          `audit_command`: a tool installed into the project's environment
+          changes what everything after it runs against. The exclusions are not
+          optional either -- without them bandit walks any local virtualenv and
+          reports third-party code as the project's, which on three of this
+          preset's callers is 132, 275 and 126 findings against 1, 12 and 1 in
+          code they own. Recommended value:
+          pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist
+        type: string
+        default: ""
 
 jobs:
   scan:
@@ -74,6 +111,22 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.install_command }}
+
+      - name: Dependency audit
+        if: ${{ inputs.audit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.audit_command }}
+
+      - name: Python SAST
+        if: ${{ inputs.bandit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.bandit_command }}
 
       - name: Python lint
         if: ${{ inputs.lint_command != '' }}

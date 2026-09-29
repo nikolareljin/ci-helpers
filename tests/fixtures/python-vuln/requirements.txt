@@ -1,0 +1,7 @@
+# Pinned to versions with published advisories, so the audit step can be shown
+# to fail. A checker for vulnerabilities is easy to write so that it finds
+# none; this is what proves it does not.
+#
+# Do not bump these. The advisories are the point.
+urllib3==1.26.4
+Jinja2==2.11.3

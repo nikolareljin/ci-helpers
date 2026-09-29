@@ -1,0 +1,14 @@
+{
+  "name": "ci-helpers/php-vuln-fixture",
+  "description": "Pinned to a release with published advisories so `composer audit` can be shown to fail. 7.4.0 rather than 6.x: 6.x requires php <8. Composer 2.9 refuses to resolve this at all unless policy.advisories.block is turned off, which the leg does -- the case the audit stage exists for is a composer.lock written while its packages were clean, which installs without resolving. Do not bump it.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "guzzlehttp/guzzle": "7.4.0"
+  },
+  "config": {
+    "audit": {
+      "abandoned": "ignore"
+    }
+  }
+}
