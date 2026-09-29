@@ -49,6 +49,25 @@ jobs:
         shell: bash
         run: python3 scripts/check_changelog_structure.py
 
+      # Here as well as in the release workflow, because there it is too late.
+      # A pin without its `# <version> @ <date>` comment is a warning, warnings
+      # fail that check, and the check runs on push and weekly and never on a
+      # pull request -- so an unannotated pin added in #249 passed every check
+      # on that pull request and failed the 0.39.0 release, after the merge.
+      #
+      # The comment is not decoration: `update_pinned_actions.sh` re-resolves
+      # it to find the newest SHA, so a pin without one is a pin nothing can
+      # refresh.
+      - name: Action pins are annotated and current
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/update_pinned_actions.sh --check
+
+      - name: Detect floating action refs
+        shell: bash
+        run: bash scripts/check_floating_refs.sh
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is
