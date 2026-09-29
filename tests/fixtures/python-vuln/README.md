@@ -21,3 +21,10 @@ The first version of this fixture ended the offending line with
 suppression marker, so it reported the file clean and the leg asserting a
 failure passed for the wrong reason. Measured: with that comment `bandit -q -r
 . -ll` exits 0 and reports nothing; without it, `B602`, high severity, exit 1.
+
+## The leg installs PyYAML before it reads the preset
+
+`actions/setup-python` puts its own interpreter first on the PATH, and that one
+has no PyYAML -- the runner's system `python3` does. Every other leg in the
+suite parses workflow files with the system interpreter and gets away without
+the install; the one that sets up Python first does not.

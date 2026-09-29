@@ -341,6 +341,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # `setup-python` puts its own interpreter first, and that one has no
+          # PyYAML -- the runner's system python3 does, which is why every
+          # other leg here gets away without this line.
+          python -m pip install --quiet pyyaml
           # Read out of the preset, and checked against what the leg above
           # passes. A leg keeping its own copy of a command proves that copy
           # works, which is not the question anyone is asking.
@@ -468,8 +472,14 @@ jobs:
           AUDIT_COMMAND: ${{ steps.default_audit.outputs.command }}
         run: |
           set -uo pipefail
-          composer install --no-interaction --quiet || {
-            echo "::error::the fixture no longer installs"; exit 1; }
+          # Not --quiet. The first run of this leg failed here and said only
+          # "the fixture no longer installs", because the flag hiding the
+          # reason was mine.
+          composer install --no-interaction > /tmp/php-install.log 2>&1 || {
+            echo "::error::the fixture no longer installs"
+            tail -30 /tmp/php-install.log
+            exit 1
+          }
           rc=0
           eval "$AUDIT_COMMAND" > /tmp/php-audit-vuln.log 2>&1 || rc=$?
           if [[ "$rc" -eq 0 ]]; then
@@ -491,7 +501,7 @@ jobs:
           AUDIT_COMMAND: ${{ steps.default_audit.outputs.command }}
         run: |
           set -euo pipefail
-          composer install --no-interaction --quiet
+          composer install --no-interaction
           eval "$AUDIT_COMMAND"
           echo "the clean fixture passes, so the failure above is about the dependency"
 

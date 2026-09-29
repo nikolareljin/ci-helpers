@@ -1,10 +1,10 @@
 {
   "name": "ci-helpers/php-vuln-fixture",
-  "description": "Pinned to a release with a published advisory, so composer audit can be shown to fail. Do not bump it.",
+  "description": "Pinned to a release with published advisories, so composer audit can be shown to fail. 7.4.0 rather than 6.x: 6.x requires php <8 and will not install on the runner. Do not bump it -- GHSA-mjrx-74jh-7xgw and two more HIGH advisories cover < 7.15.1.",
   "type": "project",
   "license": "MIT",
   "require": {
-    "guzzlehttp/guzzle": "6.5.0"
+    "guzzlehttp/guzzle": "7.4.0"
   },
   "config": {
     "audit": {
