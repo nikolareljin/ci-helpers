@@ -66,6 +66,16 @@ on:
       timeout_minutes:
         type: number
         default: 45
+    outputs:
+      results:
+        description: >
+          Total CodeQL results across every report the run produced. Exposed
+          because "no findings" and "nothing was analysed" are the same number
+          of findings, and a caller may want to tell them apart.
+        value: ${{ jobs.analyze.outputs.results }}
+      rules:
+        description: Number of rules the analysis ran.
+        value: ${{ jobs.analyze.outputs.rules }}
 
 permissions:
   contents: read
@@ -76,6 +86,9 @@ jobs:
   analyze:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    outputs:
+      results: ${{ steps.report.outputs.results }}
+      rules: ${{ steps.report.outputs.rules }}
     steps:
       # An empty `languages` is not a no-op: `init` fails on it with a message
       # about an unknown language, which is loud but reads as a broken action
@@ -122,6 +135,7 @@ jobs:
       # about a language whose source was never located is the failure this
       # repository keeps finding, so the run says how much it read.
       - name: Say what was analysed
+        id: report
         if: ${{ !cancelled() }}
         shell: bash
         env:
@@ -135,16 +149,27 @@ jobs:
             exit 1
           fi
           python3 - "${reports[@]}" <<'PYTHON'
-          import json, sys
+          import json, os, sys
 
           total = 0
+          total_rules = 0
           for path in sys.argv[1:]:
               data = json.load(open(path))
               for run in data.get("runs") or []:
                   results = run.get("results") or []
                   total += len(results)
-                  tool = (run.get("tool") or {}).get("driver") or {}
-                  rules = len(tool.get("rules") or [])
-                  print(f"{path.rsplit('/', 1)[-1]}: {len(results)} result(s), {rules} rule(s)")
+                  tool = run.get("tool") or {}
+                  # CodeQL puts its rules in `tool.extensions`, not in
+                  # `tool.driver.rules` -- reading only the driver reports "0
+                  # rules" for a perfectly good analysis, which is the number
+                  # that makes an empty run look identical to a full one.
+                  rules = len((tool.get("driver") or {}).get("rules") or [])
+                  for extension in tool.get("extensions") or []:
+                      rules += len(extension.get("rules") or [])
+                  print(f"{path.rsplit('/', 1)[-1]}: {len(results)} result(s), {rules} rule(s) run")
+                  total_rules += rules
           print(f"CodeQL: {total} result(s) across {len(sys.argv) - 1} report(s)")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"results={total}\n")
+              handle.write(f"rules={total_rules}\n")
           PYTHON

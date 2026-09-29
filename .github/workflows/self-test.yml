@@ -1282,6 +1282,32 @@ jobs:
       upload: false
       config_file: tests/fixtures/codeql/python-only.yml
 
+  # The preset reports its own counts, so the leg can tell "clean" from
+  # "analysed nothing". The first run of this leg said `0 result(s), 0 rule(s)`
+  # and passed, which is the state the preset was written to make visible --
+  # so the fixture now contains something CodeQL's default suite must find.
+  codeql-found-what-was-planted:
+    needs: [codeql-scan-analyses-what-it-is-given]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The analysis read the fixture and reported it
+        shell: bash
+        env:
+          RESULTS: ${{ needs.codeql-scan-analyses-what-it-is-given.outputs.results }}
+          RULES: ${{ needs.codeql-scan-analyses-what-it-is-given.outputs.rules }}
+        run: |
+          set -euo pipefail
+          if [[ "${RULES:-0}" -lt 1 ]]; then
+            echo "::error::the analysis ran ${RULES:-0} rules, so it analysed nothing -- a report with no rules is not a clean report"
+            exit 1
+          fi
+          if [[ "${RESULTS:-0}" -lt 1 ]]; then
+            echo "::error::CodeQL found nothing in tests/fixtures/python-vuln, which contains a request parameter reaching os.system. Either the fixture was fixed or the analysis did not read it."
+            exit 1
+          fi
+          echo "$RESULTS result(s) from $RULES rule(s): the planted vulnerability was found"
+
   codeql-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1361,6 +1387,7 @@ jobs:
       - trivy-refuses-what-it-must
       - trivy-finds-misconfiguration
       - codeql-scan-analyses-what-it-is-given
+      - codeql-found-what-was-planted
       - codeql-refuses-what-it-must
     if: ${{ always() }}
     runs-on: ubuntu-latest
