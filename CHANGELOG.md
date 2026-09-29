@@ -13,7 +13,10 @@
   when a directory starts being scanned again, the findings just come back -- so
   a leg scans this repository twice and asserts the difference: findings under
   `tests/fixtures` before, none after, and the weekly run still asking for the
-  skip. Measured: 4 findings in `go-vuln/go.mod` become 0.
+  skip. Measured: 4 findings in `go-vuln/go.mod` become 0. It scans through the
+  composite action rather than through Trivy directly, because the forwarding
+  between the two is the part that can stop working -- driving Trivy would
+  prove that Trivy skips directories, which was never in doubt.
 
 - **`check_vendor_currency.sh` printed an error on every push from a git
   worktree.** It wrote its throttle stamp to `$ROOT_DIR/.git/...`, and in a
@@ -22,6 +25,13 @@
   to be silent. It asks git for the directory now. Verified in both: the stamp
   lands in `.git/worktrees/<name>/` from a worktree and in `.git/` from a
   normal checkout.
+
+- **An empty `scanners` was a green run that scanned nothing.** Trivy accepts
+  it, scans nothing and exits 0. An unknown scanner name is a FATAL error, which
+  is loud and fine; an empty one was not, and every other input in these presets
+  treats `""` as "skip this stage" -- which is the expectation that made it
+  dangerous. Both the preset and the composite action refuse it now, and a leg
+  fails if either stops refusing.
 
 - **`trivy-scan.yml` and its composite action could drift apart in silence.**
   They wrap the same action and share ten inputs. An input added to one and not
