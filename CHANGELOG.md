@@ -1,3 +1,45 @@
+## Unreleased
+
+### Fixed
+
+- **`docker-scan.yml` pulled the Snyk image on every run with Snyk switched
+  off.** A Docker-container action's image is pulled in the job's setup phase,
+  before any step's `if:` is evaluated, so `uses: snyk/actions/docker` behind a
+  condition pulled `snyk/snyk:docker` and then skipped the step that wanted it.
+  Measured on the first consumer run after 0.38.0: 9 to 19 seconds a job, 76
+  seconds across six `docker-scan` jobs of one Security Checks run, for an image
+  nothing used.
+
+  The step is the same call by hand -- `snyk test --severity-threshold=... --docker
+  <image>`, the two `SNYK_INTEGRATION_*` variables, the docker socket, and the
+  workspace mounted and made the working directory -- so nothing is pulled
+  unless the step runs. The workspace is not cosmetic: Snyk reads its `.snyk`
+  policy file, which is where a consumer's ignore rules live, from the working
+  directory, and at the image's own `/app` they would have been dropped without
+  a word. The socket comes from `DOCKER_HOST` when a host has moved it.
+
+  Behaviour with a token is unchanged, checked against the image rather than
+  assumed: the action's `sarif` input only adds `--sarif-file-output` when
+  `--file` is among the arguments, which a `--docker` scan never has, so no
+  SARIF file was being produced to lose; and the entrypoint's language
+  pre-steps look for `pip`, `mvn`, `go` and `gradle`, none of which exist in
+  `snyk/snyk:docker`. `snyk test` is also left as it is rather than modernised
+  to `snyk container test`, since the exit codes a consumer gates on are not a
+  pull fix's to change.
+
+  Swapping a published action for a command line of our own needs the command
+  line exercised, so a self-test leg runs it against the Docker fixture with a
+  deliberately invalid token and asserts the failure is **authentication** and
+  not a usage error. That is as far as a repository without the account can
+  honestly go. The leg also refuses a return to `uses:`, and refuses a step that
+  interpolates `${{ }}` into its own shell, since the leg executes that script.
+
+- **Two self-test legs failed silently when their own extraction failed.**
+  Both read `$?` after a command, under a shell GitHub starts with `-e`, so a
+  failure ended the step before the line meant to report it -- the check would
+  have exited 1 with nothing in the log. Both now use `if` and `|| rc=$?`.
+  Driven by renaming the step they extract: the refusal is printed.
+
 ## 2026-09-28 — v0.38.0
 
 ### Changed
