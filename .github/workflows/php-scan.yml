@@ -21,8 +21,13 @@ on:
       # `composer audit` ships with Composer 2.4 and later, needs no account
       # and no key, and this preset has no call sites to surprise -- measured
       # on 2026-09-29 across every repository in the workspace, it has none at
-      # all. A preset whose first adopter gets a dependency scan by default is
-      # the point of the default.
+      # all.
+      #
+      # What this catches that Composer does not already: Composer 2.9 blocks a
+      # package with a known advisory when it *resolves* one, but `composer
+      # install` from an existing `composer.lock` does not resolve. A lock
+      # written while its packages were clean keeps installing after they stop
+      # being clean, and nothing looks at it again. This stage is what looks.
       #
       # `--no-interaction` because a TTY-less runner must never be prompted;
       # set to "" to disable the stage, as with every other command here.

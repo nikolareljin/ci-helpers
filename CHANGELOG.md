@@ -143,16 +143,25 @@
   than on anything that happens to be red. SARIF upload stays off in the self
   test: it would file code-scanning alerts against this repository for a
   dependency that is vulnerable on purpose.
-- **Python and PHP had no security scanning at all.** `python-scan.yml` was
-  install, ruff, pytest and Django tests; `php-scan.yml` was composer install,
-  phpunit and phpcs. Neither ran a security tool of any kind, while Node, Rust,
-  Go, C# and the container presets all did.
+- **Python and PHP ran no security tool.** `python-scan.yml` was install, ruff,
+  pytest and Django tests; `php-scan.yml` was composer install, phpunit and
+  phpcs, while Node, Rust, Go, C# and the container presets all scanned
+  something.
 
   `php-scan.yml` gains `audit_command`, defaulting to
-  `composer audit --no-interaction`. **On by default**, because the default is
-  the point of a default and there is nobody to surprise: `composer audit`
-  ships with Composer 2.4, needs no account and no key, and this preset has no
-  call sites anywhere in the workspace.
+  `composer audit --no-interaction`. **On by default**: it ships with Composer
+  2.4, needs no account and no key, and this preset has no call sites anywhere
+  in the workspace to surprise.
+
+  The PHP gap turned out to be narrower than "nothing", and the fixture is what
+  showed it: Composer 2.9 refuses to **resolve** a package with a known
+  advisory (`policy.advisories.block`), so `composer install` already fails on
+  one. It failed on the fixture, listing fourteen PKSA ids. What that block
+  does not cover is the case the audit stage is for: `composer install` from an
+  existing `composer.lock` does not resolve, so a lock written while its
+  packages were clean goes on installing after they stop being clean. The leg
+  turns the block off to stand in for such a lock, and asserts the vulnerable
+  version really was installed before asking the audit anything.
 
   `python-scan.yml` gains `audit_command` (pip-audit) and `bandit_command`,
   both **off** by default -- and that choice was measured, not hedged. Of the

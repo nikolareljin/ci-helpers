@@ -807,6 +807,12 @@ Inputs (selected):
   advisories from the Packagist security API. **On by default**: it ships with
   Composer 2.4 and later, needs no account and no key. Set to `""` to disable
   the stage.
+
+  Composer 2.9 already refuses to **resolve** a package with a known advisory,
+  so this stage is not the first line of defence. It is the second one, and it
+  covers the case the block cannot: `composer install` from an existing
+  `composer.lock` does not resolve, so a lock written while its packages were
+  clean goes on installing after they stop being clean.
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
 - `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
