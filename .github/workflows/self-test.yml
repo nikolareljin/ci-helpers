@@ -1116,6 +1116,85 @@ jobs:
           print(f"DS-0002 among {len(found)} finding(s), as the fixture intends")
           PYTHON
 
+      # Both scans report rather than gate: `exit-code: 0`, with the assertion
+      # below doing the work. Gating here would fail this leg the day this
+      # repository gains a real advisory of its own, which is a finding worth
+      # having and not a reason for the skip test to go red.
+      - name: This repository's own fixtures are findings, until they are skipped
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: "."
+          format: json
+          output: ${{ runner.temp }}/repo-unskipped.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: "true"
+          exit-code: "0"
+
+      - name: The same scan, with tests/fixtures left out
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: "."
+          format: json
+          output: ${{ runner.temp }}/repo-skipped.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: "true"
+          skip-dirs: tests/fixtures
+          exit-code: "0"
+
+      - name: The weekly run skips them, and skipping is what does it
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `skip_dirs` is the kind of fix that can silently stop working:
+          # nothing goes red when a directory quietly starts being scanned
+          # again, the findings just reappear in the Security tab. So the
+          # difference is measured, and the configuration that relies on it is
+          # checked for still asking.
+          python3 - <<'PYTHON'
+          import json, os, yaml
+
+          def findings(name):
+              path = os.path.join(os.environ["RUNNER_TEMP"], name)
+              data = json.load(open(path))
+              return [
+                  (r.get("Target"), v["VulnerabilityID"])
+                  for r in (data.get("Results") or [])
+                  for v in (r.get("Vulnerabilities") or [])
+              ]
+
+          before, after = findings("repo-unskipped.json"), findings("repo-skipped.json")
+          fixture_hits = [t for t, _ in before if t.startswith("tests/fixtures/")]
+          if not fixture_hits:
+              raise SystemExit(
+                  "a scan of this repository no longer finds its own fixtures, so "
+                  "this leg proves nothing about skipping them. Either the pins "
+                  "were bumped -- they are pinned to advisories on purpose -- or "
+                  "the scan is not reading them."
+              )
+          still = [t for t, _ in after if t.startswith("tests/fixtures/")]
+          if still:
+              raise SystemExit(f"skip-dirs did not skip them: {sorted(set(still))}")
+
+          weekly = yaml.safe_load(open(".github/workflows/security-weekly.yml"))
+          step = next(
+              s
+              for job in weekly["jobs"].values()
+              for s in (job.get("steps") or [])
+              if isinstance(s, dict) and str(s.get("uses", "")).endswith("actions/trivy-scan")
+          )
+          if "tests/fixtures" not in str((step.get("with") or {}).get("skip_dirs", "")):
+              raise SystemExit(
+                  "the weekly scan no longer skips tests/fixtures, so every "
+                  "deliberately vulnerable pin goes back into the Security tab"
+              )
+          print(
+              f"{len(fixture_hits)} finding(s) in tests/fixtures before, "
+              f"0 after, and the weekly run still asks for the skip"
+          )
+          PYTHON
+
       - name: The two implementations of this scan expose the same inputs
         shell: bash
         run: |

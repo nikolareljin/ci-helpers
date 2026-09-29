@@ -9,6 +9,12 @@
   scan now skips that directory; the legs that scan those fixtures still do,
   deliberately and by name.
 
+  A skip is the kind of fix that can quietly stop working -- nothing goes red
+  when a directory starts being scanned again, the findings just come back -- so
+  a leg scans this repository twice and asserts the difference: findings under
+  `tests/fixtures` before, none after, and the weekly run still asking for the
+  skip. Measured: 4 findings in `go-vuln/go.mod` become 0.
+
 - **`check_vendor_currency.sh` printed an error on every push from a git
   worktree.** It wrote its throttle stamp to `$ROOT_DIR/.git/...`, and in a
   linked worktree `.git` is a *file* pointing at `.git/worktrees/<name>`, so
