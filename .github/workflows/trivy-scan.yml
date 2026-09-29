@@ -23,6 +23,24 @@ on:
       vuln_type:
         type: string
         default: os,library
+      scanners:
+        description: >
+          Comma-separated Trivy scanners. `vuln` is the default and was all
+          this ever ran; `misconfig` reads Dockerfiles, compose files,
+          Kubernetes manifests and Terraform, and `secret` is Trivy's own
+          secret scanner (`gitleaks-scan.yml` already covers that ground). The
+          rulesets ship with the binary that is already downloaded here, so
+          `misconfig` costs a flag, not a tool.
+        type: string
+        default: vuln
+      skip_dirs:
+        description: >
+          Comma-separated directories to leave out, passed to Trivy's
+          `--skip-dirs`. Use it for fixtures that are wrong on purpose: a
+          Security tab full of findings nobody is going to act on is one people
+          stop reading.
+        type: string
+        default: ""
       fail_on_findings:
         type: boolean
         default: false
@@ -40,14 +58,36 @@ permissions:
   contents: read
   security-events: write
 
-# NOTE: Because this workflow is reusable (`workflow_call`), callers still need to
-# grant `security-events: write` in the calling workflow when they enable SARIF upload.
+# The caller must grant `security-events: write` **whether or not it uploads**.
+# GitHub compares a called workflow's declared `permissions:` against the
+# caller's when it resolves the call, before any job starts, so a caller that
+# sets `upload_sarif: false` and grants only `contents: read` is refused --
+# and the refusal arrives as a `startup_failure` with no annotation while every
+# other check stays green. (The note here used to say "when they enable SARIF
+# upload", which is the reading that produces that failure.) Measured on the
+# same mechanism in #239, where a missing `checks: write` did exactly this.
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      # An unknown scanner name is a FATAL error from Trivy, which is loud and
+      # fine. An empty one is not: Trivy accepts it, scans nothing and exits 0,
+      # so the job goes green having looked at nothing. Every other input here
+      # treats "" as "skip this stage", which is exactly the expectation that
+      # makes it dangerous.
+      - name: A scan has to scan something
+        shell: bash
+        env:
+          SCANNERS: ${{ inputs.scanners }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SCANNERS// /}" ]]; then
+            echo "::error::scanners is empty. Trivy accepts that, scans nothing and exits 0, so the run would report success having looked at nothing. Name at least one of vuln, misconfig, secret, license -- or drop the call if you do not want a scan." >&2
+            exit 1
+          fi
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
@@ -59,6 +99,8 @@ jobs:
           severity: ${{ inputs.severity }}
           ignore-unfixed: ${{ inputs.ignore_unfixed }}
           vuln-type: ${{ inputs.vuln_type }}
+          scanners: ${{ inputs.scanners }}
+          skip-dirs: ${{ inputs.skip_dirs }}
           exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
 
       # Also after a failed scan (findings are what fail it), but only when a

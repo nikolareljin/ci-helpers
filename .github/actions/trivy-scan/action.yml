@@ -29,6 +29,24 @@ inputs:
     description: Fail the workflow when findings match severity.
     default: "false"
     required: false
+  scanners:
+    description: >
+      Comma-separated Trivy scanners. `vuln` is the default and
+      was all this ever ran; `misconfig` reads Dockerfiles, compose files,
+      Kubernetes manifests and Terraform, and `secret` is Trivy's own secret
+      scanner (this repository's `gitleaks-scan.yml` already covers that
+      ground). The rulesets ship with the binary that is already downloaded
+      here, so `misconfig` costs a flag, not a tool.
+    default: vuln
+    required: false
+  skip_dirs:
+    description: >
+      Comma-separated directories to leave out, passed to Trivy's
+      `--skip-dirs`. Use it for fixtures that are wrong on purpose: a Security
+      tab full of findings nobody is going to act on is one people stop
+      reading.
+    default: ""
+    required: false
   upload_sarif:
     description: Upload SARIF to GitHub Security tab when format is sarif.
     default: "true"
@@ -36,6 +54,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # An unknown scanner name is a FATAL error from Trivy, which is loud and
+    # fine. An empty one is not: Trivy accepts it, scans nothing and exits 0,
+    # so the step goes green having looked at nothing.
+    - name: A scan has to scan something
+      shell: bash
+      env:
+        SCANNERS: ${{ inputs.scanners }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${SCANNERS// /}" ]]; then
+          echo "::error::scanners is empty. Trivy accepts that, scans nothing and exits 0, so the run would report success having looked at nothing. Name at least one of vuln, misconfig, secret, license -- or drop the call if you do not want a scan." >&2
+          exit 1
+        fi
+
     - name: Run Trivy
       uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
       with:
@@ -46,6 +78,8 @@ runs:
         severity: ${{ inputs.severity }}
         ignore-unfixed: ${{ inputs.ignore_unfixed }}
         vuln-type: ${{ inputs.vuln_type }}
+        scanners: ${{ inputs.scanners }}
+        skip-dirs: ${{ inputs.skip_dirs }}
         exit-code: ${{ inputs.fail_on_findings == 'true' && '1' || '0' }}
     # Not only on success: with fail_on_findings the scan step fails exactly when
     # there are findings, and those are the results the Security tab needs. But

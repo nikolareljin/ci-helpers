@@ -2,6 +2,53 @@
 
 ### Fixed
 
+- **The weekly Trivy run filed this repository's own deliberate fixtures as
+  findings.** `tests/fixtures` holds dependencies pinned to published
+  advisories on purpose -- `go-vuln`, `python-vuln`, `php-vuln` -- and every
+  one of them was arriving in the Security tab as work for somebody. The weekly
+  scan now skips that directory; the legs that scan those fixtures still do,
+  deliberately and by name.
+
+  A skip is the kind of fix that can quietly stop working -- nothing goes red
+  when a directory starts being scanned again, the findings just come back -- so
+  a leg scans this repository twice and asserts the difference: findings under
+  `tests/fixtures` before, none after, and the weekly run still asking for the
+  skip. Measured: 4 findings in `go-vuln/go.mod` become 0. It scans through the
+  composite action rather than through Trivy directly, because the forwarding
+  between the two is the part that can stop working -- driving Trivy would
+  prove that Trivy skips directories, which was never in doubt.
+
+- **`check_vendor_currency.sh` printed an error on every push from a git
+  worktree.** It wrote its throttle stamp to `$ROOT_DIR/.git/...`, and in a
+  linked worktree `.git` is a *file* pointing at `.git/worktrees/<name>`, so
+  the write failed with "Not a directory" on a courtesy check that is supposed
+  to be silent. It asks git for the directory now. Verified in both: the stamp
+  lands in `.git/worktrees/<name>/` from a worktree and in `.git/` from a
+  normal checkout.
+
+- **`trivy-scan.yml`'s note about permissions was wrong in the direction that
+  costs an afternoon.** It said callers need `security-events: write` "when
+  they enable SARIF upload". GitHub compares a called workflow's *declared*
+  permissions against the caller's when it resolves the call, before any job
+  runs and regardless of which steps would use them -- so a caller that reads
+  that note, sets `upload_sarif: false` and grants only `contents: read` is
+  refused, and the refusal arrives as a `startup_failure` with no annotation
+  while every other check stays green. Corrected in the workflow and written
+  into `docs/workflows.md` with the `permissions:` block to copy.
+
+- **An empty `scanners` was a green run that scanned nothing.** Trivy accepts
+  it, scans nothing and exits 0. An unknown scanner name is a FATAL error, which
+  is loud and fine; an empty one was not, and every other input in these presets
+  treats `""` as "skip this stage" -- which is the expectation that made it
+  dangerous. Both the preset and the composite action refuse it now, and a leg
+  fails if either stops refusing.
+
+- **`trivy-scan.yml` and its composite action could drift apart in silence.**
+  They wrap the same action and share ten inputs. An input added to one and not
+  the other is invisible until somebody sets it on the wrong one and it is
+  ignored without a word. A leg now fails when the two stop matching, and it
+  was driven by renaming an input in one of them.
+
 - **A gitleaks scan of anything that is not a git work tree passed without
   scanning.** `detect` reads git history. Pointed at an unpacked archive, a
   build output, a generated directory -- anything with no history -- gitleaks
@@ -75,6 +122,20 @@
   Driven by renaming the step they extract: the refusal is printed.
 
 ### Added
+
+- **Trivy already scanned Dockerfiles, compose files, Kubernetes manifests and
+  Terraform; nothing here let a caller ask for it.** `trivy-scan.yml` and
+  `.github/actions/trivy-scan` both hardcoded vulnerability scanning of the
+  filesystem. Both gain `scanners` (default `vuln`, so nothing changes for an
+  existing caller) and `skip_dirs`. The misconfiguration rulesets ship with the
+  binary this repository already downloads, so the capability cost a flag.
+
+  A fixture pair drives it: a Dockerfile with no `USER` fails at `DS-0002`
+  (HIGH) and the same Dockerfile with one passes, so a green scan means the
+  scan ran rather than that every Dockerfile passes. The passing half is
+  checked for having been *read*, not merely for exiting 0 -- an empty
+  directory exits 0 from this scan exactly as a clean one does, and the only
+  difference is that its report has no results at all.
 
 - **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
   against the fixture pinned to a published advisory, and the failing direction

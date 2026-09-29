@@ -82,7 +82,12 @@ pinned_sha="$(tr -d ' \t\n\r' < "$sha_file")"
 
 # Throttle. A network round trip on every commit is a tax nobody agreed to.
 # The stamp lives in .git/, which is never committed and never shared.
-stamp="$ROOT_DIR/.git/.script-helpers-currency-checked"
+# `git rev-parse --git-dir`, not "$ROOT_DIR/.git": in a linked worktree `.git`
+# is a *file* pointing at .git/worktrees/<name>, so writing a stamp under it
+# printed "Not a directory" on every push from one. Falls back to the literal
+# path outside a repository, where the write is skipped anyway.
+git_dir="$(git rev-parse --git-dir 2>/dev/null || echo "$ROOT_DIR/.git")"
+stamp="$git_dir/.script-helpers-currency-checked"
 if [[ "$FORCE" != true && -f "$stamp" ]]; then
   now="$(date +%s)"
   then_ts="$(tr -d ' \t\n\r' < "$stamp" 2>/dev/null || echo 0)"
