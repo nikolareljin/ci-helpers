@@ -84,6 +84,15 @@ groups:
 # Notes on entries whose group does not tell the whole story. A note never
 # excuses an entry from its group; it records what a future leg can still reach.
 notes:
+  codeql-scan.yml: >-
+    Driven at `languages: python` against a fixture whose finding the leg
+    asserts by count, and its refusal of an empty `languages` is driven
+    separately. Four things stay unexercised and are worth knowing before a
+    first adopter finds them: the SARIF upload, which a self test must not do
+    because it would file code-scanning alerts against this repository;
+    `build_mode` for a compiled language, where CodeQL has to observe a build;
+    `build_command`, which only matters with `build_mode: manual`; and
+    `queries`, since the leg runs the default suite.
   php-scan.yml: >-
     Not driven whole -- that needs a PHP project with phpunit and a framework,
     which is the php rung. Its one security stage is driven though:

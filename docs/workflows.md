@@ -465,6 +465,58 @@ jobs:
       upload_artifact: true
 ```
 
+## codeql-scan.yml
+
+Workflow: `.github/workflows/codeql-scan.yml`
+
+Purpose: Static analysis with CodeQL.
+
+There was none here before. The `codeql-action` references in `trivy-scan.yml`
+and `security-weekly.yml` are `upload-sarif` only, used to get *other* tools'
+reports into the Security tab -- nothing analysed code, and of the language
+presets only Go had a static analyser (gosec).
+
+Inputs:
+
+- `runner` (string, default `ubuntu-latest`)
+- `languages` (string, default `""`) -- comma-separated: `actions`, `c-cpp`,
+  `csharp`, `go`, `java-kotlin`, `javascript-typescript`, `python`, `ruby`,
+  `rust`, `swift`. **Empty is refused.** CodeQL has no sensible default, and an
+  analysis that found no source reports no findings, which reads exactly like a
+  clean one.
+- `build_mode` (string, default `""`) -- `none`, `autobuild` or `manual`. Left
+  empty the action picks: `none` where it can, `autobuild` otherwise.
+- `build_command` (string, default `""`) -- runs between init and analyse, for
+  `build_mode: manual`.
+- `config_file` (string, default `""`) -- a CodeQL config, for query selection
+  and `paths` / `paths-ignore`.
+- `queries` (string, default `""`) -- e.g. `security-extended`,
+  `security-and-quality`.
+- `upload` (boolean, default `true`) -- file results in the Security tab. Turn
+  it off to run the analysis without filing alerts.
+- `fetch_depth` (number, default `0`), `timeout_minutes` (number, default `45`)
+
+**The caller must grant three permissions, whether or not it uploads**, for the
+reason described under `trivy-scan.yml`: the check is against what the called
+workflow *declares*, at call resolution, before any job runs.
+
+```yaml
+jobs:
+  codeql:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: nikolareljin/ci-helpers/.github/workflows/codeql-scan.yml@production
+    with:
+      languages: python
+```
+
+The run ends by printing how many results and rules each report carried.
+`analyze` is content to produce an empty database, so "no findings" about a
+language whose source was never located is the failure this preset is built to
+avoid -- the count is there to be read.
+
 ## gitleaks-scan.yml
 
 Workflow: `.github/workflows/gitleaks-scan.yml`

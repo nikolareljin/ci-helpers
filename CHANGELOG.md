@@ -123,6 +123,25 @@
 
 ### Added
 
+- **`codeql-scan.yml`: there was no static analysis in this library at all.**
+  The `codeql-action` references in `trivy-scan.yml` and `security-weekly.yml`
+  are `upload-sarif` only, used to get other tools' reports into the Security
+  tab. Nothing analysed code, and of the language presets only Go had a static
+  analyser. This one covers `actions`, `c-cpp`, `csharp`, `go`, `java-kotlin`,
+  `javascript-typescript`, `python`, `ruby`, `rust` and `swift` in one file.
+
+  An empty `languages` is refused rather than passed through: CodeQL has no
+  sensible default, and an analysis that located no source reports no findings,
+  which reads exactly like a clean one. The run also prints how many results and
+  rules each report carried, because `analyze` is content to produce an empty
+  database.
+
+  The self-test analyses two files through a config file rather than the whole
+  tree, and does not upload -- a self test must not file code-scanning alerts.
+  What that leaves unproven is written into `tests/workflow-coverage.yaml`: the
+  upload itself, `build_mode` for a compiled language, `build_command`, and
+  `queries`.
+
 - **Trivy already scanned Dockerfiles, compose files, Kubernetes manifests and
   Terraform; nothing here let a caller ask for it.** `trivy-scan.yml` and
   `.github/actions/trivy-scan` both hardcoded vulnerability scanning of the

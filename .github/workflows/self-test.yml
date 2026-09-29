@@ -1264,6 +1264,103 @@ jobs:
           print(f"both expose the same {len(a)} scan inputs, and both refuse an empty one")
           PYTHON
 
+  # CodeQL. There was none in this repository: the `codeql-action` references
+  # elsewhere are `upload-sarif` only, for other tools' reports.
+  #
+  # `upload: false` because a self test must not file code-scanning alerts, and
+  # a config file because analysing the whole tree would cost minutes to prove
+  # something two files prove. The caller grants the permissions the called
+  # workflow declares, or the run is refused before any job starts.
+  codeql-scan-analyses-what-it-is-given:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/codeql-scan.yml
+    with:
+      languages: python
+      upload: false
+      config_file: tests/fixtures/codeql/python-only.yml
+
+  # The preset reports its own counts, so the leg can tell "clean" from
+  # "analysed nothing". The first run of this leg said `0 result(s), 0 rule(s)`
+  # and passed, which is the state the preset was written to make visible --
+  # so the fixture now contains something CodeQL's default suite must find.
+  codeql-found-what-was-planted:
+    needs: [codeql-scan-analyses-what-it-is-given]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The analysis read the fixture and reported it
+        shell: bash
+        env:
+          RESULTS: ${{ needs.codeql-scan-analyses-what-it-is-given.outputs.results }}
+          RULES: ${{ needs.codeql-scan-analyses-what-it-is-given.outputs.rules }}
+        run: |
+          set -euo pipefail
+          if [[ "${RULES:-0}" -lt 1 ]]; then
+            echo "::error::the analysis ran ${RULES:-0} rules, so it analysed nothing -- a report with no rules is not a clean report"
+            exit 1
+          fi
+          if [[ "${RESULTS:-0}" -lt 1 ]]; then
+            echo "::error::CodeQL found nothing in tests/fixtures/python-vuln, which contains a request parameter reaching os.system. Either the fixture was fixed or the analysis did not read it."
+            exit 1
+          fi
+          echo "$RESULTS result(s) from $RULES rule(s): the planted vulnerability was found"
+
+  codeql-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      - name: An empty languages is refused, by the preset's own step
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Driven out of the workflow rather than reimplemented, so the leg
+          # cannot pass against a guard that no longer ships.
+          if ! python3 - <<'PYTHON' > /tmp/codeql-guard.sh 2> /tmp/codeql-guard.err
+          import yaml
+
+          doc = yaml.safe_load(open(".github/workflows/codeql-scan.yml"))
+          steps = [s for j in doc["jobs"].values() for s in j.get("steps", [])]
+          guard = next(
+              (s for s in steps if s.get("name") == "An analysis has to analyse something"),
+              None,
+          )
+          if guard is None:
+              raise SystemExit("codeql-scan.yml no longer refuses an empty `languages`")
+          print(guard["run"])
+          PYTHON
+          then
+            echo "::error::$(cat /tmp/codeql-guard.err)"
+            exit 1
+          fi
+
+          for value in "" "   "; do
+            rc=0
+            LANGUAGES="$value" bash --noprofile --norc -e -o pipefail /tmp/codeql-guard.sh \
+              > /tmp/codeql-guard.log 2>&1 || rc=$?
+            if [[ "$rc" -eq 0 ]]; then
+              echo "::error::languages='$value' was accepted; an analysis of nothing reports no findings"
+              exit 1
+            fi
+            grep -q "languages is empty" /tmp/codeql-guard.log || {
+              echo "::error::it failed, but not with the message that explains why"
+              cat /tmp/codeql-guard.log
+              exit 1
+            }
+          done
+
+          rc=0
+          LANGUAGES="python" bash --noprofile --norc -e -o pipefail /tmp/codeql-guard.sh > /dev/null 2>&1 || rc=$?
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::error::a real language was refused, so the guard refuses everything"
+            exit 1
+          fi
+          echo "empty and whitespace are refused with a reason, a real language is not"
+
   assert-ran:
     needs:
       - release-tag-gate-defaults-can-pass
@@ -1289,6 +1386,9 @@ jobs:
       - trivy-scan-defaults-can-pass
       - trivy-refuses-what-it-must
       - trivy-finds-misconfiguration
+      - codeql-scan-analyses-what-it-is-given
+      - codeql-found-what-was-planted
+      - codeql-refuses-what-it-must
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
