@@ -17,6 +17,18 @@ on:
       composer_command:
         type: string
         default: "composer install --no-interaction --prefer-dist"
+      # Dependency advisories, from the Packagist security API. On by default:
+      # `composer audit` ships with Composer 2.4 and later, needs no account
+      # and no key, and this preset has no call sites to surprise -- measured
+      # on 2026-09-29 across every repository in the workspace, it has none at
+      # all. A preset whose first adopter gets a dependency scan by default is
+      # the point of the default.
+      #
+      # `--no-interaction` because a TTY-less runner must never be prompted;
+      # set to "" to disable the stage, as with every other command here.
+      audit_command:
+        type: string
+        default: "composer audit --no-interaction"
       unit_command:
         type: string
         default: "vendor/bin/phpunit"
@@ -144,6 +156,14 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.composer_command }}
+
+      - name: Dependency audit
+        if: ${{ inputs.audit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.audit_command }}
 
       - name: PHP unit tests
         if: ${{ inputs.unit_command != '' }}

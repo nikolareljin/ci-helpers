@@ -1,0 +1,14 @@
+{
+  "name": "ci-helpers/php-vuln-fixture",
+  "description": "Pinned to a release with a published advisory, so composer audit can be shown to fail. Do not bump it.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "guzzlehttp/guzzle": "6.5.0"
+  },
+  "config": {
+    "audit": {
+      "abandoned": "ignore"
+    }
+  }
+}

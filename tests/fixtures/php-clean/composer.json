@@ -1,0 +1,9 @@
+{
+  "name": "ci-helpers/php-clean-fixture",
+  "description": "A dependency with no published advisories, so a green composer audit means the audit ran rather than that every project passes.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "psr/log": "^3.0"
+  }
+}

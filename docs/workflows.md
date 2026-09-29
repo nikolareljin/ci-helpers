@@ -803,6 +803,10 @@ Inputs (selected):
 - `working_directory` (string, default `"."`)
 - `php_version` (string, default `8.4`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
+- `audit_command` (string, default `composer audit --no-interaction`) -- dependency
+  advisories from the Packagist security API. **On by default**: it ships with
+  Composer 2.4 and later, needs no account and no key. Set to `""` to disable
+  the stage.
 - `unit_command` (string, default `vendor/bin/phpunit`)
 - `lint_wp_command` (string, default `vendor/bin/phpcs --standard=WordPress --extensions=php`, only runs when WordPress is detected)
 - `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
@@ -830,6 +834,31 @@ Inputs:
 - `python_version` (string, default `3.13`)
 - `install_command` (string, default `if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; elif [ -f pyproject.toml ]; then python -m pip install .; fi`)
 - `lint_command` (string, default `python -m pip install ruff && ruff check .`)
+- `audit_command` (string, default `""`) -- dependency advisories, off unless set
+- `bandit_command` (string, default `""`) -- Python SAST, off unless set
+
+Both are off because turning them on here would change the result of builds
+this repository does not own. Measured on 2026-09-29 across the five
+repositories that call this preset: two fail `pip-audit` today (`django
+4.2.30`, `starlette 0.37.2`) and four fail `bandit`. Turn them on per
+repository, where the finding can be looked at:
+
+```yaml
+with:
+  audit_command: "python -m pip install pip-audit && if [ -f requirements.txt ]; then pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pip-audit .; fi"
+  bandit_command: "python -m pip install bandit && bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
+```
+
+Two things about those lines, both measured rather than stylistic:
+
+- Bare `pip-audit` audits the **ambient environment**. On a runner that means
+  it reports the runner's own `pip` and fails a build over a package the
+  project never chose. `-r requirements.txt` and `pip-audit .` audit the
+  project.
+- Bandit's exclusions are not optional. Without them it walks any local
+  virtualenv and reports third-party code as the project's: on three of this
+  preset's callers that is 132, 275 and 126 findings, against 1, 12 and 1 in
+  code they own.
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
 - `django_command` (string, default `if [ -f manage.py ]; then python manage.py test; fi`, only runs when Django is detected)
 
