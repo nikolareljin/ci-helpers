@@ -361,13 +361,16 @@ never_ambiguous = {
 # A name that is also a ubiquitous path or code token can only ever be a real reference
 # when it is qualified. Measured: a repository named `.github` -- GitHub's own convention
 # for an organization's files -- matched 508 lines in one public repository, because that
-# string is in every workflow path.
+# string is in every workflow path. `coverage` is here for the same reason: it is in
+# every coverage.xml and check_*_coverage.py. The same list is in check_private_names.sh,
+# which applies it whatever this file says; tests/private_names_test.sh fails if the two
+# disagree.
 GENERIC = {
     ".github", ".gitlab", "docs", "doc", "test", "tests", "src", "web", "www", "api",
     "app", "lib", "bin", "scripts", "config", "assets", "images", "data", "tools", "ci",
     "infra", "common", "core", "shared", "utils", "examples", "demo", "sandbox",
     "template", "templates", "main", "public", "static", "build", "dist", "site", "blog",
-    "home", "admin", "server", "client", "frontend", "backend", "mobile",
+    "home", "admin", "server", "client", "frontend", "backend", "mobile", "coverage",
 }
 
 # name -> code, for the column `gh repo list` cannot supply. Deliberately a

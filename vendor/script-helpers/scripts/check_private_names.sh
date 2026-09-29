@@ -235,10 +235,18 @@ else
       return (low in GENERIC)
     }
     BEGIN {
+      # `coverage` earns its place for a different reason from the paths above:
+      # it is an everyday word and an action, and it is also half the file names
+      # in any repository that measures anything -- `coverage.xml`,
+      # `check_workflow_coverage.py`, `tests/workflow-coverage.yaml`. Flagged
+      # `ambiguous` by the dictionary it warned on its own file names, which is
+      # the noise this list exists to remove.
+      # The same list is in refresh_private_names.sh; tests/private_names_test.sh
+      # fails if the two disagree.
       split(".github .gitlab docs doc test tests src web www api app lib bin scripts " \
             "config assets images data tools infra common core shared utils examples " \
             "demo sandbox template templates main public static build dist site blog " \
-            "home admin server client frontend backend mobile", g, " ")
+            "home admin server client frontend backend mobile coverage", g, " ")
       for (i in g) GENERIC[g[i]] = 1
     }
     /^# *visibility/ {
@@ -283,7 +291,12 @@ else
         # Also emitted bare, into the warn-only tier: demoting it was right, but
         # the bare form passed in silence and nothing ever populated that tier.
         # generic(name) is excluded -- inferred, not declared, and pure noise.
-        if (flags ~ /ambiguous/) print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
+        #
+        # That exclusion was described here and not performed: the condition
+        # read `flags ~ /ambiguous/` alone, so a name on the generic list still
+        # warned if the dictionary happened to flag it, which is how `coverage`
+        # came to warn on file names containing the word.
+        if (flags ~ /ambiguous/ && !generic(name)) print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
         next
       }
       print "bare\t" name "\t" ns "/" name "\t" code "\t" flags > out
@@ -406,7 +419,14 @@ drop_allowed() {  # drop_allowed <names-file>
   local kept="$1.kept"
   : > "$kept"
   while IFS="$(printf '\t')" read -r name code; do
-    if grep -qix -F "$name" "$allowed"; then
+    # `--`, because a repository name may begin with a dash. Without it grep
+    # reads the name as options: a real dictionary here produced
+    # `grep: invalid argument 'j-...' for '--directories'` five times per push,
+    # on every public repository, and the run still reported the tree clean.
+    # The names were kept rather than dropped -- grep's usage error is not 0 --
+    # so nothing was wrongly allowed, but an override that named one of them
+    # silently did nothing.
+    if grep -qix -F -- "$name" "$allowed"; then
       log_info "allowed by override, not checked: $name"
     else
       printf '%s\t%s\n' "$name" "$code" >> "$kept"

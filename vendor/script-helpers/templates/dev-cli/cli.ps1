@@ -81,6 +81,7 @@ function Invoke-Preflight {
             '--quick'          { $splat['Quick'] = $true }
             '--docker'         { $splat['Docker'] = $true }
             '--skip-security'  { $splat['SkipSecurity'] = $true }
+            '--security-only'  { $splat['SecurityOnly'] = $true }
             '--list'           { $splat['List'] = $true }
             '--stack'          { $splat['Stack'] = @($PreflightArgs[++$i]) }
             '--dir'            { $splat['Dir'] = $PreflightArgs[++$i] }
@@ -231,6 +232,72 @@ function Verb-Test {
     if (-not (Invoke-Preflight @('--quick','--skip-security'))) { exit 1 }
 }
 
+# The secret and dependency scan alone; see verb_scan in cli.sh.
+function Verb-Scan {
+    if (Get-Command Project-Scan -ErrorAction SilentlyContinue) { Project-Scan; return }
+    if (-not (Invoke-Preflight (@('--security-only') + @($DEV_ARGS)))) { exit 1 }
+}
+
+# Browser end-to-end tests with Playwright; see verb_e2e in cli.sh.
+function Verb-E2e {
+    if (Get-Command Project-E2e -ErrorAction SilentlyContinue) { Project-E2e; return }
+    # What git sees: tracked files and untracked ones it does not ignore, so not
+    # node_modules and not submodule contents; see verb_e2e in cli.sh.
+    $inGit = $false
+    & git -C $DEV_REPO_ROOT rev-parse --is-inside-work-tree *> $null
+    if ($LASTEXITCODE -eq 0) { $inGit = $true }
+    # A tracked config deleted from the work tree is still listed: keep the ones
+    # that exist. One run per directory, even with .ts and .js side by side.
+    # -z: without it git quotes a path with non-ASCII characters.
+    $configs = @(if ($inGit) {
+        ((& git -C $DEV_REPO_ROOT ls-files -z --cached --others --exclude-standard) -join "`n") -split "`0" |
+            Where-Object { $_ -match '(^|/)playwright\.config\.[^/]+$' } |
+            ForEach-Object { Join-Path $DEV_REPO_ROOT $_ } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            ForEach-Object { Get-Item -LiteralPath $_ }
+    } else {
+        Get-ChildItem -Path $DEV_REPO_ROOT -Recurse -File -Filter 'playwright.config.*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '[\\/](node_modules|\.git)[\\/]' }
+    })
+    $dirs = @($configs | ForEach-Object { $_.DirectoryName } | Sort-Object -Unique)
+    if ($dirs.Count -eq 0) { Not-Applicable 'e2e' 'no playwright.config.* found; define Project-E2e in scripts/project.ps1' }
+    if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { log_error 'e2e: npx not found; install Node.js'; exit 1 }
+    $failed = $false
+    $root = (Get-Item -LiteralPath $DEV_REPO_ROOT).FullName
+    foreach ($dir in $dirs) {
+        $rel = $dir.Substring([Math]::Min($root.Length, $dir.Length)).TrimStart('\', '/'); if (-not $rel) { $rel = '.' }
+        $pkg = Join-Path $dir 'package.json'
+        if (-not ((Test-Path -LiteralPath $pkg) -and (Select-String -LiteralPath $pkg -Pattern '"(@playwright/test|playwright)"\s*:' -Quiet))) {
+            log_info "e2e: skipping ${rel}: its package.json does not depend on Playwright"
+            continue
+        }
+        log_info "e2e: $rel"
+        # Node resolves packages upward, and a workspace install hoists them to
+        # the root: look in every node_modules from here up to the repository root.
+        $found = $false; $up = $dir
+        while ($up) {
+            if ((Test-Path -LiteralPath (Join-Path $up 'node_modules/@playwright/test')) -or (Test-Path -LiteralPath (Join-Path $up 'node_modules/playwright'))) { $found = $true; break }
+            if ($up -eq $root -or -not $up.StartsWith($root)) { break }
+            $up = Split-Path -Parent $up
+        }
+        if (-not $found) {
+            log_error "e2e: Playwright is not installed in $rel; run ./dev install first"
+            $failed = $true
+            continue
+        }
+        Push-Location -LiteralPath $dir
+        try {
+            $browsers = @(); if ($env:PLAYWRIGHT_BROWSERS) { $browsers = @($env:PLAYWRIGHT_BROWSERS -split '\s+' | Where-Object { $_ }) }
+            & npx playwright install @browsers
+            if ($LASTEXITCODE -ne 0) { $failed = $true; continue }
+            $extra = @($DEV_ARGS | Where-Object { $_ })
+            & npx playwright test @extra
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+        } finally { Pop-Location }
+    }
+    if ($failed) { exit 1 }
+}
+
 function Verb-Preflight {
     if (Get-Command Project-Preflight -ErrorAction SilentlyContinue) { Project-Preflight; return }
     if (-not (Invoke-Preflight $DEV_ARGS)) { exit 1 }
@@ -329,6 +396,30 @@ function Verb-Record {
     if (-not $path) { exit 1 }
 }
 
+# Stop running services without removing them or their data; see verb_stop in cli.sh.
+function Verb-Stop {
+    if (Get-Command Project-Stop -ErrorAction SilentlyContinue) { Project-Stop; return }
+    foreach ($f in @('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')) {
+        $path = Join-Path $DEV_REPO_ROOT $f
+        if (Test-Path $path) {
+            # The same choice as get_docker_compose_cmd in lib/docker.sh: the plugin,
+            # then the standalone docker-compose, else a clear error.
+            $useStandalone = $false
+            $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+            if ($dockerCmd) { & docker compose version *> $null }
+            if (-not $dockerCmd -or $LASTEXITCODE -ne 0) {
+                if (Get-Command docker-compose -ErrorAction SilentlyContinue) { $useStandalone = $true }
+                else { log_error "stop: neither 'docker compose' nor 'docker-compose' found"; exit 1 }
+            }
+            log_info "stop: stopping the compose stack in $f; containers and volumes are kept"
+            if ($useStandalone) { & docker-compose -f $path stop } else { & docker compose -f $path stop }
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            return
+        }
+    }
+    Not-Applicable 'stop' 'no compose file; define Project-Stop in scripts/project.ps1'
+}
+
 function Verb-Logs {
     if (Get-Command Project-Logs -ErrorAction SilentlyContinue) { Project-Logs; return }
     Import-ScriptHelpers adb
@@ -386,8 +477,11 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
+  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
+  scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
+  e2e           Browser tests with Playwright, where playwright.config.* exists.
   deploy        Build, then install and launch on a connected device.
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
@@ -423,8 +517,11 @@ switch ($Verb) {
     'install'    { Verb-Install }
     'build'      { Verb-Build }
     'run'        { Verb-Run }
+    'stop'       { Verb-Stop }
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
+    'scan'       { Verb-Scan }
+    'e2e'        { Verb-E2e }
     'deploy'     { Verb-Deploy }
     'devices'    { Verb-Devices }
     'screenshot' { Verb-Screenshot }
