@@ -123,6 +123,15 @@
 
 ### Added
 
+- **`codeql-scan.yml` gains `diff_informed`.** On a pull request CodeQL reports
+  only alerts inside the diff -- it logs `Computing PR diff ranges` and says
+  nothing about code the pull request did not touch. That is GitHub's default,
+  and worth knowing before a first adopter reads a quiet run as a clean one: a
+  gate built on it will not fail for anything already in the tree. The self test
+  sets it false, because otherwise its assertion only held on the pull request
+  that added the fixture -- it found the planted vulnerability on #251 and
+  nothing on the release branch that followed.
+
 - **`codeql-scan.yml`: there was no static analysis in this library at all.**
   The `codeql-action` references in `trivy-scan.yml` and `security-weekly.yml`
   are `upload-sarif` only, used to get other tools' reports into the Security

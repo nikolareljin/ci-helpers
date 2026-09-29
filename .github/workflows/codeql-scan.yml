@@ -53,6 +53,17 @@ on:
           larger ones; empty means the default suite.
         type: string
         default: ""
+      diff_informed:
+        description: >
+          On a pull request, CodeQL restricts alerts to the lines the pull
+          request touches -- it logs `Computing PR diff ranges` and reports
+          nothing outside them. That is what GitHub does by default and it is
+          usually what a reviewer wants, but it means a pull request gate says
+          nothing about code it did not touch, and a repository adopting this
+          workflow will see far less on its first run than it expects.
+          Set false to analyse everything on every event.
+        type: boolean
+        default: true
       upload:
         description: >
           Upload results to the Security tab. Off is for a caller that wants
@@ -127,6 +138,11 @@ jobs:
       - name: Analyze
         id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 @ 2026-09-28
+        env:
+          # The action reads this rather than an input. Its own tests name the
+          # variable and both values, which is why it is spelled out here
+          # instead of guessed.
+          CODEQL_ACTION_DIFF_INFORMED_QUERIES: ${{ inputs.diff_informed }}
         with:
           upload: ${{ inputs.upload && 'always' || 'never' }}
           output: ${{ runner.temp }}/codeql-results
