@@ -98,11 +98,13 @@ notes:
     As gitleaks-scan.yml.
   docker-scan.yml: >-
     Exercised as far as the credential: `docker-scan-defaults-can-pass` builds
-    the fixture and runs Trivy. The Snyk step needs `snyk_token` and stays
-    unexercised -- though the step that decides whether it *can* run is driven
-    with and without a token -- and so does `fail_on_findings: true` -- whether a scan finds
-    anything depends on the CVE state of a public base image, which changes
-    without us.
+    the fixture and runs Trivy, the step that decides whether Snyk *can* run is
+    driven with and without a token, and the Snyk call itself is run against
+    the fixture with a deliberately invalid one -- it reaches authentication,
+    which is the last thing provable without the account. What stays
+    unexercised is a scan that authenticates, and `fail_on_findings: true` --
+    whether a scan finds anything depends on the CVE state of a public base
+    image, which changes without us.
   release-rc-pr.yml: >-
     Needs `GH_PAT` because the default token cannot open a pull request that
     triggers further workflows. Its refusal path -- a 403 logged as a warning
