@@ -61,6 +61,13 @@ jobs:
           severity: "CRITICAL,HIGH"
           fail_on_findings: "false"
           upload_sarif: "true"
+          # `tests/fixtures` holds dependencies pinned to published advisories
+          # on purpose -- go-vuln, python-vuln, php-vuln -- and every one of
+          # them was being filed as a finding against this repository. A
+          # Security tab listing work nobody is going to do is one people stop
+          # opening, which costs more than the fixtures are worth there. The
+          # legs that scan them still do, deliberately and by name.
+          skip_dirs: "tests/fixtures"
 
   gitleaks:
     name: Gitleaks Secret Scan

@@ -2,6 +2,19 @@
 
 ### Fixed
 
+- **The weekly Trivy run filed this repository's own deliberate fixtures as
+  findings.** `tests/fixtures` holds dependencies pinned to published
+  advisories on purpose -- `go-vuln`, `python-vuln`, `php-vuln` -- and every
+  one of them was arriving in the Security tab as work for somebody. The weekly
+  scan now skips that directory; the legs that scan those fixtures still do,
+  deliberately and by name.
+
+- **`trivy-scan.yml` and its composite action could drift apart in silence.**
+  They wrap the same action and share ten inputs. An input added to one and not
+  the other is invisible until somebody sets it on the wrong one and it is
+  ignored without a word. A leg now fails when the two stop matching, and it
+  was driven by renaming an input in one of them.
+
 - **A gitleaks scan of anything that is not a git work tree passed without
   scanning.** `detect` reads git history. Pointed at an unpacked archive, a
   build output, a generated directory -- anything with no history -- gitleaks
@@ -75,6 +88,17 @@
   Driven by renaming the step they extract: the refusal is printed.
 
 ### Added
+
+- **Trivy already scanned Dockerfiles, compose files, Kubernetes manifests and
+  Terraform; nothing here let a caller ask for it.** `trivy-scan.yml` and
+  `.github/actions/trivy-scan` both hardcoded vulnerability scanning of the
+  filesystem. Both gain `scanners` (default `vuln`, so nothing changes for an
+  existing caller) and `skip_dirs`. The misconfiguration rulesets ship with the
+  binary this repository already downloads, so the capability cost a flag.
+
+  A fixture pair drives it: a Dockerfile with no `USER` fails at `DS-0002`
+  (HIGH) and the same Dockerfile with one passes, so a green scan means the
+  scan ran rather than that every Dockerfile passes.
 
 - **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
   against the fixture pinned to a published advisory, and the failing direction

@@ -418,6 +418,19 @@ Inputs:
 - `severity` (string, default `CRITICAL,HIGH`)
 - `ignore_unfixed` (string, default `"true"`)
 - `vuln_type` (string, default `os,library`)
+- `scanners` (string, default `vuln`) -- comma-separated Trivy scanners.
+  `misconfig` reads Dockerfiles, compose files, Kubernetes manifests and
+  Terraform; `secret` is Trivy's own secret scanner, which `gitleaks-scan.yml`
+  already covers. The rulesets ship with the binary, so this costs a flag and
+  not a tool:
+
+  ```yaml
+  with:
+    scanners: vuln,misconfig
+  ```
+- `skip_dirs` (string, default `""`) -- comma-separated directories to leave
+  out. Use it for fixtures that are wrong on purpose: a Security tab full of
+  findings nobody is going to act on is one people stop reading.
 - `fail_on_findings` (boolean, default `false`)
 - `upload_sarif` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)

@@ -23,6 +23,24 @@ on:
       vuln_type:
         type: string
         default: os,library
+      scanners:
+        description: >
+          Comma-separated Trivy scanners. `vuln` is the default and was all
+          this ever ran; `misconfig` reads Dockerfiles, compose files,
+          Kubernetes manifests and Terraform, and `secret` is Trivy's own
+          secret scanner (`gitleaks-scan.yml` already covers that ground). The
+          rulesets ship with the binary that is already downloaded here, so
+          `misconfig` costs a flag, not a tool.
+        type: string
+        default: vuln
+      skip_dirs:
+        description: >
+          Comma-separated directories to leave out, passed to Trivy's
+          `--skip-dirs`. Use it for fixtures that are wrong on purpose: a
+          Security tab full of findings nobody is going to act on is one people
+          stop reading.
+        type: string
+        default: ""
       fail_on_findings:
         type: boolean
         default: false
@@ -59,6 +77,8 @@ jobs:
           severity: ${{ inputs.severity }}
           ignore-unfixed: ${{ inputs.ignore_unfixed }}
           vuln-type: ${{ inputs.vuln_type }}
+          scanners: ${{ inputs.scanners }}
+          skip-dirs: ${{ inputs.skip_dirs }}
           exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
 
       # Also after a failed scan (findings are what fail it), but only when a

@@ -1043,6 +1043,93 @@ jobs:
           print(f"failed on {len(found)} finding(s) in golang.org/x/text, as pinned")
           PYTHON
 
+  # Trivy scans Dockerfiles, compose files, Kubernetes manifests and Terraform
+  # with `--scanners misconfig`, using rulesets that ship with the binary this
+  # repository already downloads twice. The capability was one flag away and
+  # unused.
+  trivy-finds-misconfiguration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      - name: A Dockerfile that runs as root fails
+        id: bad
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: tests/fixtures/iac-misconfig/bad
+          scanners: misconfig
+          format: json
+          output: ${{ runner.temp }}/misconfig-bad.json
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: The same Dockerfile with a USER does not
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: tests/fixtures/iac-misconfig/good
+          scanners: misconfig
+          format: json
+          output: ${{ runner.temp }}/misconfig-good.json
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: It failed on the rule the fixture exists for
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.bad.outcome }}" != "failure" ]]; then
+            echo "::error::the root Dockerfile passed a misconfiguration scan"
+            exit 1
+          fi
+          python3 - "${RUNNER_TEMP}/misconfig-bad.json" <<'PYTHON'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          found = [
+              (m["ID"], m["Severity"], m["Title"])
+              for r in (data.get("Results") or [])
+              for m in (r.get("Misconfigurations") or [])
+          ]
+          # Named, not counted. A scan failing for another reason satisfies a
+          # count and says nothing about what was read.
+          if not any(i == "DS-0002" for i, _, _ in found):
+              raise SystemExit(f"the failure is not DS-0002; found {found}")
+          print(f"DS-0002 among {len(found)} finding(s), as the fixture intends")
+          PYTHON
+
+      - name: The two implementations of this scan expose the same inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `trivy-scan.yml` and `.github/actions/trivy-scan` both wrap the same
+          # action. An input added to one and not the other is invisible until
+          # somebody sets it on the wrong one and it is silently ignored --
+          # which is how `scanners` came to be added to both in one change.
+          python3 - <<'PYTHON'
+          import yaml
+
+          action = yaml.safe_load(open(".github/actions/trivy-scan/action.yml"))
+          workflow = yaml.safe_load(open(".github/workflows/trivy-scan.yml"))
+          triggers = workflow.get(True) or workflow.get("on")
+
+          # The workflow has three of its own: where to run, and whether to
+          # upload the report as an artifact. Neither is the action's business.
+          workflow_only = {"runner", "upload_artifact", "artifact_name"}
+
+          a = set(action["inputs"])
+          w = set(triggers["workflow_call"]["inputs"]) - workflow_only
+          if a != w:
+              raise SystemExit(
+                  f"the preset and the action have drifted:\n"
+                  f"  only in the action:   {sorted(a - w)}\n"
+                  f"  only in the preset:   {sorted(w - a)}"
+              )
+          print(f"both expose the same {len(a)} scan inputs")
+          PYTHON
+
   assert-ran:
     needs:
       - release-tag-gate-defaults-can-pass
@@ -1067,6 +1154,7 @@ jobs:
       - gitleaks-refuses-what-it-must
       - trivy-scan-defaults-can-pass
       - trivy-refuses-what-it-must
+      - trivy-finds-misconfiguration
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
