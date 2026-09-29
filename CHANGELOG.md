@@ -22,6 +22,17 @@
   AWS's example key clean; and the error wording is not stable across releases,
   so the guard matches both spellings and falls back to the byte count.
 
+  **For adopters:** a repository whose `scan_path` is not a work tree has been
+  getting a clean result from a scan that never ran. After this it gets a real
+  scan, so findings can appear where there were none, and with
+  `fail_on_findings: true` a build that was green can go red. That is the bug
+  being fixed, not a side effect of it. A `scan_path` holding no files now
+  fails too, with a message saying so.
+
+  The docs for this preset also said `scan_path`, `config_path` and
+  `report_format` were not honoured. They described `gitleaks-action`, which
+  this workflow has not used for some time; all three work.
+
   `scan_path` is also documented for what it does: in a work tree the scan
   covers the repository's history, so naming a subdirectory does not narrow it.
 
