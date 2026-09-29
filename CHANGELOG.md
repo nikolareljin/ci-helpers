@@ -9,6 +9,14 @@
   scan now skips that directory; the legs that scan those fixtures still do,
   deliberately and by name.
 
+- **`check_vendor_currency.sh` printed an error on every push from a git
+  worktree.** It wrote its throttle stamp to `$ROOT_DIR/.git/...`, and in a
+  linked worktree `.git` is a *file* pointing at `.git/worktrees/<name>`, so
+  the write failed with "Not a directory" on a courtesy check that is supposed
+  to be silent. It asks git for the directory now. Verified in both: the stamp
+  lands in `.git/worktrees/<name>/` from a worktree and in `.git/` from a
+  normal checkout.
+
 - **`trivy-scan.yml` and its composite action could drift apart in silence.**
   They wrap the same action and share ten inputs. An input added to one and not
   the other is invisible until somebody sets it on the wrong one and it is
