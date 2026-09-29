@@ -100,6 +100,14 @@ jobs:
     outputs:
       results: ${{ steps.report.outputs.results }}
       rules: ${{ steps.report.outputs.rules }}
+    env:
+      # The action reads this rather than an input, and its own tests name the
+      # variable and both values -- so it is spelled out rather than guessed.
+      #
+      # At the job, not on `analyze`: the diff ranges are computed during
+      # `init`. Set on the later step it arrived seven seconds too late, and
+      # the run still logged `Computing PR diff ranges` and reported nothing.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: ${{ inputs.diff_informed }}
     steps:
       # An empty `languages` is not a no-op: `init` fails on it with a message
       # about an unknown language, which is loud but reads as a broken action
@@ -138,11 +146,6 @@ jobs:
       - name: Analyze
         id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 @ 2026-09-28
-        env:
-          # The action reads this rather than an input. Its own tests name the
-          # variable and both values, which is why it is spelled out here
-          # instead of guessed.
-          CODEQL_ACTION_DIFF_INFORMED_QUERIES: ${{ inputs.diff_informed }}
         with:
           upload: ${{ inputs.upload && 'always' || 'never' }}
           output: ${{ runner.temp }}/codeql-results
