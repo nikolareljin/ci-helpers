@@ -431,6 +431,23 @@ Inputs:
 - `skip_dirs` (string, default `""`) -- comma-separated directories to leave
   out. Use it for fixtures that are wrong on purpose: a Security tab full of
   findings nobody is going to act on is one people stop reading.
+
+**The caller must grant `security-events: write`, even with
+`upload_sarif: false`.** This workflow declares that permission, and GitHub
+compares a called workflow's declared permissions against the caller's when it
+resolves the call -- before any job runs, and regardless of which steps would
+have used it. A caller granting only `contents: read` is refused, and the
+refusal arrives as a `startup_failure` with no annotation while every other
+check stays green:
+
+```yaml
+jobs:
+  trivy:
+    permissions:
+      contents: read
+      security-events: write
+    uses: nikolareljin/ci-helpers/.github/workflows/trivy-scan.yml@production
+```
 - `fail_on_findings` (boolean, default `false`)
 - `upload_sarif` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)

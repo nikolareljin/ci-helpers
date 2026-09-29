@@ -26,6 +26,16 @@
   lands in `.git/worktrees/<name>/` from a worktree and in `.git/` from a
   normal checkout.
 
+- **`trivy-scan.yml`'s note about permissions was wrong in the direction that
+  costs an afternoon.** It said callers need `security-events: write` "when
+  they enable SARIF upload". GitHub compares a called workflow's *declared*
+  permissions against the caller's when it resolves the call, before any job
+  runs and regardless of which steps would use them -- so a caller that reads
+  that note, sets `upload_sarif: false` and grants only `contents: read` is
+  refused, and the refusal arrives as a `startup_failure` with no annotation
+  while every other check stays green. Corrected in the workflow and written
+  into `docs/workflows.md` with the `permissions:` block to copy.
+
 - **An empty `scanners` was a green run that scanned nothing.** Trivy accepts
   it, scans nothing and exits 0. An unknown scanner name is a FATAL error, which
   is loud and fine; an empty one was not, and every other input in these presets
@@ -122,7 +132,10 @@
 
   A fixture pair drives it: a Dockerfile with no `USER` fails at `DS-0002`
   (HIGH) and the same Dockerfile with one passes, so a green scan means the
-  scan ran rather than that every Dockerfile passes.
+  scan ran rather than that every Dockerfile passes. The passing half is
+  checked for having been *read*, not merely for exiting 0 -- an empty
+  directory exits 0 from this scan exactly as a clean one does, and the only
+  difference is that its report has no results at all.
 
 - **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
   against the fixture pinned to a published advisory, and the failing direction

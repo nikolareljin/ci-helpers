@@ -58,8 +58,14 @@ permissions:
   contents: read
   security-events: write
 
-# NOTE: Because this workflow is reusable (`workflow_call`), callers still need to
-# grant `security-events: write` in the calling workflow when they enable SARIF upload.
+# The caller must grant `security-events: write` **whether or not it uploads**.
+# GitHub compares a called workflow's declared `permissions:` against the
+# caller's when it resolves the call, before any job starts, so a caller that
+# sets `upload_sarif: false` and grants only `contents: read` is refused --
+# and the refusal arrives as a `startup_failure` with no annotation while every
+# other check stays green. (The note here used to say "when they enable SARIF
+# upload", which is the reading that produces that failure.) Measured on the
+# same mechanism in #239, where a missing `checks: write` did exactly this.
 jobs:
   scan:
     runs-on: ${{ inputs.runner }}

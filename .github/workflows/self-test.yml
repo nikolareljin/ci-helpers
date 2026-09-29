@@ -1101,19 +1101,40 @@ jobs:
             echo "::error::the root Dockerfile passed a misconfiguration scan"
             exit 1
           fi
-          python3 - "${RUNNER_TEMP}/misconfig-bad.json" <<'PYTHON'
+          python3 - "${RUNNER_TEMP}/misconfig-bad.json" "${RUNNER_TEMP}/misconfig-good.json" <<'PYTHON'
           import json, sys
-          data = json.load(open(sys.argv[1]))
+
+          def results(path):
+              return json.load(open(path)).get("Results") or []
+
           found = [
               (m["ID"], m["Severity"], m["Title"])
-              for r in (data.get("Results") or [])
+              for r in results(sys.argv[1])
               for m in (r.get("Misconfigurations") or [])
           ]
           # Named, not counted. A scan failing for another reason satisfies a
           # count and says nothing about what was read.
           if not any(i == "DS-0002" for i, _, _ in found):
               raise SystemExit(f"the failure is not DS-0002; found {found}")
-          print(f"DS-0002 among {len(found)} finding(s), as the fixture intends")
+
+          # And the passing half has to have been *read*. An empty directory
+          # exits 0 from this scan exactly as a clean one does -- the only
+          # difference is in the report, where an empty one has no results at
+          # all. Without this, deleting good/Dockerfile would leave the leg
+          # green and proving nothing about the passing direction.
+          clean = [r for r in results(sys.argv[2]) if r.get("Type") == "dockerfile"]
+          if not clean:
+              raise SystemExit(
+                  "the passing scan read no Dockerfile at all, so its exit 0 "
+                  "means 'nothing to scan' rather than 'nothing wrong'"
+              )
+          still_wrong = [m["ID"] for r in clean for m in (r.get("Misconfigurations") or [])]
+          if still_wrong:
+              raise SystemExit(f"the passing fixture is no longer clean: {still_wrong}")
+          print(
+              f"DS-0002 among {len(found)} finding(s) in bad/, and good/ was read "
+              f"and clean"
+          )
           PYTHON
 
       # Both scans report rather than gate: `exit-code: 0`, with the assertion
