@@ -1281,6 +1281,10 @@ jobs:
       languages: python
       upload: false
       config_file: tests/fixtures/codeql/python-only.yml
+      # Off, or this leg only passes on the pull request that adds the fixture.
+      # It found the planted vulnerability on #251 and nothing on the release
+      # branch that followed, because there the file is not in the diff.
+      diff_informed: false
 
   # The preset reports its own counts, so the leg can tell "clean" from
   # "analysed nothing". The first run of this leg said `0 result(s), 0 rule(s)`

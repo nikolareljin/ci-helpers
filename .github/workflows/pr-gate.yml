@@ -276,7 +276,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 4c593d95059a16f2925dc3ea882ba459a69d8ec3 # 0.43.1
+          ref: 85193aecbbcc6ffd65d32f256191320253fdc36d # 0.44.1
           path: .script-helpers
           fetch-depth: 1
 

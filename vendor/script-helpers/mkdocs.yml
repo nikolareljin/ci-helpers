@@ -187,6 +187,7 @@ nav:
           - package_publish: modules/package_publish.md
           - git_branches: modules/git_branches.md
           - ci_defaults (module): modules/ci_defaults.md
+          - foxguard: modules/foxguard.md
       - Media and services:
           - svg: modules/svg.md
           - webshot: modules/webshot.md

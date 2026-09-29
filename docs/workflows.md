@@ -492,6 +492,13 @@ Inputs:
   and `paths` / `paths-ignore`.
 - `queries` (string, default `""`) -- e.g. `security-extended`,
   `security-and-quality`.
+- `diff_informed` (boolean, default `true`) -- **on a pull request CodeQL
+  reports only alerts inside the diff.** It logs `Computing PR diff ranges` and
+  says nothing about code the pull request did not touch. That is GitHub's
+  default and usually what a reviewer wants, but it means a first run on an
+  existing repository shows far less than expected, and a gate built on it will
+  not fail for anything already in the tree. Set `false` to analyse everything
+  on every event.
 - `upload` (boolean, default `true`) -- file results in the Security tab. Turn
   it off to run the analysis without filing alerts.
 - `fetch_depth` (number, default `0`), `timeout_minutes` (number, default `45`)

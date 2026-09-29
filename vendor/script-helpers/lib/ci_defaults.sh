@@ -15,6 +15,7 @@
 #      Go:       https://hub.docker.com/_/golang/tags (pick 1.x)
 #      Gitleaks: https://github.com/gitleaks/gitleaks/releases
 #      Wrangler: https://www.npmjs.com/package/wrangler?activeTab=versions
+#      foxguard: https://github.com/0sec-labs/foxguard/releases (and its checksums.txt)
 #
 # 2. Update the version variables below.
 # 3. Commit with: git commit -m "chore: bump ci default versions"
@@ -52,6 +53,18 @@ CI_DEFAULT_BASH32_IMAGE="${CI_DEFAULT_BASH32_IMAGE:-bash}"
 # -- Gitleaks (security scanning) --
 CI_DEFAULT_GITLEAKS_VERSION="${CI_DEFAULT_GITLEAKS_VERSION:-v8.30.0}"
 CI_DEFAULT_GITLEAKS_IMAGE="${CI_DEFAULT_GITLEAKS_IMAGE:-zricethezav/gitleaks}"
+
+# -- foxguard (static analysis in ci_security.sh) --
+# Not an image: a release binary that `ci_security.sh --install-foxguard`
+# downloads and checks against these SHA-256 values, copied from the release's
+# checksums.txt when the version was pinned. A binary that does not match is
+# refused. Bump the version and every checksum together.
+CI_DEFAULT_FOXGUARD_VERSION="${CI_DEFAULT_FOXGUARD_VERSION:-0.14.0}"
+CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64="${CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64:-ef56a4d5cfc4cc4462e435bf31ca0f90694f47df1384772361a67828427db3d9}"
+CI_DEFAULT_FOXGUARD_SHA256_LINUX_AARCH64="${CI_DEFAULT_FOXGUARD_SHA256_LINUX_AARCH64:-7d5c7263d71089eb06113a634aa3394ab8b54782b16e67a349693fedbb598120}"
+CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64="${CI_DEFAULT_FOXGUARD_SHA256_MACOS_X86_64:-628b6dcecbba8abd7312be1c94ac2346a363a680429b979ec5f63cf8ac7bca4b}"
+CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64="${CI_DEFAULT_FOXGUARD_SHA256_MACOS_AARCH64:-aa47b956f31bfbc87e0f43cd48e01f3bc73229192ffff0113ff094e5b3fd7d12}"
+CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64="${CI_DEFAULT_FOXGUARD_SHA256_WINDOWS_X86_64:-6ff15185c968da849845afa321f23f14de142d45efd568a9513d2600eec281c2}"
 
 # -- Wrangler (Cloudflare deploys) --
 # Not an image: this is the version `lib/cloudflare.sh` hands to `npx` when a

@@ -7,8 +7,21 @@
 # PARAMETERS:
 #   --quick   Skip install; run lint and tests against the current environment.
 #   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+# EXIT_CODES:
+#   0  Every check that ran passed.
+#   1  A check failed, or bad arguments.
+#   3  Nothing could be checked: pytest, or a configured ruff, is not installed, or pytest
+#      collected no tests. preflight reports it as SKIP.
 # ----------------------------------------------------
 set -euo pipefail
+
+# skip_exit <reason>; nothing could be checked. Exit 3, which preflight reports as
+# SKIP with this reason (written to $PREFLIGHT_SKIP_FILE when preflight sets it).
+skip_exit() {
+  echo "[local-test-python] $1" >&2
+  if [[ -n "${PREFLIGHT_SKIP_FILE:-}" ]]; then printf '%s\n' "$1" > "$PREFLIGHT_SKIP_FILE"; fi
+  exit 3
+}
 
 QUICK=false
 TEST_DIR="."
@@ -137,21 +150,28 @@ if ruff_configured; then
     "$PYTHON" -m ruff --version &>/dev/null && RUFF=("$PYTHON" -m ruff)
   fi
   if [[ ${#RUFF[@]} -eq 0 ]]; then
-    # Configured but absent is a missing gate, not a clean run. Say so and stop,
-    # rather than reporting success for a check that never executed.
-    echo "[local-test-python] ruff is configured for this project but is not installed." >&2
-    echo "[local-test-python] Install it with: $PYTHON -m pip install ruff   (or run a full preflight once)" >&2
-    exit 1
+    # Configured but absent is a missing gate, not a clean run: say so and stop
+    # with exit 3, which preflight reports as SKIP -- listed apart from passes,
+    # never counted as one -- like a missing pytest, go or npm.
+    skip_exit "ruff is configured but not installed; lint and tests not run. Install: $PYTHON -m pip install ruff"
   fi
   echo "[local-test-python] ${RUFF[*]} check ."
   "${RUFF[@]}" check .
 fi
 
 if ! "$PYTHON" -m pytest --version &>/dev/null; then
-  echo "[local-test-python] pytest not found for $PYTHON. Install it in the selected Python environment." >&2
-  exit 1
+  # A missing tool is a check that could not run, like a missing go or npm in
+  # preflight: exit 3 (a SKIP there) with the fix, not a failure of the code.
+  skip_exit "pytest is not installed for $PYTHON; tests not run. Install: $PYTHON -m pip install pytest"
 fi
 
 echo "[local-test-python] $PYTHON -m pytest --tb=short -q"
-"$PYTHON" -m pytest --tb=short -q
+pytest_rc=0
+"$PYTHON" -m pytest --tb=short -q || pytest_rc=$?
+case "$pytest_rc" in
+  0) ;;
+  5) skip_exit "pytest collected no tests; nothing to test" ;;
+  3) exit 1 ;;   # pytest's internal error; 3 from this runner means skip_exit
+  *) exit "$pytest_rc" ;;
+esac
 echo "[local-test-python] Done."

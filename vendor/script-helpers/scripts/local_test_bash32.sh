@@ -80,7 +80,7 @@ fi
 # does not, the affected tests are reported as SKIPPED -- a test that failed for
 # want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
 # people learn to ignore.
-BOOTSTRAP='apk add --no-cache git python3 curl >/dev/null 2>&1 || true'
+BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip >/dev/null 2>&1 || true'
 
 # Offline, `docker run` on an image that was never pulled fails with a registry
 # error that reads like the gate is broken. Say what actually happened, and use
@@ -123,6 +123,11 @@ RUNNER='
       # image the installer correctly refuses and the test correctly fails.
       # That is a statement about Alpine, not about bash 3.2.
       tests/docker_install_test.sh) need="$need apt-get" ;;
+      # Drives ci_wp_build.sh, which stages with rsync and packs with zip; the
+      # test text names neither.
+      tests/ci_wp_build_test.sh) need="$need rsync zip" ;;
+      # The hook it tests runs make test in a shell repository.
+      tests/pre_push_shell_repo_test.sh) need="$need make" ;;
       # Runs git when it is there and falls back to find when it is not, on
       # purpose and with a comment saying so. Skipping it for a missing git
       # would drop the portability gate itself from the 3.2 run, which is the

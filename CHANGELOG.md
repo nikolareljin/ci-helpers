@@ -2,6 +2,20 @@
 
 ### Fixed
 
+- **`vendor/script-helpers` moves to 0.44.1** (from 0.43.1), and the fifteen
+  workflows that check it out by commit move with it --
+  `scripts/check_script_helpers_pins.sh` refuses the tree otherwise, which is
+  how the repin was found rather than remembered.
+
+  Three things in it matter here. The private-name gate stops warning on
+  `coverage`, which it had been doing on this repository's own
+  `tests/workflow-coverage.yaml`; the same change made the gate perform an
+  exclusion its comment had only described, so `core` and `mobile` stop warning
+  too. `./dev scan` now audits each project rather than the repository root
+  alone -- a tree with `backend/` and `frontend/` previously got gitleaks and a
+  `PASS`. And `foxguard` arrives as a local static-analysis step, pinned and
+  checksum-verified; nothing in CI runs it yet.
+
 - **The weekly Trivy run filed this repository's own deliberate fixtures as
   findings.** `tests/fixtures` holds dependencies pinned to published
   advisories on purpose -- `go-vuln`, `python-vuln`, `php-vuln` -- and every
@@ -122,6 +136,15 @@
   Driven by renaming the step they extract: the refusal is printed.
 
 ### Added
+
+- **`codeql-scan.yml` gains `diff_informed`.** On a pull request CodeQL reports
+  only alerts inside the diff -- it logs `Computing PR diff ranges` and says
+  nothing about code the pull request did not touch. That is GitHub's default,
+  and worth knowing before a first adopter reads a quiet run as a clean one: a
+  gate built on it will not fail for anything already in the tree. The self test
+  sets it false, because otherwise its assertion only held on the pull request
+  that added the fixture -- it found the planted vulnerability on #251 and
+  nothing on the release branch that followed.
 
 - **`codeql-scan.yml`: there was no static analysis in this library at all.**
   The `codeql-action` references in `trivy-scan.yml` and `security-weekly.yml`
