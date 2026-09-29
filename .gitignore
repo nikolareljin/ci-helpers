@@ -40,3 +40,12 @@ CLAUDE.md
 
 # Written by tests/fixtures/django-app/manage.py when the drift check runs.
 .fixture-makemigrations-ran
+
+# `composer install` in the PHP fixtures, which the audit legs run. The lock
+# file is deliberately absent from the tree: the fixture stands in for a lock
+# written while its packages were clean, and committing one would pin the
+# advisory set to whatever it was on the day it was generated.
+/tests/fixtures/php-vuln/vendor/
+/tests/fixtures/php-vuln/composer.lock
+/tests/fixtures/php-clean/vendor/
+/tests/fixtures/php-clean/composer.lock

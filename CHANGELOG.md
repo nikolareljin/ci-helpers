@@ -178,6 +178,13 @@
   | bare `pip-audit` | audits the **ambient environment**, so on a runner it reports the runner's own `pip` and fails a build over a package the project never chose |
   | `pip install pip-audit` | moves the project's own pins: `packaging` 21.0 to 26.3 and `requests` 2.28.0 to 2.34.2 on a fixture, so every stage after it runs against versions the project did not choose. Both tools go through `pipx` instead |
   | `bandit -r .` without exclusions | walks any local virtualenv: 132, 275 and 126 findings of third-party code on three callers, against 1, 12 and 1 in code they own |
+  | the audit line with no `else` | a working directory holding neither `requirements.txt` nor `pyproject.toml` gave a green audit stage that audited nothing. It fails now, naming the directory |
+
+  `.gitignore` covers what the PHP legs generate -- `vendor/` and the
+  `composer.lock` that `composer install` writes in both fixtures. The lock is
+  deliberately absent from the tree: the fixture stands in for one written while
+  its packages were clean, and committing it would pin the advisory set to
+  whatever it was on the day it was generated.
 
   The two stages run straight after the install, before lint and the tests, so
   an advisory is reported without waiting for a test run -- which is only safe

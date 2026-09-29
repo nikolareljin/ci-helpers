@@ -851,7 +851,7 @@ repository, where the finding can be looked at:
 
 ```yaml
 with:
-  audit_command: "if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; fi"
+  audit_command: "if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; else echo "::error::audit_command is set but $(pwd) has neither requirements.txt nor pyproject.toml, so nothing was audited"; exit 1; fi"
   bandit_command: "pipx run bandit -q -r . -ll --exclude ./.venv,./venv,./node_modules,./build,./dist"
 ```
 
@@ -865,6 +865,15 @@ Two things about those lines, both measured rather than stylistic:
   virtualenv and reports third-party code as the project's: on three of this
   preset's callers that is 132, 275 and 126 findings, against 1, 12 and 1 in
   code they own.
+- Both run through `pipx`, which is preinstalled on GitHub-hosted runners. On a
+  self-hosted runner without it the stage fails with `pipx: command not found`,
+  which is loud and correct. `pip install` is the thing to avoid: installing
+  either tool into the project's environment moved `packaging` 21.0 to 26.3 and
+  `requests` 2.28.0 to 2.34.2 on a fixture, and these stages run before the lint
+  and the tests.
+- The audit line ends in an `else` that fails. A working directory with neither
+  `requirements.txt` nor `pyproject.toml` would otherwise give a green audit
+  stage that audited nothing.
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
 - `django_command` (string, default `if [ -f manage.py ]; then python manage.py test; fi`, only runs when Django is detected)
 

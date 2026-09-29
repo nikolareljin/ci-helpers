@@ -38,12 +38,15 @@ on:
           of the recommended value, both measured. Bare `pip-audit` audits the
           *ambient* environment, so on a runner it reports the runner's own
           `pip` and fails a build over a package the project never chose --
-          `-r` and `.` audit the project. And it runs through `pipx`, not
+          `-r` and `.` audit the project, and the trailing `else` refuses
+          rather than passing -- a working directory holding neither file
+          would otherwise give a green audit stage that audited nothing.
+          It runs through `pipx`, not
           `pip install`: installing the tool into the project's environment
           moved `packaging` 21.0 to 26.3 and `requests` 2.28.0 to 2.34.2 on a
           fixture, so the lint and the tests after it would run against
           versions the project did not pin. Recommended value:
-          if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; fi
+          if [ -f requirements.txt ]; then pipx run pip-audit -r requirements.txt; elif [ -f pyproject.toml ]; then pipx run pip-audit .; else echo "::error::audit_command is set but $(pwd) has neither requirements.txt nor pyproject.toml, so nothing was audited"; exit 1; fi
         type: string
         default: ""
       # Python SAST. Off for the same kind of reason: four of those five fail
