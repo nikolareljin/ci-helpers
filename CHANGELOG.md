@@ -11,9 +11,21 @@
   nothing used.
 
   The step is the same call by hand -- `snyk test --severity-threshold=... --docker
-  <image>`, the two `SNYK_INTEGRATION_*` variables and the docker socket the
-  runner mounts into a container action -- so nothing is pulled unless the step
-  runs. Behaviour with a token is unchanged.
+  <image>`, the two `SNYK_INTEGRATION_*` variables, the docker socket, and the
+  workspace mounted and made the working directory -- so nothing is pulled
+  unless the step runs. The workspace is not cosmetic: Snyk reads its `.snyk`
+  policy file, which is where a consumer's ignore rules live, from the working
+  directory, and at the image's own `/app` they would have been dropped without
+  a word. The socket comes from `DOCKER_HOST` when a host has moved it.
+
+  Behaviour with a token is unchanged, checked against the image rather than
+  assumed: the action's `sarif` input only adds `--sarif-file-output` when
+  `--file` is among the arguments, which a `--docker` scan never has, so no
+  SARIF file was being produced to lose; and the entrypoint's language
+  pre-steps look for `pip`, `mvn`, `go` and `gradle`, none of which exist in
+  `snyk/snyk:docker`. `snyk test` is also left as it is rather than modernised
+  to `snyk container test`, since the exit codes a consumer gates on are not a
+  pull fix's to change.
 
   Swapping a published action for a command line of our own needs the command
   line exercised, so a self-test leg runs it against the Docker fixture with a

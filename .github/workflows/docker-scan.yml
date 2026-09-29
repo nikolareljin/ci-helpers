@@ -109,9 +109,20 @@ jobs:
       #
       # The same call, run by hand, is not pulled unless this step runs. The
       # action is three lines of `runs:` -- `snyk test <args> --docker <image>`
-      # with two SNYK_INTEGRATION_* variables -- reproduced below. The socket
-      # mount is what the runner gives a container action for free and what
-      # lets Snyk read an image from the local daemon.
+      # with two SNYK_INTEGRATION_* variables -- and the rest of what is below
+      # is what the runner gives a container action for free and what this has
+      # to do for itself:
+      #
+      #   * the docker socket, without which Snyk cannot read an image from
+      #     the local daemon
+      #   * the workspace, mounted and made the working directory. Snyk reads
+      #     its `.snyk` policy file -- a consumer's ignore rules -- from the
+      #     working directory, and a container action's was the workspace. At
+      #     the image's own `/app` those rules would be silently dropped.
+      #
+      # `snyk test` is left as the command rather than modernised to
+      # `snyk container test`: this is a fix for the pull, and the exit codes
+      # a consumer already gates on are not its to change.
       - name: Snyk scan
         if: ${{ inputs.run_snyk && steps.snyk_token.outputs.present == 'true' }}
         shell: bash
@@ -121,10 +132,18 @@ jobs:
           SEVERITY_THRESHOLD: ${{ inputs.snyk_severity_threshold }}
         run: |
           set -euo pipefail
+          # The runner mounts /var/run/docker.sock into a container action, but
+          # a host that moved its socket exports DOCKER_HOST; prefer it, so
+          # this does not mount an empty directory and report a missing image.
+          socket="${DOCKER_HOST:-}"; socket="${socket#unix://}"
+          [[ -S "$socket" ]] || socket=/var/run/docker.sock
+          workspace="${GITHUB_WORKSPACE:-$PWD}"
           docker run --rm \
             -e SNYK_TOKEN \
             -e SNYK_INTEGRATION_NAME=GITHUB_ACTIONS \
             -e SNYK_INTEGRATION_VERSION=docker \
-            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$socket":/var/run/docker.sock \
+            -v "$workspace":/github/workspace \
+            -w /github/workspace \
             snyk/snyk:docker \
             snyk test --severity-threshold="$SEVERITY_THRESHOLD" --docker "$IMAGE_NAME"

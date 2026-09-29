@@ -496,6 +496,18 @@ jobs:
                   "that script, and an expression it cannot expand would make "
                   "the leg test something other than what ships"
               )
+          # What a container action was given for free and this has to do for
+          # itself. Snyk reads `.snyk` -- a consumer's ignore rules -- from the
+          # working directory, and the action's was the workspace; at the
+          # image's own /app they would be dropped without a word. Unobservable
+          # without an account, so it is pinned here instead.
+          for needed in ("-w /github/workspace", ":/github/workspace"):
+              if needed not in scan["run"]:
+                  raise SystemExit(
+                      f"the Snyk call no longer has `{needed}`, so it runs "
+                      f"outside the workspace and a consumer's .snyk policy "
+                      f"is silently ignored"
+                  )
           print(scan["run"])
           PYTHON
           then
