@@ -3,7 +3,10 @@
 # flags, same exit codes, so `./dev preflight` behaves identically in either shell.
 #
 #   pwsh ps/scripts/preflight.ps1 [-Quick] [-Stack <name>] [-Docker]
-#                                 [-SkipSecurity] [-List] [-Dir <path>]
+#                                 [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
+#
+# -SecurityOnly runs only the secret / dependency scan (`./dev scan`); no stack
+# is needed for it.
 #
 # Exit codes:
 #   0  Every check that ran passed.
@@ -20,6 +23,7 @@ param(
     [string[]]$Stack = @(),
     [switch]$Docker,
     [switch]$SkipSecurity,
+    [switch]$SecurityOnly,
     [switch]$List,
     [string]$Dir
 )
@@ -149,13 +153,22 @@ if ($List) {
 
 # -Stack filters the detected pairs rather than replacing them, so the directory
 # a stack lives in is still discovered rather than assumed to be root.
-$pairs = if ($Stack.Count -gt 0) {
-    @($detected | Where-Object { $Stack -contains $_.Stack })
+# @(...) around the whole if: an if-expression unrolls an empty array to $null,
+# and under StrictMode $null.Count throws, so the no-stack check below never ran.
+$pairs = @(if ($Stack.Count -gt 0) {
+    $detected | Where-Object { $Stack -contains $_.Stack }
 } else {
-    @($detected)
+    $detected
+})
+
+if ($SkipSecurity -and $SecurityOnly) {
+    log_error 'preflight: -SkipSecurity and -SecurityOnly cannot be combined'
+    exit 2
 }
 
-if ($pairs.Count -eq 0) {
+# The scan reads the repository, not a stack: none is needed for it.
+if ($SecurityOnly) { $pairs = @() }
+elseif ($pairs.Count -eq 0) {
     if ($Stack.Count -gt 0) {
         log_error "preflight: -Stack $($Stack -join ' ') requested, but none was detected in $ProjectDir"
     } else {
@@ -237,10 +250,28 @@ function Check-Simple {
     $script = Join-Path $SCRIPT_HELPERS_DIR "scripts/$ScriptName"
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if (-not $bash) { Add-Skip $name "$ScriptName needs bash (Git for Windows ships it)"; return }
-    $a = @($script); if ($Quick) { $a += '--quick' }
-    Invoke-Step "$name lint + test" {
-        Push-Location (Join-Path $ProjectDir $Dir)
-        try { & $bash.Source @a } finally { Pop-Location }
+    # --dir, not a cd: each runner resolves its directory against the repository
+    # root, so a cd alone ran it on the wrong tree (preflight.sh's in_dir says so).
+    $target = (Resolve-Path (Join-Path $ProjectDir $Dir)).Path
+    $a = @($script, '--dir', $target); if ($Quick) { $a += '--quick' }
+    $label = "$name lint + test"
+    log_info "preflight: $label"
+    # Exit 3: the runner could not check (nothing to test, or a tool is missing)
+    # and wrote its one-line reason here. That is a SKIP, not a failure.
+    $skipFile = New-TemporaryFile
+    $env:PREFLIGHT_SKIP_FILE = $skipFile.FullName
+    $rc = 1
+    try { & $bash.Source @a; $rc = $LASTEXITCODE } catch { $rc = 1 }
+    finally { Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue }
+    $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
+    Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
+    if ($rc -eq 0) { $Results.Add("PASS  $label") }
+    # Only with a reason: exit 3 alone can be a test command's own code.
+    elseif ($rc -eq 3 -and $reason) { Add-Skip $label $reason }
+    else {
+        $Results.Add("FAIL  $label")
+        $script:Failed = $true
+        log_error "preflight: $label FAILED"
     }
 }
 
@@ -251,12 +282,21 @@ function Check-Security {
     if (-not (Test-Path $script)) { Add-Skip 'security scan' 'ci_security.sh not found'; return }
     $a = @($script, '--workdir', '.')
     if (-not $Docker) { $a += '--no-docker' }
+    # `./dev scan` fails on findings; the pre-push run reports them without
+    # blocking, as it always has, and says so in the summary.
+    $label = 'security scan (report only)'
+    if ($SecurityOnly) { $a += '--fail-on-findings'; $label = 'security scan' }
     if (-not $Docker -and -not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
         $a += '--skip-gitleaks'
-        log_warn 'preflight: gitleaks is not installed — secret scanning is being skipped.'
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
+        # In the summary too: without it, "PASS  security scan" read as if secrets
+        # had been scanned.
+        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
     }
-    Invoke-Step 'security scan' { & $bash.Source @a }
+    # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
+    & $bash.Source $script --check-foxguard *> $null
+    if ($LASTEXITCODE -ne 0) { Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard" }
+    Invoke-Step $label { & $bash.Source @a }
 }
 
 # --- run -------------------------------------------------------------------
@@ -266,8 +306,11 @@ $suffix = ''
 if ($Configured) { $suffix += ' from .preflight' }
 if ($Quick)      { $suffix += ' (quick)' }
 if ($Docker)     { $suffix += ' (docker)' }
-log_info "preflight: $($pairs.Count) project(s)$suffix"
-$pairs | ForEach-Object { log_info "  - $(Get-Label $_.Stack $_.Dir)" }
+if ($SecurityOnly) { log_info 'preflight: security scan only' }
+else {
+    log_info "preflight: $($pairs.Count) project(s)$suffix"
+    $pairs | ForEach-Object { log_info "  - $(Get-Label $_.Stack $_.Dir)" }
+}
 
 foreach ($p in $pairs) {
     switch ($p.Stack) {

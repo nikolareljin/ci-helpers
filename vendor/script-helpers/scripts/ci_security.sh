@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_security.sh
-# DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks).
-# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks]
+# DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks, foxguard).
+# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--install-foxguard] [--fail-on-findings]
 # PARAMETERS:
 #   --workdir <path>       Working directory (default: current dir).
 #   --install              Install required tools into current environment.
 #   --skip-python          Skip Python dependency checks.
 #   --skip-node            Skip Node.js audit.
 #   --skip-gitleaks        Skip gitleaks scan.
+#   --skip-foxguard        Skip the foxguard static-analysis scan.
+#   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
+#   --install-foxguard     Download the pinned foxguard release binary, check its
+#                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
 #   --python-req <f>       Python requirements file (default: requirements.txt if present).
 #   --node-cmd <c>         Override node audit command (default: npm audit --audit-level=high).
 #   --python-version <v>   Python Docker image tag (default: from ci_defaults module).
@@ -18,6 +22,17 @@
 #   --node-image <i>       Docker image override for node checks.
 #   --gitleaks-image <i>   Docker image override for gitleaks.
 #   --no-docker            Run on the host instead of Docker.
+#   --fail-on-findings     Exit 1 when any check reports a finding (default: report
+#                          only). gitleaks then scans what git tracks, history
+#                          included, instead of every file on disk: ignored files
+#                          (.env, .venv, node_modules) are not the repository's
+#                          leaks, and failing on them fails every developer machine.
+#                          --workdir still limits the audits; git mode reads the
+#                          whole repository's history, from any subdirectory.
+#                          foxguard findings count only where the repository has
+#                          a foxguard config (.foxguard.yml, .foxguard.yaml,
+#                          foxguard.yml, foxguard.yaml); elsewhere they are
+#                          reported, not counted.
 #   -h, --help             Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -32,13 +47,17 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging ci_defaults
+shlib_import help logging ci_defaults foxguard
 
 WORKDIR="."
 INSTALL_TOOLS=false
 SKIP_PYTHON=false
 SKIP_NODE=false
 SKIP_GITLEAKS=false
+SKIP_FOXGUARD=false
+INSTALL_FOXGUARD=false
+FAIL_ON_FINDINGS=false
+FINDINGS=0
 PYTHON_REQ=""
 NODE_CMD="npm audit --audit-level=high"
 USE_DOCKER=true
@@ -57,6 +76,10 @@ while [[ $# -gt 0 ]]; do
     --skip-python) SKIP_PYTHON=true; shift;;
     --skip-node) SKIP_NODE=true; shift;;
     --skip-gitleaks) SKIP_GITLEAKS=true; shift;;
+    --skip-foxguard) SKIP_FOXGUARD=true; shift;;
+    --install-foxguard) INSTALL_FOXGUARD=true; shift;;
+    --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
+    --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --python-req) PYTHON_REQ="$2"; shift 2;;
     --node-cmd) NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
@@ -71,6 +94,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
+  foxguard_install
+  exit $?
+fi
 
 # Resolve images: --*-image overrides take precedence over --*-version defaults.
 if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
@@ -104,6 +132,96 @@ if [[ -n "$GITLEAKS_DIGEST" ]]; then
   GITLEAKS_IMAGE="${GITLEAKS_IMAGE}@${GITLEAKS_DIGEST}"
 fi
 
+# finding <tool>; a check exited non-zero: it reported findings, or could not
+# run to the end. Counted only with --fail-on-findings.
+finding() {
+  log_warn "$1 reported findings or failed."
+  if [[ "$FAIL_ON_FINDINGS" == "true" ]]; then FINDINGS=$((FINDINGS + 1)); fi
+}
+
+# gitleaks arguments: git mode (tracked content, history) when findings fail the
+# run and this is a git work tree; otherwise every file on disk, as before.
+gitleaks_args() {
+  if [[ "$FAIL_ON_FINDINGS" == "true" ]] && git -C "$WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf '%s\n' detect --source .
+  else
+    printf '%s\n' detect --source . --no-git
+  fi
+}
+# node_auditable <dir>; npm audit needs a package.json and a lockfile. Without
+# them it errors, which is not a finding about the project: skip, and say why.
+node_auditable() {
+  if [[ ! -f "$1/package.json" ]]; then
+    log_info "No package.json; skipping npm audit."
+    return 1
+  fi
+  if [[ ! -f "$1/package-lock.json" && ! -f "$1/npm-shrinkwrap.json" ]]; then
+    log_warn "No package-lock.json; npm audit needs one. Skipping npm audit."
+    return 1
+  fi
+}
+
+# run_foxguard; the static-analysis scan, on the host in both modes (there is no
+# image of it). Its findings count only where the repository opted in with a
+# foxguard config (.foxguard.yml or another of FOXGUARD_CONFIG_NAMES), found
+# from the scan directory upward as foxguard finds it;
+# elsewhere they are reported and not counted. Measured 2026-09-29: its bash
+# taint rules flagged 93 lines of this library, none exploitable (`rm -f "$tmp"`),
+# so a gate on by default would fail every shell repository on correct code.
+# Submodules are excluded: their findings belong to the vendored project.
+run_foxguard() {
+  local bin dir top prefix path sub out n config="" rc=0
+  local -a args=()
+  if ! bin="$(foxguard_bin)"; then
+    log_warn "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+    return 0
+  fi
+  if [[ "$("$bin" --version 2>/dev/null)" != "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]]; then
+    log_warn "foxguard: $bin is not the pinned $CI_DEFAULT_FOXGUARD_VERSION, so results may differ; bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+  fi
+  dir="$(cd "$WORKDIR" && pwd -P)"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top="$dir"
+  path="$dir"
+  while :; do
+    config="$(foxguard_config_in "$path")" && break
+    [[ "$path" == "$top" || "$path" == "/" ]] && break
+    path="$(dirname "$path")"
+  done
+  prefix="$(git -C "$dir" rev-parse --show-prefix 2>/dev/null || true)"
+  if [[ -f "$top/.gitmodules" ]]; then
+    # -z: "key<newline>value<NUL>", so a submodule name with a space survives.
+    while IFS= read -r -d '' sub; do
+      sub="${sub#*$'\n'}"
+      case "$sub" in "$prefix"?*) args+=(--exclude "${sub#"$prefix"}") ;; esac
+    done < <(git config -z -f "$top/.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null)
+  fi
+  # --config always: without it foxguard also reads a config above the
+  # repository (measured: a .foxguard.yml in the parent directory disabled rules
+  # in the repository below it), so one machine's scan could differ from the
+  # next. An explicit config resolves its baseline path the same way.
+  if [[ -n "$config" ]]; then
+    log_info "foxguard: $config found; findings count."
+    ( cd "$dir" && "$bin" --config "$config" "${args[@]+"${args[@]}"}" . ) || finding "foxguard"
+    return 0
+  fi
+  # Report only: the count, not the listing or foxguard's per-file notices
+  # (these kept for a failed scan).
+  out="$(mktemp)"
+  printf '{}\n' > "$out.cfg"
+  ( cd "$dir" && "$bin" --quiet --format json --output "$out" --config "$out.cfg" "${args[@]+"${args[@]}"}" . ) 2>"$out.err" || rc=$?
+  case "$rc" in
+    0) log_info "foxguard: no findings." ;;
+    1) n="$(grep -o '"total": *[0-9]*' "$out" | tail -1 | grep -o '[0-9]*$' || true)"
+       log_warn "foxguard: $n finding(s), reported, not counted: no foxguard config ($FOXGUARD_CONFIG_NAMES) in this repository. See them: (cd $dir && $bin .). A .foxguard.yml that disables noisy rules or sets a baseline makes them count." ;;
+    *) cat "$out.err" >&2
+       log_warn "foxguard: could not scan (exit $rc); not counted without a foxguard config." ;;
+  esac
+  rm -f "$out" "$out.err" "$out.cfg"
+}
+
+declare -a GITLEAKS_ARGS=()
+while IFS= read -r a; do GITLEAKS_ARGS+=("$a"); done < <(gitleaks_args)
+
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
     log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
@@ -118,19 +236,31 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       # bash -c, not -lc: see ci_go.sh. A login shell replaces the image's PATH
       # with /etc/profile's default. Measured 2026-09-22 on python:3.12-slim.
       docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ABS_WORKDIR":/work -w /work "$PY_IMAGE" \
-        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && pip-audit -r \"$PYTHON_REQ\" || true && safety check -r \"$PYTHON_REQ\" --full-report || true && bandit -r . -ll || true"
+        bash -c "python -m pip install --user --upgrade pip pip-audit safety bandit && export PATH=\"/tmp/.local/bin:\$PATH\" && rc=0 && { pip-audit -r \"$PYTHON_REQ\" || rc=1; } && { safety check -r \"$PYTHON_REQ\" --full-report || rc=1; } && { bandit -r . -ll || rc=1; } && exit \$rc" \
+        || finding "python audit (pip-audit / safety / bandit)"
     else
       log_warn "No requirements file found; skipping python audit."
     fi
   fi
-  if [[ "$SKIP_NODE" == "false" ]]; then
+  if [[ "$SKIP_NODE" == "false" ]] && node_auditable "$ABS_WORKDIR"; then
     # bash -c, not -lc: see ci_go.sh. Measured 2026-09-22 on node:24-bookworm.
     docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work "$NODE_IMAGE" \
-      bash -c "$NODE_CMD" || true
+      bash -c "$NODE_CMD" || finding "npm audit"
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    docker run --pull=always --rm -t -v "$ABS_WORKDIR":/work -w /work "$GITLEAKS_IMAGE" \
-      detect --source . --no-git || true
+    # In git mode the container needs the repository's .git: mount the top of the
+    # work tree and run there. Mounting only a subdirectory left git without a
+    # repository, and gitleaks printed "no leaks found" after scanning nothing;
+    # starting below the top missed its .gitleaks.toml and .gitleaksignore. git
+    # in the image refuses a repository owned by another user unless it is
+    # marked safe; the environment does that without a file.
+    gl_mount="$ABS_WORKDIR"
+    if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
+      gl_mount="$(git -C "$ABS_WORKDIR" rev-parse --show-toplevel)"
+    fi
+    docker run --pull=always --rm -t -v "$gl_mount":/work -w /work \
+      -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
+      "$GITLEAKS_IMAGE" "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
   fi
 else
   pushd "$WORKDIR" >/dev/null
@@ -145,35 +275,51 @@ else
     fi
     if [[ -n "$PYTHON_REQ" ]]; then
       if command -v pip-audit >/dev/null 2>&1; then
-        pip-audit -r "$PYTHON_REQ" || true
+        pip-audit -r "$PYTHON_REQ" || finding "pip-audit"
       else
         log_warn "pip-audit not found; skipping."
       fi
       if command -v safety >/dev/null 2>&1; then
-        safety check -r "$PYTHON_REQ" --full-report || true
+        safety check -r "$PYTHON_REQ" --full-report || finding "safety"
       else
         log_warn "safety not found; skipping."
       fi
       if command -v bandit >/dev/null 2>&1; then
-        bandit -r . -ll || true
+        bandit -r . -ll || finding "bandit"
       else
         log_warn "bandit not found; skipping."
       fi
     fi
   fi
-  if [[ "$SKIP_NODE" == "false" ]]; then
+  if [[ "$SKIP_NODE" == "false" ]] && node_auditable .; then
     if command -v npm >/dev/null 2>&1; then
-      bash -lc "$NODE_CMD" || true
+      bash -lc "$NODE_CMD" || finding "npm audit"
     else
       log_warn "npm not found; skipping."
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
     if command -v gitleaks >/dev/null 2>&1; then
-      gitleaks detect --source . --no-git || true
+      # git mode runs from the repository top: the history is the whole
+      # repository's anyway, and gitleaks reads .gitleaks.toml and
+      # .gitleaksignore from where it runs.
+      if [[ " ${GITLEAKS_ARGS[*]} " != *" --no-git "* ]]; then
+        ( cd "$(git rev-parse --show-toplevel)" && gitleaks "${GITLEAKS_ARGS[@]}" ) || finding "gitleaks"
+      else
+        gitleaks "${GITLEAKS_ARGS[@]}" || finding "gitleaks"
+      fi
     else
       log_warn "gitleaks not found; skipping."
     fi
   fi
   popd >/dev/null
+fi
+
+if [[ "$SKIP_FOXGUARD" == "false" ]]; then
+  run_foxguard
+fi
+
+if [[ "$FINDINGS" -gt 0 ]]; then
+  log_error "security scan: $FINDINGS check(s) reported findings."
+  exit 1
 fi

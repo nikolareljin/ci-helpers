@@ -1,6 +1,15 @@
-## Unreleased
+## 2026-09-29 — v0.39.0
 
 ### Fixed
+
+- **`vendor/script-helpers` moves to 0.44.0** (from 0.43.1). Two things arrive
+  with it. The private-name gate stops warning on `coverage`, which is a word,
+  an action, and half the file names in any repository that measures anything --
+  it had been warning on this repository's own `tests/workflow-coverage.yaml`.
+  The same change made the gate perform an exclusion its comment had only
+  described, so `core` and `mobile` stop warning too. And `foxguard` arrives as
+  a local static-analysis step, pinned and checksum-verified; nothing in CI runs
+  it yet.
 
 - **The weekly Trivy run filed this repository's own deliberate fixtures as
   findings.** `tests/fixtures` holds dependencies pinned to published

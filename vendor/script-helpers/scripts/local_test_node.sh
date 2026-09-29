@@ -7,8 +7,27 @@
 #   --dir     Project directory, relative to the repository root (default: .).
 #   --quick       Skip install; run tests against existing node_modules.
 #   --workspace   Run tests only for a specific npm workspace.
+# EXIT_CODES:
+#   0  Every check that ran passed.
+#   1  A check failed, or bad arguments.
+#   3  Nothing could be checked: package.json declares no test script. preflight reports it as SKIP.
 # ----------------------------------------------------
 set -euo pipefail
+
+# skip_exit <reason>; nothing could be checked. Exit 3, which preflight reports as
+# SKIP with this reason (written to $PREFLIGHT_SKIP_FILE when preflight sets it).
+# tests_failed <code>; the test command failed. Its exit 3 becomes 1, so 3 from
+# this runner always means skip_exit.
+tests_failed() {
+  [[ "$1" -eq 3 ]] && exit 1
+  exit "$1"
+}
+
+skip_exit() {
+  echo "[local-test-node] $1" >&2
+  if [[ -n "${PREFLIGHT_SKIP_FILE:-}" ]]; then printf '%s\n' "$1" > "$PREFLIGHT_SKIP_FILE"; fi
+  exit 3
+}
 
 QUICK=false
 TEST_DIR="."
@@ -64,6 +83,19 @@ if ! command -v npm &>/dev/null; then
   exit 1
 fi
 
+# No test script, or npm's placeholder that only fails, means there are no tests
+# to run: say so (exit 3, a SKIP in preflight) before installing anything,
+# rather than failing on npm's "Missing script" or the placeholder's own error.
+# Only when package.json was read: a malformed one falls through to npm, which
+# reports it, instead of passing as "no test script".
+if [[ -z "$WORKSPACE" ]]; then
+  if test_script="$(node -p "((require('./package.json').scripts)||{}).test||''" 2>/dev/null)"; then
+    if [[ -z "$test_script" || "$test_script" == *"no test specified"* ]]; then
+      skip_exit "package.json declares no test script; nothing to test"
+    fi
+  fi
+fi
+
 if [[ "$QUICK" == "false" ]]; then
   echo "[local-test-node] Installing dependencies..."
   if [[ -f package-lock.json ]] || [[ -f npm-shrinkwrap.json ]]; then
@@ -76,10 +108,10 @@ fi
 
 if [[ -n "$WORKSPACE" ]]; then
   echo "[local-test-node] Testing workspace: $WORKSPACE"
-  npm test --workspace "$WORKSPACE"
+  npm test --workspace "$WORKSPACE" || tests_failed $?
 else
   echo "[local-test-node] Running tests..."
-  npm test
+  npm test || tests_failed $?
 fi
 
 echo "[local-test-node] Done."

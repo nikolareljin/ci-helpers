@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: preflight.sh
 # DESCRIPTION: Run every check CI would have run, locally, before pushing.
-# USAGE: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-security] [--list]
+# USAGE: bash scripts/preflight.sh [--quick] [--stack <name>] [--docker] [--skip-security|--security-only] [--list]
 #
 # PARAMETERS:
 #   --quick           Skip build/assemble steps. Tests and lint still run. The
@@ -16,6 +16,8 @@
 #                     to CI. The default runs on the host, which is what makes
 #                     this fast enough to sit in a git hook.
 #   --skip-security   Skip the secret / dependency scan.
+#   --security-only   Run only the secret / dependency scan (`./dev scan`). No
+#                     stack is needed.
 #   --list            Print the stacks detected and exit without running them.
 #   --dir <path>      Project directory (default: the repository root).
 #   -h, --help        Show this help message.
@@ -53,11 +55,12 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging os
+shlib_import help logging os foxguard
 
 QUICK=false
 USE_DOCKER=false
 SKIP_SECURITY=false
+SECURITY_ONLY=false
 LIST_ONLY=false
 PROJECT_DIR=""
 declare -a WANTED_STACKS=()
@@ -68,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --docker) USE_DOCKER=true; shift ;;
     --no-docker) USE_DOCKER=false; shift ;;   # accepted for symmetry with ci_*.sh
     --skip-security) SKIP_SECURITY=true; shift ;;
+    --security-only) SECURITY_ONLY=true; shift ;;
     --list) LIST_ONLY=true; shift ;;
     # No `set -e` here, so a failed `shift 2` on a trailing flag would leave
     # $1 in place and loop forever. Check for the value first.
@@ -423,7 +427,15 @@ if [[ "$LIST_ONLY" == "true" ]]; then
   exit 0
 fi
 
-if [[ ${#PAIRS[@]} -eq 0 || -z "${PAIRS[0]}" ]]; then
+if [[ "$SKIP_SECURITY" == "true" && "$SECURITY_ONLY" == "true" ]]; then
+  echo "--skip-security and --security-only cannot be combined" >&2
+  exit 2
+fi
+
+# The scan reads the repository, not a stack: none is needed for it.
+if [[ "$SECURITY_ONLY" == "true" ]]; then
+  PAIRS=()
+elif [[ ${#PAIRS[@]} -eq 0 || -z "${PAIRS[0]}" ]]; then
   log_error "preflight: no stack detected in $PROJECT_DIR"
   log_error "Looked for: pubspec.yaml, gradlew, package.json, pyproject.toml, go.mod, Cargo.toml, composer.json"
   log_error "Pass --stack <name> to force one."
@@ -438,12 +450,27 @@ declare -a RESULTS=()
 FAILED=0
 
 # run_step <label> <command...>; run a check, record pass/fail, never abort.
+# Exit 3 from a local_test_*.sh runner, with a reason written to
+# $PREFLIGHT_SKIP_FILE, means it could not run the check -- nothing to test, or
+# its tool is missing; that is a SKIP, which the summary reports separately,
+# never a PASS.
 run_step() {
-  local label="$1"; shift
+  local label="$1" rc=0 reason skip_file; shift
   print_line 2>/dev/null || true
   log_info "preflight: $label"
-  if "$@"; then
+  # A runner that cannot check writes its one-line reason here.
+  skip_file="$(mktemp)"
+  PREFLIGHT_SKIP_FILE="$skip_file" "$@" || rc=$?
+  reason="$(head -n 1 "$skip_file" 2>/dev/null || true)"
+  rm -f "$skip_file"
+  if [[ $rc -eq 0 ]]; then
     RESULTS+=("PASS  $label")
+    return 0
+  fi
+  # Only with a reason: exit 3 alone can be a test command's own code (pytest's
+  # internal error, a test script's exit), and that is a failure.
+  if [[ $rc -eq 3 && -n "$reason" ]]; then
+    skip_step "$label" "$reason"
     return 0
   fi
   RESULTS+=("FAIL  $label")
@@ -675,15 +702,27 @@ check_security() {
   local scanner
   scanner="$(helper_script ci_security.sh)"
   [[ -f "$scanner" ]] || { skip_step "security" "ci_security.sh not found"; return; }
-  local args=(--workdir .)
+  local args=(--workdir .) label="security scan (report only)"
   [[ "$USE_DOCKER" == "true" ]] || args+=(--no-docker)
+  # `./dev scan` fails on findings; the pre-push run reports them without
+  # blocking, as it always has, and says so in the summary.
+  if [[ "$SECURITY_ONLY" == "true" ]]; then
+    args+=(--fail-on-findings)
+    label="security scan"
+  fi
   # gitleaks on the host needs the binary; in Docker mode it comes from the image.
   if [[ "$USE_DOCKER" == "false" ]] && ! command -v gitleaks >/dev/null 2>&1; then
     args+=(--skip-gitleaks)
-    log_warn "preflight: gitleaks is not installed — secret scanning is being skipped."
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
+    # In the summary too: without it, "PASS  security scan" read as if secrets
+    # had been scanned.
+    skip_step "gitleaks secret scan" "gitleaks is not installed — $(install_hint gitleaks gitleaks), or run with --docker"
   fi
-  run_step "security scan" bash "$scanner" "${args[@]+"${args[@]}"}"
+  # foxguard runs on the host in both modes; there is no image of it.
+  if ! foxguard_bin >/dev/null; then
+    skip_step "foxguard code scan" "foxguard is not installed; bash $scanner --install-foxguard"
+  fi
+  run_step "$label" bash "$scanner" "${args[@]+"${args[@]}"}"
 }
 
 # ---------------------------------------------------------------------------
@@ -691,7 +730,8 @@ check_security() {
 # ---------------------------------------------------------------------------
 
 log_info "preflight: $PROJECT_DIR"
-log_info "preflight: ${#PAIRS[@]} project(s)$([[ "$CONFIGURED" == "true" ]] && echo ' from .preflight')$([[ "$QUICK" == "true" ]] && echo ' (quick)')$([[ "$USE_DOCKER" == "true" ]] && echo ' (docker)')"
+[[ "$SECURITY_ONLY" == "true" ]] && log_info "preflight: security scan only"
+[[ "$SECURITY_ONLY" == "true" ]] || log_info "preflight: ${#PAIRS[@]} project(s)$([[ "$CONFIGURED" == "true" ]] && echo ' from .preflight')$([[ "$QUICK" == "true" ]] && echo ' (quick)')$([[ "$USE_DOCKER" == "true" ]] && echo ' (docker)')"
 for pair in "${PAIRS[@]+"${PAIRS[@]}"}"; do
   log_info "  - $(label "${pair%%	*}" "${pair#*	}")"
 done
