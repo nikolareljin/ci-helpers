@@ -32,6 +32,13 @@ on:
       # `--no-interaction` because a TTY-less runner must never be prompted;
       # set to "" to disable the stage, as with every other command here.
       audit_command:
+        description: >
+          Dependency advisories from the Packagist security API, on by default.
+          Composer 2.9 already blocks a package with a known advisory when it
+          *resolves* one, but `composer install` from an existing
+          `composer.lock` does not resolve: a lock written while its packages
+          were clean keeps installing after they stop being clean, and nothing
+          looks at it again. This stage is what looks. Set to "" to disable it.
         type: string
         default: "composer audit --no-interaction"
       unit_command:

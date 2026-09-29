@@ -370,6 +370,15 @@ jobs:
                       f"preset recommends:\n  leg:         {passed.get(key)}\n"
                       f"  recommended: {recommended}"
                   )
+              # The third copy. `docs/workflows.md` is where an adopter reads
+              # the line, and a doc that has drifted from the preset is worse
+              # than no doc: it is a line somebody will paste.
+              if recommended not in open("docs/workflows.md").read():
+                  raise SystemExit(
+                      f"docs/workflows.md does not contain the {key} value the "
+                      f"preset recommends, so the line an adopter copies is not "
+                      f"the line this leg tests:\n  {recommended}"
+                  )
               print(f"{key}={recommended}")
           PYTHON
 

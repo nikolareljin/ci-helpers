@@ -103,22 +103,6 @@ jobs:
           set -euo pipefail
           ${{ inputs.install_command }}
 
-      - name: Python lint
-        if: ${{ inputs.lint_command != '' }}
-        shell: bash
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-          ${{ inputs.lint_command }}
-
-      - name: Python unit tests
-        if: ${{ inputs.unit_command != '' }}
-        shell: bash
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          set -euo pipefail
-          ${{ inputs.unit_command }}
-
       - name: Dependency audit
         if: ${{ inputs.audit_command != '' }}
         shell: bash
@@ -134,6 +118,22 @@ jobs:
         run: |
           set -euo pipefail
           ${{ inputs.bandit_command }}
+
+      - name: Python lint
+        if: ${{ inputs.lint_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.lint_command }}
+
+      - name: Python unit tests
+        if: ${{ inputs.unit_command != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          ${{ inputs.unit_command }}
 
       - name: Django tests
         if: ${{ inputs.django_command != '' && steps.detect_django.outputs.is_django == 'true' }}
