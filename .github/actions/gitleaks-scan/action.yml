@@ -2,7 +2,11 @@ name: Gitleaks Scan
 description: Run Gitleaks scan and emit a report.
 inputs:
   scan_path:
-    description: Path to scan (relative to repo root).
+    description: >
+      Path to scan (relative to repo root). In a git work tree `detect` reads
+      the repository's history, so a subdirectory here does not narrow the scan
+      -- it still covers every commit. Outside a work tree the files under this
+      path are scanned instead.
     default: "."
     required: false
   report_format:
@@ -174,7 +178,37 @@ runs:
         # artifact or SARIF; findings and their count are unchanged.
         args=(detect --source "${SCAN_PATH}" --report-format "${REPORT_FMT}" --report-path "${OUTPUT}" --exit-code 0 --redact)
         [ -n "${CONFIG_PATH}" ] && args+=(--config "${CONFIG_PATH}")
-        "${GL_BIN}" "${args[@]}"
+
+        # `detect` reads git history. Pointed at a directory that is not a work
+        # tree -- an unpacked archive, a build output, anything generated -- it
+        # logs `git error encountered`, writes an empty report and exits 0, and
+        # this action then says "No Gitleaks findings detected." A secret scan
+        # that scanned nothing must not read as a scan that found nothing, so
+        # the files are scanned instead when there is no history to read.
+        if ! git -C "${SCAN_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          echo "::notice title=Gitleaks::${SCAN_PATH} is not inside a git work tree; scanning its files rather than the history."
+          args+=(--no-git)
+        fi
+
+        log="$(mktemp)"
+        "${GL_BIN}" "${args[@]}" 2>&1 | tee "${log}"
+
+        # The other half of the same failure: a work tree whose history cannot
+        # be read also ends in a partial scan and exit 0. Two spellings,
+        # because the wording is not stable across gitleaks releases -- 8.30.1
+        # logs `fatal: not a git repository`, other builds log `git error
+        # encountered`.
+        if grep -qE "git error encountered|fatal: not a git repository" "${log}"; then
+          echo "::error::gitleaks could not read the git history of ${SCAN_PATH}; the scan was partial and its result means nothing." >&2
+          exit 1
+        fi
+
+        # And the version-independent form of the same question: a scan that
+        # examined nothing must not report that it found nothing.
+        if grep -qE "scanned ~0 bytes" "${log}"; then
+          echo "::error::gitleaks examined 0 bytes under ${SCAN_PATH}; it found nothing because it read nothing." >&2
+          exit 1
+        fi
     - name: Evaluate findings
       shell: bash
       env:

@@ -455,7 +455,20 @@ Inputs:
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `gitleaks-report`)
 
-Note: `gitleaks-action` emits SARIF only; other `report_format` values are ignored, and `scan_path`/`config_path` are not honored (it auto-detects `.gitleaks.toml`).
+Notes:
+
+- `scan_path`, `config_path` and `report_format` are all honoured. (An older
+  note here said they were not: it described `gitleaks-action`, which this
+  workflow has not used for some time. It now runs a pinned `gitleaks` binary,
+  verified against the checksums file published with the same release.)
+- **In a git work tree the scan reads the repository's history**, so naming a
+  subdirectory in `scan_path` does not narrow it -- every commit is still
+  scanned. Outside a work tree the files under `scan_path` are scanned instead.
+- A scan that examines nothing fails rather than reporting no findings. Two
+  cases: a work tree whose history cannot be read, and a `scan_path` with
+  nothing in it. Before this, pointing the scan at a generated directory -- an
+  unpacked archive, a build output -- produced a clean report from a scan that
+  had not run.
 
 Example:
 

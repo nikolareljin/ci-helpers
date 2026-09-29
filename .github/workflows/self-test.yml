@@ -869,6 +869,180 @@ jobs:
           fi
           echo "an empty path set is detectable, which is what the preset acts on"
 
+  # Secret and filesystem scanning. Both presets write a SARIF report, and the
+  # half that uploads it needs `security-events: write`, which a fork's pull
+  # request does not get -- so the scan is driven here and the upload is not.
+  #
+  # `gitleaks-scan.yml` calls the action by its full `@production` reference
+  # rather than `./`, because a reusable workflow called from another
+  # repository resolves a relative `uses:` against the caller's checkout. That
+  # means this leg exercises the preset's wiring against the *released* action,
+  # and `gitleaks-refuses-what-it-must` drives the action as this branch has
+  # it. Both are needed; neither substitutes for the other.
+  gitleaks-scan-defaults-can-pass:
+    uses: ./.github/workflows/gitleaks-scan.yml
+
+  gitleaks-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      - name: A directory with a real key in it
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generated, not written down. Nothing is committed, so this
+          # repository's own secret scan has nothing to find and no allowlist
+          # is needed -- and a generated key cannot be on anyone's list of
+          # known example values.
+          #
+          # The first version of this used AWS's documented example key, and
+          # gitleaks 8.30.1 reported it clean: well-known example credentials
+          # are allowlisted on purpose. A planted secret the scanner is meant
+          # to ignore proves nothing, so the probe has to be run with the
+          # pinned version rather than with whatever is on the machine.
+          leaky="${RUNNER_TEMP}/leaky"
+          mkdir -p "$leaky"
+          openssl genrsa -out "$leaky/id_rsa" 2048
+          echo "LEAKY=$leaky" >> "$GITHUB_ENV"
+
+      - name: Findings fail the scan when asked
+        id: fails
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: ${{ env.LEAKY }}
+          output: ${{ runner.temp }}/strict.sarif
+          fail_on_findings: "true"
+
+      - name: Findings are reported without failing, by default
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: ${{ env.LEAKY }}
+          output: ${{ runner.temp }}/lenient.sarif
+
+      - name: Both scans found the key, and only one of them failed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.fails.outcome }}" != "failure" ]]; then
+            echo "::error::fail_on_findings: true did not fail on a planted key"
+            exit 1
+          fi
+          for report in strict lenient; do
+            count=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(sum(len(r.get('results',[])) for r in d['runs']))" "${RUNNER_TEMP}/$report.sarif")
+            if [[ "$count" -ne 1 ]]; then
+              echo "::error::$report.sarif holds $count finding(s), expected 1"
+              exit 1
+            fi
+          done
+          echo "the key is in both reports; fail_on_findings decides the exit, not whether it was found"
+
+      - name: Without the fix, this directory passed without being scanned
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Why the action has a `--no-git` branch at all. `detect` reads git
+          # history; pointed at a directory that is not a work tree it logs a
+          # git error, writes an empty report and exits 0 -- a secret scan that
+          # scanned nothing, reported as one that found nothing. If that ever
+          # stops being true the branch is untested and should go.
+          #
+          # Run with the binary the action downloaded: gitleaks is not on a
+          # runner by default, and any other copy could be another version.
+          out="${RUNNER_TEMP}/plain.sarif"
+          rc=0
+          "$GL_BIN" detect --source "$LEAKY" --report-format sarif \
+            --report-path "$out" --exit-code 0 --redact > /tmp/plain.log 2>&1 || rc=$?
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::notice::plain gitleaks exited $rc here; the silent-pass probe does not apply"
+            exit 0
+          fi
+          found=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(sum(len(r.get('results',[])) for r in d['runs']))" "$out")
+          if [[ "$found" -ne 0 ]]; then
+            echo "::error::plain gitleaks now reports $found finding(s) on a non-work-tree; the --no-git branch is no longer what makes the scan happen"
+            exit 1
+          fi
+          grep -qE "git error encountered|fatal: not a git repository|scanned ~0 bytes" /tmp/plain.log || {
+            echo "::error::nothing in the log says the scan read nothing, so this is not the case the branch was written for"
+            cat /tmp/plain.log
+            exit 1
+          }
+          echo "plain gitleaks: exit 0, 0 findings, and a log saying it read nothing -- the silent pass this action now refuses"
+
+  # trivy-scan.yml against the fixture pinned to an advisory for the
+  # govulncheck leg. `upload_sarif` is off: a self-test that uploaded would
+  # file code-scanning alerts against this repository for a dependency that is
+  # vulnerable on purpose. The caller still has to grant the permission the
+  # called workflow declares, or the run is refused before any job starts.
+  trivy-scan-defaults-can-pass:
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/trivy-scan.yml
+    with:
+      scan_path: tests/fixtures/go-vuln
+      upload_sarif: false
+      upload_artifact: true
+      artifact_name: trivy-selftest
+
+  trivy-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+
+      - name: An advisory fails the scan when asked
+        id: vulnerable
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: tests/fixtures/go-vuln
+          format: json
+          output: ${{ runner.temp }}/vuln.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: "true"
+          vuln-type: os,library
+          exit-code: "1"
+
+      - name: A clean tree does not
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        with:
+          scan-type: fs
+          scan-ref: tests/fixtures/shell-project
+          format: json
+          output: ${{ runner.temp }}/clean.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: "true"
+          vuln-type: os,library
+          exit-code: "1"
+
+      - name: It failed on the pinned advisory, not on something passing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.vulnerable.outcome }}" != "failure" ]]; then
+            echo "::error::the fixture pinned to an advisory did not fail at exit-code 1"
+            exit 1
+          fi
+          python3 - "${RUNNER_TEMP}/vuln.json" <<'PYTHON'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          found = [
+              (v["PkgName"], v["InstalledVersion"], v["VulnerabilityID"])
+              for r in (data.get("Results") or [])
+              for v in (r.get("Vulnerabilities") or [])
+          ]
+          # Named, not counted: a scan failing for some other reason would
+          # satisfy a count and prove nothing about what was scanned. The
+          # fixture's go.mod says not to bump this module.
+          if not any(pkg == "golang.org/x/text" for pkg, _, _ in found):
+              raise SystemExit(f"the failure is not the pinned advisory; found {found}")
+          print(f"failed on {len(found)} finding(s) in golang.org/x/text, as pinned")
+          PYTHON
+
   assert-ran:
     needs:
       - release-tag-gate-defaults-can-pass
@@ -889,6 +1063,10 @@ jobs:
       - shell-checks-this-repository
       - shell-runs-bats-and-a-clean-tree
       - shell-refuses-what-it-must
+      - gitleaks-scan-defaults-can-pass
+      - gitleaks-refuses-what-it-must
+      - trivy-scan-defaults-can-pass
+      - trivy-refuses-what-it-must
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
