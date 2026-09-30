@@ -20,6 +20,19 @@
 
 ### Fixed
 
+- **An action pin without its version comment failed this release, and nothing
+  before it.** `self-test-web.yml` gained
+  `shivammathur/setup-php@f3e473d1...` with no `# 2.37.2 @ 2026-09-10` in #249.
+  `update_pinned_actions.sh --check` reports that as a warning, warnings fail
+  it, and it runs **on push and weekly but never on a pull request** -- so the
+  pull request that added it was green and this release's first attempt failed
+  after the merge, with no tag cut.
+
+  The comment is not decoration: the script re-resolves it to find the newest
+  SHA, so a pin without one is a pin nothing can refresh. The pin is annotated,
+  and the check now runs in `workflow-yaml-check.yml` as well, which is a pull
+  request gate. 294 up-to-date / 1 warning becomes 295 / 0.
+
 - **`vendor/script-helpers` moves to 0.44.1** (from 0.43.1), and the fifteen
   workflows that check it out by commit move with it --
   `scripts/check_script_helpers_pins.sh` refuses the tree otherwise, which is
