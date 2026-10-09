@@ -267,6 +267,22 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
+  # The default install_command is empty, and empty must mean "pip install -r
+  # requirements.txt when it exists". Every leg above sets install_command or
+  # has no requirements file, so the default had never run: an empty flag was
+  # passed on, the script read it as "skip", and a caller's dependencies were
+  # never installed.
+  django-default-installs-requirements:
+    uses: ./.github/workflows/django.yml
+    with:
+      working_directory: tests/fixtures/django-install
+      python_version: '3.12'
+      db_image: ""
+      concurrency_key: django-default-installs-requirements
+      migrate_command: ""
+      makemigrations_command: ""
+      test_command: 'python -c "import install_probe"'
+
   # -- pnpm, the scan presets, and the browser runners -------------------------
   #
   # The one repository on the pnpm presets overrides every command and empties
@@ -848,6 +864,7 @@ jobs:
       - django-works-with-no-database-service
       - django-drift-fails-at-the-migrations-step
       - django-skips-the-drift-check-when-asked
+      - django-default-installs-requirements
       - pnpm-defaults-can-pass
       - node-scan-defaults-can-pass
       - react-scan-defaults-can-pass

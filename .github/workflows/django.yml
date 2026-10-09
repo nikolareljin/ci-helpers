@@ -62,7 +62,7 @@ on:
         default: ""
       # Dependency install, performed by ci_django.sh. Empty by default, which
       # makes the script use `pip install -r requirements.txt` when that file
-      # exists and skip the step when it does not.
+      # exists and skip the step when it does not. Set "true" to skip it.
       install_command:
         type: string
         default: ""
@@ -226,7 +226,6 @@ jobs:
             --db-password "$DB_PASSWORD"
             --db-root-password "$DB_ROOT_PASSWORD"
             --db-wait-seconds "$DB_WAIT"
-            --install-command "$INSTALL_COMMAND"
             --migrate-command "$MIGRATE_COMMAND"
             # Unconditionally, including when empty: an empty value is how a
             # caller asks for the step to be skipped, and omitting the flag
@@ -234,6 +233,14 @@ jobs:
             --check-command "$MAKEMIGRATIONS_COMMAND"
             --test-command "$TEST_COMMAND"
           )
+          # Only when set: the script reads --install-command '' as "skip the
+          # install", while an empty input here means its default (pip install
+          # -r requirements.txt when that file exists). Passed unconditionally,
+          # the default never ran and a caller's dependencies were not installed.
+          # To skip the install, set install_command to "true".
+          if [[ -n "$INSTALL_COMMAND" ]]; then
+            args+=(--install-command "$INSTALL_COMMAND")
+          fi
           # An empty db_image means sqlite, and the script refuses --db-image ''
           # rather than guessing, so the flag is omitted entirely.
           if [[ -n "$DB_IMAGE" ]]; then

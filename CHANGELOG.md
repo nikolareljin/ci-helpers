@@ -1,3 +1,18 @@
+## Unreleased
+
+### Fixed
+
+- **`django.yml` never installed a caller's dependencies by default.** The
+  `install_command` input defaults to empty, documented as "`pip install -r
+  requirements.txt` when that file exists", but the step always passed
+  `--install-command "$INSTALL_COMMAND"`, and `ci_django.sh` reads an explicit
+  empty value as "skip the install". A caller with a `requirements.txt` and the
+  default got `ModuleNotFoundError: No module named 'django'` at the first
+  step. The flag is now passed only when set; `install_command: "true"` skips
+  the install. New self-test leg `django-default-installs-requirements`
+  (fixture `tests/fixtures/django-install`) fails if the default install is
+  skipped. Every earlier leg set `install_command` or had no requirements file.
+
 ## 2026-09-29 — v0.39.0
 
 ### Fixed

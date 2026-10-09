@@ -49,3 +49,7 @@ CLAUDE.md
 /tests/fixtures/php-vuln/composer.lock
 /tests/fixtures/php-clean/vendor/
 /tests/fixtures/php-clean/composer.lock
+
+# pip build output from the django-install fixture (self-test-web.yml)
+tests/fixtures/django-install/probe/build/
+*.egg-info/
