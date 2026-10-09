@@ -403,14 +403,14 @@ jobs:
 
       - name: Upload Android artifact
         if: ${{ inputs.upload_artifacts && inputs.build_android }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: ${{ inputs.android_artifact_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.android_artifact_path }}
 
       - name: Upload iOS artifact
         if: ${{ inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: ${{ inputs.ios_artifact_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.ios_artifact_path }}

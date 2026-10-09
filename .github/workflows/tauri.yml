@@ -94,7 +94,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
           components: ${{ inputs.rust_components }}

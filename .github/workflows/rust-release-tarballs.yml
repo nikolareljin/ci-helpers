@@ -107,7 +107,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -217,7 +217,7 @@ jobs:
 
       - name: Upload sha artifact
         # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: sha256-${{ matrix.platform }}
           path: sha256-${{ matrix.platform }}.txt

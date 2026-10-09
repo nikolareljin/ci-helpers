@@ -90,7 +90,7 @@ jobs:
           fi
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e # master @ 2026-10-09
         with:
           scan-type: fs
           scan-ref: ${{ inputs.scan_path }}
@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload artifact
         if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 @ 2026-09-10
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.output }}
