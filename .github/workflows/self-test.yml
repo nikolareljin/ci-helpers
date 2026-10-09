@@ -996,7 +996,7 @@ jobs:
       - name: An advisory fails the scan when asked
         id: vulnerable
         continue-on-error: true
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e # master @ 2026-10-09
         with:
           scan-type: fs
           scan-ref: tests/fixtures/go-vuln
@@ -1008,7 +1008,7 @@ jobs:
           exit-code: "1"
 
       - name: A clean tree does not
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e # master @ 2026-10-09
         with:
           scan-type: fs
           scan-ref: tests/fixtures/shell-project
@@ -1056,7 +1056,7 @@ jobs:
       - name: A Dockerfile that runs as root fails
         id: bad
         continue-on-error: true
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e # master @ 2026-10-09
         with:
           scan-type: fs
           scan-ref: tests/fixtures/iac-misconfig/bad
@@ -1075,7 +1075,7 @@ jobs:
           exit-code: "1"
 
       - name: The same Dockerfile with a USER does not
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # master @ 2026-08-24
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e # master @ 2026-10-09
         with:
           scan-type: fs
           scan-ref: tests/fixtures/iac-misconfig/good

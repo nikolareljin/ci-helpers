@@ -592,7 +592,10 @@ jobs:
           # repository that has never committed one; the message names the way
           # out, and docs/presets.md quotes it.
           root="$(mktemp -d)"
-          printf '{"name":"no-lock","version":"0.0.0","private":true}\n' > "$root/package.json"
+          # One dependency: pnpm 12 accepts --frozen-lockfile with no lockfile
+          # when there is nothing to install, and every real consumer has
+          # dependencies. It refuses before fetching, so nothing is downloaded.
+          printf '{"name":"no-lock","version":"0.0.0","private":true,"dependencies":{"is-number":"7.0.0"}}\n' > "$root/package.json"
           cd "$root"
           if pnpm install --frozen-lockfile > /tmp/nolock.txt 2>&1; then
             echo "::error::--frozen-lockfile succeeded without a lockfile"

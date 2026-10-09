@@ -470,7 +470,7 @@ jobs:
 
       - name: Setup Rust
         if: ${{ inputs.rust_toolchain != '' }}
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
           components: ${{ inputs.rust_components }}
@@ -483,7 +483,7 @@ jobs:
 
       - name: Setup Godot
         if: ${{ inputs.godot_version != '' }}
-        uses: chickensoft-games/setup-godot@c233594225991af5aec714e52457cc76d6df8fa2 # v2.4.2 @ 2026-09-20
+        uses: chickensoft-games/setup-godot@ac93246ea68518a384c1c280a496e5989341f2f6 # v2.4.3 @ 2026-10-01
         with:
           version: ${{ inputs.godot_version }}
           use-dotnet: ${{ inputs.godot_use_dotnet }}

@@ -2,6 +2,21 @@
 
 ### Fixed
 
+- **Action pins current again; the weekly SHA pin audit, the pin check on every
+  pull request, and Dependabot's own pull requests were all red.** Moved with
+  `update_pinned_actions.sh`, each new commit checked first (GitHub-verified,
+  ahead of the old pin, diff read): `actions/upload-artifact` to v7.0.2
+  (`cf430e03`, every pin, so v7 and v7.0.1 no longer differ),
+  `aquasecurity/trivy-action` master to `c03d123c` (only Trivy v0.75.0 as
+  its default), `dtolnay/rust-toolchain` stable to `686976e1`. And
+  `chickensoft-games/setup-godot` to v2.4.3 (`ac93246e`): Dependabot's pull
+  request moved the SHA but left the comment at v2.4.2, which the pin script
+  reads, so its next run would have moved it back. Supersedes Dependabot pull
+  requests 257, 258 and 259; closes issue 260.
+- **`pnpm-refuses-what-it-must` failed on pnpm 12.** pnpm 12 accepts
+  `--frozen-lockfile` with no lockfile when `package.json` has no
+  dependencies. The fixture now has one, as every consumer does; the install
+  still refuses with `ERR_PNPM_NO_LOCKFILE`, before anything is fetched.
 - **`django.yml` never installed a caller's dependencies by default.** The
   `install_command` input defaults to empty, documented as "`pip install -r
   requirements.txt` when that file exists", but the step always passed

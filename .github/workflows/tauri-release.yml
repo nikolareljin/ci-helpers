@@ -211,7 +211,7 @@ jobs:
           SCRIPT
 
       - name: Setup Rust and universal targets
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -317,7 +317,7 @@ jobs:
           ls -la out/
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
         with:
           name: tauri-macos-artifacts
           path: out/
@@ -369,7 +369,7 @@ jobs:
           SCRIPT
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -457,7 +457,7 @@ jobs:
           ls -la out/
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
         with:
           name: tauri-windows-artifacts
           path: out/
@@ -531,7 +531,7 @@ jobs:
           fi
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-10
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -607,7 +607,7 @@ jobs:
           ls -la out/
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 @ 2026-05-23
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
         with:
           name: tauri-linux-artifacts
           path: out/
