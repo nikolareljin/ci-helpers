@@ -175,7 +175,7 @@ jobs:
 
       - name: Publish test results
         continue-on-error: true
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0 @ 2026-09-10
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.0.0 @ 2026-09-10
         with:
           name: ${{ format('Tests{0}', inputs.artifact_suffix) }}
           path: "test-results/**/*.xml"
