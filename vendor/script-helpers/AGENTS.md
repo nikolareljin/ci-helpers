@@ -103,6 +103,26 @@ a refusal that names the remedy.
 Full detail, including what to write instead of each bash-4 feature, is in
 `docs/bash-compatibility.md`. Keep that page in step with any change here.
 
+## Real-machine checks
+
+`make test` is offline and stubbed. A feature that installs, downloads, or
+otherwise depends on the real machine also ships, in the same pull request:
+
+1. An entry script a person runs from a checkout: `scripts/<verb>.sh` with the
+   standard header and `--help`, and `ps/scripts/<verb>.ps1` when it supports
+   Windows.
+2. A real-machine check: `tests/machine/<feature>_check.sh` and, for Windows,
+   `ps/tests/machine/<feature>_check.ps1`. It works only in a directory it makes
+   and removes, never changes what is installed, prints one `PASS`/`FAIL` line
+   per case and a `summary:` line, and exits 0 / 1 / 2 (passed / failed / cannot
+   run here).
+3. A row in `tests/machine/README.md` with the command per OS and the last OS it
+   was run on by a person.
+
+Run the check on the machine you have before asking for review, and give the
+exact command for the others in the pull request. The test runners do not pick
+these up (`tests/*_test.sh` and `ps/tests/*_test.ps1` only), on purpose.
+
 ## The About page
 
 `docs/about.md` is hand-maintained. Nothing generates it and nothing may.

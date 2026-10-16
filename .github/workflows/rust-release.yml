@@ -77,7 +77,7 @@ jobs:
           fetch-tags: true
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable @ 2026-10-09
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable @ 2026-10-16
         with:
           toolchain: ${{ inputs.rust_toolchain }}
 
@@ -247,7 +247,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: nikolareljin/script-helpers
-          ref: 85193aecbbcc6ffd65d32f256191320253fdc36d # 0.44.1
+          ref: 869043a9dbe6affde357c286582c099ffb97eb6c # 0.53.1
           path: .script-helpers
           fetch-depth: 1
 

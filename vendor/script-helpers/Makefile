@@ -102,8 +102,17 @@ lint-docs:
 test-bash32:
 	@bash scripts/local_test_bash32.sh
 
+# Unset git's hook variables before running the tests.
+# The pre-push hook runs this target. Git sets GIT_DIR (and similar
+# variables) for a hook, pointing at the repository being pushed. GIT_DIR
+# beats the current directory, so a test that makes its own temporary
+# repository would use the pushed one instead. Those tests failed only inside
+# the hook, and the push was refused.
+# What is unset: the names `git rev-parse --local-env-vars` prints, plus the
+# six a hook always gets, written out in case git is missing.
 test:
-	@for f in tests/*_test.sh; do \
+	@unset $$(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
+	for f in tests/*_test.sh; do \
 	  [[ -f "$$f" ]] || continue; \
 	  printf '\n--- Running: %s ---\n' "$$f"; \
 	  bash "$$f" || exit 1; \

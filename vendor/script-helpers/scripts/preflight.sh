@@ -33,6 +33,9 @@
 #   2  Bad arguments, or an unknown --stack.
 #   3  No stack could be detected in this directory.
 #
+# ENVIRONMENT:
+#   PREFLIGHT_NO_INSTALL=1  Do not install a missing gitleaks or foxguard (the
+#                           pinned releases, into ~/.cache/script-helpers).
 # EXAMPLE:
 #   bash scripts/preflight.sh                  # everything, on the host
 #   bash scripts/preflight.sh --quick          # what pre-push runs
@@ -55,7 +58,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import help logging os foxguard
+shlib_import help logging os foxguard gitleaks
 
 QUICK=false
 USE_DOCKER=false
@@ -432,6 +435,17 @@ if [[ "$SKIP_SECURITY" == "true" && "$SECURITY_ONLY" == "true" ]]; then
   exit 2
 fi
 
+# One private directory per run (mktemp -d, mode 700), removed on any exit, so
+# an interrupted step leaves nothing under $TMPDIR. Made after the options, so
+# --help and --list need no temp space.
+_pf_tmp="$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX" 2>/dev/null)" && [[ -n "$_pf_tmp" && -d "$_pf_tmp" && ! -L "$_pf_tmp" ]] || {
+  echo "[preflight] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
+  exit 1
+}
+chmod 700 "$_pf_tmp" 2>/dev/null || true
+# Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_pf_tmp"; fi' EXIT
+
 # The projects whose dependencies the security step audits, kept before the
 # security-only mode empties PAIRS: a dependency audit reads a project's
 # manifest, so it has to run where the project is, not only at the root.
@@ -464,7 +478,8 @@ run_step() {
   print_line 2>/dev/null || true
   log_info "preflight: $label"
   # A runner that cannot check writes its one-line reason here.
-  skip_file="$(mktemp)"
+  skip_file="$_pf_tmp/skip"
+  : > "$skip_file"
   PREFLIGHT_SKIP_FILE="$skip_file" "$@" || rc=$?
   reason="$(head -n 1 "$skip_file" 2>/dev/null || true)"
   rm -f "$skip_file"
@@ -715,13 +730,26 @@ check_security() {
     common+=(--fail-on-findings)
     suffix=""
   fi
+  # A missing scanner is installed: the pinned release, checked against its
+  # SHA-256, into ~/.cache. No sudo, the same on Linux, macOS and Git Bash.
+  # PREFLIGHT_NO_INSTALL=1 turns it off; a failed install (offline) is a SKIP.
+  if [[ "${PREFLIGHT_NO_INSTALL:-}" != "1" ]]; then
+    if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
+      log_info "preflight: gitleaks is not installed; installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
+      gitleaks_install || log_warn "preflight: gitleaks install failed"
+    fi
+    if ! foxguard_bin >/dev/null; then
+      log_info "preflight: foxguard is not installed; installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
+      foxguard_install || log_warn "preflight: foxguard install failed"
+    fi
+  fi
   # gitleaks on the host needs the binary; in Docker mode it comes from the image.
-  if [[ "$USE_DOCKER" == "false" ]] && ! command -v gitleaks >/dev/null 2>&1; then
+  if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
     args+=(--skip-gitleaks)
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
-    skip_step "gitleaks secret scan" "gitleaks is not installed — $(install_hint gitleaks gitleaks), or run with --docker"
+    skip_step "gitleaks secret scan" "gitleaks is not installed — bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
     have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.
@@ -731,7 +759,24 @@ check_security() {
   fi
   # The repository-wide part: the secret scan and foxguard. Not run when both are
   # missing; the two SKIP lines above already say so.
-  [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  if [[ "$SECURITY_ONLY" == "true" ]]; then
+    [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+  else
+    # A secret blocks the push in every mode: report only, a gitleaks finding
+    # printed a WARN and the push went out. Git mode, so a fixture in a vendored
+    # submodule or an ignored .env is not a finding. Only commits no remote has
+    # yet, which is what a push can send, HEAD included (a detached HEAD is
+    # on no branch). On the whole history, 10 of 34 fleet repos had old
+    # fixtures flagged and every push would fail. ./dev scan still reads the
+    # whole history. foxguard stays report only.
+    # HEAD only once it exists: in a repository with no commit yet, git log
+    # HEAD fails and the scan with it.
+    local log_opts="--branches --tags --not --remotes"
+    git -C "$PROJECT_DIR" rev-parse -q --verify HEAD >/dev/null 2>&1 && log_opts="HEAD $log_opts"
+    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" \
+      --skip-foxguard --fail-on-findings --gitleaks-log-opts "$log_opts"
+    [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
+  fi
   # The dependency audits, one step per project, in the project's directory. At
   # the root only, a repository with backend/ and frontend/ got gitleaks alone
   # and "PASS  security scan". Not in --quick, the pre-push run: they go to the

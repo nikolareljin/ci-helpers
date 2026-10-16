@@ -6,7 +6,8 @@
 # PARAMETERS:
 #   --repo <path>   Target repository (default: current directory).
 #   --shims <list>  Comma-separated root scripts to replace with thin shims,
-#                   e.g. "build,test,update,start". Each becomes
+#                   e.g. "build,test,update,start"; "service" stands for
+#                   start,stop,restart,status,logs. Each becomes
 #                   `exec bash scripts/cli.sh <verb> "$@"`. Existing files are
 #                   backed up to <name>.pre-dev-cli unless --force is given.
 #   --no-hooks      Do not wire the pre-push hook.
@@ -122,6 +123,8 @@ for core in dev dev.ps1 scripts/_bootstrap.sh scripts/cli.sh scripts/cli.ps1 scr
 done
 shim_list=()
 if [[ -n "$SHIMS" ]]; then
+  # "service": the five lifecycle verbs a repository with SVC_BACKEND answers.
+  SHIMS="$(printf '%s' "$SHIMS" | awk -v RS=, -v ORS=, '{ gsub(/[[:space:]]/, ""); if ($0 == "service") print "start,stop,restart,status,logs"; else if ($0 != "") print }' | sed 's/,$//')"
   IFS=',' read -r -a shim_list <<< "$SHIMS"
   # Two things are refused. A name with a path
   # separator, or `.`/`..`, would write outside the repository root or over a
@@ -185,21 +188,20 @@ if [[ -n "$SHIMS" ]]; then
     [[ -n "$name" ]] || continue
     dest="$REPO/$name"
     refuse_bad_dest "$dest"
-    if [[ -e "$dest" && "$FORCE" == "false" ]]; then
-      # On a re-run $dest is the shim written last time. Moving that over an
-      # existing backup would replace the caller's original script with our
-      # own generated one -- the only copy of it, gone. Keep the first backup.
+    if [[ -e "$dest" && "$FORCE" == "false" ]] \
+       && grep -qE '^# (Compatibility|Service) shim\. Use \./dev ' "$dest" 2>/dev/null; then
+      # A shim written last time: rewritten in place. Moving it to the backup
+      # slot would file a generated file as the caller's original.
+      say "rewrite: ./$name (a shim this installer wrote)"
+    elif [[ -e "$dest" && "$FORCE" == "false" ]]; then
+      # $dest is the caller's own script: it is backed up once, and never over
+      # an existing backup, which may be the only copy of an earlier original.
       if [[ -e "$dest.pre-dev-cli" ]]; then
-        # Only a shim we wrote is safe to discard. If $dest is anything else
-        # the backup slot that would have saved it is already occupied, so
-        # there is no move that does not lose a file: leave both untouched.
-        if grep -q '^# Compatibility shim\. Use \./dev ' "$dest" 2>/dev/null; then
-          say "keep backup: $name.pre-dev-cli already exists"
-          [[ "$DRY_RUN" == "true" ]] || rm -f -- "$dest"
-        else
-          log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
-          continue
-        fi
+        # $dest is not a shim we wrote (that case is above), and the backup
+        # slot that would have saved it is already occupied: there is no move
+        # that does not lose a file, so leave both untouched.
+        log_warn "skip $name: $name.pre-dev-cli exists and ./$name is not a shim we wrote"
+        continue
       else
         say "back up: $name -> $name.pre-dev-cli"
         [[ "$DRY_RUN" == "true" ]] || mv -- "$dest" "$dest.pre-dev-cli"
@@ -210,9 +212,17 @@ if [[ -n "$SHIMS" ]]; then
     # Delegates to ./dev rather than re-running scripts/cli.sh directly: ./dev
     # is what picks a usable bash, and duplicating that resolver into every
     # consumer repo is how it would drift out of step with this library.
+    # The service verbs' shims stay: systemd units and habits point at ./start
+    # and ./stop. Any other shim replaced a one-off script and is transitional.
+    case "$name" in
+      start|stop|restart|status|logs)
+        note="# Service shim. Use ./dev $name -- kept: systemd units and scripts call ./$name." ;;
+      *)
+        note="# Compatibility shim. Use ./dev $name — this is removed one minor version on." ;;
+    esac
     cat > "$dest" <<EOF
 #!/usr/bin/env bash
-# Compatibility shim. Use ./dev $name — this is removed one minor version on.
+$note
 exec "\$(dirname "\$0")/dev" "$name" "\$@"
 EOF
     chmod -- 755 "$dest"

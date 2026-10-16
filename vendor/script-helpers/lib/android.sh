@@ -48,6 +48,29 @@ android_sdk_root() {
 # Usage: android_available; returns 0 when an Android SDK root is resolvable.
 android_available() { android_sdk_root >/dev/null 2>&1; }
 
+# Usage: android_generate_keystore <output.jks>; create a new Android signing
+# keystore. keytool prompts for all identity and password values interactively.
+# Returns 2 for bad arguments or an existing target, 3 when keytool is absent.
+android_generate_keystore() {
+  local output="${1:-}" parent
+  [[ -n "$output" && $# -eq 1 ]] || {
+    log_error "android_generate_keystore: need <output.jks>"
+    return 2
+  }
+  [[ ! -e "$output" && ! -L "$output" ]] || {
+    log_error "android_generate_keystore: refusing to overwrite $output"
+    return 2
+  }
+  command -v keytool >/dev/null 2>&1 || {
+    log_error "android_generate_keystore: keytool not found. Install a JDK."
+    return 3
+  }
+  parent="$(dirname "$output")"
+  [[ "$parent" == "." ]] || mkdir -p "$parent" || return 1
+  keytool -genkeypair -storetype JKS -keystore "$output" -alias android-release \
+    -keyalg RSA -keysize 4096 -validity 10000
+}
+
 # Usage: android_sdk_tool <name>; prints the path to an SDK tool (sdkmanager,
 # avdmanager, emulator, apksigner, zipalign, adb), searching the SDK's several
 # layouts and then PATH. Returns 3 when it cannot be found.

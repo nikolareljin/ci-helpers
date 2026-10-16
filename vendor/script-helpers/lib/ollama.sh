@@ -129,32 +129,13 @@ PY
   return 1
 }
 
-# Install Ollama CLI for supported OSes.
+# Install the Ollama CLI: the pinned release, checked against its SHA-256
+# (ollama_install in lib/ollama_install.sh; Homebrew on macOS). Returns what
+# ollama_install returns, 1 for any failure here.
 ollama_install_cli() {
-  local os; os=$(get_os)
-  case "$os" in
-    linux)
-      print_info "Installing Ollama CLI on Linux..."
-      curl -fsSL https://ollama.com/install.sh | sh
-      ;;
-    mac)
-      print_info "Installing Ollama CLI on macOS..."
-      if command -v brew >/dev/null 2>&1; then
-        brew install ollama/tap/ollama
-      else
-        print_error "Homebrew not found; install Homebrew or Ollama manually."
-        return 1
-      fi
-      ;;
-    windows)
-      print_error "Ollama installation is not supported in this shell on Windows."
-      return 1
-      ;;
-    *)
-      print_error "Unsupported OS for Ollama installation."
-      return 1
-      ;;
-  esac
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
+  ollama_install "$@" || return 1
 }
 
 # Ensure repo with models index exists and is up to date; generate JSON index.
@@ -261,13 +242,91 @@ _ollama_prepare_models_index_work() {
     print_error "Failed to sort models index: $json_path"
     return 1
   fi
-  mv "$json_path.tmp" "$json_path" || { rm -f "$json_path.tmp"; return 1; }
+  # Replaced only when sorting changed it. The menu cache is rebuilt whenever
+  # the index is newer than it, and an index rewritten on every call was
+  # always newer: the cache was never reused.
+  if cmp -s "$json_path.tmp" "$json_path"; then
+    rm -f "$json_path.tmp"
+  else
+    mv "$json_path.tmp" "$json_path" || { rm -f "$json_path.tmp"; return 1; }
+  fi
 }
 
 # Return path to models JSON for a repo directory (does not generate)
 ollama_models_json_path() {
   local repo_dir="${1:-ollama-get-models}"
   echo "$repo_dir/code/ollama_models.json"
+}
+
+# The index is an array of models, or an object holding one under "models":
+# _ollama_is_valid_models_json accepts both, so every reader takes both. A
+# function, not a variable: a shell that has the functions without the
+# variable (export -f) would run a jq program that starts with a pipe.
+# It starts with `plain`, true for text without a control character: a name
+# or a size with a line break in it would come out of jq as two.
+_ollama_jq_models() {
+  printf '%s' 'def plain: explode | all(.[]; . >= 32 and . != 127); (if type == "array" then . else (.models // []) end)'
+}
+
+# What the index names ends up in a command line and in the .env that
+# ollama_install_model_flow writes and load_env sources. So only what can be a
+# model reference is offered, by the rule lib/ollama_endpoint.sh has for one
+# (_ollama_ep_is_model; tests/dialog_capture_test.sh holds the two together):
+# letters, digits and . _ - / : only, starting with a letter or a digit, and no
+# empty part (no "..", "//", "::", "/:", ":/", no ":" or "/" at the end).
+# - The pattern is written here and not kept in a variable: matched against a
+#   variable that is not set, [[ =~ ]] is true for everything.
+# - LC_ALL=C: in other locales [A-Za-z] takes accented letters, and with
+#   nocasematch a dotless i.
+_ollama_is_model_ref() {
+  local LC_ALL=C
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]*$ ]] || return 1
+  case "$1" in *..*|*//*|*:|*/|*::*|*/:*|*:/*) return 1 ;; esac
+  return 0
+}
+
+# The same for a size, which becomes the tag: no "/" and no ":".
+_ollama_is_model_tag() {
+  local LC_ALL=C
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
+  case "$1" in *..*) return 1 ;; esac
+  return 0
+}
+
+# True when a model reference carries its tag: a colon after the last slash
+# (before it, a colon is a registry's port).
+_ollama_ref_has_tag() { local last="${1##*/}"; [[ "$last" == *:* ]]; }
+
+# What may be handed to `ollama pull` or `ollama run` as the model: one word
+# that starts with a letter or a digit. Wider than _ollama_is_model_ref on
+# purpose (a caller may pass name@sha256:...), and enough to keep an empty
+# name, an option ("-x") and a second argument out of the command.
+_ollama_ref_is_arg() {
+  local LC_ALL=C
+  [[ "${1:-}" =~ ^[A-Za-z0-9][^[:space:][:cntrl:]]*$ ]]
+}
+
+# Usage: _ollama_ref_checked <reference>; says so and returns 1 when the
+# reference may not go into a command. The value is not printed: it is not a
+# reference, and what it is instead is not known.
+_ollama_ref_checked() {
+  if _ollama_ref_is_arg "${1:-}"; then return 0; fi
+  print_error "Not a model reference (it has to start with a letter or a digit, and have no space or control character in it); nothing was run." >&2
+  return 1
+}
+
+# Usage: _ollama_index_id <index file>; prints the index as one line that is
+# the same however the path was spelled: its directory as the system resolves
+# it, and the file name. "idx/models.json" named from two directories is two
+# indexes, and "./x.json", "x.json" and the full path are one. A line break in
+# the path becomes a space, so the answer stays one line.
+_ollama_index_id() {
+  local file="${1:-}" dir id nl=$'\n' cr=$'\r'
+  dir="$(dirname -- "$file")"
+  if dir="$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P)"; then :; else dir="$(dirname -- "$file")"; fi
+  id="${dir%/}/$(basename -- "$file")"
+  id="${id//$nl/ }"
+  printf '%s' "${id//$cr/ }"
 }
 
 # List model names from JSON index
@@ -277,7 +336,24 @@ ollama_list_models() {
     print_error "Models JSON not found: $json_file" >&2
     return 1
   fi
-  jq -r '.[].name' "$json_file"
+  # Only names that can be a model reference, as the menu offers them. An
+  # entry that is not an object, or has no name, is passed over.
+  local names name out="" nl=$'\n'
+  names="$(jq -r "$(_ollama_jq_models)"' | .[] | objects | .name | strings | select(plain)' "$json_file")" || return 1
+  while IFS= read -r name; do
+    if _ollama_is_model_ref "$name"; then out="${out}${out:+$nl}${name}"; fi
+  done <<<"$names"
+  [[ -n "$out" ]] || return 0
+  # A reader that has what it wants and leaves (`ollama_list_models x | head
+  # -n 1`) is not a failure of this function, also for a caller with pipefail.
+  # bash writes a line at a time, so the reader can be gone before the last
+  # one. Written in a subshell: SIGPIPE then ends the subshell and not the
+  # function, and a write that failed on a pipe or a socket is not reported.
+  # A write that fails anywhere else (a full disk) still is.
+  if (printf '%s\n' "$out") 2>/dev/null; then return 0; fi
+  if [[ -p /dev/stdout || -S /dev/stdout ]]; then return 0; fi
+  print_error "Could not write the model names" >&2
+  return 1
 }
 
 ollama_model_menu_cache_path() {
@@ -335,23 +411,62 @@ ollama_prepare_model_menu_cache() {
   fi
   tmp_file="$(mktemp "${cache_file}.tmp.XXXXXX")" || return 1
 
-  jq -r '
-    map(select(.name | contains("/") | not) | . + { slug: .name })
-    | sort_by(.slug | ascii_downcase)
+  # jq takes the entries apart; what may be offered is decided here, by the
+  # one rule (_ollama_is_model_ref, _ollama_is_model_tag).
+  # - Between jq and the loop the fields are separated by the unit separator
+  #   and the sizes by the record separator. Tab would not do: it is
+  #   whitespace to `read`, so an empty sizes field vanished and the
+  #   description was read as the sizes.
+  # - A name or a size with a control character in it is dropped in jq, so
+  #   neither separator can come from the index. Control characters in a
+  #   description become spaces.
+  # - An entry that is not an object, or has no name, is passed over. It used
+  #   to end the menu with a jq error.
+  local rows name raw_sizes desc size sizes count=0
+  local -a size_list
+  rows="$(jq -r "$(_ollama_jq_models)"'
+    | map(select(type == "object" and (.name | type) == "string" and (.name | plain)))
+    | sort_by(.name | ascii_downcase)
     | .[]
     | [
-        .slug,
         .name,
-        ((.sizes // []) | join(", ")),
-        ((.description // "") | gsub("[[:space:]]+"; " "))
+        ((if (.sizes | type) == "array" then .sizes else [] end)
+          | map(select(type == "string" and plain)) | join("\u001e")),
+        ((.description // "") | tostring | gsub("[[:space:][:cntrl:]]+"; " "))
       ]
-    | @tsv
-  ' "$json_file" > "$tmp_file" || {
+    | join("\u001f")
+  ' "$json_file")" || {
     rm -f "$tmp_file"
     return 1
   }
 
-  if [[ ! -s "$tmp_file" ]]; then
+  {
+    # The index this cache was made from (_ollama_index_id). A cache path may
+    # be given by the caller (OLLAMA_MODEL_MENU_CACHE_FILE): the same path
+    # with another index is another menu. The reader skips every line that
+    # starts with "#": the path after the tab can pass for a model reference
+    # ("dir/models.json" does), so the rule alone does not keep it out.
+    printf '#index\t%s\n' "$(_ollama_index_id "$json_file")"
+    while IFS=$'\037' read -r name raw_sizes desc; do
+      _ollama_is_model_ref "$name" || continue
+      sizes=""
+      IFS=$'\036' read -r -a size_list <<<"$raw_sizes" || true
+      for size in "${size_list[@]+"${size_list[@]}"}"; do
+        if _ollama_is_model_tag "$size"; then sizes="${sizes}${sizes:+, }${size}"; fi
+      done
+      # A name that carries its tag has no size to choose (the size menu is
+      # not shown for it), so its listed sizes are not shown either.
+      if _ollama_ref_has_tag "$name"; then sizes="in the name"; fi
+      # No column is empty but the last: see above.
+      printf '%s\t%s\t%s\t%s\n' "$name" "$name" "${sizes:-latest}" "$desc"
+      count=$((count + 1))
+    done <<<"$rows"
+  } >"$tmp_file" || {
+    rm -f "$tmp_file"
+    return 1
+  }
+
+  if [[ "$count" -eq 0 ]]; then
     rm -f "$tmp_file"
     print_error "Generated empty Ollama model menu cache: $cache_file" >&2
     return 1
@@ -393,47 +508,68 @@ ollama_dialog_select_model() {
     cache_file="$(ollama_model_menu_cache_path "$json_file")"
   fi
 
-  if [[ ! -s "$cache_file" ]] || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
+  # Rebuilt unless the cache was made from this index, is newer than it, has
+  # no empty column and is not old:
+  # - an index that changed (a refresh, an entry added by hand) used to keep
+  #   its old menu for half an hour;
+  # - only a version that lost an empty column in reading wrote one, and its
+  #   rows would be read wrongly here too;
+  # - a cache path the caller gave may have been filled from another index.
+  local made_from=""
+  if [[ -s "$cache_file" ]]; then IFS= read -r made_from <"$cache_file" || true; fi
+  if [[ "$made_from" != "#index"$'\t'"$(_ollama_index_id "$json_file")" ]] || [[ ! "$cache_file" -nt "$json_file" ]] \
+      || grep -q "$(printf '\t\t')" "$cache_file" || ! ollama_model_menu_cache_is_fresh "$cache_file"; then
     cache_file="$(ollama_prepare_model_menu_cache "$json_file" "$cache_file")" || return 1
   fi
 
+  # Case does not tell two models apart (Ollama reads "Qwen3" as "qwen3"), so
+  # the current model is found whichever way it was written. Of two names that
+  # differ only by case, the one written the same way wins.
+  local nocase_was_on=0 exact_found=0
+  if shopt -q nocasematch; then nocase_was_on=1; fi
+  shopt -s nocasematch
   while IFS=$'	' read -r slug model_name sizes desc; do
+    # A cache is a file: a row written by an older version, or by hand, is
+    # held to the same rule as the index. A line that starts with "#" is not
+    # a row: the first one names the index.
+    [[ "$slug" != "#"* ]] || continue
+    _ollama_is_model_ref "$model_name" || continue
     idx=$((idx + 1))
     tag=$(printf '%04d' "$idx")
-    summary="${slug}"
-    if [[ -n "$sizes" ]]; then
-      summary="${summary} | sizes: ${sizes}"
-    else
-      summary="${summary} | sizes: latest"
-    fi
+    summary="${slug} | sizes: ${sizes:-latest}"
     if [[ -n "$desc" ]]; then
       summary="${summary} | ${desc}"
     fi
     summary="${summary:0:140}"
     menu_items+=("$tag" "$summary")
     model_lookup[$idx]="$model_name"
-    if [[ "$model_name" == "$current_model" ]]; then
+    # `[ = ]` compares exactly; `[[ == ]]` follows nocasematch.
+    if [ "$model_name" = "$current_model" ]; then
+      default_tag="$tag"
+      exact_found=1
+    elif [[ "$exact_found" -eq 0 && -z "$default_tag" && "$model_name" == "$current_model" ]]; then
       default_tag="$tag"
     fi
   done < "$cache_file"
+  [[ "$nocase_was_on" -eq 1 ]] || shopt -u nocasematch
 
   total_count="$idx"
   if [[ $total_count -eq 0 ]]; then
     print_error "No selectable Ollama models found in cache: $cache_file" >&2
     return 1
   fi
-  value="Browse official Ollama library models. Showing ${total_count} indexed models."
+  value="Browse the indexed Ollama models. Showing ${total_count}."
   if [[ -n "$current_model" ]]; then
     value="${value} Current selection: ${current_model}."
   fi
 
   if [[ -n "$default_tag" ]]; then
-    if ! selected=$(dialog --stdout --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+    if ! selected=$(dialog_capture --default-item "$default_tag" --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
       print_error "No model selected." >&2
       return 1
     fi
   else
-    if ! selected=$(dialog --stdout --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
+    if ! selected=$(dialog_capture --menu "$value" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" "$menu_height" "${menu_items[@]}"); then
       print_error "No model selected." >&2
       return 1
     fi
@@ -460,8 +596,30 @@ ollama_dialog_select_size() {
     return 1
   fi
 
-  local sizes; sizes=$(jq -r --arg m "$model" '.[] | select(.name == $m) | .sizes[]?' "$json_file")
-  if [[ -z "$sizes" ]]; then
+  # A name that carries its tag is the whole reference: there is no size to
+  # choose, and one chosen here would be recorded and never pulled.
+  if _ollama_ref_has_tag "$model"; then
+    echo "latest"
+    return 0
+  fi
+
+  # Only what can be a tag (_ollama_is_model_tag): a size goes into a command
+  # line and into .env. A jq that fails is an error, not "no sizes": it used
+  # to answer "latest" for an index it could not read.
+  # An array: a string split by `for s in $sizes` was one item for a caller
+  # whose IFS has no space (IFS=$'\n\t').
+  local raw_sizes s
+  local -a sizes=()
+  if ! raw_sizes="$(jq -r --arg m "$model" "$(_ollama_jq_models)"'
+      | .[] | objects | select(.name == $m) | .sizes
+      | if type == "array" then .[] else empty end | strings | select(plain)' "$json_file")"; then
+    print_error "Could not read the sizes of $model from: $json_file" >&2
+    return 1
+  fi
+  while IFS= read -r s; do
+    if _ollama_is_model_tag "$s"; then sizes+=("$s"); fi
+  done <<<"$raw_sizes"
+  if [[ ${#sizes[@]} -eq 0 ]]; then
     print_warning "No sizes listed for $model; using 'latest'." >&2
     echo "latest"
     return 0
@@ -473,20 +631,20 @@ ollama_dialog_select_size() {
     return 1
   fi
   local -a menu_items=()
-  local -a dialog_args=(--stdout --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
-  local s has_default=""
-  for s in $sizes; do
+  local -a dialog_args=(--menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+  local has_default=""
+  for s in "${sizes[@]}"; do
     menu_items+=("$s" "$s")
     if [[ -n "$current_size" && "$s" == "$current_size" ]]; then
       has_default=1
     fi
   done
   if [[ -n "$has_default" ]]; then
-    dialog_args=(--stdout --default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
+    dialog_args=(--default-item "$current_size" --menu "Select a size for: $model" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 10)
   fi
 
   local selected status=0
-  if selected=$(dialog "${dialog_args[@]}" "${menu_items[@]}"); then
+  if selected=$(dialog_capture "${dialog_args[@]}" "${menu_items[@]}"); then
     :
   else
     status=$?
@@ -501,11 +659,13 @@ ollama_dialog_select_size() {
   echo "$selected"
 }
 
-# Build Ollama model reference. Omits tag when size is empty/latest.
+# Build Ollama model reference. Omits tag when size is empty/latest, and when
+# the name carries a tag already (an index may list hf.co/org/model:Q4_K_M):
+# a second tag is not a reference.
 ollama_model_ref() {
   local model_name="$1"
   local model_size="${2:-latest}"
-  if [[ -z "$model_size" || "$model_size" == "latest" ]]; then
+  if [[ -z "$model_size" || "$model_size" == "latest" ]] || _ollama_ref_has_tag "$model_name"; then
     echo "$model_name"
   else
     echo "${model_name}:${model_size}"
@@ -581,8 +741,13 @@ ollama_runtime_sync_env_url() {
   local base_url
 
   base_url="$(ollama_runtime_build_base_url "$env_file")"
+  # stdout is the address and nothing else: callers capture it. An address
+  # ollama_update_env will not write (a "$" or "&" in a password) is still the
+  # address for this run; it is only not saved.
   if [[ -n "$env_file" ]]; then
-    ollama_update_env "$env_file" ollama_url "$base_url"
+    if ! ollama_update_env "$env_file" ollama_url "$base_url"; then
+      print_warning "ollama_url was not saved to ${env_file}; the address is used for this run only." >&2
+    fi
   fi
   echo "$base_url"
 }
@@ -894,7 +1059,7 @@ print('XXX')
 PY2
         sleep 0.5
       done
-    ) | dialog --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
+    ) | dialog_gauge --no-shadow --title "$title" --gauge "Preparing model download..." "$gauge_height" "$gauge_width" 0; then
       dialog_rc=0
     else
       dialog_rc=$?
@@ -940,6 +1105,7 @@ ollama_runtime_pull_model() {
   local model_ref
 
   model_ref="$(ollama_model_ref "$model" "$size")"
+  _ollama_ref_checked "$model_ref" || return 1
   if [[ "$runtime" == "docker" ]]; then
     local container
     ollama_runtime_ensure_docker_container "$env_file" || return 1
@@ -998,6 +1164,7 @@ ollama_runtime_export_model() {
   local model_ref="$3"
   local output_path="$4"
 
+  _ollama_ref_checked "$model_ref" || return 1
   if ! create_directory "$(dirname "$output_path")" >/dev/null; then
     print_error "Failed to create export output directory: $(dirname "$output_path")"
     return 1
@@ -1042,6 +1209,7 @@ ollama_runtime_run_model() {
   local model_ref
   local models_dir
   model_ref="$(ollama_model_ref "$model" "$size")"
+  _ollama_ref_checked "$model_ref" || return 1
   models_dir="$(ollama_runtime_local_models_dir "$env_file")" || return 1
   OLLAMA_MODELS="$models_dir" nohup ollama run "$model_ref" >/dev/null 2>&1 &
 }
@@ -1072,6 +1240,7 @@ ollama_pull_model() {
     return 1
   fi
   model_ref="$(ollama_model_ref "$model" "$size")"
+  _ollama_ref_checked "$model_ref" || return 1
   print_info "Pulling model: ${model_ref}"
   ollama pull "$model_ref"
 }
@@ -1085,11 +1254,24 @@ ollama_run_model() {
     return 1
   fi
   model_ref="$(ollama_model_ref "$model" "$size")"
+  _ollama_ref_checked "$model_ref" || return 1
   print_info "Running model: ${model_ref}"
   nohup ollama run "$model_ref" >/dev/null 2>&1 &
 }
 
+# A key ollama_update_env writes: a letter or an underscore, then letters,
+# digits, underscores and dots. In the C locale, where [A-Za-z] has no accented
+# letters. A dot is kept because keys with one are written today. bash does not
+# take such a line as an assignment: load_env prints "command not found" for it
+# and loads the rest, and a caller running with `set -e` ends there.
+_ollama_env_key_ok() {
+  local LC_ALL=C
+  [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]]
+}
+
 # Update key=value in .env (create or replace line); portable sed/awk approach.
+# Its messages go to stderr: ollama_runtime_sync_env_url calls it and is
+# captured.
 #
 # The key is compared literally (a regex test found "a.b" in "aXb=" and then
 # the literal replace wrote nothing), values travel through ENVIRON (awk -v
@@ -1099,12 +1281,31 @@ ollama_run_model() {
 ollama_update_env() {
   local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
   if [[ -z "$key" ]]; then
-    print_error "env key is required"
+    print_error "env key is required" >&2
     return 1
   fi
   case "$key$value" in
     *$'\n'*|*$'\r'*)
-      print_error "env key and value must not contain a newline or carriage return"
+      print_error "env key and value must not contain a newline or carriage return" >&2
+      return 1
+      ;;
+  esac
+  # The file is one that load_env sources. A line "key=value" runs what is in
+  # the value when it holds a shell operator, a substitution or a second word
+  # ("model=two words" runs `words`), and an unclosed quote stops the whole
+  # file from loading. A backslash at the end joins the next line to this
+  # one, and a comment line after it then runs. Such a value is refused, not
+  # written.
+  # Still written as given, as before, though load_env reads them changed: a
+  # backslash inside the value (a\b loads as ab) and a tilde at its start
+  # (~/x loads as the home directory's x).
+  if ! _ollama_env_key_ok "$key"; then
+    print_error "env key is not a name: nothing was written" >&2
+    return 1
+  fi
+  case "$value" in
+    *[[:space:]\;\&\|\$\`\(\)\<\>\'\"]*|*\\)
+      print_error "the value for ${key} has a space, a quote or a shell operator in it, or ends in a backslash; ${env_file} is sourced, so it was not written" >&2
       return 1
       ;;
   esac
@@ -1141,7 +1342,9 @@ ollama_install_model_flow() {
   json_file=$(ollama_prepare_models_index "$repo_dir") || return 1
 
   # Read current selections from env (if provided)
-  local current_model current_size
+  # Empty, not unset: a first run has no env file, and under `set -u` the menu
+  # call below ended the caller on an unbound variable.
+  local current_model="" current_size=""
   if [[ -n "$env_file" && -f "$env_file" ]]; then
     current_model=$(resolve_env_value "model" "" "$env_file")
     current_size=$(resolve_env_value "size" "" "$env_file")

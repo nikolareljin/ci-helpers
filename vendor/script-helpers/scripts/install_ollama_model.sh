@@ -103,4 +103,4 @@ if $run_after; then
   ollama_run_model "$model" "$size"
 fi
 
-print_success "Completed. Model: ${model}:${size}"
+print_success "Completed. Model: $(ollama_model_ref "$model" "$size")"

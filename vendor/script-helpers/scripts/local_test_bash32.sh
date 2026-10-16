@@ -80,7 +80,7 @@ fi
 # does not, the affected tests are reported as SKIPPED -- a test that failed for
 # want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
 # people learn to ignore.
-BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip >/dev/null 2>&1 || true'
+BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip jq >/dev/null 2>&1 || true'
 
 # Offline, `docker run` on an image that was never pulled fails with a registry
 # error that reads like the gate is broken. Say what actually happened, and use

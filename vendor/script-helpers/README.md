@@ -149,6 +149,29 @@ Quick start
     supported, but it is not a fast-forward, so it must be asked for explicitly — see below.
   - Source as shown above.
 
+Git hooks
+---------
+
+Hooks that stop secrets, private repository names and broken files before they
+leave your machine. A push checks only what it sends, usually in seconds; tests
+run when you ask (`make test`, `./dev test`), or on push in a repository that
+opts in (`git config script-helpers.push-tests quick`).
+
+```bash
+bash scripts/script-helpers/scripts/setup-hooks.sh        # in each repository
+```
+
+Setup finds your GitHub account through `gh`; without `gh`, or to add
+organisations you count as your own:
+`git config --global script-helpers.owners <user-or-org>[,<another>]`.
+
+What runs on commit and push, the options and settings:
+[docs/git-hooks.md](docs/git-hooks.md).
+
+Bringing a repository onto script-helpers, step by step:
+[docs/adopt.md](docs/adopt.md). Every script and its options:
+[docs/commands.md](docs/commands.md).
+
 Pinning the production branch
 -----------------------------
 
@@ -176,7 +199,7 @@ Loader and modules
 - `helpers.sh`: resolves library path and provides `shlib_import` to source modules by name.
 - Modules live in `lib/*.sh` and are small, dependency-light files:
   - `logging.sh` — color constants and logging helpers (`print_info`, `log_info`, etc.).
-  - `dialog.sh` — dialog sizing helpers and `get_value`.
+  - `dialog.sh`: dialog sizing helpers, `get_value`, and boxes that show even when the caller has captured stdout (`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`, `has_interactive_dialog_session`).
   - `os.sh` — OS detection (`get_os`, `getos`, `is_wsl`) and conditional sudo helper.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
@@ -196,6 +219,8 @@ Loader and modules
 - `hosts.sh` — `/etc/hosts` helpers.
 - `clipboard.sh` — `copy_to_clipboard`.
 - `ollama.sh` — Ollama helpers (`ollama_install_cli`, prepare models index from webfarmer/ollama-get-models, dialog selection, `ollama_pull_model`, `ollama_run_model`) and runtime helpers for local/docker (`ollama_runtime_*`).
+- `ollama_endpoint.sh`: for a start script. Which models a project needs, as this machine's class of hardware gets them (`ollama_models_required`, `ollama_model_for_class`, `scripts/ollama_models.sh`), which an Ollama has (`ollama_endpoint_models`), a disk and memory check before anything is pulled (`ollama_budget_check`, `ollama_endpoint_ensure_models`), and whether a container can reach this machine's Ollama (`ollama_endpoint_container_reach`).
+- `ollama_install.sh`: install Ollama itself from the pinned release, checked against its SHA-256 (`ollama_install`), instead of piping its installer into a shell.
 
 Notes for Ollama model indexing:
 - Requires Python 3 (`python3` preferred; falls back to `python` if it is 3.x).

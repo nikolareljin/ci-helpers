@@ -34,9 +34,11 @@ $DEV_USER    = 0
 $DEV_ARGS    = @()
 $DEV_WANTS_HELP = $false
 
-# $Rest is $null — not an empty array — when no remaining arguments are bound,
-# and StrictMode makes $null.Count a terminating error. Normalise once.
-$Rest = @($Rest)
+# $Rest is $null -- not an empty array -- when no remaining arguments are bound,
+# and StrictMode makes $null.Count a terminating error. Normalise once. Not
+# @($Rest) alone: @($null) is an array holding one $null, which every verb then
+# saw as an empty argument (`./dev.ps1 start` passed '' on to svc_start).
+$Rest = @($Rest | Where-Object { $null -ne $_ })
 
 $targets = @('android','ios','host','backend','frontend','linux','web','macos','windows')
 for ($i = 0; $i -lt $Rest.Count; $i++) {
@@ -61,12 +63,32 @@ for ($i = 0; $i -lt $Rest.Count; $i++) {
     }
 }
 
-# A verb this repo cannot honour exits 0 with an explanation. It is never simply
-# absent: a missing verb is indistinguishable from a typo.
+# A verb this repo cannot honour exits 3 with an explanation. It is never simply
+# absent: a missing verb is indistinguishable from a typo. Not 0: a skipped
+# build or deploy must not read as one that ran (R-765 ADR-0061).
 function Not-Applicable {
     param([string]$VerbName, [string]$Reason)
-    log_info "${VerbName}: not applicable in this repo — $Reason"
-    exit 0
+    log_info "${VerbName}: not applicable in this repo -- $Reason"
+    exit 3
+}
+
+# The service verbs are lib/service.sh's, one implementation: a repository
+# that declares SVC_BACKEND in scripts/project.sh runs them through bash (Git
+# Bash on Windows) and scripts/cli.sh.
+function Test-DevHasServices {
+    $projectSh = Join-Path $PSScriptRoot 'project.sh'
+    if (-not (Test-Path $projectSh)) { return $false }
+    return [bool](Select-String -Path $projectSh -Pattern '^\s*(export\s+)?SVC_BACKEND=' -Quiet)
+}
+function Invoke-ServiceVerb {
+    param([string]$VerbName)
+    $bash = Find-DevBash
+    if (-not $bash) {
+        log_error "${VerbName}: this repository's services run through bash (not WSL's); install Git for Windows (Git Bash)"
+        exit 1
+    }
+    & $bash (Join-Path $PSScriptRoot 'cli.sh') $VerbName @Rest
+    exit $LASTEXITCODE
 }
 
 # The PowerShell preflight is native — it does not shell out to bash, so this
@@ -92,7 +114,13 @@ function Invoke-Preflight {
 }
 
 function Get-DevProjects {
-    $out = & $script:PreflightPs1 -List 2>$null
+    # preflight refuses to run where CI=true, and under ErrorActionPreference
+    # Stop that refusal ended ./dev.ps1: build, deploy and every verb that
+    # detects a stack failed on any CI runner. -List only reads the tree, so CI
+    # is cleared for it alone, as cli.sh does (CI="" preflight.sh --list).
+    $savedCI = $env:CI
+    $env:CI = ''
+    try { $out = & $script:PreflightPs1 -List 2>$null } finally { $env:CI = $savedCI }
     if (-not $out) { return @() }
     $out | ForEach-Object {
         $parts = $_ -split "`t"
@@ -116,18 +144,32 @@ function Test-IsAndroid { return ((Get-StackDir 'gradle') -or (Test-Path 'androi
 # the pre-push hook is the only remaining gate, and core.hooksPath lives in
 # .git/config — untracked, so a fresh clone has no gate until install sets it.
 # setup-hooks.sh is bash; on Windows it ships with Git for Windows.
+# A bash that can run this repository's scripts. On Windows the first `bash`
+# on PATH is often WSL's (System32, WindowsApps), which cannot read a Windows
+# path; Git Bash can. Returns its path, or $null.
+function Find-DevBash {
+    foreach ($c in @(Get-Command bash -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if ($c.Source -notmatch '[\\/](System32|WindowsApps)[\\/]') { return $c.Source }
+    }
+    foreach ($p in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+                     "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+        if ($p -and (Test-Path $p)) { return $p }
+    }
+    return $null
+}
+
 function Install-DevHooks {
     $setup = Join-Path $env:SCRIPT_HELPERS_DIR 'scripts/setup-hooks.sh'
     if (-not (Test-Path $setup)) {
         log_warn 'install: setup-hooks.sh not found — git hooks not configured'
         return
     }
-    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    $bash = Find-DevBash
     if (-not $bash) {
         log_warn 'install: bash not found — run "git config core.hooksPath scripts/script-helpers/scripts/git-hooks" by hand'
         return
     }
-    & $bash.Source $setup
+    & $bash $setup
     if ($LASTEXITCODE -ne 0) { log_warn 'install: could not configure git hooks — pushes will not be gated' }
 }
 
@@ -397,8 +439,27 @@ function Verb-Record {
 }
 
 # Stop running services without removing them or their data; see verb_stop in cli.sh.
+function Verb-Start {
+    if (Get-Command Project-Start -ErrorAction SilentlyContinue) { Project-Start; return }
+    if (Test-DevHasServices) { Invoke-ServiceVerb 'start' }
+    Not-Applicable 'start' 'no services declared; set SVC_BACKEND in scripts/project.sh or define Project-Start in scripts/project.ps1'
+}
+function Verb-Restart {
+    if (Get-Command Project-Restart -ErrorAction SilentlyContinue) { Project-Restart; return }
+    if (Test-DevHasServices) { Invoke-ServiceVerb 'restart' }
+    if ((Get-Command Project-Stop -ErrorAction SilentlyContinue) -and (Get-Command Project-Start -ErrorAction SilentlyContinue)) {
+        Project-Stop; Project-Start; return
+    }
+    Not-Applicable 'restart' 'no services declared; set SVC_BACKEND in scripts/project.sh or define Project-Restart in scripts/project.ps1'
+}
+function Verb-Status {
+    if (Get-Command Project-Status -ErrorAction SilentlyContinue) { Project-Status; return }
+    if (Test-DevHasServices) { Invoke-ServiceVerb 'status' }
+    Not-Applicable 'status' 'no services declared; set SVC_BACKEND in scripts/project.sh or define Project-Status in scripts/project.ps1'
+}
 function Verb-Stop {
     if (Get-Command Project-Stop -ErrorAction SilentlyContinue) { Project-Stop; return }
+    if (Test-DevHasServices) { Invoke-ServiceVerb 'stop' }
     foreach ($f in @('compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml')) {
         $path = Join-Path $DEV_REPO_ROOT $f
         if (Test-Path $path) {
@@ -417,11 +478,15 @@ function Verb-Stop {
             return
         }
     }
-    Not-Applicable 'stop' 'no compose file; define Project-Stop in scripts/project.ps1'
+    Not-Applicable 'stop' 'no compose file; set SVC_BACKEND in scripts/project.sh or define Project-Stop in scripts/project.ps1'
 }
 
 function Verb-Logs {
-    if (Get-Command Project-Logs -ErrorAction SilentlyContinue) { Project-Logs; return }
+    # logs android / logs ios stay device logs, whatever else the repo runs.
+    if ($DEV_TARGET -ne 'android' -and $DEV_TARGET -ne 'ios') {
+        if (Get-Command Project-Logs -ErrorAction SilentlyContinue) { Project-Logs; return }
+        if (Test-DevHasServices) { Invoke-ServiceVerb 'logs' }
+    }
     Import-ScriptHelpers adb
     $serial = $DEV_DEVICE
     if (-not $serial) {
@@ -467,6 +532,15 @@ function Verb-Release {
     log_info 'release: this does NOT tag or push. Tagging happens on merge.'
 }
 
+function Verb-Signing {
+    if ($DEV_ARGS.Count -ne 2 -or $DEV_ARGS[0] -ne 'android-keystore' -or -not $DEV_ARGS[1]) {
+        log_error 'signing: usage: ./dev signing android-keystore <output.jks>'
+        exit 2
+    }
+    Import-ScriptHelpers android
+    if (-not (android_generate_keystore -OutputPath $DEV_ARGS[1])) { exit 1 }
+}
+
 # --- dispatch --------------------------------------------------------------
 
 function Show-Usage {
@@ -477,7 +551,6 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
-  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
@@ -486,11 +559,18 @@ Core
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
 
+Services   (scripts/project.sh: SVC_BACKEND, SVC_* -- run through Git Bash)
+  start         Start in the background, wait until ready, print the URLs.
+  stop          Stop what start or run started. Keeps data; nothing running is ok.
+  restart       Stop, then start.
+  status        What runs, which ports listen, health.
+  logs [name]   Follow service logs. `logs android|ios` streams device logs.
+
 Mobile
   devices       List connected devices, emulators, AVDs and simulators.
   screenshot    Capture a PNG from a device.        [--out <path>]
   record        Capture screen video.               [--seconds <n>] [--gif]
-  logs          Stream filtered device logs.
+  signing       Create a local signing credential.  [android-keystore <output.jks>]
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows
@@ -506,18 +586,36 @@ Captured media defaults to docs/screenshots/. Override with $env:SCREENCAP_DIR.
 '@
 }
 
-if ($DEV_WANTS_HELP) { Show-Usage; exit 0 }
+# The repository's own verbs: Project-* functions that are not overrides.
+function Show-RepoVerbs {
+    $standard = @('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','signing','release')
+    $own = @(Get-Command -Name 'Project-*' -CommandType Function -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.Name.Substring(8).ToLower() } | Where-Object { $standard -notcontains $_ })
+    if ($own.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'This repository (scripts/project.ps1)'
+        $own | ForEach-Object { Write-Host "  $_" }
+    }
+}
+
+# --help for a verb of the repository's own is that verb's to answer, as in cli.sh.
+$repoVerb = ($Verb -match '^[a-z][a-z0-9-]*$') -and (Get-Command "Project-$Verb" -ErrorAction SilentlyContinue) -and
+    (@('install','build','run','start','stop','restart','status','test','preflight','scan','e2e','deploy','devices','screenshot','record','logs','clean','update','signing','release') -notcontains $Verb)
+if ($DEV_WANTS_HELP -and -not $repoVerb) { Show-Usage; Show-RepoVerbs; exit 0 }
 
 switch ($Verb) {
-    ''           { Show-Usage; exit 0 }
-    $null        { Show-Usage; exit 0 }
-    'help'       { Show-Usage; exit 0 }
-    '-h'         { Show-Usage; exit 0 }
-    '--help'     { Show-Usage; exit 0 }
+    ''           { Show-Usage; Show-RepoVerbs; exit 0 }
+    $null        { Show-Usage; Show-RepoVerbs; exit 0 }
+    'help'       { Show-Usage; Show-RepoVerbs; exit 0 }
+    '-h'         { Show-Usage; Show-RepoVerbs; exit 0 }
+    '--help'     { Show-Usage; Show-RepoVerbs; exit 0 }
     'install'    { Verb-Install }
     'build'      { Verb-Build }
     'run'        { Verb-Run }
+    'start'      { Verb-Start }
     'stop'       { Verb-Stop }
+    'restart'    { Verb-Restart }
+    'status'     { Verb-Status }
     'test'       { Verb-Test }
     'preflight'  { Verb-Preflight }
     'scan'       { Verb-Scan }
@@ -529,8 +627,18 @@ switch ($Verb) {
     'logs'       { Verb-Logs }
     'clean'      { Verb-Clean }
     'update'     { Verb-Update }
+    'signing'    { Verb-Signing }
     'release'    { Verb-Release }
     default {
+        # A verb of the repository's own: Project-<Verb> in scripts/project.ps1,
+        # given its arguments as typed.
+        if ($Verb -match '^[a-z][a-z0-9-]*$' -and (Get-Command "Project-$Verb" -ErrorAction SilentlyContinue)) {
+            # A PowerShell function, not a program: $LASTEXITCODE may be unset
+            # (StrictMode makes reading it an error). A failure throws, which
+            # $ErrorActionPreference = 'Stop' turns into a non-zero exit.
+            & "Project-$Verb" @Rest
+            exit 0
+        }
         Write-Host "Unknown verb: $Verb"
         Write-Host ''
         Show-Usage

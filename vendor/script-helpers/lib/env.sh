@@ -224,3 +224,42 @@ init_include() {
   load_env
   log_debug "script-helpers initialized"
 }
+
+# Usage: env_set_value <file> <KEY> <value>; set KEY in an env file: the
+# line is replaced where it is, or appended, and the file is created (mode
+# 600) when missing. The value is quoted so the shell and python-dotenv read
+# it the same, or refused when it cannot be. Written in place, not moved,
+# so a symlinked .env keeps pointing at its target.
+# Returns 0 written; 1 a bad key or value, or the write failed.
+env_set_value() {
+  local file="${1:-}" key="${2:-}" value="${3:-}" line="" tmp=""
+  [[ -n "$file" && -n "$key" ]] || { log_error "env_set_value: FILE and KEY required"; return 1; }
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { log_error "env_set_value: '$key' is not a variable name"; return 1; }
+  case "$value" in
+    *$'\n'*|*$'\r'*) log_error "env_set_value: a value cannot contain a newline or carriage return"; return 1 ;;
+  esac
+  local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
+  if [[ "$value" =~ $bare_re ]]; then
+    line="$key=$value"
+  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *"\${"* ]]; then
+    line="$key='$value'"
+  elif [[ "$value" != *[\"\$\`\\]* ]]; then
+    line="$key=\"$value\""
+  else
+    log_error "env_set_value: the value for $key cannot be quoted so that the shell and dotenv read it the same"
+    return 1
+  fi
+  if [[ ! -e "$file" ]]; then
+    ( umask 077 && : >"$file" ) || return 1
+  fi
+  tmp="$(mktemp)" || return 1
+  # Through ENVIRON, not awk -v, which would expand backslash escapes.
+  _ENV_SET_LINE="$line" awk -v k="$key" '
+    BEGIN { pat = "^[[:space:]]*(export[[:space:]]+)?" k "="; line = ENVIRON["_ENV_SET_LINE"] }
+    $0 ~ pat { if (!seen) print line; seen = 1; next }
+    { print }
+    END { if (!seen) print line }
+  ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
+  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}

@@ -40,6 +40,25 @@ function android_sdk_root {
 
 function android_available { return [bool](android_sdk_root) }
 
+# Create an Android or Amazon Fire signing keystore. keytool prompts for the
+# identity and passwords, so this function never accepts or logs credentials.
+function android_generate_keystore {
+    param([Parameter(Mandatory)][string]$OutputPath)
+    if (Get-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue) {
+        Write-Error "android_generate_keystore: refusing to overwrite $OutputPath"
+        return $false
+    }
+    $keytool = Get-Command keytool -ErrorAction SilentlyContinue
+    if (-not $keytool) {
+        Write-Error 'android_generate_keystore: keytool not found. Install a JDK.'
+        return $false
+    }
+    $parent = Split-Path -Parent $OutputPath
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    & $keytool.Path -genkeypair -storetype JKS -keystore $OutputPath -alias android-release -keyalg RSA -keysize 4096 -validity 10000
+    return ($LASTEXITCODE -eq 0)
+}
+
 # Path to an SDK tool (sdkmanager, avdmanager, emulator, apksigner, adb),
 # searching the SDK's several layouts and then PATH. $null when not found.
 function android_sdk_tool {

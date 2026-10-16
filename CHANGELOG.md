@@ -1,4 +1,20 @@
-## Unreleased
+## 2026-10-16 — v0.39.1
+
+### Changed
+
+- **Action pins moved to current releases; supersedes Dependabot pull requests
+  263-272.** Comment refs bumped, then SHAs resolved by
+  `update_pinned_actions.sh` (70 pins, `--check` reports 0 stale):
+  `actions/setup-node` v7.1.0, `actions/download-artifact` v8.0.2,
+  `dorny/test-reporter` v3.2.0, `ruby/setup-ruby` v1.328.0,
+  `shivammathur/setup-php` 2.40.0, `github/codeql-action` v4.38.3. Dependabot's
+  own pull requests moved the SHAs but left the comments on the old tags, which
+  the pin script reads, so its next run would have moved them back.
+  Branch pins moved in the same run, each commit GitHub-verified and read:
+  `aquasecurity/trivy-action` master to `6abccf39` (Trivy v0.76.0 default),
+  `dtolnay/rust-toolchain` stable to `b725eda5` (Rust 1.99.1).
+- **`vendor/script-helpers` 0.44.1 -> 0.53.1**, and the 15 workflow `ref:`
+  pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
 
 ### Fixed
 
