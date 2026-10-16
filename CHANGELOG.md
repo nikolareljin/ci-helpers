@@ -1,3 +1,12 @@
+## Unreleased
+
+### Changed
+
+- **`vendor/script-helpers` 0.53.1 -> 0.54.0**, and the 15 workflow `ref:`
+  pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
+  Only `scripts/setup-hooks.sh` changed upstream (hook status and repair);
+  no ci-helpers workflow calls it.
+
 ## 2026-10-16 — v0.39.1
 
 ### Changed
