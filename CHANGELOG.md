@@ -29,6 +29,11 @@
   Linux gets a clear refusal instead of "formula requires at least a URL".
 - Examples use `owner/myapp` and `owner/homebrew-tap`; the Gitleaks tip links
   the Leak-Lock site.
+- **`ruby/setup-ruby` v1.328.0 -> v1.329.0** in `flutter-release.yml`
+  (supersedes Dependabot https://github.com/nikolareljin/ci-helpers/pull/266,
+  which moved the SHA but left the comment on v1.328.0, so
+  `update_pinned_actions.sh` would have moved it back). Upstream adds
+  ruby-4.1.0-preview1 only.
 - **`vendor/script-helpers` 0.53.1 -> 0.54.0**, and the 15 workflow `ref:`
   pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
   Only `scripts/setup-hooks.sh` changed upstream (hook status and repair);
