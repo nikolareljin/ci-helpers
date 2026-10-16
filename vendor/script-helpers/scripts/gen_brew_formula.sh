@@ -89,7 +89,12 @@ if [[ -z "$url" ]]; then
   fi
 fi
 
-sha256="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+# shasum on macOS; a minimal Linux may have only sha256sum.
+if command -v shasum >/dev/null 2>&1; then
+  sha256="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+else
+  sha256="$(sha256sum "$tarball" | awk '{print $1}')"
+fi
 if [[ -z "$entrypoint" ]]; then
   entrypoint="$name"
 fi

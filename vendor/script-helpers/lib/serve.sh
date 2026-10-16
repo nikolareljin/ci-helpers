@@ -25,7 +25,11 @@ serve_static_site() {
   # genuine free port apart from exhausting the window on an all-busy range.
   local p="$port" tries=0 found=0
   while (( tries < 20 && p <= 65535 )); do
-    if ! { : <>"/dev/tcp/127.0.0.1/${p}"; } 2>/dev/null; then
+    # port_is_free (lib/ports.sh) also sees a listener whose accept queue is
+    # full, which refuses connections; the bare connect test is the fallback.
+    if declare -F port_is_free >/dev/null 2>&1; then
+      if port_is_free "$p"; then found=1; break; fi
+    elif ! { : <>"/dev/tcp/127.0.0.1/${p}"; } 2>/dev/null; then
       found=1                    # connect failed => nothing listening => port is free
       break
     fi

@@ -6,9 +6,10 @@
 # PARAMETERS:
 #   Run ./dev with no arguments for the verb list.
 # EXIT_CODES:
-#   0  The verb succeeded, or is not applicable in this repo.
+#   0  The verb succeeded.
 #   1  The verb failed.
-#   2  Unknown verb.
+#   2  Unknown verb, or bad options.
+#   3  The verb is not applicable in this repo (R-765 ADR-0061).
 # ----------------------------------------------------
 #
 # Copied from script-helpers templates/dev-cli/. Repo-specific behaviour belongs
@@ -86,12 +87,20 @@ parse_dev_options() {
   return 0
 }
 
-# not_applicable <verb> <reason>; a verb this repo cannot honour exits 0 with an
+# not_applicable <verb> <reason>; a verb this repo cannot honour exits 3 with an
 # explanation. It is never simply absent: a missing verb is indistinguishable
-# from a typo, and that is what erodes a shared command set.
+# from a typo, and that is what erodes a shared command set. Not 0: a skipped
+# build or deploy must not read as one that ran (R-765 ADR-0061).
 not_applicable() {
-  log_info "$1: not applicable in this repo — $2"
-  exit 0
+  log_info "$1: not applicable in this repo -- $2"
+  exit 3
+}
+
+# Does this repository declare its services (SVC_BACKEND in scripts/project.sh)?
+# Then start, stop, restart, status and logs are lib/service.sh's.
+dev_has_services() {
+  [[ -n "${SVC_BACKEND:-}" ]] || return 1
+  shlib_import service
 }
 
 # --- stack detection -------------------------------------------------------
@@ -287,6 +296,7 @@ verb_run() {
 # project_stop, or is told the verb does not apply.
 verb_stop() {
   declare -f project_stop >/dev/null && { project_stop; return; }
+  if dev_has_services; then svc_stop; return; fi
   local f
   for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
     if [[ -f "$DEV_REPO_ROOT/$f" ]]; then
@@ -296,7 +306,45 @@ verb_stop() {
       return
     fi
   done
-  not_applicable "stop" "no compose file; define project_stop in scripts/project.sh"
+  not_applicable "stop" "no compose file; set SVC_BACKEND or define project_stop in scripts/project.sh"
+}
+
+# start [target]: background the services, wait until ready, print their URLs.
+# A target (dev, demo, prod ...) is the repository's to map, in project_start.
+verb_start() {
+  declare -f project_start >/dev/null && { project_start; return; }
+  if dev_has_services; then svc_start ${DEV_ARGS[@]+"${DEV_ARGS[@]}"}; return; fi
+  not_applicable "start" "no services declared; set SVC_BACKEND or define project_start in scripts/project.sh"
+}
+
+verb_restart() {
+  declare -f project_restart >/dev/null && { project_restart; return; }
+  if dev_has_services; then svc_restart ${DEV_ARGS[@]+"${DEV_ARGS[@]}"}; return; fi
+  if declare -f project_stop >/dev/null && declare -f project_start >/dev/null; then
+    project_stop && project_start
+    return
+  fi
+  not_applicable "restart" "no services declared; set SVC_BACKEND or define project_restart in scripts/project.sh"
+}
+
+# status: what runs (project_status or svc_status), then the service's own
+# status payload when SVC_STATUS_URL is set (the R-765 health convention).
+verb_status() {
+  local rc=0 ran=0
+  if declare -f project_status >/dev/null; then project_status || rc=$?; ran=1
+  elif dev_has_services; then svc_status || rc=$?; ran=1
+  fi
+  if [[ -n "${SVC_STATUS_URL:-}" ]]; then
+    ran=1
+    if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 5 "$SVC_STATUS_URL"; then
+      echo
+    else
+      log_warn "status: $SVC_STATUS_URL does not answer"
+      rc=1
+    fi
+  fi
+  [[ "$ran" -eq 1 ]] || not_applicable "status" "no services declared; set SVC_BACKEND or define project_status in scripts/project.sh"
+  return "$rc"
 }
 
 verb_test() {
@@ -570,7 +618,15 @@ verb_record() {
 }
 
 verb_logs() {
-  declare -f project_logs >/dev/null && { project_logs; return; }
+  # logs android / logs ios stay device logs, whatever else the repo runs.
+  if [[ "$DEV_TARGET" != android && "$DEV_TARGET" != ios ]]; then
+    declare -f project_logs >/dev/null && { project_logs; return; }
+    if dev_has_services; then
+      # A service name may be a target word (web, backend), parsed as the target.
+      svc_logs "${DEV_ARGS[0]:-$DEV_TARGET}"
+      return
+    fi
+  fi
   shlib_import adb
   local serial="$DEV_DEVICE" _sh_line
   local -a _serials=()
@@ -622,6 +678,16 @@ verb_release() {
   log_info "release: this does NOT tag or push. Tagging happens on merge."
 }
 
+verb_signing() {
+  local kind="${DEV_ARGS[0]:-}" output="${DEV_ARGS[1]:-}"
+  if [[ "$kind" != "android-keystore" || -z "$output" || ${#DEV_ARGS[@]} -ne 2 ]]; then
+    log_error "signing: usage: ./dev signing android-keystore <output.jks>"
+    exit 2
+  fi
+  shlib_import android
+  android_generate_keystore "$output"
+}
+
 # --- dispatch --------------------------------------------------------------
 
 usage() {
@@ -632,7 +698,6 @@ Core
   install       Install dependencies and initialize submodules. Idempotent.
   build         Produce artifacts. Never starts anything.
   run           Start the app in the foreground.
-  stop          Stop what run started. Keeps containers and data.
   test          Run the test suite.
   preflight     Run every check CI would have run. The pre-push hook calls this.
   scan          Secret and dependency scan only (gitleaks, audits).  [--docker]
@@ -642,11 +707,18 @@ Core
   clean         Remove build output and caches. Never touches user data.
   update        Sync submodules and refresh pinned dependencies.
 
+Services   (scripts/project.sh: SVC_BACKEND, SVC_* -- lib/service.sh)
+  start         Start in the background, wait until ready, print the URLs.
+  stop          Stop what start or run started. Keeps data; nothing running is ok.
+  restart       Stop, then start.
+  status        What runs, which ports listen, health; then SVC_STATUS_URL.
+  logs [name]   Follow service logs. `logs android|ios` streams device logs.
+
 Mobile
   devices       List connected devices, emulators, AVDs and simulators.
   screenshot    Capture a PNG from a device.        [--out <path>]
   record        Capture screen video.               [--seconds <n>] [--gif]
-  logs          Stream filtered device logs.
+  signing       Create a local signing credential.  [android-keystore <output.jks>]
   release       Bump the version across manifests and open a CHANGELOG section.
 
 Targets   android ios host backend frontend linux web macos windows cloudflare
@@ -669,7 +741,34 @@ leaving the app absent from the launcher while adb reports Success.
 List profiles with: adb shell pm list users
 
 Captured media defaults to docs/screenshots/. Override with $SCREENCAP_DIR.
+
+Exit codes: 0 ok, 1 failed, 2 unknown verb or bad options, 3 not applicable here.
 EOF
+  local own
+  own="$(dev_repo_verbs)"
+  if [[ -n "$own" ]]; then
+    printf '\nThis repository (scripts/project.sh)\n%s\n' "$own"
+  fi
+}
+
+# The verbs this file implements; a repository may override each with
+# project_<verb>, and may add others, but not redefine one by another name.
+DEV_STANDARD_VERBS="install build run start stop restart status test preflight scan e2e deploy devices screenshot record logs clean update signing release"
+
+dev_is_standard_verb() {
+  case " $DEV_STANDARD_VERBS " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# The repository's own verbs, from its project_* functions that are not
+# overrides of a standard verb. Printed by usage.
+dev_repo_verbs() {
+  local f v
+  for f in $(declare -F | awk '{ print $3 }'); do
+    case "$f" in project_*) ;; *) continue ;; esac
+    v="${f#project_}"; v="${v//_/-}"
+    dev_is_standard_verb "$v" || dev_is_standard_verb "${f#project_}" || printf '  %s\n' "$v"
+  done
 }
 
 main() {
@@ -678,12 +777,23 @@ main() {
   case "$verb" in
     ""|-h|--help|help) usage; exit 0 ;;
   esac
+  # A verb of the repository's own (project_<verb> in scripts/project.sh, a
+  # "-" in the verb is "_" in the name) gets its arguments as typed: they are
+  # its own, not this file's options.
+  if ! dev_is_standard_verb "$verb" && [[ "$verb" =~ ^[a-z][a-z0-9_-]*$ ]] \
+     && declare -f "project_${verb//-/_}" >/dev/null; then
+    "project_${verb//-/_}" "$@"
+    exit $?
+  fi
   parse_dev_options "$@"
   case "$verb" in
     install)    verb_install ;;
     build)      verb_build ;;
     run)        verb_run ;;
+    start)      verb_start ;;
     stop)       verb_stop ;;
+    restart)    verb_restart ;;
+    status)     verb_status ;;
     test)       verb_test ;;
     preflight)  verb_preflight ;;
     scan)       verb_scan ;;
@@ -695,6 +805,7 @@ main() {
     logs)       verb_logs ;;
     clean)      verb_clean ;;
     update)     verb_update ;;
+    signing)    verb_signing ;;
     release)    verb_release ;;
     *)
       echo "Unknown verb: $verb" >&2

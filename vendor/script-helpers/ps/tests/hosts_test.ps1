@@ -39,11 +39,11 @@ try {
     $nl = "`n"
     expect_refused 'a blank -Domain'              { add_hosts_entry -Domain '' }
     expect_refused 'a whitespace -Domain'         { add_hosts_entry -Domain '   ' }
-    expect_refused 'a newline in -Domain'         { add_hosts_entry -Domain "demo.local${nl}10.9.9.9`tevil.example" }
+    expect_refused 'a newline in -Domain'         { add_hosts_entry -Domain "demo.local${nl}203.0.113.9`tevil.example" }
     expect_refused 'a trailing newline in -Domain' { add_hosts_entry -Domain "demo.local$nl" }
     expect_refused 'a space in -Domain'           { add_hosts_entry -Domain 'demo.local other.example' }
     expect_refused 'a # in -Domain'               { add_hosts_entry -Domain 'demo#x' }
-    expect_refused 'a newline in -Ip'             { add_hosts_entry -Domain 'demo.local' -Ip "127.0.0.1${nl}10.9.9.9`tevil.example" }
+    expect_refused 'a newline in -Ip'             { add_hosts_entry -Domain 'demo.local' -Ip "127.0.0.1${nl}203.0.113.9`tevil.example" }
     expect_refused 'a trailing newline in -Ip'    { add_hosts_entry -Domain 'demo.local' -Ip "127.0.0.1$nl" }
     expect_refused 'a non-address -Ip'            { add_hosts_entry -Domain 'demo.local' -Ip 'not-an-ip' }
     expect_refused 'a hostname as -Ip'            { add_hosts_entry -Domain 'demo.local' -Ip 'example.com' }

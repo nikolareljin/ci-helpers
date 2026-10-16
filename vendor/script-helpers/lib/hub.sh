@@ -82,7 +82,7 @@ _hub__ui_menu() {
       local -a items=() i
       for i in "${!keys[@]}"; do items+=("${keys[$i]}" "${labels[$i]}"); done
       local choice
-      choice="$(dialog --stdout --title "$title" --default-item "$default" --menu "$text" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${items[@]}")" || return 1
+      choice="$(dialog_capture --title "$title" --default-item "$default" --menu "$text" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${items[@]}")" || return 1
       echo "$choice"
       ;;
     plain)
@@ -110,7 +110,7 @@ _hub__ui_input() {
     dialog)
       dialog_init
       local v
-      v="$(dialog --stdout --title "$title" --inputbox "$text" 10 "$DIALOG_WIDTH" "$default")" || return 1
+      v="$(dialog_capture --title "$title" --inputbox "$text" 10 "$DIALOG_WIDTH" "$default")" || return 1
       echo "${v:-$default}"
       ;;
     plain)
@@ -129,7 +129,7 @@ _hub__ui_secret() {
     none) return 1 ;;
     dialog)
       dialog_init
-      dialog --stdout --title "$title" --insecure --passwordbox "$text" 10 "$DIALOG_WIDTH" || return 1
+      dialog_capture --title "$title" --insecure --passwordbox "$text" 10 "$DIALOG_WIDTH" || return 1
       ;;
     plain)
       local v
@@ -154,7 +154,9 @@ _hub__ui_yesno() {
     none) return 1 ;;
     dialog)
       dialog_init
-      dialog --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
+      # dialog_run: a box without --stdout draws on stdout, and a caller that
+      # captured it would be asked a question nobody can see.
+      dialog_run --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
       ;;
     plain)
       local v
@@ -169,7 +171,7 @@ _hub__ui_note() {
   local mode; mode="$(hub_ui_mode 2>/dev/null || echo none)"
   if [[ "$mode" == "dialog" ]]; then
     dialog_init
-    dialog --title "Corpus hub" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
+    dialog_run --title "Corpus hub" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
     return 0
   fi
   log_info "$*"

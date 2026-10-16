@@ -141,10 +141,15 @@ nav:
   - Home: README.md
   - Getting started:
       - Installation: installation.md
+      - Adopt in a repository: adopt.md
+      - Command reference: commands.md
       - Usage: usage.md
+      - Git hooks: git-hooks.md
+      - Security gates in the git hooks: security-gates.md
       - CI default versions: ci_defaults.md
       - Packaging: packaging.md
       - Bash compatibility: bash-compatibility.md
+      - Local models with Ollama: local-models.md
   - Modules:
       - api.md
       - Loader and output:
@@ -164,6 +169,8 @@ nav:
           - clipboard: modules/clipboard.md
           - browser: modules/browser.md
           - serve: modules/serve.md
+          - docs_site: modules/docs_site.md
+          - service: modules/service.md
       - Containers:
           - docker: modules/docker.md
           - ci_stack: modules/ci_stack.md
@@ -188,10 +195,13 @@ nav:
           - git_branches: modules/git_branches.md
           - ci_defaults (module): modules/ci_defaults.md
           - foxguard: modules/foxguard.md
+          - gitleaks: modules/gitleaks.md
       - Media and services:
           - svg: modules/svg.md
           - webshot: modules/webshot.md
           - ollama: modules/ollama.md
+          - ollama_endpoint: modules/ollama_endpoint.md
+          - ollama_install: modules/ollama_install.md
           - hub: modules/hub.md
           - cloudflare: modules/cloudflare.md
   - About: about.md

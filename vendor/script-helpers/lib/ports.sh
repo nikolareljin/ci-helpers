@@ -29,6 +29,12 @@ _PORTS_SS_PID_AWK='$4 ~ ":" port "$" {
     rest = substr(rest, RSTART + RLENGTH)
   }
 }'
+# lsof: real lsof prints a COMMAND header first. BusyBox lsof ignores every
+# option and lists all open files with no header, so without the header the
+# output is not about this port: none of it is read.
+# shellcheck disable=SC2016
+_PORTS_LSOF_DETAILS_AWK='NR == 1 && $1 != "COMMAND" { exit }
+NR > 1 { printf "%s (PID %s, user %s)\n", $1, $2, $3 }'
 # netstat -ltnp: column 7 is PID/name, or "-" when not visible.
 # shellcheck disable=SC2016
 _PORTS_NETSTAT_DETAILS_AWK='$4 ~ port "$" {
@@ -46,6 +52,17 @@ _ports__valid_port() {
   (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
+# Internal: is there an lsof that understands -i? BusyBox lsof (Alpine)
+# ignores every option and lists all open files, which read as one listener
+# per process on the machine, and as PIDs for a kill-port caller.
+_ports__lsof_ok() {
+  local help
+  command -v lsof >/dev/null 2>&1 || return 1
+  # Captured, not piped: under pipefail lsof's own non-zero exit would win.
+  help="$(lsof --help 2>&1)"
+  [[ "$help" != *BusyBox* ]]
+}
+
 # Usage: list_port_usage_details <port>; prints process/user details for listeners.
 list_port_usage_details() {
   local port="${1:-}" line
@@ -54,13 +71,13 @@ list_port_usage_details() {
   local -a details=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
-  if command -v lsof >/dev/null 2>&1; then
+  if _ports__lsof_ok; then
     while IFS= read -r line; do details+=("$line"); done < <(
-      lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {printf "%s (PID %s, user %s)\n", $1, $2, $3}'
+      lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk "$_PORTS_LSOF_DETAILS_AWK"
     )
     if [[ ${#details[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
       while IFS= read -r line; do details+=("$line"); done < <(
-        run_with_optional_sudo true lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {printf "%s (PID %s, user %s)\n", $1, $2, $3}'
+        run_with_optional_sudo true lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk "$_PORTS_LSOF_DETAILS_AWK"
       )
     fi
   fi
@@ -95,40 +112,43 @@ list_port_usage_details() {
 }
 
 # Usage: list_port_listener_pids <port>; prints unique listener PIDs.
+# Only lines that are a bare PID are kept: BusyBox lsof ignores -t and the
+# filters and prints "PID<tab>path" for every open file, PID 1 included, and a
+# kill-port caller must never receive those.
 list_port_listener_pids() {
   local port="${1:-}"; local -a pids=()
   _ports__valid_port "$port" || return 1
   port=$((10#$port))
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
-  if command -v lsof >/dev/null 2>&1; then
-    while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+  if _ports__lsof_ok; then
+    while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
       lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
-      while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+      while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
         run_with_optional_sudo true lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
       )
     fi
   fi
 
   if [[ ${#pids[@]} -eq 0 ]] && command -v ss >/dev/null 2>&1; then
-    while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+    while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
       ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_PID_AWK"
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
-      while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+      while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
         run_with_optional_sudo true ss -Hltpn 2>/dev/null | awk -v port="$port" "$_PORTS_SS_PID_AWK"
       )
     fi
   fi
 
   if [[ ${#pids[@]} -eq 0 ]] && command -v netstat >/dev/null 2>&1; then
-    while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+    while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
       netstat -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" { split($7, parts, "/"); if (parts[1] != "-" && parts[1] != "") { print parts[1]; } }'
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
-      while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+      while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
         run_with_optional_sudo true netstat -ltnp 2>/dev/null | awk -v port=":$port" '$4 ~ port "$" { split($7, parts, "/"); if (parts[1] != "-" && parts[1] != "") { print parts[1]; } }'
       )
     fi
@@ -136,11 +156,11 @@ list_port_listener_pids() {
 
   if [[ ${#pids[@]} -eq 0 ]] && command -v fuser >/dev/null 2>&1; then
     # fuser prints every PID on one line; one per element, not one element.
-    while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+    while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
       fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
     )
     if [[ ${#pids[@]} -eq 0 && "$allow_sudo" == "true" ]]; then
-      while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(
+      while IFS= read -r pid; do [[ "$pid" =~ ^[0-9]+$ ]] && pids+=("$pid"); done < <(
         run_with_optional_sudo true fuser "${port}/tcp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) print $i }'
       )
     fi
@@ -251,4 +271,75 @@ check_required_ports_available() {
   fi
 
   [[ $conflict_found -eq 0 ]]
+}
+
+# Usage: port_is_free <port>; true when nothing listens on <port>.
+# The listener list (lsof, ss or netstat) is asked first: a connect test
+# alone calls a port free when its server is hung or its accept queue is full,
+# because the connection is then refused. Without any of those tools, a
+# connect to 127.0.0.1 decides.
+port_is_free() {
+  _ports__valid_port "${1:-}" || return 2
+  if list_port_usage_details "$((10#$1))" >/dev/null 2>&1; then return 1; fi
+  ! { : <>"/dev/tcp/127.0.0.1/$((10#$1))"; } 2>/dev/null
+}
+
+# Usage: port_next_free <port> [tries]; prints the first free port after
+# <port>, trying [tries] (default 20). Returns 1 when none is free.
+port_next_free() {
+  local p tries="${2:-20}" n=0
+  _ports__valid_port "${1:-}" || return 2
+  p=$((10#$1 + 1))
+  while (( n < tries && p <= 65535 )); do
+    if port_is_free "$p"; then printf '%s\n' "$p"; return 0; fi
+    p=$((p + 1)); n=$((n + 1))
+  done
+  return 1
+}
+
+# Internal: may port_choose ask? stdin and stderr are a terminal. A function
+# so a test can stand in for the terminal.
+_ports__can_ask() {
+  [[ -t 0 && -t 2 ]]
+}
+
+# Usage: port_choose <port> [how to set it]; prints the port to use.
+#
+# A free <port> is printed as it is. A taken one is never swapped silently:
+# with a terminal, the owner and a free port are shown and the person types a
+# port (Enter takes the suggestion), asked again until it is free. Without a
+# terminal (CI, a service, a launcher) it fails, naming the owner and [how to
+# set it], for example "--port N" or "DOCS_SITE_PORT=N".
+#
+# Returns 0 with the port on stdout; 1 taken and nobody to ask, or no answer;
+# 2 not a port. Every message is on stderr, so `p="$(port_choose ...)"` works.
+port_choose() {
+  local port="${1:-}" how="${2:-a different port}" owner suggestion answer
+  if ! _ports__valid_port "$port"; then
+    echo "port_choose: not a port: '${port}' (expected 1-65535)" >&2
+    return 2
+  fi
+  port=$((10#$port))
+  while ! port_is_free "$port"; do
+    owner="$(port_in_use_by "$port" 2>/dev/null | head -1)" || true
+    owner="${owner:-a process this user cannot see}"
+    suggestion="$(port_next_free "$port")" || suggestion=""
+    if ! _ports__can_ask; then
+      echo "Port ${port} is taken by: ${owner}" >&2
+      echo "Stop that process, or choose another port with ${how}${suggestion:+ (${suggestion} is free)}." >&2
+      return 1
+    fi
+    echo "Port ${port} is taken by: ${owner}" >&2
+    printf 'Port to use instead%s: ' "${suggestion:+ [${suggestion}]}" >&2
+    IFS= read -r answer || { echo >&2; return 1; }
+    answer="$(printf '%s' "$answer" | tr -d ' \t\r')"
+    answer="${answer:-$suggestion}"
+    if ! _ports__valid_port "$answer"; then
+      echo "Not a port: '${answer}'." >&2
+      [[ -n "$answer" ]] || return 1
+      continue
+    fi
+    port=$((10#$answer))
+  done
+  printf '%s\n' "$port"
 }

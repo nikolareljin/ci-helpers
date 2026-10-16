@@ -218,13 +218,13 @@ _fetch_repo_list() {   # <owner>, the fallback
   local raw got
   raw="$(gh repo list "$1" --limit "$GH_LIMIT" --json name,visibility,isArchived 2>/dev/null)" || return 1
   [[ -n "$raw" ]] || return 1
-  got="$(printf '%s' "$raw" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+  got="$(printf '%s' "$raw" | python3 -I -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
   if [[ "$got" == "$GH_LIMIT" ]]; then
     log_error "gh returned exactly $GH_LIMIT repositories for $1, so the list is cut short."
     log_error "Raise it with --limit <n>, or drop --no-graphql."
     return 1
   fi
-  printf '%s' "$raw" | python3 -c '
+  printf '%s' "$raw" | python3 -I -c '
 import json, sys
 for r in json.load(sys.stdin):
     print(r["name"], r.get("visibility","").upper(), str(bool(r.get("isArchived"))).lower(), sep="\t")
@@ -340,7 +340,7 @@ fi
 # One python pass: the JSON, the word list and the flagging. python3 is already
 # required by the gate for the same reason -- parsing JSON in bash is how a
 # quoted name with a bracket in it silently drops out of a security list.
-WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" python3 - "$tmp.raw" <<'PY' > "$tmp.body"
+WORDLIST="$WORDLIST" NEVER_AMBIGUOUS="$NEVER_AMBIGUOUS" CODES_FILE="$CODES_FILE" python3 -I - "$tmp.raw" <<'PY' > "$tmp.body"
 import os, pathlib, sys
 
 wordlist = pathlib.Path(os.environ.get("WORDLIST", ""))

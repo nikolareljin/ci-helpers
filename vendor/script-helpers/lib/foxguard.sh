@@ -88,11 +88,14 @@ foxguard_bin() {
   fi
 }
 
-# foxguard_sha256 <file>; its SHA-256, with shasum or openssl (both on macOS;
-# one or the other on nearly every Linux).
+# foxguard_sha256 <file>; its SHA-256, with shasum, sha256sum or openssl.
+# shasum and openssl are on macOS; a minimal Linux (Alpine, slim images) may
+# have only coreutils' or busybox's sha256sum.
 foxguard_sha256() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
   elif command -v openssl >/dev/null 2>&1; then
     openssl dgst -sha256 "$1" | awk '{print $NF}'
   else
@@ -112,13 +115,13 @@ foxguard_install() {
   mkdir -p "$(dirname "$dest")" || return 1
   tmp="$(mktemp "$(dirname "$dest")/.download.XXXXXX")" || return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    wget -q -T 60 -O "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   else
     rm -f "$tmp"; log_error "foxguard: curl or wget is needed to download it"; return 3
   fi
-  got="$(foxguard_sha256 "$tmp")" || { rm -f "$tmp"; log_error "foxguard: shasum or openssl is needed to check it"; return 3; }
+  got="$(foxguard_sha256 "$tmp")" || { rm -f "$tmp"; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
     rm -f "$tmp"
     log_error "foxguard: $asset $CI_DEFAULT_FOXGUARD_VERSION does not match the pinned SHA-256 (got $got, want $want); not installed. A changed CI_DEFAULT_FOXGUARD_VERSION needs its CI_DEFAULT_FOXGUARD_SHA256_* values too."

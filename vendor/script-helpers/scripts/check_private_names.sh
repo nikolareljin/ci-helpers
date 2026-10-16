@@ -69,9 +69,14 @@
 #   PRIVATE_NAMES_ALLOW="term,term"   allow named terms for this run
 #   .git/private-names-allow          one term per line, for a repository where
 #                                     a word recurs innocently (inside .git, so
-#                                     it can never be committed anywhere)
+#                                     it can never be committed anywhere); read
+#                                     from every worktree of the repository
 #   <cache>/private-names-allow       the same, for every repository on this
-#                                     machine, beside the name list
+#                                     machine, beside the name list. Seeded,
+#                                     when missing or holding no terms, from
+#                                     config/private-names-allow: ordinary
+#                                     English words only, never a repository
+#                                     name. Add your own words to this file.
 #   git push --no-verify              git's own escape, for a human
 #
 # Allowed terms are echoed, so an override is visible in the output rather than
@@ -137,7 +142,14 @@ if [[ -n "$REPO" ]]; then
   cd "$REPO" || { log_error "No such directory: $REPO"; exit 2; }
 fi
 
-work="$(mktemp -d)"
+# One private directory per run (mktemp -d, mode 700, random name); every
+# scratch file lives in it. Refuse when it cannot be made: an empty $work would
+# write to /hard, /entries ... and the scan would pass over an empty list.
+work="$(mktemp -d "${TMPDIR:-/tmp}/check_private_names.XXXXXX" 2>/dev/null)" && [[ -n "$work" && -d "$work" && ! -L "$work" ]] || {
+  log_error "could not create a private temp directory (TMPDIR=${TMPDIR:-unset}); NOT checked."
+  exit 2
+}
+chmod 700 "$work" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather
@@ -160,10 +172,16 @@ qualified="$work/qualified"
 # as evidence that the text is clean.
 declare_from_names() {
   # --names is for tests and one-off use; every name is treated as unambiguous.
-  printf '%s' "$1" | tr ',' '\n' | while IFS= read -r n; do
+  # The trailing newline matters: read drops a last line without one, which
+  # left a single --names value unchecked and the run reporting clean.
+  printf '%s\n' "$1" | tr ',' '\n' | while IFS= read -r n; do
     n="$(printf '%s' "$n" | tr -d '[:space:]')"
     [[ -n "$n" ]] && printf '%s\n' "$n"
   done > "$hard"
+  if [[ ! -s "$hard" ]]; then
+    log_error "--names gave no names; an empty list cannot be told from clean text."
+    exit 2
+  fi
 }
 
 list_age_days() {
@@ -182,7 +200,7 @@ date_to_epoch() {
   # BSD and GNU date disagree here and the portability suite forbids `date -d`.
   # Python is already required by the generator and is present everywhere this
   # runs; falling back to "unknown age" is correct when it is not.
-  python3 -c 'import datetime,sys; print(int(datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()))' "$1" 2>/dev/null
+  python3 -I -c 'import datetime,sys; print(int(datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()))' "$1" 2>/dev/null
 }
 
 if [[ -n "$NAMES" ]]; then
@@ -392,12 +410,41 @@ fi
 # ---- the override ---------------------------------------------------------
 allowed="$work/allowed"
 : > "$allowed"
+# End each source with a newline, so two names cannot run together.
+# The bug: PRIVATE_NAMES_ALLOW=widget, then a file starting with "index",
+# gave "widgetindex". That matched nothing, and the override was ignored
+# without a message. Blank lines are removed further down.
 if [[ -n "${PRIVATE_NAMES_ALLOW:-}" ]]; then
-  printf '%s' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
+  printf '%s\n' "$PRIVATE_NAMES_ALLOW" | tr ',' '\n' >> "$allowed"
 fi
-repo_allow="$(git rev-parse --git-dir 2>/dev/null)/private-names-allow"
-if [[ -f "$repo_allow" ]]; then
-  cat "$repo_allow" >> "$allowed"
+# The repository's allowlist: <git directory>/private-names-allow.
+# A linked worktree has two git directories:
+#   shared (--git-common-dir): the main checkout's .git
+#   own    (--git-dir):        .git/worktrees/<name>
+# Both are read. The shared list applies to every worktree, the own list to
+# that worktree only. Before, only the own one was read, so a linked worktree
+# ignored the repository's list.
+# In a normal checkout both are the same directory, and it is read once.
+# An old git does not know --git-common-dir and prints the option back
+# instead of a path. The -d test catches that, and --git-dir is used.
+# Outside a repository both are empty: nothing is read, and repo_allow stays
+# empty so the refusal below shows no path. (Before, the check looked for
+# /private-names-allow at the filesystem root.)
+repo_allow=""
+repo_allow_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || repo_allow_dir=""
+worktree_allow_dir="$(git rev-parse --git-dir 2>/dev/null)" || worktree_allow_dir=""
+[[ -n "$repo_allow_dir" && -d "$repo_allow_dir" ]] || repo_allow_dir="$worktree_allow_dir"
+if [[ -n "$repo_allow_dir" ]]; then
+  repo_allow="$repo_allow_dir/private-names-allow"
+  if [[ -f "$repo_allow" ]]; then
+    cat "$repo_allow" >> "$allowed"
+    echo >> "$allowed"
+  fi
+  if [[ -n "$worktree_allow_dir" && "$worktree_allow_dir" != "$repo_allow_dir" \
+        && -f "$worktree_allow_dir/private-names-allow" ]]; then
+    cat "$worktree_allow_dir/private-names-allow" >> "$allowed"
+    echo >> "$allowed"
+  fi
 fi
 # A machine-level allowlist beside the name list, for a word that recurs in
 # every repository rather than one. Without it a word that is also everyday English has to be
@@ -405,33 +452,50 @@ fi
 # re-appeased that often is a gate someone eventually removes. It lives in the
 # cache directory, never in a tree.
 machine_allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
+# A machine with no list of its own starts from the shipped one: ordinary words
+# that appear in code and docs everywhere (config/private-names-allow, beside
+# this script's copy). Only when the file is missing or holds no terms, so a
+# list someone wrote, or emptied on purpose with a comment, is never replaced.
+default_allow="$SCRIPT_DIR/../config/private-names-allow"
+if [[ -f "$default_allow" ]] && ! grep -qv '^[[:space:]]*\(#.*\)\{0,1\}$' "$machine_allow" 2>/dev/null; then
+  if [[ ! -s "$machine_allow" ]] || ! grep -q '#' "$machine_allow" 2>/dev/null; then
+    # Written beside it and renamed: a second gate starting now reads the whole
+    # list or none. Unwritable (read-only or no HOME): the default still applies.
+    if mkdir -p "$(dirname "$machine_allow")" 2>/dev/null \
+      && cp "$default_allow" "$machine_allow.$$" 2>/dev/null \
+      && mv -f "$machine_allow.$$" "$machine_allow" 2>/dev/null; then
+      log_info "allow list started at $machine_allow from the shipped default; add your own words there"
+    else
+      rm -f "$machine_allow.$$" 2>/dev/null
+      cat "$default_allow" >> "$allowed"
+      echo >> "$allowed"
+    fi
+  fi
+fi
 if [[ -f "$machine_allow" ]]; then
   cat "$machine_allow" >> "$allowed"
+  echo >> "$allowed"
 fi
 # Blank lines are stripped before any use: a pattern file containing an empty
 # line makes grep match every line of input, which would turn either list into
 # "everything is a hit" or, worse, silently allow everything.
-sed 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.clean" 2>/dev/null
+sed -e 's/#.*//' -e 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.clean" 2>/dev/null
 mv "$allowed.clean" "$allowed"
 
 drop_allowed() {  # drop_allowed <names-file>
   [[ -s "$allowed" ]] || return 0
-  local kept="$1.kept"
-  : > "$kept"
-  while IFS="$(printf '\t')" read -r name code; do
-    # `--`, because a repository name may begin with a dash. Without it grep
-    # reads the name as options: a real dictionary here produced
-    # `grep: invalid argument 'j-...' for '--directories'` five times per push,
-    # on every public repository, and the run still reported the tree clean.
-    # The names were kept rather than dropped -- grep's usage error is not 0 --
-    # so nothing was wrongly allowed, but an override that named one of them
-    # silently did nothing.
-    if grep -qix -F -- "$name" "$allowed"; then
-      log_info "allowed by override, not checked: $name"
-    else
-      printf '%s\t%s\n' "$name" "$code" >> "$kept"
-    fi
-  done < "$1"
+  local kept="$1.kept" dropped="$1.dropped" name
+  # One awk pass, not a grep per name: with a list of thousands of names the
+  # loop forked thousands of processes and took 7 s on every run. Same match
+  # as before: the whole name, case-insensitive, as a fixed string.
+  awk -F'\t' -v allowf="$allowed" -v keptf="$kept" -v dropf="$dropped" '
+    BEGIN { while ((getline a < allowf) > 0) allow[tolower(a)] = 1; printf "" > keptf; printf "" > dropf }
+    { if (tolower($1) in allow) print $1 > dropf; else print $1 "\t" $2 > keptf }
+  ' "$1" || { log_error "could not apply the allowlist"; exit 2; }
+  while IFS= read -r name; do
+    log_info "allowed by override, not checked: $name"
+  done < "$dropped"
+  rm -f "$dropped"
   mv "$kept" "$1"
 }
 drop_allowed "$hard"
@@ -468,21 +532,25 @@ ere_patterns() { # ere_patterns <names-file> -> a pattern file for grep -E
 # CI log or a pasted error message -- publishing by accident the thing this
 # gate exists to keep unpublished.
 matched_names() { # matched_names <names-file> <hits-file> [fixed|token]
-  local name code kind="${3:-fixed}" hit
-  while IFS="$(printf '\t')" read -r name code; do
-    [[ -z "$name" ]] && continue
-    if [[ "$kind" == token ]]; then
-      hit="(^|[^A-Za-z0-9])$(printf '%s' "$name" | sed 's/[][\.^$*+?(){}|\\]/\\&/g')([^A-Za-z0-9]|$)"
-      grep -qiE -- "$hit" "$2" || continue
-    else
-      grep -qi -F -- "$name" "$2" || continue
-    fi
-    if [[ "$code" == "-" || -z "$code" ]]; then
-      printf '        %s\n' "$name"
-    else
-      printf '        %s -> %s\n' "$name" "$code"
-    fi
-  done < "$1"
+  # One awk pass over the names, in list order. "fixed" is a case-insensitive
+  # substring; "token" also needs no letter or digit on either side.
+  awk -F'\t' -v hitsf="$2" -v kind="${3:-fixed}" '
+    function tok(line, needle,   n, pos, b, a) {
+      n = length(needle); pos = index(line, needle)
+      while (pos > 0) {
+        b = (pos == 1) ? "" : substr(line, pos - 1, 1); a = substr(line, pos + n, 1)
+        if (b !~ /[a-z0-9]/ && a !~ /[a-z0-9]/) return 1
+        line = substr(line, pos + 1); pos = index(line, needle)
+      }
+      return 0
+    }
+    BEGIN { while ((getline l < hitsf) > 0) hits = hits "\n" tolower(l) }
+    $1 != "" {
+      needle = tolower($1)
+      if (kind == "token" ? !tok(hits, needle) : !index(hits, needle)) next
+      if ($2 == "-" || $2 == "") printf "        %s\n", $1
+      else printf "        %s -> %s\n", $1, $2
+    }' "$1"
 }
 
 # ---- the subject ----------------------------------------------------------
@@ -646,7 +714,7 @@ fi
 if [[ "$found" -eq 1 ]]; then
   log_error "Nothing was changed -- this only reports. If it is a false positive:"
   log_error "  PRIVATE_NAMES_ALLOW=<name> <your command>      this run only"
-  log_error "  $(tilde "$(git rev-parse --git-dir 2>/dev/null)/private-names-allow")   this repository"
+  [[ -z "$repo_allow" ]] || log_error "  $(tilde "$repo_allow")   this repository"
   log_error "  $(tilde "$machine_allow")   every repository here"
   if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
     log_error "Checked against $(tilde "$LIST")$(

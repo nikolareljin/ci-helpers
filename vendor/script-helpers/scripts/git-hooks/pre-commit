@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
+# pre-commit hook: refuse staged credentials, personal identifiers, PII and .env
+# files; then lint the docs and, on a release/* branch, check the version.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$repo_root"
+
+# Credentials, personal identifiers and PII in the staged lines, before a
+# repository's own hook can replace the rest. See scripts/security_hooks.sh.
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$_hook_dir/../security_hooks.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$_hook_dir/../security_hooks.sh"
+  sec_pre_commit || exit 1
+else
+  echo "[pre-commit] security_hooks.sh not found next to this hook; staged lines NOT checked." >&2
+fi
 
 # Allow a repo-local pre-commit hook to replace the shared hook when present.
 # -ef guard: skip delegation when the local hook is the same file as this script (avoids infinite recursion).
