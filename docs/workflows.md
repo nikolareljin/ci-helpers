@@ -724,7 +724,7 @@ Inputs:
 - `formula_file` (string, required) -- file name inside it, e.g. `myapp.rb`
 - `tap_repo` (string, default `""`) -- tap as `owner/repo`; or pass the `tap_repo` secret
 - `tap_branch` (string, default `"main"`)
-- `tap_dir` (string, default `"Formula"`)
+- `tap_dir` (string, default `"Formula"`; `.` for the tap root)
 - `commit_message` (string, default `"Update <name> formula"`)
 - `runner` (string, default `ubuntu-latest`)
 
@@ -761,7 +761,8 @@ jobs:
 Workflow: `.github/workflows/rust-release-tarballs.yml`
 
 Purpose: Build a Rust binary for macOS arm64, macOS x86_64 and Linux x86_64
-(on `ubuntu-22.04`, so it runs on glibc 2.35 and newer), attach the tarballs to
+(on `ubuntu-22.04`: needs glibc 2.34, so Ubuntu 22.04, Debian 12 and newer;
+not Ubuntu 20.04), attach the tarballs to
 the release, generate a Homebrew formula and publish it through
 [homebrew-tap-publish.yml](#homebrew-tap-publishyml).
 

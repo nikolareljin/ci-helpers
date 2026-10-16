@@ -45,7 +45,7 @@ on:
         type: string
         default: "main"
       tap_dir:
-        description: "Directory inside the tap that holds formula files."
+        description: "Directory inside the tap that holds formula files; `.` for the tap root."
         type: string
         default: "Formula"
       commit_message:
@@ -118,11 +118,13 @@ jobs:
           fi
           # Values reach paths and git refs below; refuse anything that could
           # climb out of the tap checkout or name an option.
-          if [[ ! "$FORMULA_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9_.+-]*\.rb$ ]]; then
+          # `@` for versioned formulas such as myapp@2.rb.
+          if [[ ! "$FORMULA_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9_.+@-]*\.rb$ ]]; then
             echo "::error::formula_file must be a plain <name>.rb file name."
             exit 1
           fi
-          if [[ ! "$TAP_DIR" =~ ^[A-Za-z0-9_][A-Za-z0-9_./-]*$ || "$TAP_DIR" == *..* ]]; then
+          # `.` alone is the tap root, which Homebrew also reads formulas from.
+          if [[ "$TAP_DIR" != "." ]] && [[ ! "$TAP_DIR" =~ ^[A-Za-z0-9_][A-Za-z0-9_./-]*$ || "$TAP_DIR" == *..* ]]; then
             echo "::error::tap_dir must be a relative directory inside the tap."
             exit 1
           fi

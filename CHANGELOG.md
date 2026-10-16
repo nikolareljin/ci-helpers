@@ -22,9 +22,11 @@
   `homebrew-package.yml` with `publish: true` and no credential now fails
   instead of warning and skipping.
 - **`rust-release-tarballs.yml` builds Linux on `ubuntu-22.04`.** The
-  `ubuntu-latest` binary needed glibc 2.34, failed on 20.04 and warned about
-  `GLIBC_2.39` symbols on 22.04 at every start
-  (https://github.com/nikolareljin/ci-helpers/issues/274).
+  `ubuntu-latest` binary warned about `GLIBC_2.39` symbols at every start on
+  Ubuntu 22.04 and Debian 12
+  (https://github.com/nikolareljin/ci-helpers/issues/274); the 22.04 build
+  runs there clean. It still needs glibc 2.34, so Ubuntu 20.04 (2.31) remains
+  unsupported.
 - **Generated Rust formulas pass current `brew style`:** the Linux `url` sits
   under `if Hardware::CPU.intel?` with `depends_on arch: :x86_64`, so arm64
   Linux gets a clear refusal instead of "formula requires at least a URL".
