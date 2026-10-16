@@ -139,7 +139,7 @@ Path: `.github/actions/gitleaks-scan`
 
 Purpose: Run Gitleaks scan and generate a report.
 
-Note: When findings are detected, the action prints Leak-Lock links for help
+Note: When findings are detected, the action prints a link to Leak-Lock for help
 removing leaked credentials.
 
 Inputs:

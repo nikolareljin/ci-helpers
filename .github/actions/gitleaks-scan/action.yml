@@ -249,8 +249,7 @@ runs:
         if count > 0:
             print(f"Gitleaks findings detected: {count}")
             print("Tip: remove leaked secrets with Leak-Lock:")
-            print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
-            print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
+            print("  https://nikolareljin.github.io/leak-lock/")
             if fail_on_findings:
                 sys.exit(3)
         else:

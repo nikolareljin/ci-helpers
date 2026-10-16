@@ -29,6 +29,7 @@ groups:
       - flutter-release.yml
       - go-deploy.yml
       - homebrew-package.yml
+      - homebrew-tap-publish.yml
       - ppa-deb.yml
       - release-rc-pr.yml
       - rust-release-tarballs.yml

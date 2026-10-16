@@ -621,7 +621,7 @@ jobs:
       tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
       tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
     secrets:
-      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
 ```
 
 Rust release build:

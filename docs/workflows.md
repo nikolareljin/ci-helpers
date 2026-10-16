@@ -530,7 +530,7 @@ Workflow: `.github/workflows/gitleaks-scan.yml`
 
 Purpose: Run Gitleaks and emit a report.
 
-Note: When findings are detected, the workflow prints Leak-Lock links for help
+Note: When findings are detected, the workflow prints a link to Leak-Lock for help
 removing leaked credentials.
 
 Inputs:
@@ -678,8 +678,10 @@ Inputs:
 - `tap_dir` (string, default `"Formula"`)
 - `commit_message` (string, default `""`)
 
-Secrets:
-- `tap_token` (GitHub token with write access to the tap repo)
+Secrets (publishing goes through [homebrew-tap-publish.yml](#homebrew-tap-publishyml)):
+- `tap_deploy_key` (SSH key of a write deploy key on the tap; preferred)
+- `tap_token` (token with write access to the tap; used only without `tap_deploy_key`)
+- `tap_repo` (the tap as `owner/repo`, when kept as a secret instead of the input)
 
 `VERSION` (in `working_directory`) must hold a single version -- letters, digits
 and `. + _ -`, e.g. `1.2.3`; a trailing Windows line ending is dropped. Anything
@@ -693,21 +695,80 @@ jobs:
   brew:
     uses: nikolareljin/ci-helpers/.github/workflows/homebrew-package.yml@production
     with:
-      name: "isoforge"
-      desc: "TUI tool for downloading and flashing ISO images to USB"
-      homepage: "https://github.com/nikolareljin/iso-forge"
+      name: "myapp"
+      desc: "Shell tool packaged for Homebrew"
+      homepage: "https://github.com/owner/myapp"
       deps: "dialog,jq,curl"
-      entrypoint: "inc/isoforge.sh"
-      man_path: "docs/man/isoforge.1"
+      entrypoint: "inc/myapp.sh"
+      man_path: "docs/man/myapp.1"
       use_libexec: "true"
-      env_var: "ISOFORGE_ROOT"
-      release_repo: "nikolareljin/iso-forge"
+      env_var: "MYAPP_ROOT"
+      release_repo: "owner/myapp"
       publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
       tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
       tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
     secrets:
-      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
 ```
+
+## homebrew-tap-publish.yml
+
+Workflow: `.github/workflows/homebrew-tap-publish.yml`
+
+Purpose: Commit one Homebrew formula to a tap repository. Language-agnostic: the
+calling job builds the formula and uploads it as an artifact of the same run.
+`homebrew-package.yml` and `rust-release-tarballs.yml` publish through it.
+
+Inputs:
+- `formula_artifact` (string, required) -- artifact holding the formula
+- `formula_file` (string, required) -- file name inside it, e.g. `myapp.rb`
+- `tap_repo` (string, default `""`) -- tap as `owner/repo`; or pass the `tap_repo` secret
+- `tap_branch` (string, default `"main"`)
+- `tap_dir` (string, default `"Formula"`; `.` for the tap root)
+- `commit_message` (string, default `"Update <name> formula"`)
+- `runner` (string, default `ubuntu-latest`)
+
+Secrets:
+- `tap_deploy_key` -- SSH private key of a write deploy key on the tap (preferred)
+- `tap_token` -- token with `contents:write` on the tap, used only without a deploy key
+- `tap_repo` -- the tap as `owner/repo`, when it is a secret rather than a variable
+
+No credential, no tap, or a tap given both ways with different values fails the
+job. The push retries twice after `git pull --rebase`, so several apps releasing
+into one tap at once all land.
+
+Keeping the tap closed to direct pushes: give the tap's branch ruleset a
+`DeployKey` bypass with `bypass_mode: always` and keep every other bypass at
+`pull_request`. CI pushes with the deploy key; people and tokens still need a
+pull request. Store the private key in each publishing repository (user
+accounts have no account-wide secrets).
+
+```yaml
+jobs:
+  publish-homebrew:
+    needs: build
+    uses: nikolareljin/ci-helpers/.github/workflows/homebrew-tap-publish.yml@production
+    with:
+      formula_artifact: homebrew-formula
+      formula_file: myapp.rb
+      tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
+    secrets:
+      tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+```
+
+## rust-release-tarballs.yml
+
+Workflow: `.github/workflows/rust-release-tarballs.yml`
+
+Purpose: Build a Rust binary for macOS arm64, macOS x86_64 and Linux x86_64
+(on `ubuntu-22.04`: needs glibc 2.34, so Ubuntu 22.04, Debian 12 and newer;
+not Ubuntu 20.04), attach the tarballs to
+the release, generate a Homebrew formula and publish it through
+[homebrew-tap-publish.yml](#homebrew-tap-publishyml).
+
+Required inputs: `bin_name`, `desc`, `homepage`. Tap inputs and secrets as in
+`homebrew-tap-publish.yml` (`tap_repo`, `tap_branch`, `tap_dir`;
+`tap_deploy_key` or `tap_token`).
 
 ## fpc-release.yml
 

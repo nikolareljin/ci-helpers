@@ -224,14 +224,27 @@ runs:
           docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug}"
         fi
 
+    # The download runs in the wp-cli container, where a DNS miss reads
+    # 'Download failed. "A valid URL was not provided."'. One attempt turned
+    # that blip into a failed check, so try 3 times with a pause. A plugin-check
+    # that never installs is still reported by the next step.
     - name: Install plugin-check
       shell: bash
+      env:
+        COMPOSE_FILE_PATH: ${{ inputs.compose_file }}
+        WPCLI_SERVICE: ${{ inputs.wpcli_service }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        wpcli_service="${{ inputs.wpcli_service }}"
-
-        docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin install plugin-check --activate || true"
+        for attempt in 1 2 3; do
+          if docker compose -f "$COMPOSE_FILE_PATH" run --rm "$WPCLI_SERVICE" sh -lc "wp plugin install plugin-check --activate"; then
+            exit 0
+          fi
+          if [[ "$attempt" -lt 3 ]]; then
+            echo "::warning::plugin-check install attempt ${attempt}/3 failed; retrying in $((attempt * 5))s."
+            sleep "$((attempt * 5))"
+          fi
+        done
+        echo "::warning::plugin-check could not be installed after 3 attempts."
 
     - name: Run plugin-check
       shell: bash

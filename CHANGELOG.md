@@ -1,7 +1,50 @@
 ## Unreleased
 
+### Added
+
+- **`homebrew-tap-publish.yml`: one language-agnostic step that commits a
+  formula to a tap.** Takes the formula as an artifact, the tap as an input or
+  a secret, and a deploy key (preferred) or a token. With a `DeployKey` bypass
+  on the tap's ruleset, CI pushes while the tap's `main` stays pull-request-only
+  for everyone else. Fails when no credential or tap is given, instead of
+  skipping.
+- **`scripts/check_no_hardcoded_repos.sh`**, run in `workflow-yaml-check.yml`:
+  fails when workflows, actions, scripts or docs name a repository of the owner
+  other than script-helpers and ci-helpers. The owner is read from
+  `GITHUB_REPOSITORY` or `origin`.
+
 ### Changed
 
+- **`rust-release-tarballs.yml` and `homebrew-package.yml` publish through
+  `homebrew-tap-publish.yml`.** New optional secrets `tap_deploy_key` and
+  `tap_repo`; `tap_token` (now optional in `rust-release-tarballs.yml`) is used
+  only without a deploy key.
+  `homebrew-package.yml` with `publish: true` and no credential now fails
+  instead of warning and skipping.
+- **`rust-release-tarballs.yml` builds Linux on `ubuntu-22.04`.** The
+  `ubuntu-latest` binary warned about `GLIBC_2.39` symbols at every start on
+  Ubuntu 22.04 and Debian 12
+  (https://github.com/nikolareljin/ci-helpers/issues/274); the 22.04 build
+  runs there clean. It still needs glibc 2.34, so Ubuntu 20.04 (2.31) remains
+  unsupported.
+- **Generated Rust formulas pass current `brew style`:** the Linux `url` sits
+  under `if Hardware::CPU.intel?` with `depends_on arch: :x86_64`, so arm64
+  Linux gets a clear refusal instead of "formula requires at least a URL".
+- Examples use `owner/myapp` and `owner/homebrew-tap`; the Gitleaks tip links
+  the Leak-Lock site.
+- **`wp-plugin-check` action retries the plugin-check install.** The
+  download runs in the wp-cli container, where a DNS miss reads `Download
+  failed. "A valid URL was not provided."`; one attempt failed the check
+  (run 38951024554). Now 3 attempts, 5s then 10s apart; inputs reach the step
+  through `env`. The same fix for `wp-plugin-check.yml`, which runs
+  script-helpers `ci_wp_plugin_check.sh`, is
+  https://github.com/nikolareljin/script-helpers/pull/194 and arrives with
+  the next vendor bump.
+- **`ruby/setup-ruby` v1.328.0 -> v1.329.0** in `flutter-release.yml`
+  (supersedes Dependabot https://github.com/nikolareljin/ci-helpers/pull/266,
+  which moved the SHA but left the comment on v1.328.0, so
+  `update_pinned_actions.sh` would have moved it back). Upstream adds
+  ruby-4.1.0-preview1 only.
 - **`vendor/script-helpers` 0.53.1 -> 0.54.0**, and the 15 workflow `ref:`
   pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
   Only `scripts/setup-hooks.sh` changed upstream (hook status and repair);
