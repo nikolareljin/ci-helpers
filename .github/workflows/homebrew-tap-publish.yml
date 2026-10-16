@@ -197,5 +197,5 @@ jobs:
             # Another app published to the tap in between: replay on top.
             [[ "$i" -lt 3 ]] && git pull -q --rebase origin "$TAP_BRANCH"
           done
-          echo "::error::Could not push ${TAP_DIR}/${FORMULA_FILE} after 3 attempts. A refusal (GH013) means the credential has no bypass on the tap's branch ruleset."
+          echo "::error::Could not push ${TAP_DIR}/${FORMULA_FILE} after 3 attempts. GH013 means the credential has no bypass on the tap's branch ruleset; 403 means it cannot write to the tap."
           exit 1
