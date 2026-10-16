@@ -30,6 +30,14 @@
   Linux gets a clear refusal instead of "formula requires at least a URL".
 - Examples use `owner/myapp` and `owner/homebrew-tap`; the Gitleaks tip links
   the Leak-Lock site.
+- **`wp-plugin-check` action retries the plugin-check install.** The
+  download runs in the wp-cli container, where a DNS miss reads `Download
+  failed. "A valid URL was not provided."`; one attempt failed the check
+  (run 38951024554). Now 3 attempts, 5s then 10s apart; inputs reach the step
+  through `env`. The same fix for `wp-plugin-check.yml`, which runs
+  script-helpers `ci_wp_plugin_check.sh`, is
+  https://github.com/nikolareljin/script-helpers/pull/194 and arrives with
+  the next vendor bump.
 - **`ruby/setup-ruby` v1.328.0 -> v1.329.0** in `flutter-release.yml`
   (supersedes Dependabot https://github.com/nikolareljin/ci-helpers/pull/266,
   which moved the SHA but left the comment on v1.328.0, so
