@@ -32,6 +32,9 @@
 #   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
 #   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
 #   -h, --help                               Show this help message.
+# ENVIRONMENT:
+#   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
+#   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -126,13 +129,22 @@ validate_bool_option "--activate-network" "$activate_network"
 validate_bool_option "--fail-on-findings" "$fail_on_findings"
 validate_bool_option "--cleanup" "$cleanup"
 
-if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
+# Numbers below refuse leading zeros: bash arithmetic reads 08 as bad octal,
+# so it slipped past a (( )) check here and broke arithmetic later in the run.
+if [[ ! "$db_wait_seconds" =~ ^[1-9][0-9]{0,4}$ ]]; then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
   exit 2
 fi
 
-if [[ ! "$host_port" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
+if [[ ! "$host_port" =~ ^[1-9][0-9]{0,4}$ ]] || (( host_port > 65535 )); then
   log_error "Invalid value for --host-port: '$host_port'. Expected an integer between 1 and 65535."
+  exit 2
+fi
+
+plugin_check_install_attempts="${PLUGIN_CHECK_INSTALL_ATTEMPTS:-3}"
+plugin_check_retry_delay="${PLUGIN_CHECK_RETRY_DELAY:-5}"
+if [[ ! "$plugin_check_install_attempts" =~ ^[1-9][0-9]?$ || ! "$plugin_check_retry_delay" =~ ^(0|[1-9][0-9]{0,2})$ ]]; then
+  log_error "PLUGIN_CHECK_INSTALL_ATTEMPTS must be 1-99 and PLUGIN_CHECK_RETRY_DELAY 0-999 (no leading zeros)."
   exit 2
 fi
 
@@ -283,7 +295,27 @@ else
   run_wp plugin activate "$plugin_slug"
 fi
 
-run_wp plugin install plugin-check --activate || true
+# The download runs inside the wp-cli container, and WordPress reports a DNS
+# miss there as 'Download failed. "A valid URL was not provided."'. One
+# attempt turned a single blip into a failed check, so retry with a pause.
+install_plugin_check() {
+  local attempt=1
+  while :; do
+    if run_wp plugin install plugin-check --activate; then
+      return 0
+    fi
+    if [[ "$attempt" -ge "$plugin_check_install_attempts" ]]; then
+      log_warn "plugin-check could not be installed after ${attempt} attempt(s)."
+      return 1
+    fi
+    log_warn "plugin-check install attempt ${attempt}/${plugin_check_install_attempts} failed; retrying in $((plugin_check_retry_delay * attempt))s."
+    sleep "$((plugin_check_retry_delay * attempt))"
+    attempt=$((attempt + 1))
+  done
+}
+
+# Whether it is usable is decided below by `wp help plugin check`.
+install_plugin_check || true
 
 plugin_check_available="false"
 if docker_compose -f "$compose_file" run --rm \

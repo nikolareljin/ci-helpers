@@ -97,7 +97,8 @@ validate_bool_option() {
 validate_bool_option "--fail-on-findings" "$fail_on_findings"
 validate_bool_option "--cleanup" "$cleanup"
 
-if [[ ! "$db_wait_seconds" =~ ^[0-9]+$ ]] || (( db_wait_seconds <= 0 )); then
+# No leading zeros: bash arithmetic reads 09 as bad octal.
+if [[ ! "$db_wait_seconds" =~ ^[1-9][0-9]{0,4}$ ]]; then
   log_error "Invalid value for --db-wait-seconds: '$db_wait_seconds'. Expected a positive integer."
   exit 2
 fi
