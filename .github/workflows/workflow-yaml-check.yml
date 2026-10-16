@@ -68,6 +68,12 @@ jobs:
         shell: bash
         run: bash scripts/check_floating_refs.sh
 
+      # Consumers run these workflows for their own repositories, so a tap, an
+      # app or a project of the owner is always an input, never a literal.
+      - name: No hard-coded repositories
+        shell: bash
+        run: bash scripts/check_no_hardcoded_repos.sh
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is

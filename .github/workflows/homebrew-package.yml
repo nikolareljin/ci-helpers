@@ -78,6 +78,13 @@ on:
         type: string
         default: ""
     secrets:
+      # Tap repository as owner/repo, when kept as a secret instead of the input.
+      tap_repo:
+        required: false
+      # SSH private key of a write deploy key on the tap (preferred).
+      tap_deploy_key:
+        required: false
+      # Token with contents:write on the tap; used only without tap_deploy_key.
       tap_token:
         required: false
 
@@ -85,6 +92,8 @@ jobs:
   brew:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
+    outputs:
+      formula_file: ${{ steps.formula.outputs.file }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -252,29 +261,42 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: ${{ env.BREW_ARTIFACT_GLOB }}
 
-      - name: Publish Homebrew formula
+      # Only the formula goes to the tap; the artifact above also carries the
+      # tarballs.
+      - name: Stage formula for the tap
+        id: formula
         if: ${{ inputs.publish == 'true' }}
         shell: bash
-        env:
-          HOMEBREW_TAP_REPO: ${{ inputs.tap_repo }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.tap_token }}
-          HOMEBREW_TAP_BRANCH: ${{ inputs.tap_branch }}
-          # Through env, not pasted into the script: a commit message is free
-          # text and often built from another commit's message.
-          BREW_COMMIT_MESSAGE: ${{ inputs.commit_message }}
         run: |
           set -euo pipefail
-          args=(--formula "$BREW_FORMULA_PATH")
-          if [[ -n "${{ inputs.tap_repo }}" ]]; then
-            args+=(--tap-repo "${{ inputs.tap_repo }}")
-          fi
-          if [[ -n "${{ inputs.tap_branch }}" ]]; then
-            args+=(--tap-branch "${{ inputs.tap_branch }}")
-          fi
-          if [[ -n "${{ inputs.tap_dir }}" ]]; then
-            args+=(--tap-dir "${{ inputs.tap_dir }}")
-          fi
-          if [[ -n "$BREW_COMMIT_MESSAGE" ]]; then
-            args+=(--commit-message "$BREW_COMMIT_MESSAGE")
-          fi
-          bash "$BREW_HELPER_SCRIPTS/publish_homebrew.sh" "${args[@]}"
+          mkdir -p "$RUNNER_TEMP/brew-formula"
+          cp "$BREW_FORMULA_PATH" "$RUNNER_TEMP/brew-formula/"
+          echo "file=$(basename "$BREW_FORMULA_PATH")" >> "$GITHUB_OUTPUT"
+          echo "dir=$RUNNER_TEMP/brew-formula" >> "$GITHUB_OUTPUT"
+
+      - name: Upload formula for the tap
+        if: ${{ inputs.publish == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: ${{ inputs.artifact_name }}-formula
+          path: ${{ steps.formula.outputs.dir }}/${{ steps.formula.outputs.file }}
+          if-no-files-found: error
+
+  # The push lives in one language-agnostic workflow shared with every other
+  # formula producer. `./` resolves to ci-helpers at the ref the caller pinned.
+  publish:
+    needs: brew
+    if: ${{ inputs.publish == 'true' }}
+    uses: ./.github/workflows/homebrew-tap-publish.yml
+    with:
+      formula_artifact: ${{ inputs.artifact_name }}-formula
+      formula_file: ${{ needs.brew.outputs.formula_file }}
+      tap_repo: ${{ inputs.tap_repo }}
+      tap_branch: ${{ inputs.tap_branch }}
+      tap_dir: ${{ inputs.tap_dir }}
+      commit_message: ${{ inputs.commit_message }}
+      runner: ${{ inputs.runner }}
+    secrets:
+      tap_repo: ${{ secrets.tap_repo }}
+      tap_deploy_key: ${{ secrets.tap_deploy_key }}
+      tap_token: ${{ secrets.tap_token }}

@@ -1,0 +1,201 @@
+name: ci-helpers-homebrew-tap-publish
+#
+# Pushes one Homebrew formula into a tap repository. Language-agnostic: the
+# calling job builds the formula however it likes and uploads it as an
+# artifact; this workflow only validates it and commits it to the tap.
+#
+#   publish-homebrew:
+#     needs: build
+#     uses: nikolareljin/ci-helpers/.github/workflows/homebrew-tap-publish.yml@production
+#     with:
+#       formula_artifact: homebrew-formula
+#       formula_file: myapp.rb
+#       tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}   # or pass it as the tap_repo secret
+#     secrets:
+#       tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+#
+# Auth, in order of preference:
+# - tap_deploy_key: SSH deploy key with write access on the tap. Pair it with a
+#   `DeployKey` bypass on the tap's branch ruleset and the tap can stay closed
+#   to direct pushes from everyone else.
+# - tap_token: a token with contents:write on the tap.
+# Neither set fails the job: a release that silently skips its formula leaves
+# users on the old version with no error anywhere.
+#
+# Several apps publishing to one tap at once is handled by rebase-and-retry on
+# push. A concurrency group would not help: groups are scoped to the calling
+# repository, and the apps live in different repositories.
+on:
+  workflow_call:
+    inputs:
+      formula_artifact:
+        description: "Name of the artifact (from the same run) holding the formula file."
+        type: string
+        required: true
+      formula_file:
+        description: "Formula file name inside the artifact, e.g. myapp.rb. Copied to <tap_dir>/<formula_file>."
+        type: string
+        required: true
+      tap_repo:
+        description: "Tap repository as owner/repo, e.g. owner/homebrew-tap. Leave empty to pass it as the tap_repo secret."
+        type: string
+        default: ""
+      tap_branch:
+        description: "Tap branch to push to."
+        type: string
+        default: "main"
+      tap_dir:
+        description: "Directory inside the tap that holds formula files."
+        type: string
+        default: "Formula"
+      commit_message:
+        description: "Commit message in the tap. Default: Update <formula> formula."
+        type: string
+        default: ""
+      runner:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      tap_repo:
+        description: "Tap repository as owner/repo, when it is kept as a secret instead of the tap_repo input."
+        required: false
+      tap_deploy_key:
+        description: "SSH private key of a write deploy key on the tap. Preferred."
+        required: false
+      tap_token:
+        description: "Token with contents:write on the tap. Used only when tap_deploy_key is not set."
+        required: false
+
+# Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish formula to tap
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Resolve tap and auth
+        id: tap
+        shell: bash
+        env:
+          INPUT_REPO: ${{ inputs.tap_repo }}
+          SECRET_REPO: ${{ secrets.tap_repo }}
+          HAS_KEY: ${{ secrets.tap_deploy_key != '' }}
+          HAS_TOKEN: ${{ secrets.tap_token != '' }}
+          FORMULA_FILE: ${{ inputs.formula_file }}
+          TAP_BRANCH: ${{ inputs.tap_branch }}
+          TAP_DIR: ${{ inputs.tap_dir }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_REPO" && -n "$SECRET_REPO" && "$INPUT_REPO" != "$SECRET_REPO" ]]; then
+            echo "::error::tap_repo input and tap_repo secret are both set and differ; pass one."
+            exit 1
+          fi
+          repo="${INPUT_REPO:-$SECRET_REPO}"
+          if [[ -z "$repo" ]]; then
+            echo "::error::No tap repository: set the tap_repo input or the tap_repo secret."
+            exit 1
+          fi
+          if [[ ! "$repo" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::tap_repo must be owner/repo."
+            exit 1
+          fi
+          if [[ "$HAS_KEY" == true ]]; then
+            auth=deploy-key
+          elif [[ "$HAS_TOKEN" == true ]]; then
+            auth=token
+          else
+            echo "::error::No tap credential: set the tap_deploy_key secret (preferred) or tap_token."
+            exit 1
+          fi
+          # Values reach paths and git refs below; refuse anything that could
+          # climb out of the tap checkout or name an option.
+          if [[ ! "$FORMULA_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9_.+-]*\.rb$ ]]; then
+            echo "::error::formula_file must be a plain <name>.rb file name."
+            exit 1
+          fi
+          if [[ ! "$TAP_DIR" =~ ^[A-Za-z0-9_][A-Za-z0-9_./-]*$ || "$TAP_DIR" == *..* ]]; then
+            echo "::error::tap_dir must be a relative directory inside the tap."
+            exit 1
+          fi
+          if ! git check-ref-format --branch "$TAP_BRANCH" >/dev/null 2>&1 || [[ "$TAP_BRANCH" == -* ]]; then
+            echo "::error::tap_branch is not a valid branch name."
+            exit 1
+          fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "auth=$auth" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${FORMULA_FILE} with ${auth} auth."
+
+      - name: Download formula
+        # NOTE: download-artifact@v8 runs on Node.js 24; self-hosted runners must be >= 2.327.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ inputs.formula_artifact }}
+          path: formula-in
+
+      - name: Validate formula
+        shell: bash
+        env:
+          FORMULA_FILE: ${{ inputs.formula_file }}
+          FORMULA_ARTIFACT: ${{ inputs.formula_artifact }}
+        run: |
+          set -euo pipefail
+          f="formula-in/${FORMULA_FILE}"
+          if [[ ! -f "$f" || -L "$f" ]]; then
+            echo "::error::${FORMULA_FILE} is not a regular file in artifact ${FORMULA_ARTIFACT}."
+            ls -la formula-in >&2 || true
+            exit 1
+          fi
+          ruby -c "$f"
+
+      - name: Checkout tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ steps.tap.outputs.repo }}
+          ref: ${{ inputs.tap_branch }}
+          path: tap
+          # checkout uses the SSH key when one is given and the token otherwise;
+          # both stay configured for the push below.
+          ssh-key: ${{ secrets.tap_deploy_key }}
+          token: ${{ secrets.tap_deploy_key == '' && secrets.tap_token || github.token }}
+
+      - name: Commit and push
+        shell: bash
+        env:
+          FORMULA_FILE: ${{ inputs.formula_file }}
+          TAP_DIR: ${{ inputs.tap_dir }}
+          TAP_BRANCH: ${{ inputs.tap_branch }}
+          # Through env, not pasted into the script: free text.
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+        run: |
+          set -euo pipefail
+          name="${FORMULA_FILE%.rb}"
+          msg="${COMMIT_MESSAGE:-Update ${name} formula}"
+          mkdir -p "tap/${TAP_DIR}"
+          cp "formula-in/${FORMULA_FILE}" "tap/${TAP_DIR}/${FORMULA_FILE}"
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Stage first: `git diff --quiet <file>` compares the work tree with the
+          # index, so a formula the tap has never had would be invisible to it.
+          git add -- "${TAP_DIR}/${FORMULA_FILE}"
+          if git diff --cached --quiet -- "${TAP_DIR}/${FORMULA_FILE}"; then
+            echo "${TAP_DIR}/${FORMULA_FILE} is already current; nothing to push."
+            exit 0
+          fi
+          git commit -q -m "$msg"
+          for i in 1 2 3; do
+            if git push origin "HEAD:refs/heads/${TAP_BRANCH}"; then
+              echo "Pushed ${TAP_DIR}/${FORMULA_FILE} to ${TAP_BRANCH}."
+              exit 0
+            fi
+            # Another app published to the tap in between: replay on top.
+            [[ "$i" -lt 3 ]] && git pull -q --rebase origin "$TAP_BRANCH"
+          done
+          echo "::error::Could not push ${TAP_DIR}/${FORMULA_FILE} after 3 attempts. A refusal (GH013) means the credential has no bypass on the tap's branch ruleset."
+          exit 1

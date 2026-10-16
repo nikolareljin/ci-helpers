@@ -30,9 +30,9 @@ on:
         type: string
         default: "MIT"
       tap_repo:
-        description: "GitHub tap repository (e.g. nikolareljin/homebrew-tap)."
+        description: "Tap repository as owner/repo (e.g. owner/homebrew-tap). Leave empty to pass it as the tap_repo secret."
         type: string
-        required: true
+        default: ""
       tap_dir:
         description: "Subdirectory inside the tap that holds formula files."
         type: string
@@ -56,9 +56,15 @@ on:
         type: string
         default: "10.13"
     secrets:
+      tap_repo:
+        description: "Tap repository as owner/repo, when kept as a secret instead of the tap_repo input."
+        required: false
+      tap_deploy_key:
+        description: "SSH private key of a write deploy key on the tap (preferred; see homebrew-tap-publish.yml)."
+        required: false
       tap_token:
-        description: "GitHub PAT with contents:write on tap_repo."
-        required: true
+        description: "Token with contents:write on the tap; used only when tap_deploy_key is not set."
+        required: false
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
@@ -81,7 +87,10 @@ jobs:
           - os: macos-14
             platform: macos-x86_64
             rust_target: x86_64-apple-darwin
-          - os: ubuntu-latest
+          # The oldest supported runner: the binary links against the build
+          # host's glibc, and a 24.04 build needs glibc 2.34+ and warns about
+          # GLIBC_2.39 symbols on 22.04 at every start.
+          - os: ubuntu-22.04
             platform: linux-x86_64
     steps:
       - name: Resolve tag
@@ -223,10 +232,12 @@ jobs:
           path: sha256-${{ matrix.platform }}.txt
 
   bump-homebrew:
-    name: Bump Homebrew formula
+    name: Generate Homebrew formula
     needs: build-tarballs
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Resolve tag
         id: tag
@@ -243,34 +254,12 @@ jobs:
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Validate tap secret
-        shell: bash
-        env:
-          TAP_TOKEN: ${{ secrets.tap_token }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TAP_TOKEN:-}" ]; then
-            echo "::error::tap_token secret is not set"
-            exit 1
-          fi
-
       - name: Download sha artifacts
         # NOTE: download-artifact@v8 runs on Node.js 24; self-hosted runners must be >= 2.327.1
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:
           pattern: sha256-*
           merge-multiple: true
-
-      - name: Checkout tap repo
-        shell: bash
-        env:
-          TAP_TOKEN: ${{ secrets.tap_token }}
-          TAP_REPO: ${{ inputs.tap_repo }}
-          TAP_BRANCH: ${{ inputs.tap_branch }}
-        run: |
-          set -euo pipefail
-          git clone --branch "$TAP_BRANCH" \
-            "https://x-access-token:${TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
 
       - name: Update formula
         shell: bash
@@ -281,7 +270,6 @@ jobs:
           DESC: ${{ inputs.desc }}
           HOMEPAGE: ${{ inputs.homepage }}
           LICENSE: ${{ inputs.license }}
-          TAP_DIR: ${{ inputs.tap_dir }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -305,7 +293,6 @@ jobs:
           desc      = os.environ["DESC"]
           homepage  = os.environ["HOMEPAGE"]
           license_  = os.environ["LICENSE"]
-          tap_dir   = os.environ["TAP_DIR"]
 
           formula_class = os.environ.get("FORMULA_CLASS", "").strip()
           if not formula_class:
@@ -319,7 +306,8 @@ jobs:
           if repo.endswith(".git"):
               repo = repo[:-4]
           homepage = repo
-          formula = Path(f"tap/{tap_dir}/{bin_name}.rb")
+          formula = Path(f"formula/{bin_name}.rb")
+          formula.parent.mkdir(exist_ok=True)
           content = f'''class {formula_class} < Formula
             desc "{desc}"
             homepage "{homepage}"
@@ -338,8 +326,13 @@ jobs:
             end
 
             on_linux do
-              url "{repo}/releases/download/#{{tag}}/{bin_name}-#{{tag}}-linux-x86_64.tar.gz"
-              sha256 "{linux}"
+              # Releases ship an x86_64 Linux build only.
+              depends_on arch: :x86_64
+
+              if Hardware::CPU.intel?
+                url "{repo}/releases/download/#{{tag}}/{bin_name}-#{{tag}}-linux-x86_64.tar.gz"
+                sha256 "{linux}"
+              end
             end
 
             def install
@@ -358,38 +351,30 @@ jobs:
       - name: Validate formula syntax
         env:
           BIN_NAME: ${{ inputs.bin_name }}
-          TAP_DIR: ${{ inputs.tap_dir }}
-        run: ruby -c "tap/${TAP_DIR}/${BIN_NAME}.rb"
+        run: ruby -c "formula/${BIN_NAME}.rb"
 
-      - name: Commit and push
-        shell: bash
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          BIN_NAME: ${{ inputs.bin_name }}
-          TAP_DIR: ${{ inputs.tap_dir }}
-        run: |
-          set -euo pipefail
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Stage first: `git diff --quiet <file>` compares the work tree with the
-          # index, so a formula the tap has never had is invisible to it and the
-          # first release would never be committed.
-          git add "${TAP_DIR}/${BIN_NAME}.rb"
-          if ! git diff --cached --quiet -- "${TAP_DIR}/${BIN_NAME}.rb"; then
-            git commit -m "Update ${BIN_NAME} to ${TAG}"
-            # The step already failed when every push failed (the loop is its
-            # last command), but silently; say why.
-            pushed=false
-            for i in 1 2 3; do
-              if git push; then
-                pushed=true
-                break
-              fi
-              [ "$i" -lt 3 ] && git pull --rebase && sleep 2
-            done
-            if [ "$pushed" != true ]; then
-              echo "::error::Could not push ${TAP_DIR}/${BIN_NAME}.rb to the tap after 3 attempts."
-              exit 1
-            fi
-          fi
+      - name: Upload formula
+        # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: homebrew-formula
+          path: formula/${{ inputs.bin_name }}.rb
+          if-no-files-found: error
+
+  # The push lives in one language-agnostic workflow shared with every other
+  # formula producer. `./` resolves to ci-helpers at the ref the caller pinned.
+  publish-homebrew:
+    name: Publish Homebrew formula
+    needs: bump-homebrew
+    uses: ./.github/workflows/homebrew-tap-publish.yml
+    with:
+      formula_artifact: homebrew-formula
+      formula_file: ${{ inputs.bin_name }}.rb
+      tap_repo: ${{ inputs.tap_repo }}
+      tap_branch: ${{ inputs.tap_branch }}
+      tap_dir: ${{ inputs.tap_dir }}
+      commit_message: Update ${{ inputs.bin_name }} to ${{ needs.bump-homebrew.outputs.tag }}
+    secrets:
+      tap_repo: ${{ secrets.tap_repo }}
+      tap_deploy_key: ${{ secrets.tap_deploy_key }}
+      tap_token: ${{ secrets.tap_token }}

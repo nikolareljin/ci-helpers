@@ -1,3 +1,35 @@
+## Unreleased
+
+### Added
+
+- **`homebrew-tap-publish.yml`: one language-agnostic step that commits a
+  formula to a tap.** Takes the formula as an artifact, the tap as an input or
+  a secret, and a deploy key (preferred) or a token. With a `DeployKey` bypass
+  on the tap's ruleset, CI pushes while the tap's `main` stays pull-request-only
+  for everyone else. Fails when no credential or tap is given, instead of
+  skipping.
+- **`scripts/check_no_hardcoded_repos.sh`**, run in `workflow-yaml-check.yml`:
+  fails when workflows, actions, scripts or docs name a repository of the owner
+  other than script-helpers and ci-helpers. The owner is read from
+  `GITHUB_REPOSITORY` or `origin`.
+
+### Changed
+
+- **`rust-release-tarballs.yml` and `homebrew-package.yml` publish through
+  `homebrew-tap-publish.yml`.** New optional secrets `tap_deploy_key` and
+  `tap_repo`; `tap_token` is now optional and used only without a deploy key.
+  `homebrew-package.yml` with `publish: true` and no credential now fails
+  instead of warning and skipping.
+- **`rust-release-tarballs.yml` builds Linux on `ubuntu-22.04`.** The
+  `ubuntu-latest` binary needed glibc 2.34, failed on 20.04 and warned about
+  `GLIBC_2.39` symbols on 22.04 at every start
+  (https://github.com/nikolareljin/ci-helpers/issues/274).
+- **Generated Rust formulas pass current `brew style`:** the Linux `url` sits
+  under `if Hardware::CPU.intel?` with `depends_on arch: :x86_64`, so arm64
+  Linux gets a clear refusal instead of "formula requires at least a URL".
+- Examples use `owner/myapp` and `owner/homebrew-tap`; the Gitleaks tip links
+  the Leak-Lock site.
+
 ## 2026-10-16 — v0.39.1
 
 ### Changed
