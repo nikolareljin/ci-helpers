@@ -14,8 +14,7 @@ Layer 0  LOCAL   pre-commit  (.env guard, version check)              < 1s    $0
 
 `script-helpers` ships stack-specific `ci_*.sh` commands for running the same
 classes of checks locally. It also includes a blocking pre-push hook that
-checks the pushed commits for private names, credentials and PII, then
-hygiene and lint of the changed files. It runs the quick test command of the
+runs security, hygiene and lint checks on the pushed commits. It runs the quick test command of the
 stack at the repository root only when the repository opts in. If
 `script-helpers` is vendored at `scripts/script-helpers`, install the hooks
 and opt in to tests with:
