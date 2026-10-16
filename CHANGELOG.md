@@ -17,7 +17,8 @@
 
 - **`rust-release-tarballs.yml` and `homebrew-package.yml` publish through
   `homebrew-tap-publish.yml`.** New optional secrets `tap_deploy_key` and
-  `tap_repo`; `tap_token` is now optional and used only without a deploy key.
+  `tap_repo`; `tap_token` (now optional in `rust-release-tarballs.yml`) is used
+  only without a deploy key.
   `homebrew-package.yml` with `publish: true` and no credential now fails
   instead of warning and skipping.
 - **`rust-release-tarballs.yml` builds Linux on `ubuntu-22.04`.** The

@@ -49,7 +49,7 @@ if [[ ${#paths[@]} -eq 0 ]]; then
 fi
 
 # The project overview page links the owner's other projects on purpose.
-excludes=(':!docs/about.md' ':!scripts/check_no_hardcoded_repos.sh')
+excludes=(':!docs/about.md')
 
 # <owner>/<repo> as a GitHub path, an API path, a checkout `repository:`, or a
 # bare slug. A Pages host is <owner>.github.io, which this does not match.

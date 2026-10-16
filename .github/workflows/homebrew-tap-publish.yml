@@ -71,8 +71,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-permissions:
-  contents: read
+# Nothing here uses GITHUB_TOKEN: the tap is reached with the deploy key or
+# tap_token, and artifacts with the runtime token. Asking for no scope keeps
+# this a subset of whatever the caller grants, `permissions: {}` included.
+permissions: {}
 
 jobs:
   publish:
