@@ -53,6 +53,7 @@ on:
         type: string
         default: ""
       runner:
+        description: "Runner label; needs bash, git and ruby."
         type: string
         default: ubuntu-latest
     secrets:
@@ -194,8 +195,14 @@ jobs:
               echo "Pushed ${TAP_DIR}/${FORMULA_FILE} to ${TAP_BRANCH}."
               exit 0
             fi
-            # Another app published to the tap in between: replay on top.
-            [[ "$i" -lt 3 ]] && git pull -q --rebase origin "$TAP_BRANCH"
+            [[ "$i" -lt 3 ]] || break
+            # Another app published to the tap in between: replay on top. A
+            # conflict means another run changed this same formula; stop there.
+            if ! git pull -q --rebase origin "$TAP_BRANCH"; then
+              git rebase --abort || true
+              echo "::error::${TAP_DIR}/${FORMULA_FILE} changed on ${TAP_BRANCH} while publishing; rerun to publish on top of it."
+              exit 1
+            fi
           done
           echo "::error::Could not push ${TAP_DIR}/${FORMULA_FILE} after 3 attempts. GH013 means the credential has no bypass on the tap's branch ruleset; 403 means it cannot write to the tap."
           exit 1

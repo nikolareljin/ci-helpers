@@ -113,6 +113,8 @@ jobs:
 - `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)
 - `.github/workflows/rpm-build.yml`: reusable RPM build workflow (artifacts only)
 - `.github/workflows/homebrew-package.yml`: reusable Homebrew tarball/formula build + optional publish workflow
+- `.github/workflows/homebrew-tap-publish.yml`: reusable step that commits one formula to a Homebrew tap (deploy key or token); any language
+- `.github/workflows/rust-release-tarballs.yml`: reusable Rust macOS/Linux tarball release + Homebrew formula workflow
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
 - `.github/actions/release-notes`: composite action for release note generation
