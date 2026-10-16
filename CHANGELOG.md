@@ -4,7 +4,8 @@
 
 - **Action pins moved to current releases; supersedes Dependabot pull requests
   263-272.** Comment refs bumped, then SHAs resolved by
-  `update_pinned_actions.sh` (70 pins, `--check` reports 0 stale):
+  `update_pinned_actions.sh` (51 pins; 70 with the branch pins below;
+  `--check` reports 0 stale):
   `actions/setup-node` v7.1.0, `actions/download-artifact` v8.0.2,
   `dorny/test-reporter` v3.2.0, `ruby/setup-ruby` v1.328.0,
   `shivammathur/setup-php` 2.40.0, `github/codeql-action` v4.38.3. Dependabot's
@@ -15,6 +16,9 @@
   `dtolnay/rust-toolchain` stable to `b725eda5` (Rust 1.99.1).
 - **`vendor/script-helpers` 0.44.1 -> 0.53.1**, and the 15 workflow `ref:`
   pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
+  Since script-helpers 0.52.0 the pre-push hook runs tests only after
+  `git config script-helpers.push-tests quick`;
+  `docs/private-repo-ci-strategy.md` now says so.
 
 ### Fixed
 

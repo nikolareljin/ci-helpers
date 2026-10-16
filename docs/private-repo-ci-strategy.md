@@ -7,18 +7,22 @@ spending as few of them as possible without giving up the checks.
 
 ```
 Layer 0  LOCAL   pre-commit  (.env guard, version check)              < 1s    $0
-                 pre-push    → stack-specific quick tests             ~10–60s $0
+                 pre-push    → security, hygiene, lint; quick tests   ~10–60s $0
+                               when opted in (push-tests quick)
                  ci_*.sh     (lint, tests, build, scan)                minutes $0
 ```
 
 `script-helpers` ships stack-specific `ci_*.sh` commands for running the same
 classes of checks locally. It also includes a blocking pre-push hook that
-detects a supported stack at the repository root and runs its quick test
-command. If `script-helpers` is vendored at `scripts/script-helpers`, install
-the hooks with:
+checks the pushed commits for private names, credentials and PII, then
+hygiene and lint of the changed files. It runs the quick test command of the
+stack at the repository root only when the repository opts in. If
+`script-helpers` is vendored at `scripts/script-helpers`, install the hooks
+and opt in to tests with:
 
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh
+git config script-helpers.push-tests quick
 ```
 
 Run every applicable `ci_*.sh` command explicitly in multi-stack repositories;
@@ -43,7 +47,8 @@ Pick a tier and stay in it. The right one depends on how many people push.
 | `release.yml` | `push` of a version tag | per release, not per push |
 
 Everything else runs locally through the applicable `ci_*.sh` commands, with
-quick tests gated by a **blocking** pre-push hook. With the PR gate gone that
+quick tests gated by a **blocking** pre-push hook (opted in with
+`git config script-helpers.push-tests quick`). With the PR gate gone that
 hook is the only automatic gate left, so it must fail the push rather than warn;
 `git push --no-verify` stays as the escape hatch.
 
@@ -60,7 +65,7 @@ few minutes of Actions per month.
 ### Three layers — two or more contributors
 
 ```
-Layer 0  LOCAL      pre-commit + pre-push → quick tests           $0
+Layer 0  LOCAL      pre-commit + pre-push → checks, opt-in tests  $0
 Layer 1  PR GATE    pr-gate.yml (install once → lint → test)      ~2–3 min, 1 job
 Layer 2  MAIN GATE  ci.yml (full lint + test + build, post-merge) ~5 min, 1–3 jobs
 ```
@@ -351,8 +356,9 @@ These are available after vendoring `script-helpers` as a submodule under `scrip
 | `scripts/script-helpers/scripts/local_test_rust.sh` | `cargo check` → `cargo clippy` → `cargo test` |
 | `scripts/script-helpers/scripts/local_test_flutter.sh` | `flutter pub get` → `flutter analyze` → `flutter test` |
 
-The pre-push hook (`scripts/script-helpers/scripts/git-hooks/pre-push`) auto-detects the stack and calls the appropriate runner, so tests run on every `git push` without any per-repo configuration. Enable it via:
+The pre-push hook (`scripts/script-helpers/scripts/git-hooks/pre-push`) auto-detects the stack and calls the appropriate runner. Tests run on `git push` only after the repository opts in; without it the hook runs its security, hygiene and lint checks only. Enable both via:
 
 ```bash
 bash scripts/script-helpers/scripts/setup-hooks.sh
+git config script-helpers.push-tests quick
 ```
