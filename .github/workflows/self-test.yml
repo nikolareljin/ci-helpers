@@ -923,12 +923,21 @@ jobs:
           got="$(git -C .ci-helpers-actions rev-parse HEAD)"
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
 
+      # data-safety-scan runs a script that sits beside its action.yml, so a
+      # refusal also proves the sparse checkout carries the action's files.
+      - name: A JSON file with a sensitive key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/probe"
+          echo '{"password":"x"}' > "${RUNNER_TEMP}/probe/a.json"
+
       - name: Run an action from that checkout
-        id: cmp
-        uses: ./.ci-helpers-actions/.github/actions/semver-compare
+        id: scan
+        continue-on-error: true
+        uses: ./.ci-helpers-actions/.github/actions/data-safety-scan
         with:
-          version_a: 1.10.0
-          version_b: 1.9.0
+          scan_path: ${{ runner.temp }}/probe
 
       - name: Remove ci-helpers actions checkout
         if: ${{ always() }}
@@ -938,10 +947,10 @@ jobs:
       - name: The action ran and the checkout is gone
         shell: bash
         env:
-          RESULT: ${{ steps.cmp.outputs.result }}
+          OUTCOME: ${{ steps.scan.outcome }}
         run: |
           set -euo pipefail
-          [[ "$RESULT" == gt ]] || { echo "::error::semver-compare said '$RESULT', expected gt"; exit 1; }
+          [[ "$OUTCOME" == failure ]] || { echo "::error::data-safety-scan outcome '$OUTCOME', expected failure on a sensitive key"; exit 1; }
           [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
 
   gitleaks-refuses-what-it-must:
