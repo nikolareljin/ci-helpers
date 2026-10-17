@@ -77,6 +77,7 @@ expect refuse "release candidate"                  -t 1.2.0-rc1 --fetch-tags
 expect move   "newer tag on main"                  -t 1.2.0 --fetch-tags
 expect move   "newer v-prefixed tag on main"       -t v1.3.0 --fetch-tags
 expect move   "candidate with --allow-prerelease"  -t 1.2.0-rc1 --fetch-tags --allow-prerelease
+expect refuse "base branch that is a refspec"       -t 1.2.0 --fetch-tags --base-branch 'main:refs/heads/evil'
 expect refuse "off main even with both allow flags" -t 9.0.0 --fetch-tags --allow-prerelease --allow-rollback
 
 # Older than production: move production to 1.2.0 first, then try 1.1.0.

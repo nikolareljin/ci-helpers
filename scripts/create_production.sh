@@ -184,6 +184,12 @@ if [[ -z "$base_branch" ]]; then
     exit 1
   fi
 fi
+# The name goes into a fetch refspec, where "a:refs/heads/b" would also write
+# a local ref. Accept branch names only.
+if ! git check-ref-format --branch "$base_branch" >/dev/null 2>&1 || [[ "$base_branch" == *:* ]]; then
+  log_error_safe "Invalid base branch name: ${base_branch}"
+  exit 2
+fi
 if ! base_err=$(git -C "$repo_dir" fetch --quiet "$remote" "refs/heads/${base_branch}" 2>&1); then
   log_error_safe "Failed to fetch ${base_branch} from ${remote}: ${base_err}"
   exit 1
