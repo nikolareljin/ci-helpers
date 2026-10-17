@@ -167,5 +167,16 @@ rc=0; "$SCRIPT" --repo "$work/clone" -t 2.0.0 --fetch-tags >"$work/log" 2>&1 || 
 if (( rc != 0 )); then pass=$((pass + 1)); echo "ok   refuse: default branch master, tag only on main"
 else fail=$((fail + 1)); echo "FAIL refuse: tag only on main moved production of a master repo"; fi
 
+# A shallow clone cannot prove ancestry: refuse, and say why.
+setup
+rm -rf "$work/shallow"
+git clone -q --depth 1 "file://$work/remote.git" "$work/shallow"
+rc=0; "$SCRIPT" --repo "$work/shallow" -t 1.2.0 >"$work/log" 2>&1 || rc=$?
+if (( rc != 0 )) && grep -q 'shallow clone' "$work/log"; then
+  pass=$((pass + 1)); echo "ok   refuse: shallow clone, with the reason"
+else
+  fail=$((fail + 1)); echo "FAIL refuse: shallow clone (rc=$rc)"; sed 's/^/     /' "$work/log"
+fi
+
 echo "passed: $pass, failed: $fail"
 (( fail == 0 ))

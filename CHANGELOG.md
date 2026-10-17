@@ -12,6 +12,10 @@
   names another branch. `--dry-run` runs every check and pushes nothing;
   `update-production.yml` with `dry_run: true` now uses it, so a dry run
   fails for a tag the real run would refuse.
+  `update-production.yml` runs the caller's own copy of the script: a copy
+  without the new flags is called as before, with a warning to update it,
+  instead of failing on `Unknown argument`. A shallow clone is refused with
+  that reason rather than as "not on the default branch".
 - **Two close releases could leave `production` on the older one.** Every
   workflow that moves it (`auto-tag.yml`, `production-branch.yml`,
   `update-production.yml`) now shares one concurrency group,

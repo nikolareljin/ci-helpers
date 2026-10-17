@@ -198,6 +198,10 @@ if ! base_err=$(git -C "$repo_dir" fetch --quiet "$remote" "refs/heads/${base_br
   exit 1
 fi
 base_sha=$(git -C "$repo_dir" rev-parse FETCH_HEAD)
+if [[ "$(git -C "$repo_dir" rev-parse --is-shallow-repository)" == true ]]; then
+  log_error_safe "${repo_dir} is a shallow clone, so it cannot show ${tag} is on ${base_branch}; fetch full history (fetch-depth: 0)"
+  exit 1
+fi
 if ! git -C "$repo_dir" merge-base --is-ancestor "$target_sha" "$base_sha" 2>/dev/null; then
   log_error_safe "Tag ${tag} (${target_sha:0:8}) is not on ${remote}/${base_branch}; refusing to move ${prod_tag}"
   exit 1
