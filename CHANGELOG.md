@@ -15,7 +15,9 @@
   or a quote would have escaped `dist` or broken the asset lookup. Every
   input now reaches the build steps through `env` instead of being expanded
   into the script, so a `desc` with `$5` or `$(...)` stays text. `publish` without
-  `release_tag` or `tarball_url` now fails instead of publishing from any push.
+  `release_tag`, or with `tarball_url`, now fails instead of publishing from
+  any push or with a url whose bytes may differ. The build job, and so
+  `prebuild_command`, now runs with `contents: read` only.
 
 ## 2026-10-16 — v0.40.0
 

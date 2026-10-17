@@ -684,9 +684,13 @@ Secrets (publishing goes through [homebrew-tap-publish.yml](#homebrew-tap-publis
 - `tap_token` (token with write access to the tap; used only without `tap_deploy_key`)
 - `tap_repo` (the tap as `owner/repo`, when kept as a secret instead of the input)
 
-`publish: "true"` needs `release_tag` or `tarball_url`: the formula's sha256 is
-of the tarball this run builds, so it must be the file the url serves. Without
-either the job fails, so a push to `main` cannot publish unreleased code.
+`publish: "true"` needs `release_tag` and refuses `tarball_url`: the formula's
+sha256 is of the tarball this run builds, so it must be the file the url serves.
+Without it the job fails, so a push to `main` cannot publish unreleased code.
+
+The build job runs with `contents: read` only, `prebuild_command` included. A
+prebuild that needs another scope (`packages: read` for a private registry,
+`id-token`) has to get it some other way.
 
 `VERSION` (in `working_directory`) must hold a single version -- letters, digits
 and `. + _ -`, e.g. `1.2.3`; a trailing Windows line ending is dropped. Anything

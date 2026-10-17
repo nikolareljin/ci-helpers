@@ -198,6 +198,12 @@ jobs:
           helper_scripts="$repo/vendor/script-helpers/scripts"
           tarball_url="$TARBALL_URL_IN"
           upload_repo=""
+          # The formula's sha256 is of the tarball built here, so a published
+          # formula must point at that file: the one release-asset uploads.
+          if [[ "$PUBLISH" == "true" && -n "$tarball_url" ]]; then
+            echo "::error::publish cannot use tarball_url: its bytes may differ from the tarball hashed here. Pass release_tag instead."
+            exit 1
+          fi
           if [[ -n "$RELEASE_TAG" ]]; then
             if [[ "$RELEASE_TAG" != "$version" && "$RELEASE_TAG" != "v$version" ]]; then
               echo "::error::release_tag '$RELEASE_TAG' does not match VERSION '$version'."
@@ -211,8 +217,8 @@ jobs:
               fi
               tarball_url="https://github.com/${upload_repo}/releases/download/${RELEASE_TAG}/${name}-${version}.tar.gz"
             fi
-          elif [[ "$PUBLISH" == "true" && -z "$tarball_url" ]]; then
-            echo "::error::publish needs release_tag (or tarball_url): the formula must point at a released tarball."
+          elif [[ "$PUBLISH" == "true" ]]; then
+            echo "::error::publish needs release_tag: the formula must point at a released tarball."
             exit 1
           elif [[ -z "$tarball_url" && -n "$RELEASE_REPO_IN" ]]; then
             tarball_url="https://github.com/${RELEASE_REPO_IN}/releases/download/v${version}/${name}-${version}.tar.gz"
@@ -394,7 +400,18 @@ jobs:
           want="sha256:$(sha256sum "tarball/$FILE" | cut -d' ' -f1)"
           # "" when no asset of that name; "unknown" for an asset GitHub has no
           # digest for (uploaded before digests existed): hash it ourselves.
-          have="$(gh api "repos/$REPO/releases/tags/$TAG" | jq -r --arg f "$FILE" \
+          # The release may still be being created by a parallel job.
+          release_json=""
+          for attempt in 1 2 3 4 5 6; do
+            if release_json="$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null)"; then break; fi
+            release_json=""
+            [[ "$attempt" -lt 6 ]] && sleep 10
+          done
+          if [[ -z "$release_json" ]]; then
+            echo "::error::release $TAG not found in $REPO after 60s; create it before publishing."
+            exit 1
+          fi
+          have="$(printf '%s' "$release_json" | jq -r --arg f "$FILE" \
             '[.assets[] | select(.name == $f)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
           if [[ "$have" == "unknown" ]]; then
             mkdir -p published
