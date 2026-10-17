@@ -891,6 +891,59 @@ jobs:
   gitleaks-scan-defaults-can-pass:
     uses: ./.github/workflows/gitleaks-scan.yml
 
+  # tauri-release.yml runs its signing actions from a checkout of the library
+  # at job.workflow_sha, on macOS and Windows runners, and needs signing
+  # credentials, so no leg runs it. These are the same four steps with an
+  # action that needs no secrets, on each OS that tauri-release.yml uses.
+  library-actions-run-from-workflow-commit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+
+      - name: Run an action from that checkout
+        id: cmp
+        uses: ./.ci-helpers-actions/.github/actions/semver-compare
+        with:
+          version_a: 1.10.0
+          version_b: 1.9.0
+
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
+
+      - name: The action ran and the checkout is gone
+        shell: bash
+        env:
+          RESULT: ${{ steps.cmp.outputs.result }}
+        run: |
+          set -euo pipefail
+          [[ "$RESULT" == gt ]] || { echo "::error::semver-compare said '$RESULT', expected gt"; exit 1; }
+          [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
+
   gitleaks-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
