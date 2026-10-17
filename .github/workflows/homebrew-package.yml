@@ -47,6 +47,12 @@ on:
       release_repo:
         type: string
         default: ""
+      # The release this build belongs to, e.g. 1.2.3. With publish, the tarball
+      # is uploaded to it and the formula points there; publish without it (or
+      # tarball_url) fails, so a push to main cannot publish unreleased code.
+      release_tag:
+        type: string
+        default: ""
       formula_path:
         type: string
         default: ""
@@ -92,8 +98,14 @@ jobs:
   brew:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
+    # prebuild_command is the caller's code; it never holds a write token. The
+    # release upload is the separate release-asset job.
+    permissions:
+      contents: read
     outputs:
       formula_file: ${{ steps.formula.outputs.file }}
+      upload_repo: ${{ steps.asset.outputs.repo }}
+      tarball: ${{ steps.asset.outputs.tarball }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -111,9 +123,11 @@ jobs:
         if: ${{ inputs.prebuild_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          IN_PREBUILD_COMMAND: ${{ inputs.prebuild_command }}
         run: |
           set -euo pipefail
-          bash -lc "${{ inputs.prebuild_command }}"
+          bash -lc "$IN_PREBUILD_COMMAND"
 
       - name: Bootstrap script-helpers
         shell: bash
@@ -132,25 +146,42 @@ jobs:
 
       - name: Prepare Homebrew inputs
         shell: bash
+        env:
+          IN_ARTIFACT_GLOB: ${{ inputs.artifact_glob }}
+          IN_DIST_DIR: ${{ inputs.dist_dir }}
+          IN_FORMULA_PATH: ${{ inputs.formula_path }}
+          IN_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ inputs.publish }}
+          TARBALL_URL_IN: ${{ inputs.tarball_url }}
+          RELEASE_REPO_IN: ${{ inputs.release_repo }}
+          NAME_IN: ${{ inputs.name }}
         run: |
           set -euo pipefail
-          repo="${{ inputs.working_directory }}"
-          name="${{ inputs.name }}"
-          dist_dir="${{ inputs.dist_dir }}"
+          repo="$IN_WORKING_DIRECTORY"
+          name="$NAME_IN"
+          dist_dir="$IN_DIST_DIR"
 
           if [[ "$dist_dir" != /* ]]; then
             dist_dir="$repo/$dist_dir"
           fi
 
-          if [[ -z "${{ inputs.formula_path }}" ]]; then
+          if [[ -z "$IN_FORMULA_PATH" ]]; then
             formula_path="$repo/packaging/homebrew/${name}.rb"
           else
-            formula_path="${{ inputs.formula_path }}"
+            formula_path="$IN_FORMULA_PATH"
             if [[ "$formula_path" != /* ]]; then
               formula_path="$repo/$formula_path"
             fi
           fi
 
+          # name becomes a path (dist/<name>-<version>.tar.gz) and a release asset
+          # name, so a slash, `..` or a quote would escape dist or break the
+          # asset lookup in release-asset.
+          if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+            echo "::error::name '$name' must be letters, digits and . _ + - (a Homebrew formula name)."
+            exit 1
+          fi
           version="$(cat "$repo/VERSION")"
           # Every value below becomes a KEY=value line in GITHUB_ENV, so a VERSION
           # carrying a newline would add lines of its own (any variable, PATH
@@ -165,11 +196,34 @@ jobs:
           fi
           tarball_path="$dist_dir/${name}-${version}.tar.gz"
           helper_scripts="$repo/vendor/script-helpers/scripts"
-          tarball_url="${{ inputs.tarball_url }}"
-          if [[ -z "$tarball_url" && -n "${{ inputs.release_repo }}" ]]; then
-            tarball_url="https://github.com/${{ inputs.release_repo }}/releases/download/v${version}/${name}-${version}.tar.gz"
+          tarball_url="$TARBALL_URL_IN"
+          upload_repo=""
+          # The formula's sha256 is of the tarball built here, so a published
+          # formula must point at that file: the one release-asset uploads.
+          if [[ "$PUBLISH" == "true" && -n "$tarball_url" ]]; then
+            echo "::error::publish cannot use tarball_url: its bytes may differ from the tarball hashed here. Pass release_tag instead."
+            exit 1
           fi
-          artifact_glob="${{ inputs.artifact_glob }}"
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ "$RELEASE_TAG" != "$version" && "$RELEASE_TAG" != "v$version" ]]; then
+              echo "::error::release_tag '$RELEASE_TAG' does not match VERSION '$version'."
+              exit 1
+            fi
+            if [[ -z "$tarball_url" ]]; then
+              upload_repo="${RELEASE_REPO_IN:-$GITHUB_REPOSITORY}"
+              if [[ "$upload_repo" != "$GITHUB_REPOSITORY" ]]; then
+                echo "::error::release_repo '$upload_repo' is not this repository; the tarball can only be uploaded to $GITHUB_REPOSITORY."
+                exit 1
+              fi
+              tarball_url="https://github.com/${upload_repo}/releases/download/${RELEASE_TAG}/${name}-${version}.tar.gz"
+            fi
+          elif [[ "$PUBLISH" == "true" ]]; then
+            echo "::error::publish needs release_tag: the formula must point at a released tarball."
+            exit 1
+          elif [[ -z "$tarball_url" && -n "$RELEASE_REPO_IN" ]]; then
+            tarball_url="https://github.com/${RELEASE_REPO_IN}/releases/download/v${version}/${name}-${version}.tar.gz"
+          fi
+          artifact_glob="$IN_ARTIFACT_GLOB"
           if [[ -z "$artifact_glob" ]]; then
             artifact_glob="$dist_dir/*.tar.gz"$'\n'"$formula_path"
           fi
@@ -183,6 +237,7 @@ jobs:
             echo "BREW_TARBALL_PATH=$tarball_path"
             echo "BREW_TARBALL_URL=$tarball_url"
             echo "BREW_HELPER_SCRIPTS=$helper_scripts"
+            echo "BREW_UPLOAD_REPO=$upload_repo"
           } >> "$GITHUB_ENV"
           # A random delimiter: a glob line reading exactly EOF would otherwise
           # end the value early and the rest would be parsed as more variables.
@@ -198,9 +253,11 @@ jobs:
 
       - name: Build Homebrew tarball
         shell: bash
+        env:
+          IN_EXCLUDE_PATHS: ${{ inputs.exclude_paths }}
         run: |
           set -euo pipefail
-          exclude_csv="${{ inputs.exclude_paths }}"
+          exclude_csv="$IN_EXCLUDE_PATHS"
           IFS=',' read -r -a excludes <<< "$exclude_csv"
 
           args=(--name "$BREW_NAME" --repo "$BREW_REPO" --dist-dir "$BREW_DIST_DIR")
@@ -214,16 +271,26 @@ jobs:
 
       - name: Generate Homebrew formula
         shell: bash
+        env:
+          IN_DEPS: ${{ inputs.deps }}
+          IN_DESC: ${{ inputs.desc }}
+          IN_ENTRYPOINT: ${{ inputs.entrypoint }}
+          IN_ENV_VAR: ${{ inputs.env_var }}
+          IN_HOMEPAGE: ${{ inputs.homepage }}
+          IN_LICENSE: ${{ inputs.license }}
+          IN_MAN_PATH: ${{ inputs.man_path }}
+          IN_NAME: ${{ inputs.name }}
+          IN_USE_LIBEXEC: ${{ inputs.use_libexec }}
         run: |
           set -euo pipefail
-          deps_csv="${{ inputs.deps }}"
+          deps_csv="$IN_DEPS"
           IFS=',' read -r -a deps <<< "$deps_csv"
 
           args=(
-            --name "${{ inputs.name }}"
-            --desc "${{ inputs.desc }}"
-            --homepage "${{ inputs.homepage }}"
-            --license "${{ inputs.license }}"
+            --name "$IN_NAME"
+            --desc "$IN_DESC"
+            --homepage "$IN_HOMEPAGE"
+            --license "$IN_LICENSE"
             --tarball "$BREW_TARBALL_PATH"
             --formula-path "$BREW_FORMULA_PATH"
           )
@@ -232,18 +299,18 @@ jobs:
             args+=(--url "$BREW_TARBALL_URL")
           fi
 
-          if [[ -n "${{ inputs.entrypoint }}" ]]; then
-            args+=(--entrypoint "${{ inputs.entrypoint }}")
+          if [[ -n "$IN_ENTRYPOINT" ]]; then
+            args+=(--entrypoint "$IN_ENTRYPOINT")
           fi
 
-          if [[ -n "${{ inputs.man_path }}" ]]; then
-            args+=(--man-path "${{ inputs.man_path }}")
+          if [[ -n "$IN_MAN_PATH" ]]; then
+            args+=(--man-path "$IN_MAN_PATH")
           fi
 
-          if [[ "${{ inputs.use_libexec }}" == "true" ]]; then
+          if [[ "$IN_USE_LIBEXEC" == "true" ]]; then
             args+=(--use-libexec)
-            if [[ -n "${{ inputs.env_var }}" ]]; then
-              args+=(--env-var "${{ inputs.env_var }}")
+            if [[ -n "$IN_ENV_VAR" ]]; then
+              args+=(--env-var "$IN_ENV_VAR")
             fi
           fi
 
@@ -254,6 +321,25 @@ jobs:
           done
 
           bash "$BREW_HELPER_SCRIPTS/gen_brew_formula.sh" "${args[@]}"
+
+      # The formula's sha256 is of this run's tarball, so this exact file has to
+      # be the release asset its url points at; release-asset uploads it.
+      - name: Stage tarball for the release
+        id: asset
+        if: ${{ inputs.publish == 'true' && env.BREW_UPLOAD_REPO != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "repo=$BREW_UPLOAD_REPO" >> "$GITHUB_OUTPUT"
+          echo "tarball=$(basename "$BREW_TARBALL_PATH")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload tarball for the release
+        if: ${{ steps.asset.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: ${{ inputs.artifact_name }}-tarball
+          path: ${{ env.BREW_TARBALL_PATH }}
+          if-no-files-found: error
 
       - name: Upload Homebrew artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
@@ -284,9 +370,66 @@ jobs:
 
   # The push lives in one language-agnostic workflow shared with every other
   # formula producer. `./` resolves to ci-helpers at the ref the caller pinned.
-  publish:
+  # Uploads the tarball to the release. An asset of that name already there is
+  # never replaced: identical bytes pass, different bytes fail, since users may
+  # have fetched and verified the published one.
+  release-asset:
     needs: brew
-    if: ${{ inputs.publish == 'true' }}
+    if: ${{ inputs.publish == 'true' && needs.brew.outputs.upload_repo != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ inputs.artifact_name }}-tarball
+          path: tarball
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ needs.brew.outputs.upload_repo }}
+          TAG: ${{ inputs.release_tag }}
+          FILE: ${{ needs.brew.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$FILE" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*\.tar\.gz$ ]]; then
+            echo "::error::unexpected tarball name '$FILE'."
+            exit 1
+          fi
+          want="sha256:$(sha256sum "tarball/$FILE" | cut -d' ' -f1)"
+          # "" when no asset of that name; "unknown" for an asset GitHub has no
+          # digest for (uploaded before digests existed): hash it ourselves.
+          # The release may still be being created by a parallel job.
+          release_json=""
+          for attempt in 1 2 3 4 5 6; do
+            if release_json="$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null)"; then break; fi
+            release_json=""
+            [[ "$attempt" -lt 6 ]] && sleep 10
+          done
+          if [[ -z "$release_json" ]]; then
+            echo "::error::release $TAG not found in $REPO after 60s; create it before publishing."
+            exit 1
+          fi
+          have="$(printf '%s' "$release_json" | jq -r --arg f "$FILE" \
+            '[.assets[] | select(.name == $f)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
+          if [[ "$have" == "unknown" ]]; then
+            mkdir -p published
+            gh release download "$TAG" -R "$REPO" -p "$FILE" -D published
+            have="sha256:$(sha256sum "published/$FILE" | cut -d' ' -f1)"
+          fi
+          if [[ -z "$have" ]]; then
+            gh release upload "$TAG" "tarball/$FILE" -R "$REPO"
+          elif [[ "$have" == "$want" ]]; then
+            echo "$FILE is already on release $TAG with the same sha256."
+          else
+            echo "::error::$FILE is already on release $TAG with a different sha256 ($have); refusing to replace a published asset. Delete it to republish."
+            exit 1
+          fi
+
+  publish:
+    needs: [brew, release-asset]
+    if: ${{ always() && inputs.publish == 'true' && needs.brew.result == 'success' && (needs.release-asset.result == 'success' || needs.release-asset.result == 'skipped') }}
     uses: ./.github/workflows/homebrew-tap-publish.yml
     with:
       formula_artifact: ${{ inputs.artifact_name }}-formula

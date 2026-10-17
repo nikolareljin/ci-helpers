@@ -1,3 +1,24 @@
+## Unreleased
+
+### Fixed
+
+- **`homebrew-package.yml` published formulas for tarballs nobody uploaded.**
+  The sha256 is of the tarball the run builds, but the tarball stayed an
+  artifact, so the formula's url served nothing (or a different file); the
+  default url also added a `v` that bare-semver tags lack. New `release_tag`
+  input: with `publish` a separate `release-asset` job (the only one with
+  `contents: write`; the build job and `prebuild_command` get `contents: read`)
+  uploads the tarball to that release, and the url points at it. An asset of
+  that name already published is never replaced: same sha256 passes, a
+  different one fails. `name` must be a formula name (letters, digits,
+  `. _ + -`): it becomes the tarball path and the release asset name, so `../`
+  or a quote would have escaped `dist` or broken the asset lookup. Every
+  input now reaches the build steps through `env` instead of being expanded
+  into the script, so a `desc` with `$5` or `$(...)` stays text. `publish` without
+  `release_tag`, or with `tarball_url`, now fails instead of publishing from
+  any push or with a url whose bytes may differ. The build job, and so
+  `prebuild_command`, now runs with `contents: read` only.
+
 ## 2026-10-16 — v0.40.0
 
 ### Added
