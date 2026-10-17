@@ -10,7 +10,9 @@
   `contents: write`; the build job and `prebuild_command` get `contents: read`)
   uploads the tarball to that release, and the url points at it. An asset of
   that name already published is never replaced: same sha256 passes, a
-  different one fails. `publish` without
+  different one fails. `name` must be a formula name (letters, digits,
+  `. _ + -`): it becomes the tarball path and the release asset name, so `../`
+  or a quote would have escaped `dist` or broken the asset lookup. `publish` without
   `release_tag` or `tarball_url` now fails instead of publishing from any push.
 
 ## 2026-10-16 — v0.40.0

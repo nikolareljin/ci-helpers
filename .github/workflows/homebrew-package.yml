@@ -149,10 +149,11 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
           TARBALL_URL_IN: ${{ inputs.tarball_url }}
           RELEASE_REPO_IN: ${{ inputs.release_repo }}
+          NAME_IN: ${{ inputs.name }}
         run: |
           set -euo pipefail
           repo="${{ inputs.working_directory }}"
-          name="${{ inputs.name }}"
+          name="$NAME_IN"
           dist_dir="${{ inputs.dist_dir }}"
 
           if [[ "$dist_dir" != /* ]]; then
@@ -168,6 +169,13 @@ jobs:
             fi
           fi
 
+          # name becomes a path (dist/<name>-<version>.tar.gz) and a release asset
+          # name, so a slash, `..` or a quote would escape dist or break the
+          # asset lookup in release-asset.
+          if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+            echo "::error::name '$name' must be letters, digits and . _ + - (a Homebrew formula name)."
+            exit 1
+          fi
           version="$(cat "$repo/VERSION")"
           # Every value below becomes a KEY=value line in GITHUB_ENV, so a VERSION
           # carrying a newline would add lines of its own (any variable, PATH
@@ -361,8 +369,12 @@ jobs:
           FILE: ${{ needs.brew.outputs.tarball }}
         run: |
           set -euo pipefail
+          if [[ ! "$FILE" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*\.tar\.gz$ ]]; then
+            echo "::error::unexpected tarball name '$FILE'."
+            exit 1
+          fi
           want="sha256:$(sha256sum "tarball/$FILE" | cut -d' ' -f1)"
-          have="$(gh api "repos/$REPO/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$FILE\") | .digest")"
+          have="$(gh api "repos/$REPO/releases/tags/$TAG" | jq -r --arg f "$FILE" '.assets[] | select(.name == $f) | .digest')"
           if [[ -z "$have" ]]; then
             gh release upload "$TAG" "tarball/$FILE" -R "$REPO"
           elif [[ "$have" == "$want" ]]; then
