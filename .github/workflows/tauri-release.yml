@@ -299,7 +299,7 @@ jobs:
           apple_id: ${{ secrets.APPLE_ID }}
           app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
 
-      # The action keeps nothing in its own directory, so the checkout goes
+      # The action keeps nothing in its own directory, so the checkout is removed
       # before the build and cannot end up in a bundle.
       - name: Remove ci-helpers actions checkout
         if: ${{ always() }}
@@ -488,7 +488,7 @@ jobs:
           azure_code_signing_account: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           azure_cert_profile: ${{ secrets.AZURE_CERT_PROFILE }}
 
-      # The action keeps nothing in its own directory, so the checkout goes
+      # The action keeps nothing in its own directory, so the checkout is removed
       # before the build and cannot end up in a bundle.
       - name: Remove ci-helpers actions checkout
         if: ${{ always() }}
