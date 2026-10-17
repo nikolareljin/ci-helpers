@@ -47,6 +47,12 @@ on:
       release_repo:
         type: string
         default: ""
+      # The release this build belongs to, e.g. 1.2.3. With publish, the tarball
+      # is uploaded to it and the formula points there; publish without it (or
+      # tarball_url) fails, so a push to main cannot publish unreleased code.
+      release_tag:
+        type: string
+        default: ""
       formula_path:
         type: string
         default: ""
@@ -132,6 +138,11 @@ jobs:
 
       - name: Prepare Homebrew inputs
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ inputs.publish }}
+          TARBALL_URL_IN: ${{ inputs.tarball_url }}
+          RELEASE_REPO_IN: ${{ inputs.release_repo }}
         run: |
           set -euo pipefail
           repo="${{ inputs.working_directory }}"
@@ -165,9 +176,26 @@ jobs:
           fi
           tarball_path="$dist_dir/${name}-${version}.tar.gz"
           helper_scripts="$repo/vendor/script-helpers/scripts"
-          tarball_url="${{ inputs.tarball_url }}"
-          if [[ -z "$tarball_url" && -n "${{ inputs.release_repo }}" ]]; then
-            tarball_url="https://github.com/${{ inputs.release_repo }}/releases/download/v${version}/${name}-${version}.tar.gz"
+          tarball_url="$TARBALL_URL_IN"
+          upload_repo=""
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ "$RELEASE_TAG" != "$version" && "$RELEASE_TAG" != "v$version" ]]; then
+              echo "::error::release_tag '$RELEASE_TAG' does not match VERSION '$version'."
+              exit 1
+            fi
+            if [[ -z "$tarball_url" ]]; then
+              upload_repo="${RELEASE_REPO_IN:-$GITHUB_REPOSITORY}"
+              if [[ "$upload_repo" != "$GITHUB_REPOSITORY" ]]; then
+                echo "::error::release_repo '$upload_repo' is not this repository; the tarball can only be uploaded to $GITHUB_REPOSITORY."
+                exit 1
+              fi
+              tarball_url="https://github.com/${upload_repo}/releases/download/${RELEASE_TAG}/${name}-${version}.tar.gz"
+            fi
+          elif [[ "$PUBLISH" == "true" && -z "$tarball_url" ]]; then
+            echo "::error::publish needs release_tag (or tarball_url): the formula must point at a released tarball."
+            exit 1
+          elif [[ -z "$tarball_url" && -n "$RELEASE_REPO_IN" ]]; then
+            tarball_url="https://github.com/${RELEASE_REPO_IN}/releases/download/v${version}/${name}-${version}.tar.gz"
           fi
           artifact_glob="${{ inputs.artifact_glob }}"
           if [[ -z "$artifact_glob" ]]; then
@@ -183,6 +211,7 @@ jobs:
             echo "BREW_TARBALL_PATH=$tarball_path"
             echo "BREW_TARBALL_URL=$tarball_url"
             echo "BREW_HELPER_SCRIPTS=$helper_scripts"
+            echo "BREW_UPLOAD_REPO=$upload_repo"
           } >> "$GITHUB_ENV"
           # A random delimiter: a glob line reading exactly EOF would otherwise
           # end the value early and the rest would be parsed as more variables.
@@ -254,6 +283,19 @@ jobs:
           done
 
           bash "$BREW_HELPER_SCRIPTS/gen_brew_formula.sh" "${args[@]}"
+
+      # The formula's sha256 is of this run's tarball, so this exact file has to
+      # be the release asset the url points at. Needs contents: write from the
+      # caller; --clobber keeps a rerun's tarball and formula in step.
+      - name: Upload tarball to the release
+        if: ${{ inputs.publish == 'true' && env.BREW_UPLOAD_REPO != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$BREW_TARBALL_PATH" --clobber -R "$BREW_UPLOAD_REPO"
 
       - name: Upload Homebrew artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07

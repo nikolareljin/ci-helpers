@@ -1,3 +1,15 @@
+## Unreleased
+
+### Fixed
+
+- **`homebrew-package.yml` published formulas for tarballs nobody uploaded.**
+  The sha256 is of the tarball the run builds, but the tarball stayed an
+  artifact, so the formula's url served nothing (or a different file); the
+  default url also added a `v` that bare-semver tags lack. New `release_tag`
+  input: with `publish` the tarball is uploaded to that release
+  (`gh release upload --clobber`) and the url points at it. `publish` without
+  `release_tag` or `tarball_url` now fails instead of publishing from any push.
+
 ## 2026-10-16 — v0.40.0
 
 ### Added

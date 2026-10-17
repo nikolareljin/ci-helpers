@@ -667,6 +667,7 @@ Inputs:
 - `env_var` (string, default `""`)
 - `tarball_url` (string, default `""`)
 - `release_repo` (string, default `""`, used to build a default tarball URL)
+- `release_tag` (string, default `""`) -- the release this build belongs to, equal to `VERSION` or `v<VERSION>`. With `publish: "true"` the tarball is uploaded to that release of this repository (the caller grants `contents: write`) and the formula points at it
 - `formula_path` (string, default `""`)
 - `dist_dir` (string, default `"dist"`)
 - `exclude_paths` (string, default `".git,.github,dist"`, comma-separated)
@@ -683,6 +684,10 @@ Secrets (publishing goes through [homebrew-tap-publish.yml](#homebrew-tap-publis
 - `tap_token` (token with write access to the tap; used only without `tap_deploy_key`)
 - `tap_repo` (the tap as `owner/repo`, when kept as a secret instead of the input)
 
+`publish: "true"` needs `release_tag` or `tarball_url`: the formula's sha256 is
+of the tarball this run builds, so it must be the file the url serves. Without
+either the job fails, so a push to `main` cannot publish unreleased code.
+
 `VERSION` (in `working_directory`) must hold a single version -- letters, digits
 and `. + _ -`, e.g. `1.2.3`; a trailing Windows line ending is dropped. Anything
 else (a second line, spaces, `=`) fails the job with an error rather than being
@@ -692,7 +697,11 @@ Example:
 
 ```yaml
 jobs:
+  # release: a job that cuts the release and outputs its tag, or '' when none.
   brew:
+    needs: release
+    permissions:
+      contents: write   # uploads the tarball to the release
     uses: nikolareljin/ci-helpers/.github/workflows/homebrew-package.yml@production
     with:
       name: "myapp"
@@ -703,11 +712,11 @@ jobs:
       man_path: "docs/man/myapp.1"
       use_libexec: "true"
       env_var: "MYAPP_ROOT"
-      release_repo: "owner/myapp"
-      publish: ${{ vars.HOMEBREW_PUBLISH_ENABLED }}
-      tap_repo: ${{ vars.HOMEBREW_TAP_REPO }}
-      tap_branch: ${{ vars.HOMEBREW_TAP_BRANCH }}
+      # Set only when a release was cut; publishes nothing otherwise.
+      release_tag: ${{ needs.release.outputs.tag }}
+      publish: ${{ needs.release.outputs.tag != '' }}
     secrets:
+      tap_repo: ${{ secrets.HOMEBREW_TAP_REPO }}
       tap_deploy_key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
 ```
 
