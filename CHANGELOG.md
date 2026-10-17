@@ -31,6 +31,25 @@
   `ci-helpers-production-move-<repo>`, and the older move is refused rather
   than landing last. In `auto-tag.yml` the move is a separate `production`
   job, so ordinary pushes do not queue behind it.
+- **Caller build code ran next to a write token.** `release-build`,
+  `go-release`, `rust-release`, `rust-release-tarballs`, `fpc-release` and
+  `deb-build` built with `contents: write`. Each is now a `build` job with
+  `contents: read` and a `release` job (`upload-release` in
+  `rust-release-tarballs`) that downloads the files and publishes them. Asset
+  names are unchanged. `fpc-release` now publishes once, after every leg.
+- **Every checkout left its token in `.git/config`.** All checkouts now set
+  `persist-credentials: false`, except the tap push in
+  `homebrew-tap-publish.yml`, whose job runs no caller code. Steps that fetch
+  or push (`auto-tag`, `update-production`, `production-branch`,
+  `manifest-version`, the release-tag checks in `pr-gate` and
+  `release-tag-gate`, and the submodule bootstrap in `deb-build`, `rpm-build`
+  and `homebrew-package`) get the token through the environment for that step
+  only. A caller command that runs `git fetch` or `git push` against a private
+  remote now needs its own credentials.
+- **56 jobs had no `permissions:` and inherited the caller's token.** Each now
+  declares `contents: read`, or what the workflow it calls declares.
+  `scripts/check_token_exposure.sh` (zizmor 1.16.3, pinned by digest) fails
+  on either finding and runs in `workflow-yaml-check.yml`.
 
 ## 2026-10-17 — v0.41.0
 

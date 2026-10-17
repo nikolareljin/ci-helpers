@@ -73,6 +73,8 @@ jobs:
   # The single-module path, unchanged and deliberately not folded into the
   # matrix below. See the `modules` input for why the job id must stay `ci`.
   ci:
+    permissions:
+      contents: read
     if: ${{ inputs.modules == '' }}
     uses: ./.github/workflows/ci.yml
     with:
@@ -95,6 +97,8 @@ jobs:
   # `modules` is a string input, so it cannot be a matrix directly. Resolve it
   # here, the way pimcore.yml resolves php_versions.
   resolve-modules:
+    permissions:
+      contents: read
     if: ${{ inputs.modules != '' }}
     runs-on: ${{ inputs.runner }}
     # Without this a hung job bills until GitHub's six-hour default (#132).
@@ -173,6 +177,8 @@ jobs:
   # so a module that is merely broken cannot be mistaken for an empty one and
   # skipped green.
   go:
+    permissions:
+      contents: read
     needs: resolve-modules
     strategy:
       fail-fast: false

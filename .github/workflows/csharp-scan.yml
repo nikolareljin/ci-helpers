@@ -50,17 +50,22 @@ on:
 
 jobs:
   validate-inputs:
+    permissions:
+      contents: read
     uses: ./.github/workflows/validate-dotnet-project.yml
     with:
       project: ${{ inputs.project }}
 
   scan:
+    permissions:
+      contents: read
     needs: [validate-inputs]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 

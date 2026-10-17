@@ -178,11 +178,14 @@ env:
 jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
+    permissions:
+      contents: read
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -369,6 +372,8 @@ jobs:
 
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
+    permissions:
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 120
     defaults:
@@ -377,6 +382,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -551,6 +557,8 @@ jobs:
 
   # ── Linux ──────────────────────────────────────────────────────────────────
   build-linux:
+    permissions:
+      contents: read
     # The runner is an input here, as it already was in tauri.yml and
     # tauri-scan.yml. It was the one Tauri workflow a consumer could not
     # override, which is the wrong one to hardcode: it is the workflow that
@@ -560,6 +568,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -720,6 +729,7 @@ jobs:
       - name: Checkout source for release notes
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           ref: ${{ steps.rel.outputs.tag }}
           path: .source
           fetch-depth: 0
@@ -727,6 +737,7 @@ jobs:
       - name: Checkout script-helpers for release notes
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           repository: nikolareljin/script-helpers
           ref: a1f68263c788ac2bb6064cac84d29228a1480641 # 0.54.1
           path: .script-helpers
@@ -803,6 +814,8 @@ jobs:
 
   # ── WinGet submission ──────────────────────────────────────────────────────
   winget-submit:
+    permissions:
+      contents: read
     needs: release
     if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
     # Relative, not @production: a consumer pinned to a tag was getting whatever

@@ -109,6 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -132,8 +133,14 @@ jobs:
       - name: Bootstrap script-helpers
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
@@ -428,6 +435,8 @@ jobs:
           fi
 
   publish:
+    permissions:
+      contents: read
     needs: [brew, release-asset]
     if: ${{ always() && inputs.publish == 'true' && needs.brew.result == 'success' && (needs.release-asset.result == 'success' || needs.release-asset.result == 'skipped') }}
     uses: ./.github/workflows/homebrew-tap-publish.yml

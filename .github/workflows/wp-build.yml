@@ -98,6 +98,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
@@ -107,12 +109,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           submodules: ${{ inputs.submodules }}
 
       - name: Checkout script-helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           repository: nikolareljin/script-helpers
           ref: a1f68263c788ac2bb6064cac84d29228a1480641 # 0.54.1
           path: .script-helpers
