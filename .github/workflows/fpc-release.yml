@@ -131,7 +131,8 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
-    # Every leg resolves the same tag and skip flag from the same inputs.
+    # Every leg sets the same tag and skip flag from the same inputs, in its
+    # first steps, so a leg that fails in the build still reports them.
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       skip: ${{ steps.resolve.outputs.skip }}
@@ -173,6 +174,31 @@ jobs:
             exit 1
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upload skip
+        id: resolve
+        if: inputs.upload_to_release != 'false'
+        shell: bash
+        env:
+          INPUT_TAG:    ${{ inputs.release_tag }}
+          UPLOAD_MODE:  ${{ inputs.upload_to_release }}
+          RESOLVED_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          case "$UPLOAD_MODE" in
+            auto|true|false) ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false' (got '${UPLOAD_MODE}')"; exit 1 ;;
+          esac
+          if [[ "$UPLOAD_MODE" == "auto" ]]; then
+            if [[ -z "$INPUT_TAG" ]]; then
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || \
+                 ! echo "$RESOLVED_TAG" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+          printf 'skip=false\n' >> "$GITHUB_OUTPUT"
 
       - name: Validate bin_name
         shell: bash
@@ -692,31 +718,6 @@ jobs:
           if-no-files-found: error
 
       # ── GitHub release uploads ─────────────────────────────────────────────
-
-      - name: Resolve upload skip
-        id: resolve
-        if: inputs.upload_to_release != 'false'
-        shell: bash
-        env:
-          INPUT_TAG:    ${{ inputs.release_tag }}
-          UPLOAD_MODE:  ${{ inputs.upload_to_release }}
-          RESOLVED_TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          case "$UPLOAD_MODE" in
-            auto|true|false) ;;
-            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false' (got '${UPLOAD_MODE}')"; exit 1 ;;
-          esac
-          if [[ "$UPLOAD_MODE" == "auto" ]]; then
-            if [[ -z "$INPUT_TAG" ]]; then
-              if [[ "${GITHUB_REF}" != refs/tags/* ]] || \
-                 ! echo "$RESOLVED_TAG" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
-                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-            fi
-          fi
-          printf 'skip=false\n' >> "$GITHUB_OUTPUT"
 
       # Generate the notes once, on the Linux leg. The release body is identical
       # for every matrix leg (same tag, same CHANGELOG), and the primary "Upload
