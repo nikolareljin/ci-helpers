@@ -42,10 +42,11 @@
   `homebrew-tap-publish.yml`, whose job runs no caller code. Steps that fetch
   or push (`auto-tag`, `update-production`, `production-branch`,
   `manifest-version`, the release-tag checks in `pr-gate` and
-  `release-tag-gate`, and the submodule bootstrap in `deb-build`, `rpm-build`
-  and `homebrew-package`) get the token through the environment for that step
-  only. A caller command that runs `git fetch` or `git push` against a private
-  remote now needs its own credentials.
+  `release-tag-gate`, and the submodule bootstrap in `auto-tag`,
+  `update-production`, `deb-build`, `rpm-build` and `homebrew-package`) get the
+  token through the environment for that step only. A caller command that runs
+  `git fetch` or `git push` against a private remote, including a
+  `deploy_command` that pushes to a branch, now needs its own credentials.
 - **56 jobs had no `permissions:` and inherited the caller's token.** Each now
   declares `contents: read`, or what the workflow it calls declares.
   `scripts/check_token_exposure.sh` (zizmor 1.16.3, pinned by digest) fails

@@ -103,8 +103,14 @@ jobs:
 
       - name: Bootstrap script-helpers
         shell: bash
+        env:
+          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor

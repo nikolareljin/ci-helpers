@@ -194,6 +194,8 @@ Inputs:
 - `php_version` (string, default `""`)
 - `deploy_command` (string, required)
 
+The job token is `contents: read` and the checkout keeps no credentials, so a `deploy_command` that pushes to a branch must bring its own credentials (a deploy key or token passed as a secret).
+
 Example:
 
 ```yaml

@@ -100,6 +100,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+      - name: The token-exposure check reports what it must
+        run: bash tests/check_token_exposure_test.sh
       - name: No persisted credentials, no inherited permissions
         run: bash scripts/check_token_exposure.sh
 
