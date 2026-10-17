@@ -97,6 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -130,12 +131,17 @@ jobs:
         id: resolve
         shell: bash
         env:
+          GIT_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           UPDATE_BRANCH: ${{ inputs.update_branch }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
 
           if [[ -z "${TARGET_TAG// /}" ]]; then
             echo "::error::tag is empty."
@@ -238,6 +244,7 @@ jobs:
         if: ${{ inputs.dry_run }}
         shell: bash
         env:
+          GIT_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           TARGET: ${{ steps.resolve.outputs.target }}
@@ -245,6 +252,10 @@ jobs:
           GUARDED: ${{ steps.flags.outputs.guarded }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           # The script's checks (release tag, on the default branch) decide
           # whether the real run would move anything, so the dry run runs them
           # too instead of reporting success for a move that would be refused.
@@ -262,12 +273,17 @@ jobs:
         if: ${{ !inputs.dry_run }}
         shell: bash
         env:
+          GIT_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           UPDATE_BRANCH: ${{ inputs.update_branch }}
           GUARDED: ${{ steps.flags.outputs.guarded }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           # Built as an array in bash rather than as a conditional expression in
           # YAML: in an Actions expression the empty string is falsy, so the
           # obvious `x && '' || '--no-branch'` returns the flag in both cases.

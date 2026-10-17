@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
 
       # PyYAML ships on the GitHub-hosted images, so there is nothing to install.
       - name: Parse every workflow and action file
@@ -84,6 +86,23 @@ jobs:
         shell: bash
         run: bash scripts/check_no_self_refs.sh
 
+  token-exposure:
+    # A checkout that keeps its token on disk hands it to every dependency the
+    # caller installs; a job with no permissions block runs with the caller's
+    # token. zizmor finds both. Other zizmor findings are tracked separately
+    # and do not block here yet. Pinned by image digest.
+    name: token exposure (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: No persisted credentials, no inherited permissions
+        run: bash scripts/check_token_exposure.sh
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is
@@ -96,6 +115,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
       - name: Lint workflows
         # shellcheck at warning and above: an error or a warning in a run:
         # block is a bug, a style note is a review comment. The gate blocks

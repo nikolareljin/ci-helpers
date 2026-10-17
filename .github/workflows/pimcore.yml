@@ -108,6 +108,8 @@ jobs:
   # Resolve it here: an explicit list when given, otherwise the single
   # php_version, so callers that never set php_versions behave as before.
   resolve-versions:
+    permissions:
+      contents: read
     runs-on: ${{ inputs.runner }}
     # Without this a hung job bills until GitHub's six-hour default (see #132).
     timeout-minutes: 5
@@ -159,6 +161,8 @@ jobs:
           echo "versions=${versions}" >> "$GITHUB_OUTPUT"
 
   pimcore-bundle:
+    permissions:
+      contents: read
     needs: resolve-versions
     strategy:
       fail-fast: false

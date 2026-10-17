@@ -54,6 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
