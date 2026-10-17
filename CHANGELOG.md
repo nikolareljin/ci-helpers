@@ -8,8 +8,9 @@
   caller pinned to a SHA still ran today's production action, and the signing
   actions received the Apple and Azure secrets. They now check the library out
   at `job.workflow_sha` (verified against the checkout) and run the action from
-  that commit. `scripts/check_no_self_refs.sh` fails on any such reference in
-  `.github`, and runs in `workflow-yaml-check.yml`.
+  that commit. `scripts/check_no_self_refs.sh` fails on any
+  `<owner>/ci-helpers[/<path>]@<ref>` in `.github`, and runs in
+  `workflow-yaml-check.yml` with its own test.
 - **`production` moved for any pushed `X.Y.Z` tag, on any commit.**
   `create_production.sh` now refuses a tag that is not `X.Y.Z` / `vX.Y.Z`
   (`9.9.9-beta` moved it before), a tag whose commit is not on the remote's default

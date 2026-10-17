@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SCRIPT: check_no_self_refs.sh
 # DESCRIPTION: Fail when a workflow or action of this library calls another part
-#              of the library by <owner>/ci-helpers/...@<ref>. Inside the library
+#              of the library by <owner>/ci-helpers[/<path>]@<ref>. Inside the library
 #              that ref floats: a caller pinned to a SHA would still run whatever
-#              <ref> is today. Use a checkout at github.job_workflow_sha instead
+#              <ref> is today. Use a checkout at job.workflow_sha instead
 #              (see gitleaks-scan.yml). Comment lines are usage examples and pass.
 # USAGE: ./scripts/check_no_self_refs.sh [path ...]
 # PARAMETERS:
@@ -25,7 +25,9 @@ while [[ $# -gt 0 ]]; do
 done
 [[ ${#paths[@]} -gt 0 ]] || paths=(.github)
 
-hits="$(git grep -n -E '^[^#]*uses:[[:space:]]*["'\'']?[A-Za-z0-9_.-]+/ci-helpers/\.github/(actions|workflows)/[^@[:space:]]+@' -- "${paths[@]}" || true)"
+# The library's root or any path in it: <owner>/ci-helpers@ref and
+# <owner>/ci-helpers/<path>@ref both run code at a ref this commit does not fix.
+hits="$(git grep -n -E '^[^#]*uses:[[:space:]]*["'\'']?[A-Za-z0-9_.-]+/ci-helpers(/[^@[:space:]]+)?@' -- "${paths[@]}" || true)"
 if [[ -n "$hits" ]]; then
   echo "The library calls itself by a floating ref:" >&2
   printf '%s\n' "$hits" >&2

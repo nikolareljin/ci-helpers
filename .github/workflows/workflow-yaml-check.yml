@@ -76,6 +76,10 @@ jobs:
 
       # A workflow that calls the library's own action by @production runs
       # today's production even for a caller pinned to a SHA.
+      - name: The self-reference check reports what it must
+        shell: bash
+        run: bash tests/check_no_self_refs_test.sh
+
       - name: No self-references by a floating ref
         shell: bash
         run: bash scripts/check_no_self_refs.sh
