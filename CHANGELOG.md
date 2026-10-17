@@ -1,3 +1,22 @@
+## Unreleased
+
+### Security
+
+- **`production` moved for any pushed `X.Y.Z` tag, on any commit.**
+  `create_production.sh` now refuses a tag that is not `X.Y.Z` / `vX.Y.Z`
+  (`9.9.9-beta` moved it before), a tag whose commit is not on the remote's default
+  branch, and a version older than the one `production` is on. A
+  re-run of the same tag still succeeds. `update-production.yml` passes the
+  new `--allow-prerelease` and `--allow-rollback`, so a manual promotion or
+  rollback still works, from the default branch only. `--base-branch`
+  names another branch.
+- **Two close releases could leave `production` on the older one.** Every
+  workflow that moves it (`auto-tag.yml`, `production-branch.yml`,
+  `update-production.yml`) now shares one concurrency group,
+  `ci-helpers-production-move-<repo>`, and the older move is refused rather
+  than landing last. In `auto-tag.yml` the move is a separate `production`
+  job, so ordinary pushes do not queue behind it.
+
 ## 2026-10-17 — v0.41.0
 
 ### Fixed

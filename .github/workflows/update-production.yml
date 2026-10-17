@@ -82,18 +82,18 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Two people promoting different tags at once would race to the same ref, and
-# the loser would win silently. Serialise per ref.
-concurrency:
-  group: update-production-${{ github.repository }}-${{ inputs.ref_name }}
-  cancel-in-progress: false
-
 jobs:
   move:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: write
+    # Two moves at once race to the same ref, and the loser wins silently.
+    # Same group as the automatic paths (auto-tag.yml, production-branch.yml),
+    # so a manual move also waits for a release in flight.
+    concurrency:
+      group: ci-helpers-production-move-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -242,7 +242,9 @@ jobs:
           # Built as an array in bash rather than as a conditional expression in
           # YAML: in an Actions expression the empty string is falsy, so the
           # obvious `x && '' || '--no-branch'` returns the flag in both cases.
-          args=(-t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags)
+          # This is the manual path: promoting a candidate and rolling back
+          # are what it is for. The tag must still be on the default branch.
+          args=(-t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags --allow-prerelease --allow-rollback)
           [[ "$UPDATE_BRANCH" == "true" ]] || args+=(--no-branch)
           ./scripts/create_production.sh "${args[@]}"
           echo "::notice::${REF_NAME} now points at ${TARGET_TAG}."

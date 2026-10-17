@@ -494,19 +494,25 @@ What `create_production.sh` checks before it moves anything:
 - `--name main`, `master` and `HEAD` are refused (exit 2);
 - the production branch is pushed with a lease on the value the script read
   from the remote before it pushed anything, so a concurrent move of that
-  branch makes the push fail instead of being overwritten.
+  branch makes the push fail instead of being overwritten;
+- the tag is a release, `X.Y.Z` or `vX.Y.Z` (`--allow-prerelease` also
+  accepts `X.Y.Z-<suffix>`);
+- the tag's commit is on the remote's default branch, as the remote has it
+  (`--base-branch` names another branch). A fetch error or missing history refuses too;
+- the version is newer than the one `production` is on now, read from the
+  version tags at its commit (`--allow-rollback` lifts this). The same tag
+  again is a no-op success.
 
 Manual override (point production at an older tag):
 
 ```bash
-./scripts/create_production.sh -t 1.2.2 --fetch-tags
+./scripts/create_production.sh -t 1.2.2 --fetch-tags --allow-rollback
 ```
 
 **This force-moves a shared ref.** The `production` tag is pushed with
 `--force` and the `production` branch with a lease, so every consumer pinned to
-`@production` picks up the target on its next run. Nothing prevents moving it
-backwards -- that is what a rollback is -- so run it only as a deliberate
-release decision, and prefer letting the tag workflow above do it.
+`@production` picks up the target on its next run. Run it only as a deliberate
+release decision, and prefer `update-production.yml` or the tag workflow above.
 
 Release build (generic):
 

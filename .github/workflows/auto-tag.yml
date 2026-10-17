@@ -316,24 +316,6 @@ jobs:
           git tag "$version"
           git push origin "$version"
 
-      # `production` moves only for a final X.Y.Z. A candidate is tagged so it
-      # can be exercised by a pilot consumer, and `production` stays where it
-      # is until the candidate is promoted by cutting release/X.Y.Z. This is a
-      # rule, not an option: a candidate that moved `production` would be live
-      # the instant it was merged, which is the opposite of cutting one.
-      - name: Update production tag ref
-        if: >-
-          ${{ steps.release.outputs.version != ''
-              && inputs.update_production_tag
-              && steps.release.outputs.is_prerelease != 'true' }}
-        shell: bash
-        env:
-          AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          version="$AUTO_TAG_VERSION"
-          ./scripts/create_production.sh -t "$version" --fetch-tags
-
       # No update_production_tag condition: this is informational, and the
       # caller most in need of it is the one taking the default (false), who
       # would otherwise see a candidate tagged with nothing said about
@@ -348,3 +330,57 @@ jobs:
         run: |
           set -euo pipefail
           echo "::notice::Tagged ${AUTO_TAG_VERSION}. production was not moved: it advances only for a final X.Y.Z. Exercise this candidate on a pilot consumer, then promote it by cutting release/${AUTO_TAG_VERSION%%-*}."
+
+  # `production` moves only for a final X.Y.Z. A candidate is tagged so it
+  # can be exercised by a pilot consumer, and `production` stays where it
+  # is until the candidate is promoted by cutting release/X.Y.Z. This is a
+  # rule, not an option: a candidate that moved `production` would be live
+  # the instant it was merged, which is the opposite of cutting one.
+  #
+  # A job of its own so it can share one concurrency group with every other
+  # workflow that moves production. On the tag job the group would also queue
+  # ordinary pushes, and a third queued run cancels the pending one, which
+  # could drop a release tag. create_production.sh refuses an older version,
+  # so the order the queue runs in cannot leave production behind.
+  production:
+    needs: tag
+    if: >-
+      ${{ needs.tag.outputs.version != ''
+          && inputs.update_production_tag
+          && needs.tag.outputs.is_prerelease != 'true' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: ci-helpers-production-move-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # The tag job already proved the script and helpers exist before it
+      # tagged; this only makes them present in this fresh checkout.
+      - name: Bootstrap script-helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive || true
+          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
+            mkdir -p vendor
+            ln -sfn ../scripts/script-helpers vendor/script-helpers
+          fi
+          if [[ ! -e "vendor/script-helpers" ]]; then
+            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
+            exit 1
+          fi
+
+      - name: Update production tag ref
+        shell: bash
+        env:
+          AUTO_TAG_VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          ./scripts/create_production.sh -t "$AUTO_TAG_VERSION" --fetch-tags
