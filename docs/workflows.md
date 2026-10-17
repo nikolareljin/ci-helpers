@@ -667,7 +667,7 @@ Inputs:
 - `env_var` (string, default `""`)
 - `tarball_url` (string, default `""`)
 - `release_repo` (string, default `""`, used to build a default tarball URL)
-- `release_tag` (string, default `""`) -- the release this build belongs to, equal to `VERSION` or `v<VERSION>`. With `publish: "true"` the tarball is uploaded to that release of this repository (the caller grants `contents: write`) and the formula points at it
+- `release_tag` (string, default `""`) -- the release this build belongs to, equal to `VERSION` or `v<VERSION>`. With `publish: "true"` the tarball is uploaded to that release of this repository and the formula points at it. The caller grants `contents: write`; only the `release-asset` job uses it, the build (and `prebuild_command`) runs with `contents: read`. An asset already on the release is never replaced: the same sha256 passes, a different one fails
 - `formula_path` (string, default `""`)
 - `dist_dir` (string, default `"dist"`)
 - `exclude_paths` (string, default `".git,.github,dist"`, comma-separated)

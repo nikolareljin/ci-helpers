@@ -6,8 +6,11 @@
   The sha256 is of the tarball the run builds, but the tarball stayed an
   artifact, so the formula's url served nothing (or a different file); the
   default url also added a `v` that bare-semver tags lack. New `release_tag`
-  input: with `publish` the tarball is uploaded to that release
-  (`gh release upload --clobber`) and the url points at it. `publish` without
+  input: with `publish` a separate `release-asset` job (the only one with
+  `contents: write`; the build job and `prebuild_command` get `contents: read`)
+  uploads the tarball to that release, and the url points at it. An asset of
+  that name already published is never replaced: same sha256 passes, a
+  different one fails. `publish` without
   `release_tag` or `tarball_url` now fails instead of publishing from any push.
 
 ## 2026-10-16 — v0.40.0
