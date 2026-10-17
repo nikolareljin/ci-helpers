@@ -3,3 +3,11 @@
 self-hosted-runner:
   labels:
     - macos-15-intel
+
+# actionlint (1.7.12 and older) does not know the job context's workflow_sha
+# and workflow_repository, which GitHub documents for the workflow file that
+# defines the job. The library checks out its own actions with them.
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{.*\}'

@@ -33,10 +33,11 @@ needs itself rather than going through `ci.yml`'s `db_image`. One mechanism, not
 two. They pin script-helpers by commit; `scripts/check_script_helpers_pins.sh`
 refuses a tree where those pins and `vendor/script-helpers` disagree.
 
-Composite actions have no same-commit form, so the workflows that use one
-still call it at `@production`: `gitleaks-scan.yml` (the `gitleaks-scan`
-action) and `tauri-release.yml` (`macos-sign`, `windows-sign`). Pinning those
-workflows does not pin the action they run.
+Composite actions have no same-commit `uses:` form, so the workflows that use
+one (`gitleaks-scan.yml` with `gitleaks-scan`, `tauri-release.yml` with
+`macos-sign` and `windows-sign`) check the library out at `job.workflow_sha`
+into `.ci-helpers-actions` and call the action from there, then remove it.
+Pinning those workflows pins the actions they run.
 
 Concurrency: `ci.yml` cancels a superseded run in the same group. Without a
 `concurrency_key`, the group is keyed on the caller workflow, the ref, the

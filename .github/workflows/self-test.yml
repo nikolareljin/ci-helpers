@@ -884,12 +884,10 @@ jobs:
   # half that uploads it needs `security-events: write`, which a fork's pull
   # request does not get -- so the scan is driven here and the upload is not.
   #
-  # `gitleaks-scan.yml` calls the action by its full `@production` reference
-  # rather than `./`, because a reusable workflow called from another
-  # repository resolves a relative `uses:` against the caller's checkout. That
-  # means this leg exercises the preset's wiring against the *released* action,
-  # and `gitleaks-refuses-what-it-must` drives the action as this branch has
-  # it. Both are needed; neither substitutes for the other.
+  # `gitleaks-scan.yml` checks the library out at `job.workflow_sha` and runs
+  # the action from there, so this leg runs the preset and the action as this
+  # branch has them, and fails if that commit cannot be checked out.
+  # `gitleaks-refuses-what-it-must` drives the action directly on a planted key.
   gitleaks-scan-defaults-can-pass:
     uses: ./.github/workflows/gitleaks-scan.yml
 

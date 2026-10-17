@@ -74,6 +74,12 @@ jobs:
         shell: bash
         run: bash scripts/check_no_hardcoded_repos.sh
 
+      # A workflow that calls the library's own action by @production runs
+      # today's production even for a caller pinned to a SHA.
+      - name: No self-references by a floating ref
+        shell: bash
+        run: bash scripts/check_no_self_refs.sh
+
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,
     # an expression from a string, or an input that nobody declared -- which is
