@@ -123,9 +123,11 @@ jobs:
         if: ${{ inputs.prebuild_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          IN_PREBUILD_COMMAND: ${{ inputs.prebuild_command }}
         run: |
           set -euo pipefail
-          bash -lc "${{ inputs.prebuild_command }}"
+          bash -lc "$IN_PREBUILD_COMMAND"
 
       - name: Bootstrap script-helpers
         shell: bash
@@ -145,6 +147,10 @@ jobs:
       - name: Prepare Homebrew inputs
         shell: bash
         env:
+          IN_ARTIFACT_GLOB: ${{ inputs.artifact_glob }}
+          IN_DIST_DIR: ${{ inputs.dist_dir }}
+          IN_FORMULA_PATH: ${{ inputs.formula_path }}
+          IN_WORKING_DIRECTORY: ${{ inputs.working_directory }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           PUBLISH: ${{ inputs.publish }}
           TARBALL_URL_IN: ${{ inputs.tarball_url }}
@@ -152,18 +158,18 @@ jobs:
           NAME_IN: ${{ inputs.name }}
         run: |
           set -euo pipefail
-          repo="${{ inputs.working_directory }}"
+          repo="$IN_WORKING_DIRECTORY"
           name="$NAME_IN"
-          dist_dir="${{ inputs.dist_dir }}"
+          dist_dir="$IN_DIST_DIR"
 
           if [[ "$dist_dir" != /* ]]; then
             dist_dir="$repo/$dist_dir"
           fi
 
-          if [[ -z "${{ inputs.formula_path }}" ]]; then
+          if [[ -z "$IN_FORMULA_PATH" ]]; then
             formula_path="$repo/packaging/homebrew/${name}.rb"
           else
-            formula_path="${{ inputs.formula_path }}"
+            formula_path="$IN_FORMULA_PATH"
             if [[ "$formula_path" != /* ]]; then
               formula_path="$repo/$formula_path"
             fi
@@ -211,7 +217,7 @@ jobs:
           elif [[ -z "$tarball_url" && -n "$RELEASE_REPO_IN" ]]; then
             tarball_url="https://github.com/${RELEASE_REPO_IN}/releases/download/v${version}/${name}-${version}.tar.gz"
           fi
-          artifact_glob="${{ inputs.artifact_glob }}"
+          artifact_glob="$IN_ARTIFACT_GLOB"
           if [[ -z "$artifact_glob" ]]; then
             artifact_glob="$dist_dir/*.tar.gz"$'\n'"$formula_path"
           fi
@@ -241,9 +247,11 @@ jobs:
 
       - name: Build Homebrew tarball
         shell: bash
+        env:
+          IN_EXCLUDE_PATHS: ${{ inputs.exclude_paths }}
         run: |
           set -euo pipefail
-          exclude_csv="${{ inputs.exclude_paths }}"
+          exclude_csv="$IN_EXCLUDE_PATHS"
           IFS=',' read -r -a excludes <<< "$exclude_csv"
 
           args=(--name "$BREW_NAME" --repo "$BREW_REPO" --dist-dir "$BREW_DIST_DIR")
@@ -257,16 +265,26 @@ jobs:
 
       - name: Generate Homebrew formula
         shell: bash
+        env:
+          IN_DEPS: ${{ inputs.deps }}
+          IN_DESC: ${{ inputs.desc }}
+          IN_ENTRYPOINT: ${{ inputs.entrypoint }}
+          IN_ENV_VAR: ${{ inputs.env_var }}
+          IN_HOMEPAGE: ${{ inputs.homepage }}
+          IN_LICENSE: ${{ inputs.license }}
+          IN_MAN_PATH: ${{ inputs.man_path }}
+          IN_NAME: ${{ inputs.name }}
+          IN_USE_LIBEXEC: ${{ inputs.use_libexec }}
         run: |
           set -euo pipefail
-          deps_csv="${{ inputs.deps }}"
+          deps_csv="$IN_DEPS"
           IFS=',' read -r -a deps <<< "$deps_csv"
 
           args=(
-            --name "${{ inputs.name }}"
-            --desc "${{ inputs.desc }}"
-            --homepage "${{ inputs.homepage }}"
-            --license "${{ inputs.license }}"
+            --name "$IN_NAME"
+            --desc "$IN_DESC"
+            --homepage "$IN_HOMEPAGE"
+            --license "$IN_LICENSE"
             --tarball "$BREW_TARBALL_PATH"
             --formula-path "$BREW_FORMULA_PATH"
           )
@@ -275,18 +293,18 @@ jobs:
             args+=(--url "$BREW_TARBALL_URL")
           fi
 
-          if [[ -n "${{ inputs.entrypoint }}" ]]; then
-            args+=(--entrypoint "${{ inputs.entrypoint }}")
+          if [[ -n "$IN_ENTRYPOINT" ]]; then
+            args+=(--entrypoint "$IN_ENTRYPOINT")
           fi
 
-          if [[ -n "${{ inputs.man_path }}" ]]; then
-            args+=(--man-path "${{ inputs.man_path }}")
+          if [[ -n "$IN_MAN_PATH" ]]; then
+            args+=(--man-path "$IN_MAN_PATH")
           fi
 
-          if [[ "${{ inputs.use_libexec }}" == "true" ]]; then
+          if [[ "$IN_USE_LIBEXEC" == "true" ]]; then
             args+=(--use-libexec)
-            if [[ -n "${{ inputs.env_var }}" ]]; then
-              args+=(--env-var "${{ inputs.env_var }}")
+            if [[ -n "$IN_ENV_VAR" ]]; then
+              args+=(--env-var "$IN_ENV_VAR")
             fi
           fi
 
@@ -374,7 +392,15 @@ jobs:
             exit 1
           fi
           want="sha256:$(sha256sum "tarball/$FILE" | cut -d' ' -f1)"
-          have="$(gh api "repos/$REPO/releases/tags/$TAG" | jq -r --arg f "$FILE" '.assets[] | select(.name == $f) | .digest')"
+          # "" when no asset of that name; "unknown" for an asset GitHub has no
+          # digest for (uploaded before digests existed): hash it ourselves.
+          have="$(gh api "repos/$REPO/releases/tags/$TAG" | jq -r --arg f "$FILE" \
+            '[.assets[] | select(.name == $f)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
+          if [[ "$have" == "unknown" ]]; then
+            mkdir -p published
+            gh release download "$TAG" -R "$REPO" -p "$FILE" -D published
+            have="sha256:$(sha256sum "published/$FILE" | cut -d' ' -f1)"
+          fi
           if [[ -z "$have" ]]; then
             gh release upload "$TAG" "tarball/$FILE" -R "$REPO"
           elif [[ "$have" == "$want" ]]; then

@@ -12,7 +12,9 @@
   that name already published is never replaced: same sha256 passes, a
   different one fails. `name` must be a formula name (letters, digits,
   `. _ + -`): it becomes the tarball path and the release asset name, so `../`
-  or a quote would have escaped `dist` or broken the asset lookup. `publish` without
+  or a quote would have escaped `dist` or broken the asset lookup. Every
+  input now reaches the build steps through `env` instead of being expanded
+  into the script, so a `desc` with `$5` or `$(...)` stays text. `publish` without
   `release_tag` or `tarball_url` now fails instead of publishing from any push.
 
 ## 2026-10-16 — v0.40.0
