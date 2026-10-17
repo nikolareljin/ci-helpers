@@ -9,7 +9,9 @@
   re-run of the same tag still succeeds. `update-production.yml` passes the
   new `--allow-prerelease` and `--allow-rollback`, so a manual promotion or
   rollback still works, from the default branch only. `--base-branch`
-  names another branch.
+  names another branch. `--dry-run` runs every check and pushes nothing;
+  `update-production.yml` with `dry_run: true` now uses it, so a dry run
+  fails for a tag the real run would refuse.
 - **Two close releases could leave `production` on the older one.** Every
   workflow that moves it (`auto-tag.yml`, `production-branch.yml`,
   `update-production.yml`) now shares one concurrency group,

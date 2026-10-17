@@ -44,7 +44,8 @@ setup() {
   "${g[@]}" push -q origin 1.0.0:refs/heads/production
 }
 
-# expect <refuse|move> <description> <args...>
+# expect <refuse|move|stay> <description> <args...>
+# stay: exit 0 and production unchanged (a dry run).
 expect() {
   local want="$1" desc="$2"; shift 2
   setup
@@ -54,7 +55,14 @@ expect() {
   prod="$(git -C "$work/remote.git" rev-parse refs/tags/production)"
   local start
   start="$(git -C "$work/remote.git" rev-parse '1.0.0^{commit}')"
-  if [[ "$want" == refuse ]]; then
+  if [[ "$want" == stay ]]; then
+    if (( rc == 0 )) && [[ "$prod" == "$start" ]]; then
+      pass=$((pass + 1)); echo "ok   stay:   $desc"
+    else
+      fail=$((fail + 1)); echo "FAIL stay:   $desc (rc=$rc)"
+      sed 's/^/     /' "$work/log"
+    fi
+  elif [[ "$want" == refuse ]]; then
     if (( rc != 0 )) && [[ "$prod" == "$start" ]]; then
       pass=$((pass + 1)); echo "ok   refuse: $desc"
     else
@@ -78,6 +86,8 @@ expect move   "newer tag on main"                  -t 1.2.0 --fetch-tags
 expect move   "newer v-prefixed tag on main"       -t v1.3.0 --fetch-tags
 expect move   "candidate with --allow-prerelease"  -t 1.2.0-rc1 --fetch-tags --allow-prerelease
 expect refuse "base branch that is a refspec"       -t 1.2.0 --fetch-tags --base-branch 'main:refs/heads/evil'
+expect refuse "dry run of an off-main tag"         -t 9.0.0 --fetch-tags --dry-run
+expect stay   "dry run of a good tag pushes nothing" -t 1.2.0 --fetch-tags --dry-run
 expect refuse "off main even with both allow flags" -t 9.0.0 --fetch-tags --allow-prerelease --allow-rollback
 
 # Older than production: move production to 1.2.0 first, then try 1.1.0.

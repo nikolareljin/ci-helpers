@@ -228,6 +228,11 @@ jobs:
           CURRENT: ${{ steps.resolve.outputs.current }}
         run: |
           set -euo pipefail
+          # The script's checks (release tag, on the default branch) decide
+          # whether the real run would move anything, so the dry run runs them
+          # too instead of reporting success for a move that would be refused.
+          ./scripts/create_production.sh -t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags \
+            --allow-prerelease --allow-rollback --dry-run
           echo "::notice::Dry run. Would move ${REF_NAME} from ${CURRENT:-<unset>} to ${TARGET} (${TARGET_TAG}). Nothing was pushed."
 
       - name: Move the floating ref

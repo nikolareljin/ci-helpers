@@ -1402,7 +1402,7 @@ Inputs:
 - `tag` (string, **required**) — tag to point the ref at, e.g. `1.2.3` or `1.2.3-rc1`. Must already exist on the remote, on the default branch.
 - `ref_name` (string, default `production`) — the floating tag and branch to move. `main`, `master` and `HEAD` are refused.
 - `update_branch` (boolean, default `true`) — also move `refs/heads/<ref_name>`, not just the tag.
-- `dry_run` (boolean, default `false`) — resolve and report what would move, push nothing. Worth a first run whenever the target is a candidate or a rollback.
+- `dry_run` (boolean, default `false`) — run every check `create_production.sh` makes (`--dry-run`) and report what would move, push nothing. A tag the real run would refuse fails the dry run too. Worth a first run whenever the target is a candidate or a rollback.
 - `runner` (string, default `ubuntu-latest`)
 
 Every run writes a job summary naming the target commit, what the ref points at now (read from the remote, since a moved tag does not update on a plain fetch), and whether the target is a pre-release.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: create_production.sh
 # DESCRIPTION: Point the production tag AND branch at a specific version tag and push both.
-# USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch] [--base-branch <name>] [--allow-prerelease] [--allow-rollback]
+# USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch] [--base-branch <name>] [--allow-prerelease] [--allow-rollback] [--dry-run]
 # PARAMETERS:
 #   -t, --tag <tag>         Required. Tag to point the production tag at. It must exist on the remote at the same commit as locally.
 #   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set. main, master and HEAD are refused.
@@ -12,6 +12,7 @@
 #   --base-branch <name>    Branch the tag must be on, as the remote has it (default: the remote's default branch).
 #   --allow-prerelease      Accept X.Y.Z-<suffix> tags. Default: only X.Y.Z or vX.Y.Z.
 #   --allow-rollback        Accept a tag older than the release production is on now.
+#   --dry-run               Run every check, report what would move, push nothing.
 #   -h, --help              Show this help message.
 # ----------------------------------------------------
 set -euo pipefail
@@ -57,6 +58,7 @@ update_branch=true
 base_branch=""
 allow_prerelease=false
 allow_rollback=false
+dry_run=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --base-branch) base_branch="$2"; shift 2;;
     --allow-prerelease) allow_prerelease=true; shift;;
     --allow-rollback) allow_rollback=true; shift;;
+    --dry-run) dry_run=true; shift;;
     -h|--help) usage; exit 0;;
     *) log_error_safe "Unknown argument: $1"; usage; exit 2;;
   esac
@@ -226,6 +229,11 @@ if [[ -n "$current_sha" && "$current_sha" != "$target_sha" ]] && ! $allow_rollba
     log_error_safe "Tag ${tag} is not newer than ${current_version}, where ${prod_tag} is now; pass --allow-rollback to move it back"
     exit 1
   fi
+fi
+
+if $dry_run; then
+  log_info_safe "Dry run: ${prod_tag} would move from ${current_sha:0:8} to ${tag} (${target_sha:0:8}); nothing pushed"
+  exit 0
 fi
 
 # Record where the production branch is on the remote BEFORE pushing anything,
