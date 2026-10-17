@@ -46,6 +46,12 @@ jobs:
     if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # One group for every workflow that moves production, so two moves never
+    # run at once. create_production.sh also refuses a tag that is not a
+    # release, not on main, or older than production.
+    concurrency:
+      group: ci-helpers-production-move-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:

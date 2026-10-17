@@ -82,18 +82,18 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Two people promoting different tags at once would race to the same ref, and
-# the loser would win silently. Serialise per ref.
-concurrency:
-  group: update-production-${{ github.repository }}-${{ inputs.ref_name }}
-  cancel-in-progress: false
-
 jobs:
   move:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: write
+    # Two moves at once race to the same ref, and the loser wins silently.
+    # Same group as the automatic paths (auto-tag.yml, production-branch.yml),
+    # so a manual move also waits for a release in flight.
+    concurrency:
+      group: ci-helpers-production-move-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -218,6 +218,22 @@ jobs:
             echo "::notice::${REF_NAME} already points at ${TARGET_TAG} (${target}). Nothing to do."
           fi
 
+      # scripts/create_production.sh belongs to the calling repository and may
+      # be a copy from before the guard flags existed. Passing them to such a
+      # copy fails with "Unknown argument", so check what it supports first.
+      - name: Detect script flags
+        id: flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q -- '--allow-rollback' scripts/create_production.sh \
+            && grep -q -- '--dry-run' scripts/create_production.sh; then
+            echo "guarded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "guarded=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::scripts/create_production.sh has no production guard (off-branch, pre-release and older-tag checks). Copy the current script from ci-helpers."
+          fi
+
       - name: Report only (dry run)
         if: ${{ inputs.dry_run }}
         shell: bash
@@ -226,8 +242,20 @@ jobs:
           REF_NAME: ${{ inputs.ref_name }}
           TARGET: ${{ steps.resolve.outputs.target }}
           CURRENT: ${{ steps.resolve.outputs.current }}
+          GUARDED: ${{ steps.flags.outputs.guarded }}
         run: |
           set -euo pipefail
+          # The script's checks (release tag, on the default branch) decide
+          # whether the real run would move anything, so the dry run runs them
+          # too instead of reporting success for a move that would be refused.
+          # The script is the caller's own copy; one older than these flags
+          # would stop on "Unknown argument", so it gets a report only.
+          if [[ "$GUARDED" == "true" ]]; then
+            ./scripts/create_production.sh -t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags \
+              --allow-prerelease --allow-rollback --dry-run
+          else
+            echo "::warning::scripts/create_production.sh predates --dry-run; its checks were not run. Copy the current script from ci-helpers."
+          fi
           echo "::notice::Dry run. Would move ${REF_NAME} from ${CURRENT:-<unset>} to ${TARGET} (${TARGET_TAG}). Nothing was pushed."
 
       - name: Move the floating ref
@@ -237,12 +265,18 @@ jobs:
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           UPDATE_BRANCH: ${{ inputs.update_branch }}
+          GUARDED: ${{ steps.flags.outputs.guarded }}
         run: |
           set -euo pipefail
           # Built as an array in bash rather than as a conditional expression in
           # YAML: in an Actions expression the empty string is falsy, so the
           # obvious `x && '' || '--no-branch'` returns the flag in both cases.
+          # This is the manual path: promoting a candidate and rolling back
+          # are what it is for. The tag must still be on the default branch.
           args=(-t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags)
+          # A caller's copy older than the guard has neither flag, and does
+          # not refuse what they allow, so it is called as before.
+          [[ "$GUARDED" == "true" ]] && args+=(--allow-prerelease --allow-rollback)
           [[ "$UPDATE_BRANCH" == "true" ]] || args+=(--no-branch)
           ./scripts/create_production.sh "${args[@]}"
           echo "::notice::${REF_NAME} now points at ${TARGET_TAG}."

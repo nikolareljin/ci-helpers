@@ -616,6 +616,17 @@ jobs:
             echo "::error::the restored workflow no longer passes its own table"; exit 1; }
           echo "the table reads the shipped step, and says so when it cannot find it"
 
+  production-guard-refuses-bad-moves:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          submodules: recursive
+      - name: create_production.sh refuses off-main, pre-release and older tags
+        shell: bash
+        run: bash tests/create_production_guard_test.sh
+
   workflow-coverage-is-declared:
     runs-on: ubuntu-latest
     timeout-minutes: 10

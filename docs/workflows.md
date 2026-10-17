@@ -1333,7 +1333,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
-- `update_production_tag` (boolean, default `false`) — when `true`, runs the Bootstrap script-helpers and Update production tag steps after tagging. Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
+- `update_production_tag` (boolean, default `false`) — when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
 **`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
@@ -1393,14 +1393,16 @@ The two ways `production` can move are **independent**, and a repository may hav
 
 Release candidates are deliberately accepted here. Automatic tagging never moves `production` for a candidate — that is a rule, not an option — so this is how a candidate that has been exercised on a pilot consumer gets promoted without waiting for a final `X.Y.Z`, and how a bad move is rolled back onto an earlier tag.
 
-Requires `scripts/create_production.sh` in the calling repository, the same script `auto-tag.yml` uses. ci-helpers does not supply it.
+Requires `scripts/create_production.sh` in the calling repository, the same script `auto-tag.yml` uses. ci-helpers does not supply it. This workflow passes it `--allow-prerelease --allow-rollback`; the tag must still be on the default branch.
+
+Every workflow that moves `production` (`auto-tag.yml`, `production-branch.yml`, this one) runs in the concurrency group `ci-helpers-production-move-<owner>/<repo>`, so a manual move waits for a release in flight. Do not give a caller workflow the same group name: the inner job would wait on its own caller.
 
 Inputs:
 
-- `tag` (string, **required**) — tag to point the ref at, e.g. `1.2.3` or `1.2.3-rc1`. Must already exist on the remote.
+- `tag` (string, **required**) — tag to point the ref at, e.g. `1.2.3` or `1.2.3-rc1`. Must already exist on the remote, on the default branch.
 - `ref_name` (string, default `production`) — the floating tag and branch to move. `main`, `master` and `HEAD` are refused.
 - `update_branch` (boolean, default `true`) — also move `refs/heads/<ref_name>`, not just the tag.
-- `dry_run` (boolean, default `false`) — resolve and report what would move, push nothing. Worth a first run whenever the target is a candidate or a rollback.
+- `dry_run` (boolean, default `false`) — run every check `create_production.sh` makes (`--dry-run`) and report what would move, push nothing. A tag the real run would refuse fails the dry run too. Worth a first run whenever the target is a candidate or a rollback.
 - `runner` (string, default `ubuntu-latest`)
 
 Every run writes a job summary naming the target commit, what the ref points at now (read from the remote, since a moved tag does not update on a plain fetch), and whether the target is a pre-release.
