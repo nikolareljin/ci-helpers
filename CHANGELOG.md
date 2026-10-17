@@ -36,7 +36,9 @@
   `deb-build` built with `contents: write`. Each is now a `build` job with
   `contents: read` and a `release` job (`upload-release` in
   `rust-release-tarballs`) that downloads the files and publishes them. Asset
-  names are unchanged. `fpc-release` now publishes once, after every leg.
+  names and the set of published files are unchanged. Two files that would
+  publish under one name now fail the build instead of overwriting each
+  other. `fpc-release` now publishes once, after every leg.
 - **Every checkout left its token in `.git/config`.** All checkouts now set
   `persist-credentials: false`, except the tap push in
   `homebrew-tap-publish.yml`, whose job runs no caller code. Steps that fetch
