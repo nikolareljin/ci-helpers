@@ -259,9 +259,38 @@ jobs:
           set -euo pipefail
           cargo install tauri-cli --version '^2.0' --locked
 
+      # The library's own action, at the commit of this workflow file. A
+      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
+      # is today, even for a caller pinned to a SHA; `./.github/actions` would
+      # resolve in the caller's checkout, so the action is checked out beside it.
+      - name: Check out ci-helpers actions at this workflow's commit
+        if: ${{ inputs.sign_macos }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
+      - name: Verify ci-helpers actions commit
+        if: ${{ inputs.sign_macos }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
       - name: Configure macOS codesigning
         if: ${{ inputs.sign_macos }}
-        uses: nikolareljin/ci-helpers/.github/actions/macos-sign@production
+        uses: ./.ci-helpers-actions/.github/actions/macos-sign
         with:
           certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
           certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -269,6 +298,13 @@ jobs:
           team_id: ${{ secrets.APPLE_TEAM_ID }}
           apple_id: ${{ secrets.APPLE_ID }}
           app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
+
+      # The action keeps nothing in its own directory, so the checkout is removed
+      # before the build and cannot end up in a bundle.
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
 
       - name: Build Tauri app (universal macOS binary)
         shell: bash
@@ -407,9 +443,38 @@ jobs:
           set -euo pipefail
           cargo install tauri-cli --version '^2.0' --locked
 
+      # The library's own action, at the commit of this workflow file. A
+      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
+      # is today, even for a caller pinned to a SHA; `./.github/actions` would
+      # resolve in the caller's checkout, so the action is checked out beside it.
+      - name: Check out ci-helpers actions at this workflow's commit
+        if: ${{ inputs.windows_sign_mode != 'none' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
+      - name: Verify ci-helpers actions commit
+        if: ${{ inputs.windows_sign_mode != 'none' }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
       - name: Configure Windows signing
         if: ${{ inputs.windows_sign_mode != 'none' }}
-        uses: nikolareljin/ci-helpers/.github/actions/windows-sign@production
+        uses: ./.ci-helpers-actions/.github/actions/windows-sign
         with:
           sign_mode: ${{ inputs.windows_sign_mode }}
           tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -422,6 +487,13 @@ jobs:
           azure_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           azure_code_signing_account: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           azure_cert_profile: ${{ secrets.AZURE_CERT_PROFILE }}
+
+      # The action keeps nothing in its own directory, so the checkout is removed
+      # before the build and cannot end up in a bundle.
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
 
       - name: Build Tauri app (Windows)
         working-directory: ${{ inputs.working_directory }}

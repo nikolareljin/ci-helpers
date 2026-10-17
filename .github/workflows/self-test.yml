@@ -884,14 +884,74 @@ jobs:
   # half that uploads it needs `security-events: write`, which a fork's pull
   # request does not get -- so the scan is driven here and the upload is not.
   #
-  # `gitleaks-scan.yml` calls the action by its full `@production` reference
-  # rather than `./`, because a reusable workflow called from another
-  # repository resolves a relative `uses:` against the caller's checkout. That
-  # means this leg exercises the preset's wiring against the *released* action,
-  # and `gitleaks-refuses-what-it-must` drives the action as this branch has
-  # it. Both are needed; neither substitutes for the other.
+  # `gitleaks-scan.yml` checks the library out at `job.workflow_sha` and runs
+  # the action from there, so this leg runs the preset and the action as this
+  # branch has them, and fails if that commit cannot be checked out.
+  # `gitleaks-refuses-what-it-must` drives the action directly on a planted key.
   gitleaks-scan-defaults-can-pass:
     uses: ./.github/workflows/gitleaks-scan.yml
+
+  # tauri-release.yml runs its signing actions from a checkout of the library
+  # at job.workflow_sha, on macOS and Windows runners, and needs signing
+  # credentials, so no leg runs it. These are the same four steps with an
+  # action that needs no secrets, on each OS that tauri-release.yml uses.
+  library-actions-run-from-workflow-commit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+
+      # data-safety-scan runs a script that sits beside its action.yml, so a
+      # refusal also proves the sparse checkout carries the action's files.
+      - name: A JSON file with a sensitive key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/probe"
+          echo '{"password":"x"}' > "${RUNNER_TEMP}/probe/a.json"
+
+      - name: Run an action from that checkout
+        id: scan
+        continue-on-error: true
+        uses: ./.ci-helpers-actions/.github/actions/data-safety-scan
+        with:
+          scan_path: ${{ runner.temp }}/probe
+
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
+
+      - name: The action ran and the checkout is gone
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          set -euo pipefail
+          [[ "$OUTCOME" == failure ]] || { echo "::error::data-safety-scan outcome '$OUTCOME', expected failure on a sensitive key"; exit 1; }
+          [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
 
   gitleaks-refuses-what-it-must:
     runs-on: ubuntu-latest
