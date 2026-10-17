@@ -307,7 +307,6 @@ jobs:
         with:
           name: go-release-files-${{ inputs.bin_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
-          include-hidden-files: true
           overwrite: true
 
       - name: Hand release notes to the release job

@@ -123,7 +123,6 @@ jobs:
             --build "$BUILD_CMD"
 
       - name: Upload artifacts
-        id: files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: ${{ inputs.artifact_name }}
@@ -199,6 +198,54 @@ jobs:
             echo "::warning::release notes generation failed; publishing without a body."
           fi
 
+      # Exactly what softprops/action-gh-release would publish for these
+      # patterns: regular files only, no dotfiles, nothing under a matched
+      # directory, one asset per basename (softprops splits on
+      # newlines and commas, as here). Uploading the patterns as-is would
+      # also publish the contents of subdirectories.
+      - name: Stage release files
+        id: stage
+        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        shell: bash
+        env:
+          PATTERNS: ${{ inputs.artifact_glob }}
+        run: |
+          set -euo pipefail
+          py="$(command -v python3 || command -v python)"
+          out="${RUNNER_TEMP}/release-files"
+          rm -rf "$out"
+          mkdir -p "$out"
+          "$py" - "$out" <<'PY'
+          import glob, os, shutil, sys
+          out = sys.argv[1]
+          seen = {}
+          for line in os.environ["PATTERNS"].splitlines():
+              for pat in line.split(","):
+                  pat = pat.strip()
+                  for f in sorted(glob.glob(pat, recursive=True)) if pat else []:
+                      if not os.path.isfile(f):
+                          continue
+                      b = os.path.basename(f)
+                      if b in seen and os.path.realpath(seen[b]) != os.path.realpath(f):
+                          print(f"::error::{seen[b]} and {f} would both publish as {b}")
+                          sys.exit(1)
+                      seen[b] = f
+                      shutil.copy2(f, os.path.join(out, b))
+          print(f"{len(seen)} release file(s): {', '.join(sorted(seen))}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"dir={out}\ncount={len(seen)}\n")
+          PY
+
+      - name: Hand release files to the release job
+        id: files
+        if: ${{ steps.stage.outputs.count != '' && steps.stage.outputs.count != '0' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: ${{ inputs.artifact_name }}-release-files
+          path: ${{ steps.stage.outputs.dir }}
+          if-no-files-found: error
+          overwrite: true
+
       - name: Hand release notes to the release job
         id: notes_up
         if: ${{ steps.notes.outputs.notes_file != '' }}
@@ -217,12 +264,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The packages the build job already uploaded as ${{ inputs.artifact_name }}.
       - name: Download packages
         if: ${{ needs.build.outputs.files_id != '' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:
-          name: ${{ inputs.artifact_name }}
+          name: ${{ inputs.artifact_name }}-release-files
           path: release-files
 
       - name: Download release notes
@@ -238,7 +284,7 @@ jobs:
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
-          files: release-files/**
+          files: release-files/*
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
