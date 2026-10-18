@@ -1986,6 +1986,13 @@ Key design notes:
 - Windows signing supports three modes: `none`, `tauri_updater` (free ED25519),
   `pfx` (OV/EV Authenticode), `azure` (Azure Trusted Signing).
 - Uses the `macos-sign` and `windows-sign` composite actions from this repo.
+- Signing secrets reach only the step that signs: the Apple certificate,
+  passwords and the updater key are env on the build step, the Azure values
+  go straight to `azure/trusted-signing-action`. Both actions run with
+  `export_env: "false"`, so nothing secret is in `GITHUB_ENV`.
+- A published installer is never replaced, on the release or on `dist_repo`:
+  one already there with the same sha256 passes (a rerun of the `release` job),
+  a different sha256 fails. Delete the asset to republish.
 
 Inputs (selected):
 
