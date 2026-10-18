@@ -56,6 +56,27 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
+      # The packaging scripts come from script-helpers at a pinned commit, not
+      # from the caller: callers keep script-helpers as a submodule that this
+      # checkout does not fetch, at a path of their choosing.
+      - name: Checkout script-helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          repository: nikolareljin/script-helpers
+          ref: a1f68263c788ac2bb6064cac84d29228a1480641 # 0.54.1
+          path: .ppa-script-helpers
+          fetch-depth: 1
+
+      # Out of the source tree: a native source package is a tarball of the
+      # whole directory and would ship it.
+      - name: Move script-helpers out of the source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}/ppa-script-helpers"
+          mv .ppa-script-helpers "${RUNNER_TEMP}/ppa-script-helpers"
+
       - name: Install packaging prerequisites
         shell: bash
         run: |
@@ -87,11 +108,12 @@ jobs:
           PREBUILD: ${{ inputs.prebuild_command }}
           BUILD: ${{ inputs.build_command }}
           SERIES: ${{ inputs.series }}
+          SH_DIR: ${{ runner.temp }}/ppa-script-helpers
         run: |
           set -euo pipefail
           # --dry-run builds and stops before the upload. The repo is this
           # directory: a relative --repo would resolve inside it a second time.
-          ./vendor/script-helpers/scripts/ppa_upload.sh \
+          "$SH_DIR/scripts/ppa_upload.sh" \
             --ppa "$PPA_TARGET" \
             --key-id "$KEY_ID" \
             --repo "$PWD" \
@@ -100,7 +122,7 @@ jobs:
             --series "$SERIES" \
             --dry-run
           # shellcheck source=/dev/null
-          source ./vendor/script-helpers/helpers.sh
+          source "$SH_DIR/helpers.sh"
           shlib_import package_publish
           changes="$(pkg_find_changes_file "$PWD")"
           changes="$(cd "$(dirname "$changes")" && pwd)/$(basename "$changes")"

@@ -9,6 +9,9 @@
   before the caller's prebuild and build; it now builds unsigned, signs with
   `debsign` in a temporary keyring that is deleted after, and writes the SSH
   key only for `dput`. A custom `build_command` must not sign.
+  `ppa-deb` also ran `./vendor/script-helpers` from the caller's checkout,
+  which fetches no submodules, so the scripts were missing; it now checks
+  script-helpers out at a pinned commit, outside the source tree.
   `tauri-release` no longer takes the updater key, Apple certificate or
   Azure credentials through `GITHUB_ENV`: they are env on the build or
   signing step only. `macos-sign` and `windows-sign` take `export_env`
