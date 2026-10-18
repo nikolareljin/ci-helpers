@@ -312,9 +312,11 @@ jobs:
             echo "::notice::No gpg_private_key or signing_key_id: the release is published unsigned."
             exit 0
           fi
-          GNUPGHOME="$(mktemp -d)"
+          # Under RUNNER_TEMP, which the runner empties after the job, so
+          # nothing survives on a reused machine even if the trap does not run.
+          GNUPGHOME="$(mktemp -d -p "$RUNNER_TEMP")"
           export GNUPGHOME
-          pass_file="$(mktemp)"
+          pass_file="$(mktemp -p "$RUNNER_TEMP")"
           trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME" "$pass_file"' EXIT
           chmod 700 "$GNUPGHOME"
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
@@ -325,14 +327,19 @@ jobs:
           cd release-files
           files=()
           for f in *; do
-            [ -f "$f" ] && files+=("$f")
+            [ -f "$f" ] || continue
+            # A name gpg could read as an option is refused, not signed.
+            case "$f" in
+              -*) echo "::error::refusing to sign '$f': name starts with '-'"; exit 1 ;;
+            esac
+            files+=("$f")
           done
           if [ "${#files[@]}" -eq 0 ]; then
             echo "::error::no files to sign"
             exit 1
           fi
           for f in "${files[@]}"; do
-            sig --armor --detach-sign --output "$out/$f.asc" "$f"
+            sig --armor --detach-sign --output "$out/$f.asc" -- "./$f"
           done
           sha256sum -- "${files[@]}" > "$out/SHA256SUMS"
           sig --armor --detach-sign --output "$out/SHA256SUMS.asc" "$out/SHA256SUMS"

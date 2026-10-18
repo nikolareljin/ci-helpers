@@ -64,6 +64,17 @@ if run "no key" "" "" "" 0; then
   ! grep -q "signed=true" "$work/job/out" 2>/dev/null || { echo "FAIL no key: signed=true"; fail=1; }
 fi
 run "wrong passphrase" "nope" "$key" "$fpr" 2 || true
+# A file named like an option is refused before anything is signed.
+rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
+printf 'x' > "$work/job/release-files/--output=pwned"
+rc=0
+(cd "$work/job" && env -u GNUPGHOME RUNNER_TEMP="$work/job/tmp" GITHUB_OUTPUT="$work/job/out" \
+  GPG_PRIVATE_KEY="$key" GPG_PASSPHRASE="pw" KEY_ID="$fpr" bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
+if [ "$rc" != 1 ] || ! grep -q "refusing to sign" "$work/log"; then
+  echo "FAIL option-like name: exit $rc"; cat "$work/log"; fail=1
+fi
+# The keyring and passphrase file live under RUNNER_TEMP and are gone after.
+[ -z "$(find "$work/job/tmp" -mindepth 1 -maxdepth 1 ! -name signatures)" ] || { echo "FAIL keyring or passphrase file left in RUNNER_TEMP"; ls -la "$work/job/tmp"; fail=1; }
 
 [ "$fail" = 0 ] && echo "ok: deb-build signs each file and SHA256SUMS"
 exit "$fail"
