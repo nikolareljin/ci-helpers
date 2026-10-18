@@ -87,6 +87,9 @@ jobs:
   # An absolute `nikolareljin/ci-helpers/...@ref` would be worse: `uses:` refs must
   # be literals, so it could not track the consumer's pinned ref.
   tag:
+    permissions:
+      contents: write
+      pull-requests: read
     uses: ./.github/workflows/auto-tag.yml
     with:
       runner: ${{ inputs.runner }}

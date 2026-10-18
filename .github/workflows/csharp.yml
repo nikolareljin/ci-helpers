@@ -89,11 +89,15 @@ jobs:
   # into dotnet as a flag. Spaces are allowed because Windows project paths have
   # them; the value is quoted at every use site.
   validate-inputs:
+    permissions:
+      contents: read
     uses: ./.github/workflows/validate-dotnet-project.yml
     with:
       project: ${{ inputs.project }}
 
   ci:
+    permissions:
+      contents: read
     needs: [validate-inputs]
     uses: ./.github/workflows/ci.yml
     with:

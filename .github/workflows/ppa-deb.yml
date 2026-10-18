@@ -45,11 +45,14 @@ on:
 
 jobs:
   ppa:
+    permissions:
+      contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 

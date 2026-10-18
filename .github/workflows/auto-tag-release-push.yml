@@ -6,9 +6,7 @@ on:
       - master
 
 permissions:
-  contents: write
-  pull-requests: read
-  actions: write
+  contents: read
 
 jobs:
   # The same two checks production-branch.yml runs -- but that workflow is
@@ -24,6 +22,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
       - name: Check stale SHA pins
         shell: bash
         run: bash scripts/update_pinned_actions.sh --check
@@ -34,6 +34,12 @@ jobs:
         run: bash scripts/check_floating_refs.sh
   tag:
     needs: [gate]
+    # auto-tag-release.yml declares these at its top level; a caller job must
+    # grant at least as much or the run fails at startup.
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
     uses: ./.github/workflows/auto-tag-release.yml
     with:
       release_workflow: create-github-release.yml

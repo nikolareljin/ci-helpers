@@ -158,9 +158,12 @@ jobs:
           fi
           ruby -c "$f"
 
-      - name: Checkout tap
+      # The push below needs the key, and this job runs no caller code: the
+      # formula is only syntax-checked (ruby -c does not execute it).
+      - name: Checkout tap # zizmor: ignore[artipacked]
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: true
           repository: ${{ steps.tap.outputs.repo }}
           ref: ${{ inputs.tap_branch }}
           path: tap

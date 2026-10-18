@@ -73,6 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -265,8 +266,14 @@ jobs:
           ${{ steps.release.outputs.version != ''
               && inputs.update_production_tag }}
         shell: bash
+        env:
+          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
@@ -309,9 +316,14 @@ jobs:
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
         env:
+          GIT_TOKEN: ${{ github.token }}
           AUTO_TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           version="$AUTO_TAG_VERSION"
           git tag "$version"
           git push origin "$version"
@@ -358,6 +370,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -365,8 +378,14 @@ jobs:
       # tagged; this only makes them present in this fresh checkout.
       - name: Bootstrap script-helpers
         shell: bash
+        env:
+          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
@@ -380,7 +399,12 @@ jobs:
       - name: Update production tag ref
         shell: bash
         env:
+          GIT_TOKEN: ${{ github.token }}
           AUTO_TAG_VERSION: ${{ needs.tag.outputs.version }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           ./scripts/create_production.sh -t "$AUTO_TAG_VERSION" --fetch-tags

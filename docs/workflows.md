@@ -194,6 +194,8 @@ Inputs:
 - `php_version` (string, default `""`)
 - `deploy_command` (string, required)
 
+The job token is `contents: read` and the checkout keeps no credentials, so a `deploy_command` that pushes to a branch must bring its own credentials (a deploy key or token passed as a secret).
+
 Example:
 
 ```yaml
@@ -774,6 +776,8 @@ jobs:
 Workflow: `.github/workflows/rust-release-tarballs.yml`
 
 Purpose: Build a Rust binary for macOS arm64, macOS x86_64 and Linux x86_64
+
+The build runs with `contents: read`; a separate `upload-release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
 (on `ubuntu-22.04`: needs glibc 2.34, so Ubuntu 22.04, Debian 12 and newer;
 not Ubuntu 20.04), attach the tarballs to
 the release, generate a Homebrew formula and publish it through
@@ -788,6 +792,8 @@ Required inputs: `bin_name`, `desc`, `homepage`. Tap inputs and secrets as in
 Workflow: `.github/workflows/fpc-release.yml`
 
 Purpose: Build a Free Pascal (FPC) binary natively on Linux (x86_64), macOS (ARM64 + x86_64),
+
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
 and Windows (x86_64); package each into a release archive; optionally produce Linux packages
 (DEB, RPM, AppImage) and a macOS DMG; and optionally upload release archives to a GitHub
 release (controlled by `upload_to_release`). SHA256 checksum files are uploaded as CI
@@ -886,8 +892,11 @@ Workflow: `.github/workflows/deb-build.yml`
 
 Purpose: Build Debian packages, upload artifacts, and optionally attach the `.deb` to a GitHub release.
 
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `prebuild_command` (string, default `"make man"`)
@@ -1541,8 +1550,11 @@ Workflow: `.github/workflows/release-build.yml`
 
 Purpose: Build release artifacts in any language and publish a GitHub Release.
 
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)
@@ -1604,6 +1616,8 @@ Workflow: `.github/workflows/rust-release.yml`
 
 Purpose: Build multi-target Rust release binaries and publish a GitHub Release.
 
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+
 Inputs (selected):
 - `bin_name` (string, required)
 - `artifact_dir` (string, default `artifacts`)
@@ -1638,6 +1652,8 @@ jobs:
 Workflow: `.github/workflows/go-release.yml`
 
 Purpose: Build multi-target Go binaries and publish a GitHub Release.
+
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `bin_name` (string, required)

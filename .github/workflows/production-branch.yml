@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   security-gate:
@@ -19,6 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Bootstrap script-helpers
@@ -43,6 +44,8 @@ jobs:
 
   production:
     needs: [security-gate]
+    permissions:
+      contents: write
     if: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'RC') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -55,6 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
       - name: Bootstrap script-helpers
@@ -72,6 +76,12 @@ jobs:
           fi
       - name: Update production tag ref
         shell: bash
+        env:
+          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The checkout keeps no token on disk; hand it to git for this step only.
+          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth}"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           ./scripts/create_production.sh -t "${GITHUB_REF_NAME}" --fetch-tags

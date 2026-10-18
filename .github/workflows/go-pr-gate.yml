@@ -85,6 +85,8 @@ jobs:
   # consumer pinned. Pinning the child to @production would hand a consumer
   # testing a release branch the previous version of it.
   gate:
+    permissions:
+      contents: read
     uses: ./.github/workflows/pr-gate.yml
     with:
       runner: ${{ inputs.runner }}
