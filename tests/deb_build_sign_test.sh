@@ -73,6 +73,17 @@ rc=0
 if [ "$rc" != 1 ] || ! grep -q "refusing to sign" "$work/log"; then
   echo "FAIL option-like name: exit $rc"; cat "$work/log"; fail=1
 fi
+for clash in SHA256SUMS a_1.0_amd64.deb.asc; do
+  rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
+  printf 'x' > "$work/job/release-files/a_1.0_amd64.deb"
+  printf 'caller' > "$work/job/release-files/$clash"
+  rc=0
+  (cd "$work/job" && env -u GNUPGHOME RUNNER_TEMP="$work/job/tmp" GITHUB_OUTPUT="$work/job/out" \
+    GPG_PRIVATE_KEY="$key" GPG_PASSPHRASE="pw" KEY_ID="$fpr" bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
+  if [ "$rc" != 1 ] || ! grep -q "deb-build writes SHA256SUMS" "$work/log"; then
+    echo "FAIL caller's $clash: exit $rc"; cat "$work/log"; fail=1
+  fi
+done
 # The keyring and passphrase file live under RUNNER_TEMP and are gone after.
 [ -z "$(find "$work/job/tmp" -mindepth 1 -maxdepth 1 ! -name signatures)" ] || { echo "FAIL keyring or passphrase file left in RUNNER_TEMP"; ls -la "$work/job/tmp"; fail=1; }
 

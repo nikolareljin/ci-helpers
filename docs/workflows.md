@@ -924,6 +924,8 @@ Secrets (optional):
 
 With a key, a `sign` job between the build and the release signs every file the release gets: `<file>.asc` for each, plus `SHA256SUMS` and `SHA256SUMS.asc`. It runs no caller command and is the only job with the key, which lives in a temporary keyring for one step. Without a key the release is published unsigned and the run shows a notice. Only release files are signed; the CI artifact (`artifact_name`) is not.
 
+A file already on the release is never replaced: the same sha256 is kept, a different one fails the run (delete the asset to republish). A published `.asc` is kept only next to its unchanged file; next to a new file the run fails, because the old signature would not verify. With signing on, `artifact_glob` must not match `SHA256SUMS` or `.asc` files: the `sign` job writes them.
+
 Verify a download: `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS`.
 
 Example (automatic release upload on tag push):

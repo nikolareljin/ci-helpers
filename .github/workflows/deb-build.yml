@@ -331,6 +331,10 @@ jobs:
             # A name gpg could read as an option is refused, not signed.
             case "$f" in
               -*) echo "::error::refusing to sign '$f': name starts with '-'"; exit 1 ;;
+              # This step writes these; a caller's copy would be replaced.
+              SHA256SUMS|SHA256SUMS.asc|*.asc)
+                echo "::error::'$f' is in artifact_glob; with signing on, deb-build writes SHA256SUMS and the .asc files itself."
+                exit 1 ;;
             esac
             files+=("$f")
           done
@@ -388,12 +392,78 @@ jobs:
           artifact-ids: ${{ needs.build.outputs.notes_id }}
           path: release-notes
 
+      # A published package is never replaced: users may have fetched and
+      # verified it. A file already on the release with the same sha256 is
+      # kept, a different one fails; delete the asset to republish. A
+      # published signature is kept when its file was kept (a new signature
+      # of the same bytes differs only in time); next to a new file it would
+      # not verify, so that fails too.
+      - name: Keep what is already published
+        if: ${{ needs.build.outputs.files_id != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" 2>/dev/null)"; then
+            echo "No release $VERSION yet; every file is new."
+            exit 0
+          fi
+          digest() { # name -> published sha256:<hex>, "" when absent
+            local name="$1" have
+            have="$(printf '%s' "$json" | jq -r --arg n "$name" \
+              '[.assets[] | select(.name == $n)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
+            if [ "$have" = "unknown" ]; then
+              rm -rf .published && mkdir -p .published
+              gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p "$name" -D .published
+              have="sha256:$(sha256sum ".published/$name" | cut -d' ' -f1)"
+            fi
+            printf '%s' "$have"
+          }
+          rc=0
+          kept=" "
+          for f in release-files/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            case "$name" in *.asc) continue ;; esac
+            have="$(digest "$name")"
+            want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+            if [ -z "$have" ]; then
+              continue
+            elif [ "$have" = "$want" ]; then
+              echo "$name is already on $VERSION with the same sha256; kept."
+              kept="${kept}${name} "
+              rm -f "$f"
+            else
+              echo "::error::$name is already on $VERSION with a different sha256 ($have); refusing to replace a published package. Delete it to republish."
+              rc=1
+            fi
+          done
+          [ "$rc" = 0 ] || exit 1
+          for f in release-files/*.asc; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            [ -n "$(digest "$name")" ] || continue
+            case "$kept" in
+              *" ${name%.asc} "*)
+                echo "$name is already on $VERSION; the published signature is kept."
+                rm -f "$f"
+                ;;
+              *)
+                echo "::error::$name is already on $VERSION but ${name%.asc} is new; the old signature would not verify. Delete it to republish."
+                rc=1
+                ;;
+            esac
+          done
+          exit "$rc"
+
       - name: Upload .deb to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
           files: release-files/*
-          overwrite_files: true
+          overwrite_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -88,7 +88,9 @@
 - **`deb-build` signs what it publishes.** New `signing_key_id` input and
   optional `gpg_private_key`/`gpg_passphrase` secrets: a `sign` job that runs
   no caller code adds `<file>.asc`, `SHA256SUMS` and `SHA256SUMS.asc` to the
-  release. Without a key the release is unsigned, with a notice. New
+  release. Without a key the release is unsigned, with a notice. A file
+  already on the release is no longer replaced: same sha256 is kept, a
+  different one fails (it was `overwrite_files: true`). New
   `docs/packaging.md`: one set of secret and variable names and the caller
   templates for `deb-build`, `ppa-deb` and `tauri-release`.
 
