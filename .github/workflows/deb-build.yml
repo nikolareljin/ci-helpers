@@ -406,9 +406,15 @@ jobs:
           VERSION: ${{ needs.build.outputs.tag }}
         run: |
           set -euo pipefail
-          if ! json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" 2>/dev/null)"; then
-            echo "No release $VERSION yet; every file is new."
-            exit 0
+          # Only a 404 means "no release yet"; any other failure stops the run
+          # rather than skip the check.
+          if ! json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" 2>"${RUNNER_TEMP}/gh-api.err")"; then
+            if grep -q "HTTP 404" "${RUNNER_TEMP}/gh-api.err"; then
+              echo "No release $VERSION yet; every file is new."
+              exit 0
+            fi
+            echo "::error::could not read release $VERSION: $(head -c 300 "${RUNNER_TEMP}/gh-api.err")"
+            exit 1
           fi
           digest() { # name -> published sha256:<hex>, "" when absent
             local name="$1" have
@@ -416,8 +422,8 @@ jobs:
               '[.assets[] | select(.name == $n)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
             if [ "$have" = "unknown" ]; then
               rm -rf .published && mkdir -p .published
-              gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p "$name" -D .published
-              have="sha256:$(sha256sum ".published/$name" | cut -d' ' -f1)"
+              gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p "$name" -D .published || return 1
+              have="sha256:$(sha256sum ".published/$name" | cut -d' ' -f1)" || return 1
             fi
             printf '%s' "$have"
           }
@@ -427,7 +433,7 @@ jobs:
             [ -f "$f" ] || continue
             name="$(basename "$f")"
             case "$name" in *.asc) continue ;; esac
-            have="$(digest "$name")"
+            have="$(digest "$name")" || { echo "::error::could not read the published $name"; exit 1; }
             want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
             if [ -z "$have" ]; then
               continue
@@ -444,7 +450,8 @@ jobs:
           for f in release-files/*.asc; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
-            [ -n "$(digest "$name")" ] || continue
+            have="$(digest "$name")" || { echo "::error::could not read the published $name"; exit 1; }
+            [ -n "$have" ] || continue
             case "$kept" in
               *" ${name%.asc} "*)
                 echo "$name is already on $VERSION; the published signature is kept."

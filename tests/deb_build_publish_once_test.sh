@@ -26,7 +26,8 @@ mkdir -p "$work/bin"
 cat > "$work/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 if [ "$1" = "api" ]; then
-  [ -d "$PUB" ] || exit 1
+  if [ -n "${API_FAIL:-}" ]; then echo "gh: Server Error (HTTP 502)" >&2; exit 1; fi
+  if [ ! -d "$PUB" ]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
   printf '{"assets":['
   sep=""
   for f in "$PUB"/*; do
@@ -41,6 +42,7 @@ if [ "$1" = "api" ]; then
 fi
 if [ "$1" = "release" ] && [ "$2" = "download" ]; then
   # release download VERSION -R repo -p NAME -D DIR
+  [ -z "${DL_FAIL:-}" ] || exit 1
   cp "$PUB/$7" "$9/"
   exit 0
 fi
@@ -59,7 +61,8 @@ publish() { # published files: name=content ...
 }
 run() { # name expected-rc
   local rc=0
-  (cd "$work/job" && PATH="$work/bin:$PATH" PUB="$work/pub" GITHUB_REPOSITORY=o/r VERSION=1.0.0 \
+  mkdir -p "$work/job/tmp"
+  (cd "$work/job" && PATH="$work/bin:$PATH" PUB="$work/pub" GITHUB_REPOSITORY=o/r VERSION=1.0.0 RUNNER_TEMP="$work/job/tmp" \
     bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
   if [ "$rc" != "$2" ]; then echo "FAIL $1: exit $rc, expected $2"; cat "$work/log"; fail=1; return 1; fi
 }
@@ -92,6 +95,16 @@ grep -q "old signature would not verify" "$work/log" || { echo "FAIL stale signa
 setup b.deb=B b.deb.asc=sigB
 publish a.deb=A a.deb.asc=sigA
 run "new file next to old ones" 0 && expect_left "new file" "b.deb b.deb.asc "
+
+setup a.deb=A
+publish a.deb=A
+API_FAIL=1 run "release unreadable" 1 || true
+grep -q "could not read release" "$work/log" || { echo "FAIL release unreadable: no error"; fail=1; }
+
+setup a.deb=A
+publish a.deb=A
+DIGESTS=0 DL_FAIL=1 run "download fails" 1 || true
+grep -q "could not read the published a.deb" "$work/log" || { echo "FAIL download fails: no error"; cat "$work/log"; fail=1; }
 
 [ "$fail" = 0 ] && echo "ok: deb-build never replaces a published package or signature"
 exit "$fail"
