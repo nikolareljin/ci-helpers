@@ -301,12 +301,56 @@ jobs:
           # output, so no heredoc and no delimiter to collide with.
           echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
 
+      # Exactly what softprops/action-gh-release would publish for these
+      # patterns: regular files only, no dotfiles, nothing under a matched
+      # directory, one asset per basename (softprops splits on
+      # newlines and commas, as here). Uploading the patterns as-is would
+      # also publish the contents of subdirectories.
+      - name: Stage release files
+        id: stage
+        shell: bash
+        env:
+          PATTERNS: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
+        run: |
+          set -euo pipefail
+          # python3 can be a stub that only prints an error on Windows images.
+          py=""
+          for c in python3 python; do
+            if command -v "$c" >/dev/null && "$c" -c 'import sys' 2>/dev/null; then py="$c"; break; fi
+          done
+          [ -n "$py" ] || { echo "::error::no working Python on this runner"; exit 1; }
+          # Python builds the path, so it is native on Windows as well.
+          "$py" - <<'PY'
+          import glob, os, shutil, sys
+          out = os.path.join(os.environ["RUNNER_TEMP"], "release-files")
+          shutil.rmtree(out, ignore_errors=True)
+          os.makedirs(out)
+          seen = {}
+          for line in os.environ["PATTERNS"].splitlines():
+              for pat in line.split(","):
+                  pat = pat.strip()
+                  for f in sorted(glob.glob(pat, recursive=True)) if pat else []:
+                      if not os.path.isfile(f):
+                          continue
+                      b = os.path.basename(f)
+                      if b in seen and os.path.realpath(seen[b]) != os.path.realpath(f):
+                          print(f"::error::{seen[b]} and {f} would both publish as {b}")
+                          sys.exit(1)
+                      seen[b] = f
+                      shutil.copy2(f, os.path.join(out, b))
+          print(f"{len(seen)} release file(s): {', '.join(sorted(seen))}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"dir={out}\ncount={len(seen)}\n")
+          PY
+
       - name: Hand release files to the release job
         id: files
+        if: ${{ steps.stage.outputs.count != '0' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: go-release-files-${{ inputs.bin_name }}
-          path: ${{ inputs.working_directory }}/${{ inputs.artifact_dir }}/*
+          path: ${{ steps.stage.outputs.dir }}
+          if-no-files-found: error
           overwrite: true
 
       - name: Hand release notes to the release job

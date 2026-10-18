@@ -211,13 +211,18 @@ jobs:
           PATTERNS: ${{ inputs.artifact_glob }}
         run: |
           set -euo pipefail
-          py="$(command -v python3 || command -v python)"
-          out="${RUNNER_TEMP}/release-files"
-          rm -rf "$out"
-          mkdir -p "$out"
-          "$py" - "$out" <<'PY'
+          # python3 can be a stub that only prints an error on Windows images.
+          py=""
+          for c in python3 python; do
+            if command -v "$c" >/dev/null && "$c" -c 'import sys' 2>/dev/null; then py="$c"; break; fi
+          done
+          [ -n "$py" ] || { echo "::error::no working Python on this runner"; exit 1; }
+          # Python builds the path, so it is native on Windows as well.
+          "$py" - <<'PY'
           import glob, os, shutil, sys
-          out = sys.argv[1]
+          out = os.path.join(os.environ["RUNNER_TEMP"], "release-files")
+          shutil.rmtree(out, ignore_errors=True)
+          os.makedirs(out)
           seen = {}
           for line in os.environ["PATTERNS"].splitlines():
               for pat in line.split(","):
