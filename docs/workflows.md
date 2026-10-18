@@ -917,6 +917,14 @@ Inputs:
 - `artifact_glob` (string, default `"../*.deb"`)
 - `upload_to_release` (string, default `"auto"`) — must be `"auto"`, `"true"`, or `"false"` (any other value fails with a clear error). `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
 - `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
+- `signing_key_id` (string, default `""`): GPG key fingerprint that signs the published files
+
+Secrets (optional):
+- `gpg_private_key` (armored private key), `gpg_passphrase`
+
+With a key, a `sign` job between the build and the release signs every file the release gets: `<file>.asc` for each, plus `SHA256SUMS` and `SHA256SUMS.asc`. It runs no caller command and is the only job with the key, which lives in a temporary keyring for one step. Without a key the release is published unsigned and the run shows a notice. Only release files are signed; the CI artifact (`artifact_name`) is not.
+
+Verify a download: `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS`.
 
 Example (automatic release upload on tag push):
 
@@ -941,6 +949,21 @@ jobs:
       working_directory: "."
       artifact_glob: "../*.deb"
       release_tag: "1.2.3"
+    permissions:
+      contents: write
+```
+
+Example (signed release; names from [packaging.md](packaging.md)):
+
+```yaml
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      signing_key_id: ${{ vars.GPG_KEY_ID }}
+    secrets:
+      gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+      gpg_passphrase: ${{ secrets.GPG_PASSPHRASE }}
     permissions:
       contents: write
 ```

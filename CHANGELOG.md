@@ -83,6 +83,15 @@
   `scripts/check_token_exposure.sh` (zizmor 1.16.3, pinned by digest) fails
   on either finding and runs in `workflow-yaml-check.yml`.
 
+### Added
+
+- **`deb-build` signs what it publishes.** New `signing_key_id` input and
+  optional `gpg_private_key`/`gpg_passphrase` secrets: a `sign` job that runs
+  no caller code adds `<file>.asc`, `SHA256SUMS` and `SHA256SUMS.asc` to the
+  release. Without a key the release is unsigned, with a notice. New
+  `docs/packaging.md`: one set of secret and variable names and the caller
+  templates for `deb-build`, `ppa-deb` and `tauri-release`.
+
 ## 2026-10-17 — v0.41.0
 
 ### Fixed

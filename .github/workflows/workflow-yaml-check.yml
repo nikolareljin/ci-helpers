@@ -108,6 +108,10 @@ jobs:
         shell: bash
         run: bash tests/windows_sign_pfx_removed_test.sh
 
+      - name: deb-build signs each published file and SHA256SUMS
+        shell: bash
+        run: bash tests/deb_build_sign_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's
