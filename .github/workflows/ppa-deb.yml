@@ -35,6 +35,12 @@ on:
       extra_packages:
         type: string
         default: ""
+      launchpad_login:
+        description: >
+          Launchpad user the SSH key belongs to. Default: the owner in
+          ppa_target (set it when the PPA belongs to a team).
+        type: string
+        default: ""
     secrets:
       gpg_private_key:
         required: true
@@ -90,6 +96,7 @@ jobs:
             devscripts \
             dh-python \
             dput \
+            python3-paramiko \
             gnupg \
             python3
           if [ -n "$EXTRA_PACKAGES" ]; then
@@ -158,19 +165,45 @@ jobs:
             -p"gpg --batch --pinentry-mode loopback --passphrase-file ${pass_file}" \
             "$CHANGES"
 
+      # dput's built-in "ppa:" target uploads over anonymous FTP and never
+      # uses the key. This writes an sftp host for the PPA, so the upload is
+      # authenticated with the Launchpad SSH key.
       - name: Upload to PPA
+        id: upload
         shell: bash
         env:
           LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
+          LAUNCHPAD_LOGIN: ${{ inputs.launchpad_login }}
           PPA_TARGET: ${{ inputs.ppa_target }}
           CHANGES: ${{ steps.build.outputs.changes }}
         run: |
           set -euo pipefail
           set +x
+          # ppa:<owner>/<name>, or ppa:<owner>/<distribution>/<name>.
+          if [[ ! "$PPA_TARGET" =~ ^ppa:([a-z0-9][a-z0-9.+-]*)/(([a-z0-9][a-z0-9.+-]*)/)?([a-z0-9][a-z0-9.+-]*)$ ]]; then
+            echo "::error::ppa_target '$PPA_TARGET' is not ppa:<owner>/<name>."
+            exit 1
+          fi
+          owner="${BASH_REMATCH[1]}"
+          dist="${BASH_REMATCH[3]:-ubuntu}"
+          name="${BASH_REMATCH[4]}"
+          login="${LAUNCHPAD_LOGIN:-$owner}"
+          if [[ ! "$login" =~ ^[a-z0-9][a-z0-9.+-]*$ ]]; then
+            echo "::error::launchpad_login '$login' is not a Launchpad id."
+            exit 1
+          fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          trap 'rm -f ~/.ssh/id_ed25519' EXIT
+          trap 'rm -f ~/.ssh/id_ed25519 ~/.dput.cf' EXIT
           printf '%s\n' "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ppa.launchpad.net >> ~/.ssh/known_hosts
-          dput "$PPA_TARGET" "$CHANGES"
+          cat > ~/.dput.cf <<EOF
+          [ci-ppa]
+          fqdn = ppa.launchpad.net
+          method = sftp
+          incoming = ~${owner}/${dist}/${name}/
+          login = ${login}
+          allow_unsigned_uploads = 0
+          EOF
+          dput ci-ppa "$CHANGES"

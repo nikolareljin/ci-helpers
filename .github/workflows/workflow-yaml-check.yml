@@ -96,6 +96,14 @@ jobs:
         shell: bash
         run: bash tests/no_inline_expressions_in_run_test.sh
 
+      - name: ppa-deb uploads over sftp with the Launchpad key
+        shell: bash
+        run: bash tests/ppa_dput_config_test.sh
+
+      - name: windows-sign removes the PFX right after import
+        shell: bash
+        run: bash tests/windows_sign_pfx_removed_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's

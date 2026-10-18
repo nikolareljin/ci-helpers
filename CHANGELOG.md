@@ -13,6 +13,9 @@
   which fetches no submodules, so the scripts were missing; it now checks
   script-helpers out at a pinned commit, outside the source tree.
   `extra_packages` reached the install script as `${{ }}` text; it is env now.
+  `ppa-deb` uploaded with dput's built-in `ppa:` target, which is anonymous
+  FTP and never used the Launchpad SSH key; it now writes an sftp host
+  (login from the new `launchpad_login` input, default the PPA owner).
   `tauri-release` no longer takes the updater key, Apple certificate or
   Azure credentials through `GITHUB_ENV`: they are env on the build or
   signing step only. `macos-sign` and `windows-sign` take `export_env`
