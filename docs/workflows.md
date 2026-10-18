@@ -588,6 +588,8 @@ Inputs:
 - `build_command` (string, default `""`)
 - `series` (string, default `""`)
 - `ppa_target` (string, required, e.g. `ppa:your-launchpad-id/ppa-name`)
+- `upload_method` (string, default `ftp`): `ftp` uploads anonymously and Launchpad accepts the upload on the GPG signature; `sftp` logs in with the SSH key
+- `launchpad_login` (string, default: the owner in `ppa_target`): sftp only; Launchpad user the SSH key belongs to; set it for a team PPA
 - `deb_fullname` (string, default `""`)
 - `deb_email` (string, default `""`)
 - `signing_key_id` (string, required, GPG key ID or fingerprint)
@@ -597,9 +599,15 @@ Secrets:
 
 - `gpg_private_key` (armored private key)
 - `gpg_passphrase` (GPG key passphrase)
-- `launchpad_ssh_private_key` (SSH key registered with Launchpad)
+- `launchpad_ssh_private_key` (SSH key registered with Launchpad; required for `upload_method: sftp` only)
 
 Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
+
+The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
+
+The upload goes to `ppa.launchpad.net` with incoming `~<owner>/<distribution>/<name>/` (distribution `ubuntu` unless `ppa_target` names one). Over `ftp` (the default) it is anonymous. Over `sftp` it logs in as `launchpad_login`, so the key must be registered with that Launchpad account.
+
+The packaging scripts come from script-helpers at a pinned commit, checked out by the workflow and kept outside the source tree; the caller does not vendor them. The caller's `build_command`, if set, must produce a source package (`*_source.changes`).
 
 Example:
 
@@ -616,7 +624,10 @@ jobs:
     secrets:
       gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
       gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
-      launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+```
+
+Over sftp, add `upload_method: "sftp"` under `with:` and
+`launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}` under `secrets:`.
 
 ## rpm-build.yml
 
@@ -1982,6 +1993,13 @@ Key design notes:
 - Windows signing supports three modes: `none`, `tauri_updater` (free ED25519),
   `pfx` (OV/EV Authenticode), `azure` (Azure Trusted Signing).
 - Uses the `macos-sign` and `windows-sign` composite actions from this repo.
+- Signing secrets reach only the step that signs: the Apple certificate,
+  passwords and the updater key are env on the build step, the Azure values
+  go straight to `azure/trusted-signing-action`. Both actions run with
+  `export_env: "false"`, so nothing secret is in `GITHUB_ENV`.
+- A published installer is never replaced, on the release or on `dist_repo`:
+  one already there with the same sha256 passes (a rerun of the `release` job),
+  a different sha256 fails. Delete the asset to republish.
 
 Inputs (selected):
 

@@ -1,8 +1,9 @@
 name: macos-sign
 description: >
-  Import an Apple p12 certificate into a temporary keychain and export all
-  Tauri-required Apple env vars to GITHUB_ENV. Call this action BEFORE
-  `cargo tauri build` on a macOS runner.
+  Import an Apple p12 certificate into a temporary keychain and export the
+  Tauri Apple env vars to GITHUB_ENV (the certificate and passwords only while
+  export_env is "true"). Call this action BEFORE `cargo tauri build` on a
+  macOS runner.
 
   Keychain cleanup is the CALLER's responsibility — composite actions have no
   post-run hook, so any cleanup step inside the action would run before the
@@ -40,6 +41,15 @@ inputs:
     description: App-specific password for notarytool
     required: false
     default: ""
+  export_env:
+    description: >
+      "false" (default) writes only APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID and
+      CI_MACOS_KEYCHAIN: the caller passes the secrets as env to the build
+      step itself. "true" also writes the certificate, its password and the
+      Apple ID password to GITHUB_ENV, where every later step of the job can
+      read them.
+    required: false
+    default: "false"
   keychain_name:
     description: Name of the temporary keychain created for this build
     required: false
@@ -58,6 +68,7 @@ runs:
         APPLE_ID: ${{ inputs.apple_id }}
         APP_PW: ${{ inputs.app_password }}
         KEYCHAIN: ${{ inputs.keychain_name }}
+        EXPORT_ENV: ${{ inputs.export_env }}
       run: |
         set -euo pipefail
         # Mask all secrets before any output
@@ -105,17 +116,23 @@ runs:
         SIGN_ID_CLEAN=$(printf '%s' "${SIGN_ID}" | tr -d '\r\n')
         TEAM_ID_CLEAN=$(printf '%s' "${TEAM_ID}" | tr -d '\r\n')
 
-        # Export all Tauri Apple env vars to GITHUB_ENV for subsequent steps
+        # The non-secret values always; the certificate and passwords only when
+        # export_env is exactly "true", so a typo keeps them out.
+        {
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
+          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
+          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
+        } >> "${GITHUB_ENV}"
+        if [ "${EXPORT_ENV}" != "true" ]; then
+          exit 0
+        fi
         {
           printf 'APPLE_CERTIFICATE=%s\n' "${CERT_B64_CLEAN}"
           printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "${CERT_PW_CLEAN}"
-          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
-          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
           if [ -n "${APPLE_ID}" ]; then
             printf 'APPLE_ID=%s\n' "$(printf '%s' "${APPLE_ID}" | tr -d '\r\n')"
             printf 'APPLE_PASSWORD=%s\n' "$(printf '%s' "${APP_PW}" | tr -d '\r\n')"
           fi
-          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
         } >> "${GITHUB_ENV}"
 
     # Keychain cleanup is the CALLER's responsibility.

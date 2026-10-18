@@ -2,6 +2,33 @@
 
 ### Security
 
+- **Signing secrets reached steps that run caller code.** `flutter-release`
+  set every signing and store secret at job level, so `flutter pub get`, the
+  build commands and their dependencies could read them; each secret is now
+  env on the steps that use it. `ppa-deb` imported the GPG and Launchpad keys
+  before the caller's prebuild and build; it now builds unsigned, signs with
+  `debsign` in a temporary keyring that is deleted after, and writes the SSH
+  key only for an sftp `dput`. A custom `build_command` must not sign.
+  `ppa-deb` also ran `./vendor/script-helpers` from the caller's checkout,
+  which fetches no submodules, so the scripts were missing; it now checks
+  script-helpers out at a pinned commit, outside the source tree.
+  `extra_packages` reached the install script as `${{ }}` text; it is env now.
+  `ppa-deb` required the Launchpad SSH key but uploaded with dput's
+  built-in `ppa:` target, anonymous FTP, which never used it. The new
+  `upload_method` input picks `ftp` (default, no SSH key needed) or `sftp`
+  (logs in with the key as `launchpad_login`, default the PPA owner);
+  `launchpad_ssh_private_key` is now optional.
+  `tauri-release` no longer takes the updater key, Apple certificate or
+  Azure credentials through `GITHUB_ENV`: they are env on the build or
+  signing step only. `macos-sign` and `windows-sign` no longer write their
+  secrets to `GITHUB_ENV` by default: the new `export_env` input is
+  `"false"` unless set; a caller that reads them from env sets `"true"`.
+  `windows-sign` in `pfx` mode deletes the decoded PFX file right after
+  the import instead of leaving it on disk through the caller's build.
+- **A rerun replaced published Tauri installers.** `tauri-release` uploaded
+  with `overwrite_files` and `gh release upload --clobber`. An installer of
+  that name already on the release (or the `dist_repo` release) now passes
+  when its sha256 matches and fails when it differs.
 - **Workflows ran the library's own actions at `@production`.**
   `gitleaks-scan.yml` and `tauri-release.yml` called `gitleaks-scan`,
   `macos-sign` and `windows-sign` by `<owner>/ci-helpers/...@production`, so a

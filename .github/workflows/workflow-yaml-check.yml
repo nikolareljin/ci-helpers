@@ -86,6 +86,28 @@ jobs:
         shell: bash
         run: bash scripts/check_no_self_refs.sh
 
+      # A published installer is never replaced; drives the real step against
+      # a stub gh.
+      - name: tauri-release never replaces a published installer
+        shell: bash
+        run: bash tests/tauri_upload_once_test.sh
+
+      - name: ppa-deb takes its inputs through env
+        shell: bash
+        run: bash tests/no_inline_expressions_in_run_test.sh
+
+      - name: ppa-deb uploads over ftp by default, sftp with the Launchpad key
+        shell: bash
+        run: bash tests/ppa_dput_config_test.sh
+
+      - name: sign actions export secrets only on an exact "true"
+        shell: bash
+        run: bash tests/sign_export_env_default_test.sh
+
+      - name: windows-sign removes the PFX right after import
+        shell: bash
+        run: bash tests/windows_sign_pfx_removed_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's
