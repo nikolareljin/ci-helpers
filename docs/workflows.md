@@ -601,6 +601,8 @@ Secrets:
 
 Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
 
+The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step writes the Launchpad SSH key, runs `dput` and deletes the key. A custom `build_command` must therefore not sign.
+
 Example:
 
 ```yaml

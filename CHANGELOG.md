@@ -2,6 +2,21 @@
 
 ### Security
 
+- **Signing secrets reached steps that run caller code.** `flutter-release`
+  set every signing and store secret at job level, so `flutter pub get`, the
+  build commands and their dependencies could read them; each secret is now
+  env on the steps that use it. `ppa-deb` imported the GPG and Launchpad keys
+  before the caller's prebuild and build; it now builds unsigned, signs with
+  `debsign` in a temporary keyring that is deleted after, and writes the SSH
+  key only for `dput`. A custom `build_command` must not sign.
+  `tauri-release` no longer takes the updater key, Apple certificate or
+  Azure credentials through `GITHUB_ENV`: they are env on the build or
+  signing step only. `macos-sign` and `windows-sign` take `export_env`
+  (default `"true"`); `"false"` writes no secret to `GITHUB_ENV`.
+- **A rerun replaced published Tauri installers.** `tauri-release` uploaded
+  with `overwrite_files` and `gh release upload --clobber`. An installer of
+  that name already on the release (or the `dist_repo` release) now passes
+  when its sha256 matches and fails when it differs.
 - **Workflows ran the library's own actions at `@production`.**
   `gitleaks-scan.yml` and `tauri-release.yml` called `gitleaks-scan`,
   `macos-sign` and `windows-sign` by `<owner>/ci-helpers/...@production`, so a

@@ -40,6 +40,15 @@ inputs:
     description: App-specific password for notarytool
     required: false
     default: ""
+  export_env:
+    description: >
+      "true" (default) writes the certificate, its password and the Apple ID
+      password to GITHUB_ENV, where every later step of the job can read
+      them. "false" writes only APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID and
+      CI_MACOS_KEYCHAIN: the caller passes the secrets as env to the build
+      step itself.
+    required: false
+    default: "true"
   keychain_name:
     description: Name of the temporary keychain created for this build
     required: false
@@ -58,6 +67,7 @@ runs:
         APPLE_ID: ${{ inputs.apple_id }}
         APP_PW: ${{ inputs.app_password }}
         KEYCHAIN: ${{ inputs.keychain_name }}
+        EXPORT_ENV: ${{ inputs.export_env }}
       run: |
         set -euo pipefail
         # Mask all secrets before any output
@@ -105,17 +115,23 @@ runs:
         SIGN_ID_CLEAN=$(printf '%s' "${SIGN_ID}" | tr -d '\r\n')
         TEAM_ID_CLEAN=$(printf '%s' "${TEAM_ID}" | tr -d '\r\n')
 
-        # Export all Tauri Apple env vars to GITHUB_ENV for subsequent steps
+        # The non-secret values always; the certificate and passwords only when
+        # export_env is true.
+        {
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
+          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
+          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
+        } >> "${GITHUB_ENV}"
+        if [ "${EXPORT_ENV}" = "false" ]; then
+          exit 0
+        fi
         {
           printf 'APPLE_CERTIFICATE=%s\n' "${CERT_B64_CLEAN}"
           printf 'APPLE_CERTIFICATE_PASSWORD=%s\n' "${CERT_PW_CLEAN}"
-          printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
-          printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
           if [ -n "${APPLE_ID}" ]; then
             printf 'APPLE_ID=%s\n' "$(printf '%s' "${APPLE_ID}" | tr -d '\r\n')"
             printf 'APPLE_PASSWORD=%s\n' "$(printf '%s' "${APP_PW}" | tr -d '\r\n')"
           fi
-          printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
         } >> "${GITHUB_ENV}"
 
     # Keychain cleanup is the CALLER's responsibility.

@@ -86,6 +86,12 @@ jobs:
         shell: bash
         run: bash scripts/check_no_self_refs.sh
 
+      # A published installer is never replaced; drives the real step against
+      # a stub gh.
+      - name: tauri-release never replaces a published installer
+        shell: bash
+        run: bash tests/tauri_upload_once_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's

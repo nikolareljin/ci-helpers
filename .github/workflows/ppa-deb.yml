@@ -73,52 +73,78 @@ jobs:
             sudo apt-get install -y ${{ inputs.extra_packages }}
           fi
 
-      - name: Configure GPG
-        shell: bash
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
-          GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
-          GPG_KEY_ID: ${{ inputs.signing_key_id }}
-        run: |
-          set -euo pipefail
-          set +x
-          mkdir -p ~/.gnupg
-          chmod 700 ~/.gnupg
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          printf '5\ny\n' | gpg --batch --command-fd 0 --edit-key "$GPG_KEY_ID" trust
-          gpg --batch --list-keys "$GPG_KEY_ID"
-          # No GPG_TTY here, on purpose. There is no terminal on a runner, an
-          # export in this step cannot reach the build step anyway, and
-          # signing runs with loopback pinentry, which never asks a terminal.
-
-      - name: Configure Launchpad SSH
-        shell: bash
-        env:
-          LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
-        run: |
-          set -euo pipefail
-          set +x
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          echo "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ppa.launchpad.net >> ~/.ssh/known_hosts
-
-      - name: Build and upload to PPA
+      # The caller's prebuild and build run first, with no key on the runner.
+      # The package is built unsigned and signed in the next step.
+      - name: Build source package (unsigned)
+        id: build
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
           DEBEMAIL: ${{ inputs.deb_email }}
           DEBFULLNAME: ${{ inputs.deb_fullname }}
-          PPA_GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
+          PPA_TARGET: ${{ inputs.ppa_target }}
+          KEY_ID: ${{ inputs.signing_key_id }}
+          PREBUILD: ${{ inputs.prebuild_command }}
+          BUILD: ${{ inputs.build_command }}
+          SERIES: ${{ inputs.series }}
+        run: |
+          set -euo pipefail
+          # --dry-run builds and stops before the upload. The repo is this
+          # directory: a relative --repo would resolve inside it a second time.
+          ./vendor/script-helpers/scripts/ppa_upload.sh \
+            --ppa "$PPA_TARGET" \
+            --key-id "$KEY_ID" \
+            --repo "$PWD" \
+            --prebuild "$PREBUILD" \
+            --build "${BUILD:-debuild -S -sa -us -uc}" \
+            --series "$SERIES" \
+            --dry-run
+          # shellcheck source=/dev/null
+          source ./vendor/script-helpers/helpers.sh
+          shlib_import package_publish
+          changes="$(pkg_find_changes_file "$PWD")"
+          changes="$(cd "$(dirname "$changes")" && pwd)/$(basename "$changes")"
+          echo "changes=$changes" >> "$GITHUB_OUTPUT"
+
+      # The key lives in a throwaway GNUPGHOME for this step only and is gone
+      # before the upload step runs.
+      - name: Sign the source package
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
+          GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
+          KEY_ID: ${{ inputs.signing_key_id }}
+          CHANGES: ${{ steps.build.outputs.changes }}
         run: |
           set -euo pipefail
           set +x
-          ./vendor/script-helpers/scripts/ppa_upload.sh \
-            --ppa "${{ inputs.ppa_target }}" \
-            --key-id "${{ inputs.signing_key_id }}" \
-            --repo "${{ inputs.working_directory }}" \
-            --prebuild "${{ inputs.prebuild_command }}" \
-            --build "${{ inputs.build_command }}" \
-            --series "${{ inputs.series }}"
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          pass_file="$(mktemp)"
+          trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME" "$pass_file"' EXIT
+          chmod 700 "$GNUPGHOME"
+          echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          printf '5\ny\n' | gpg --batch --command-fd 0 --edit-key "$KEY_ID" trust
+          # On a file, not the command line, where the process list shows it.
+          printf '%s' "$GPG_PASSPHRASE" > "$pass_file"
+          debsign --re-sign -k"$KEY_ID" \
+            -p"gpg --batch --pinentry-mode loopback --passphrase-file ${pass_file}" \
+            "$CHANGES"
+
+      - name: Upload to PPA
+        shell: bash
+        env:
+          LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
+          PPA_TARGET: ${{ inputs.ppa_target }}
+          CHANGES: ${{ steps.build.outputs.changes }}
+        run: |
+          set -euo pipefail
+          set +x
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          trap 'rm -f ~/.ssh/id_ed25519' EXIT
+          printf '%s\n' "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ppa.launchpad.net >> ~/.ssh/known_hosts
+          dput "$PPA_TARGET" "$CHANGES"

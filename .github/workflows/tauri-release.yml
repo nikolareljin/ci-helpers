@@ -87,7 +87,8 @@ on:
       dist_repo:
         description: >
           Optional cross-repo publish target (e.g. owner/repo). When set,
-          installers are uploaded using gh release upload --clobber (idempotent).
+          installers are uploaded there as well. A published installer is never
+          replaced: the same sha256 passes, a different one fails.
         type: string
         default: ""
       winget_submit:
@@ -301,6 +302,8 @@ jobs:
           team_id: ${{ secrets.APPLE_TEAM_ID }}
           apple_id: ${{ secrets.APPLE_ID }}
           app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
+          # The secrets go to the build step's env below, not to GITHUB_ENV.
+          export_env: "false"
 
       # The action keeps nothing in its own directory, so the checkout is removed
       # before the build and cannot end up in a bundle.
@@ -309,11 +312,24 @@ jobs:
         shell: bash
         run: rm -rf .ci-helpers-actions
 
+      # Tauri signs (and, with APPLE_ID set, notarizes) inside the build, so
+      # this step gets the Apple secrets; no later step does.
       - name: Build Tauri app (universal macOS binary)
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          APPLE_CERTIFICATE: ${{ inputs.sign_macos && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign_macos && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ inputs.sign_macos && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ inputs.sign_macos && (secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD) || '' }}
         run: |
           set -euo pipefail
+          # An empty variable is not an unset one to Tauri: drop the empty ones,
+          # as the action only exported what was set.
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD; do
+            [ -n "${!v}" ] || unset "$v"
+          done
+          if [ -z "${APPLE_ID:-}" ]; then unset APPLE_PASSWORD; fi
           cargo tauri build --target universal-apple-darwin
 
       - name: Notarize and staple DMG
@@ -493,6 +509,8 @@ jobs:
           azure_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           azure_code_signing_account: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           azure_cert_profile: ${{ secrets.AZURE_CERT_PROFILE }}
+          # The secrets go to the build and Azure steps below, not to GITHUB_ENV.
+          export_env: "false"
 
       # The action keeps nothing in its own directory, so the checkout is removed
       # before the build and cannot end up in a bundle.
@@ -501,22 +519,29 @@ jobs:
         shell: bash
         run: rm -rf .ci-helpers-actions
 
+      # Tauri writes the updater signatures inside the build, so this step gets
+      # the updater key; no later step does.
       - name: Build Tauri app (Windows)
         working-directory: ${{ inputs.working_directory }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.windows_sign_mode == 'tauri_updater' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.windows_sign_mode == 'tauri_updater' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
+          # An empty variable is not an unset one to Tauri.
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] || unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           cargo tauri build
 
       - name: Sign with Azure Trusted Signing (post-build)
         if: ${{ inputs.windows_sign_mode == 'azure' }}
         uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0 @ 2026-05-24
         with:
-          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
-          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ env.AZURE_CODE_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ env.AZURE_CODE_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ env.AZURE_CERT_PROFILE_NAME }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
           files-folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
           files-folder-filter: exe,msi
           file-digest: SHA256
@@ -775,12 +800,10 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', steps.rel.outputs.tag) }}
           body_path: ${{ steps.notes.outputs.notes_file }}
-          files: tauri-*-artifacts/*
-          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish to distribution repo
+      - name: Create the distribution repo release
         if: ${{ inputs.dist_repo != '' }}
         env:
           GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
@@ -808,9 +831,53 @@ jobs:
               "${notes_args[@]}" \
               || true
           fi
-          # --clobber makes uploads idempotent across parallel jobs and reruns
-          gh release upload "${VERSION}" tauri-*-artifacts/* \
-            --repo "${DIST_REPO}" --clobber
+
+      # A published installer is never replaced: users may have fetched and
+      # verified it, and a rerun builds new bytes. Same sha256 passes (a rerun
+      # of this job alone), a different one fails. Delete the asset to republish.
+      - name: Upload installers
+        id: upload
+        env:
+          OWN_TOKEN: ${{ github.token }}
+          DIST_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+          DIST_REPO: ${{ inputs.dist_repo }}
+          VERSION: ${{ steps.rel.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          upload_once() {
+            local repo="$1" json have want f name rc=0
+            # Checked here: this runs on the left of ||, where set -e is off.
+            json="$(gh api "repos/${repo}/releases/tags/${VERSION}")" || {
+              echo "::error::release $VERSION not found in $repo."; return 1; }
+            for f in tauri-*-artifacts/*; do
+              [ -f "$f" ] || continue
+              name="$(basename "$f")"
+              want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+              have="$(printf '%s' "$json" | jq -r --arg n "$name" \
+                '[.assets[] | select(.name == $n)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
+              if [ "$have" = "unknown" ]; then
+                rm -rf .published && mkdir -p .published
+                gh release download "$VERSION" -R "$repo" -p "$name" -D .published || return 1
+                have="sha256:$(sha256sum ".published/$name" | cut -d' ' -f1)"
+              fi
+              if [ -z "$have" ]; then
+                gh release upload "$VERSION" "$f" -R "$repo" || rc=1
+              elif [ "$have" = "$want" ]; then
+                echo "$name is already on $repo $VERSION with the same sha256."
+              else
+                echo "::error::$name is already on $repo $VERSION with a different sha256 ($have); refusing to replace a published installer. Delete it to republish."
+                rc=1
+              fi
+            done
+            return "$rc"
+          }
+          rc=0
+          GH_TOKEN="$OWN_TOKEN" upload_once "$GITHUB_REPOSITORY" || rc=1
+          if [ -n "$DIST_REPO" ]; then
+            GH_TOKEN="$DIST_TOKEN" upload_once "$DIST_REPO" || rc=1
+          fi
+          exit "$rc"
 
   # ── WinGet submission ──────────────────────────────────────────────────────
   winget-submit:

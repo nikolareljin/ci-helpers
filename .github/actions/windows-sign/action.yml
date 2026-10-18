@@ -27,6 +27,16 @@ inputs:
     description: "Signing mode: tauri_updater, pfx, or azure"
     required: true
 
+  export_env:
+    description: >
+      "true" (default) writes the signing secrets to GITHUB_ENV, where every
+      later step of the job can read them. "false" writes none: the caller
+      passes them as env to the build or signing step itself. The pfx
+      thumbprint, PFX path and sign command are written either way; none of
+      them is a secret.
+    required: false
+    default: "true"
+
   # --- tauri_updater inputs ---
   tauri_signing_private_key:
     description: ED25519 private key for Tauri updater signing (base64 or raw)
@@ -87,6 +97,7 @@ runs:
       env:
         PRIV_KEY: ${{ inputs.tauri_signing_private_key }}
         PRIV_KEY_PW: ${{ inputs.tauri_signing_private_key_password }}
+        EXPORT_ENV: ${{ inputs.export_env }}
       run: |
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
@@ -107,6 +118,10 @@ runs:
         $cleanKey = $env:PRIV_KEY -replace '[\r\n]', ''
         $cleanPw  = $env:PRIV_KEY_PW -replace '[\r\n]', ''
 
+        if ($env:EXPORT_ENV -eq "false") {
+          Write-Output "export_env is false: the caller passes the key to the build step."
+          exit 0
+        }
         # Export to GITHUB_ENV for subsequent steps
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$cleanKey"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$cleanPw"
@@ -203,6 +218,7 @@ runs:
         AZ_ENDPOINT: ${{ inputs.azure_endpoint }}
         AZ_ACCOUNT: ${{ inputs.azure_code_signing_account }}
         AZ_PROFILE: ${{ inputs.azure_cert_profile }}
+        EXPORT_ENV: ${{ inputs.export_env }}
       run: |
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
@@ -236,6 +252,10 @@ runs:
         $cleanAccount  = $env:AZ_ACCOUNT  -replace '[\r\n]', ''
         $cleanProfile  = $env:AZ_PROFILE  -replace '[\r\n]', ''
 
+        if ($env:EXPORT_ENV -eq "false") {
+          Write-Output "export_env is false: the caller passes the credentials to the signing step."
+          exit 0
+        }
         # Export to GITHUB_ENV — azure/trusted-signing-action reads these
         Add-Content -Path $env:GITHUB_ENV -Value "AZURE_TENANT_ID=$cleanTenant"
         Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_ID=$cleanClient"
