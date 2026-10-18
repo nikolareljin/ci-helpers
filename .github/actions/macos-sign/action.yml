@@ -1,8 +1,9 @@
 name: macos-sign
 description: >
-  Import an Apple p12 certificate into a temporary keychain and export all
-  Tauri-required Apple env vars to GITHUB_ENV. Call this action BEFORE
-  `cargo tauri build` on a macOS runner.
+  Import an Apple p12 certificate into a temporary keychain and export the
+  Tauri Apple env vars to GITHUB_ENV (the certificate and passwords only while
+  export_env is "true"). Call this action BEFORE `cargo tauri build` on a
+  macOS runner.
 
   Keychain cleanup is the CALLER's responsibility — composite actions have no
   post-run hook, so any cleanup step inside the action would run before the

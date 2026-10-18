@@ -1,6 +1,8 @@
 name: windows-sign
 description: >
-  Configure Windows code signing for Tauri builds. Supports three modes:
+  Configure Windows code signing for Tauri builds. Supports three modes.
+  With export_env "false", the tauri_updater and azure modes only validate
+  their inputs and write no secret to GITHUB_ENV.
 
   tauri_updater (FREE):
     Sets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in
