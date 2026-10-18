@@ -96,6 +96,12 @@ setup b.deb=B b.deb.asc=sigB
 publish a.deb=A a.deb.asc=sigA
 run "new file next to old ones" 0 && expect_left "new file" "b.deb b.deb.asc "
 
+setup a.deb=A b.deb=B SHA256SUMS=S2 SHA256SUMS.asc=sigS2
+publish a.deb=A SHA256SUMS=S1 SHA256SUMS.asc=sigS1
+run "file added, list changed" 1 || true
+grep -q "SHA256SUMS on 1.0.0 lists other files" "$work/log" || { echo "FAIL file added: wrong or no error"; cat "$work/log"; fail=1; }
+grep -q "refusing to replace a published package" "$work/log" && { echo "FAIL file added: reported as a changed package"; fail=1; }
+
 setup a.deb=A
 publish a.deb=A
 API_FAIL=1 run "release unreadable" 1 || true

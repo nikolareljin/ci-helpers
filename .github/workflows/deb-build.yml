@@ -429,10 +429,12 @@ jobs:
           }
           rc=0
           kept=" "
+          # Packages first; SHA256SUMS after them, so a changed list can be
+          # told apart from a changed package.
           for f in release-files/*; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
-            case "$name" in *.asc) continue ;; esac
+            case "$name" in *.asc|SHA256SUMS) continue ;; esac
             have="$(digest "$name")" || { echo "::error::could not read the published $name"; exit 1; }
             want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
             if [ -z "$have" ]; then
@@ -446,6 +448,22 @@ jobs:
               rc=1
             fi
           done
+          [ "$rc" = 0 ] || exit 1
+          if [ -f release-files/SHA256SUMS ]; then
+            have="$(digest SHA256SUMS)" || { echo "::error::could not read the published SHA256SUMS"; exit 1; }
+            want="sha256:$(sha256sum release-files/SHA256SUMS | cut -d' ' -f1)"
+            if [ "$have" = "$want" ]; then
+              echo "SHA256SUMS is already on $VERSION with the same sha256; kept."
+              kept="${kept}SHA256SUMS "
+              rm -f release-files/SHA256SUMS
+            elif [ -n "$have" ]; then
+              # Every package passed above, so this run lists other files
+              # (one was added). The list is signed in the sign job; it is
+              # not replaced here.
+              echo "::error::SHA256SUMS on $VERSION lists other files than this run publishes; refusing to replace it. Delete SHA256SUMS and SHA256SUMS.asc from the release to publish the new list."
+              exit 1
+            fi
+          fi
           [ "$rc" = 0 ] || exit 1
           for f in release-files/*.asc; do
             [ -f "$f" ] || continue
