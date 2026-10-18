@@ -43,13 +43,13 @@ inputs:
     default: ""
   export_env:
     description: >
-      "true" (default) writes the certificate, its password and the Apple ID
-      password to GITHUB_ENV, where every later step of the job can read
-      them. "false" writes only APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID and
+      "false" (default) writes only APPLE_SIGNING_IDENTITY, APPLE_TEAM_ID and
       CI_MACOS_KEYCHAIN: the caller passes the secrets as env to the build
-      step itself.
+      step itself. "true" also writes the certificate, its password and the
+      Apple ID password to GITHUB_ENV, where every later step of the job can
+      read them.
     required: false
-    default: "true"
+    default: "false"
   keychain_name:
     description: Name of the temporary keychain created for this build
     required: false
@@ -117,13 +117,13 @@ runs:
         TEAM_ID_CLEAN=$(printf '%s' "${TEAM_ID}" | tr -d '\r\n')
 
         # The non-secret values always; the certificate and passwords only when
-        # export_env is true.
+        # export_env is exactly "true", so a typo keeps them out.
         {
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "${SIGN_ID_CLEAN}"
           printf 'APPLE_TEAM_ID=%s\n' "${TEAM_ID_CLEAN}"
           printf 'CI_MACOS_KEYCHAIN=%s\n' "${KEYCHAIN}"
         } >> "${GITHUB_ENV}"
-        if [ "${EXPORT_ENV}" = "false" ]; then
+        if [ "${EXPORT_ENV}" != "true" ]; then
           exit 0
         fi
         {

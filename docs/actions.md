@@ -225,15 +225,15 @@ Inputs:
 | `apple_id` | no | `""` | Apple ID email for `notarytool` (leave empty to skip notarization setup) |
 | `app_password` | no | `""` | App-specific password for `notarytool` |
 | `keychain_name` | no | `ci-build.keychain-db` | Name of the temporary keychain |
-| `export_env` | no | `"true"` | `"false"` writes only the non-secret values below; pass the secrets as env to the build step |
+| `export_env` | no | `"false"` | Writes only the non-secret values below; pass the secrets as env to the build step. `"true"` also writes the secrets |
 
 Environment variables written to `GITHUB_ENV`: `APPLE_SIGNING_IDENTITY`,
 `APPLE_TEAM_ID` and `CI_MACOS_KEYCHAIN` always. With `export_env: "true"`
-(the default) also `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and (when
-`apple_id` is set) `APPLE_ID` + `APPLE_PASSWORD`. Every later step of the job
-can read what is in `GITHUB_ENV`, including the caller's build and its
-dependencies, so prefer `export_env: "false"` and give the secrets to the build
-step's `env:`, as `tauri-release.yml` does.
+also `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and (when `apple_id` is
+set) `APPLE_ID` + `APPLE_PASSWORD`. Every later step of the job can read what
+is in `GITHUB_ENV`, including the caller's build and its dependencies, so the
+default `"false"` leaves them out: give the secrets to the build step's `env:`,
+as `tauri-release.yml` does.
 
 Example (inside `tauri-release.yml` or any macOS build job):
 
@@ -297,7 +297,7 @@ Inputs:
 | `azure_endpoint` | `azure` | — | Trusted Signing endpoint URL |
 | `azure_code_signing_account` | `azure` | — | Account name |
 | `azure_cert_profile` | `azure` | — | Certificate profile name |
-| `export_env` | no | `"true"` | `"false"` writes no secret to `GITHUB_ENV`: pass the updater key to the build step's `env:` and the Azure values to `azure/trusted-signing-action` yourself. The pfx thumbprint, PFX path and sign command are written either way |
+| `export_env` | no | `"false"` | Writes no secret to `GITHUB_ENV`: pass the updater key to the build step's `env:` and the Azure values to `azure/trusted-signing-action` yourself. The pfx thumbprint, PFX path and sign command are written either way. `"true"` also writes the secrets |
 
 Example — free updater signing (most common):
 

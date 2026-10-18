@@ -588,7 +588,8 @@ Inputs:
 - `build_command` (string, default `""`)
 - `series` (string, default `""`)
 - `ppa_target` (string, required, e.g. `ppa:your-launchpad-id/ppa-name`)
-- `launchpad_login` (string, default: the owner in `ppa_target`): Launchpad user the SSH key belongs to; set it for a team PPA
+- `upload_method` (string, default `ftp`): `ftp` uploads anonymously and Launchpad accepts the upload on the GPG signature; `sftp` logs in with the SSH key
+- `launchpad_login` (string, default: the owner in `ppa_target`): sftp only; Launchpad user the SSH key belongs to; set it for a team PPA
 - `deb_fullname` (string, default `""`)
 - `deb_email` (string, default `""`)
 - `signing_key_id` (string, required, GPG key ID or fingerprint)
@@ -598,13 +599,13 @@ Secrets:
 
 - `gpg_private_key` (armored private key)
 - `gpg_passphrase` (GPG key passphrase)
-- `launchpad_ssh_private_key` (SSH key registered with Launchpad)
+- `launchpad_ssh_private_key` (SSH key registered with Launchpad; required for `upload_method: sftp` only)
 
 Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
 
-The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step writes the Launchpad SSH key, runs `dput` and deletes the key. A custom `build_command` must therefore not sign.
+The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
 
-The upload goes over sftp to `ppa.launchpad.net` as `launchpad_login`, with incoming `~<owner>/<distribution>/<name>/` (distribution `ubuntu` unless `ppa_target` names one), so the key must be registered with that Launchpad account.
+The upload goes to `ppa.launchpad.net` with incoming `~<owner>/<distribution>/<name>/` (distribution `ubuntu` unless `ppa_target` names one). Over `ftp` (the default) it is anonymous. Over `sftp` it logs in as `launchpad_login`, so the key must be registered with that Launchpad account.
 
 The packaging scripts come from script-helpers at a pinned commit, checked out by the workflow and kept outside the source tree; the caller does not vendor them. The caller's `build_command`, if set, must produce a source package (`*_source.changes`).
 
