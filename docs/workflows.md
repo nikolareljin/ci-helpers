@@ -624,7 +624,10 @@ jobs:
     secrets:
       gpg_private_key: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
       gpg_passphrase: ${{ secrets.PPA_GPG_PASSPHRASE }}
-      launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}
+```
+
+Over sftp, add `upload_method: "sftp"` under `with:` and
+`launchpad_ssh_private_key: ${{ secrets.PPA_SSH_PRIVATE_KEY }}` under `secrets:`.
 
 ## rpm-build.yml
 

@@ -122,7 +122,7 @@ runs:
 
         # Only an exact "true" exports, so a typo keeps the secrets out.
         if ($env:EXPORT_ENV -cne "true") {
-          Write-Output "export_env is not "true": the caller passes the key to the build step."
+          Write-Output 'export_env is not "true": the caller passes the key to the build step.'
           exit 0
         }
         # Export to GITHUB_ENV for subsequent steps
@@ -264,7 +264,7 @@ runs:
 
         # Only an exact "true" exports, so a typo keeps the secrets out.
         if ($env:EXPORT_ENV -cne "true") {
-          Write-Output "export_env is not "true": the caller passes the credentials to the signing step."
+          Write-Output 'export_env is not "true": the caller passes the credentials to the signing step.'
           exit 0
         }
         # Export to GITHUB_ENV — azure/trusted-signing-action reads these
