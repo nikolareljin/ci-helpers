@@ -92,6 +92,10 @@ jobs:
         shell: bash
         run: bash tests/tauri_upload_once_test.sh
 
+      - name: ppa-deb takes its inputs through env
+        shell: bash
+        run: bash tests/no_inline_expressions_in_run_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's

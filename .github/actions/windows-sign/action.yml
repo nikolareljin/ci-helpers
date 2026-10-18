@@ -162,10 +162,16 @@ runs:
         Set-Acl $pfxPath $acl
 
         # Import into current-user cert store
-        $securePw = ConvertTo-SecureString $env:CERT_PW -AsPlainText -Force
-        $cert = Import-PfxCertificate -FilePath $pfxPath `
-          -CertStoreLocation Cert:\CurrentUser\My `
-          -Password $securePw
+        # The file is deleted as soon as the key is in the store: the caller's
+        # build runs next, as the same user, and could otherwise read it.
+        try {
+          $securePw = ConvertTo-SecureString $env:CERT_PW -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $securePw
+        } finally {
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+        }
         $thumb = $cert.Thumbprint
         Write-Output "::add-mask::$thumb"
 
@@ -185,7 +191,8 @@ runs:
         $cleanThumb = $thumb -replace '[\r\n]', ''
         $cleanPfx   = $pfxPath -replace '[\r\n]', ''
 
-        # Persist temp PFX path so cleanup step can remove it
+        # The PFX file is already gone; the path is kept for callers whose
+        # cleanup step still reads it (Test-Path finds nothing).
         Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_PFX_PATH=$cleanPfx"
         Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$cleanThumb"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGN_COMMAND=$signCmd"

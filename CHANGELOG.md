@@ -12,10 +12,13 @@
   `ppa-deb` also ran `./vendor/script-helpers` from the caller's checkout,
   which fetches no submodules, so the scripts were missing; it now checks
   script-helpers out at a pinned commit, outside the source tree.
+  `extra_packages` reached the install script as `${{ }}` text; it is env now.
   `tauri-release` no longer takes the updater key, Apple certificate or
   Azure credentials through `GITHUB_ENV`: they are env on the build or
   signing step only. `macos-sign` and `windows-sign` take `export_env`
   (default `"true"`); `"false"` writes no secret to `GITHUB_ENV`.
+  `windows-sign` in `pfx` mode deletes the decoded PFX file right after
+  the import instead of leaving it on disk through the caller's build.
 - **A rerun replaced published Tauri installers.** `tauri-release` uploaded
   with `overwrite_files` and `gh release upload --clobber`. An installer of
   that name already on the release (or the `dist_repo` release) now passes
