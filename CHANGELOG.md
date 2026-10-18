@@ -39,6 +39,8 @@
   names and the set of published files are unchanged. Two files that would
   publish under one name now fail the build instead of overwriting each
   other. `fpc-release` now publishes once, after every leg.
+  The release job runs on the new `release_runner` input (default
+  `ubuntu-latest`), not `runner`.
 - **Every checkout left its token in `.git/config`.** All checkouts now set
   `persist-credentials: false`, except the tap push in
   `homebrew-tap-publish.yml`, whose job runs no caller code. Steps that fetch

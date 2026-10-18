@@ -5,6 +5,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that holds contents: write. A fresh hosted runner by default:
+      # a reused self-hosted machine can carry state left by the build.
+      release_runner:
+        type: string
+        default: ubuntu-latest
       working_directory:
         type: string
         default: "."
@@ -365,8 +370,7 @@ jobs:
 
   release:
     needs: build
-    # Same runner as the build: a caller on a self-hosted runner stays there.
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.release_runner }}
     timeout-minutes: 10
     permissions:
       contents: write

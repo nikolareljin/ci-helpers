@@ -892,7 +892,7 @@ Workflow: `.github/workflows/deb-build.yml`
 
 Purpose: Build Debian packages, upload artifacts, and optionally attach the `.deb` to a GitHub release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -1549,7 +1549,7 @@ Workflow: `.github/workflows/release-build.yml`
 
 Purpose: Build release artifacts in any language and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
@@ -1614,7 +1614,7 @@ Workflow: `.github/workflows/rust-release.yml`
 
 Purpose: Build multi-target Rust release binaries and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `bin_name` (string, required)
@@ -1651,7 +1651,7 @@ Workflow: `.github/workflows/go-release.yml`
 
 Purpose: Build multi-target Go binaries and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `bin_name` (string, required)
