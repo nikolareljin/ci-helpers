@@ -329,7 +329,8 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    # Same runner as the build: a caller on a self-hosted runner stays there.
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: write
