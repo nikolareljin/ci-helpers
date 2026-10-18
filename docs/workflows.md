@@ -896,6 +896,7 @@ The build runs with `contents: read`; a separate `release` job holds `contents: 
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `prebuild_command` (string, default `"make man"`)
@@ -1553,6 +1554,7 @@ The build runs with `contents: read`; a separate `release` job holds `contents: 
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)
