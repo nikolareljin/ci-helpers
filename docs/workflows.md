@@ -1904,15 +1904,15 @@ Inputs:
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `plugin-check-results`)
 
-The generated stack pins `mariadb`, `wordpress:cli` and the default
-`wordpress:latest` by digest. An image composed from `wp_version`/`php_version`
-(for example `wordpress:6.6-php8.3-apache`) is your choice and is pulled by tag.
-
 Set `wp_version` (or `versions`) and the workflow generates the WordPress
 stack itself, so a plugin repository carries no compose file. Three plugins in
 this fleet each wrote one, and they differed only in the image tag, the mount
 path and the name of a port variable. `compose_file` still wins when set, for a
 repository that needs services this does not describe.
+
+The generated stack pins `mariadb`, `wordpress:cli` and the default
+`wordpress:latest` by digest. An image composed from `wp_version`/`php_version`
+(for example `wordpress:6.6-php8.3-apache`) is your choice and is pulled by tag.
 
 `versions` runs one leg per entry:
 
