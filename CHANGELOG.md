@@ -93,7 +93,9 @@
   for a released version keeps a file with the same sha256, replaces an
   unsigned package with a different one (with a warning), and fails on a
   signed one (`<file>.asc` published, or listed in a signed `SHA256SUMS`);
-  before, every file was overwritten. New
+  before, every file was overwritten. With signing on, a name GitHub would
+  rename (`~`, `+`, `:` in a Debian version) is published with those
+  characters as `.`, so `SHA256SUMS` names the file users download. New
   `docs/packaging.md`: one set of secret and variable names and the caller
   templates for `deb-build`, `ppa-deb` and `tauri-release`.
 

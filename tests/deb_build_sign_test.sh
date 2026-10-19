@@ -4,7 +4,8 @@
 #              GPG key: every file gets a verifying .asc, SHA256SUMS checks
 #              and its .asc verifies, no keyring is left behind. With no key
 #              the step passes and signs nothing; a wrong passphrase, half a
-#              configuration or a key id not in the key fails.
+#              configuration or a key id not in the key fails. Names
+#              GitHub would rename are signed under the published name.
 # USAGE: bash tests/deb_build_sign_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -101,6 +102,43 @@ for clash in SHA256SUMS a_1.0_amd64.deb.asc; do
     echo "FAIL caller's $clash: exit $rc"; cat "$work/log"; fail=1
   fi
 done
+# A Debian version with "~" or "+" is published by GitHub under another
+# name ("~" -> "."). The sign step and the release job's rename step use the
+# same name, so SHA256SUMS and each .asc match the published file.
+python3 - "$root/.github/workflows/deb-build.yml" > "$work/rename.sh" <<'PY2'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+steps = [s for s in d["jobs"]["release"]["steps"] if s.get("name") == "Use the names the signatures give"]
+assert len(steps) == 1, "no rename step"
+print(steps[0]["run"])
+PY2
+rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
+printf 'tilde' > "$work/job/release-files/c_1.0~rc1+ds-1_all.deb"
+printf 'plain' > "$work/job/release-files/d_1.0_all.deb"
+rc=0
+(cd "$work/job" && env -u GNUPGHOME RUNNER_TEMP="$work/job/tmp" GITHUB_OUTPUT="$work/job/out" \
+  GPG_PRIVATE_KEY="$key" GPG_PASSPHRASE="pw" KEY_ID="$fpr" bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
+if [ "$rc" != 0 ]; then
+  echo "FAIL tilde name: exit $rc"; cat "$work/log"; fail=1
+else
+  (cd "$work/job" && bash -e "$work/rename.sh") > "$work/log" 2>&1 || { echo "FAIL rename step"; cat "$work/log"; fail=1; }
+  [ -f "$work/job/release-files/c_1.0.rc1.ds-1_all.deb" ] || { echo "FAIL tilde name not renamed"; ls "$work/job/release-files"; fail=1; }
+  cp "$work/job/tmp/signatures/"* "$work/job/release-files/"
+  (cd "$work/job/release-files" && sha256sum -c --quiet SHA256SUMS && [ "$(wc -l < SHA256SUMS)" = 2 ]) \
+    || { echo "FAIL SHA256SUMS does not name the published files"; cat "$work/job/release-files/SHA256SUMS"; fail=1; }
+  (cd "$work/job/release-files" && gpg --batch --verify c_1.0.rc1.ds-1_all.deb.asc c_1.0.rc1.ds-1_all.deb 2>/dev/null) \
+    || { echo "FAIL renamed file's .asc does not verify"; fail=1; }
+fi
+# Two names that publish as one fail in both steps.
+rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
+printf 'a' > "$work/job/release-files/e_1~a.deb"; printf 'b' > "$work/job/release-files/e_1+a.deb"
+rc=0
+(cd "$work/job" && env -u GNUPGHOME RUNNER_TEMP="$work/job/tmp" GITHUB_OUTPUT="$work/job/out" \
+  GPG_PRIVATE_KEY="$key" GPG_PASSPHRASE="pw" KEY_ID="$fpr" bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
+{ [ "$rc" = 1 ] && grep -q "both publish as" "$work/log"; } || { echo "FAIL sign: name clash exit $rc"; cat "$work/log"; fail=1; }
+rc=0; (cd "$work/job" && bash -e "$work/rename.sh") > "$work/log" 2>&1 || rc=$?
+{ [ "$rc" = 1 ] && grep -q "both publish as" "$work/log"; } || { echo "FAIL rename: name clash exit $rc"; cat "$work/log"; fail=1; }
+rm -rf "$work/job/tmp/signatures"
 # The keyring and passphrase file live under RUNNER_TEMP and are gone after.
 [ -z "$(find "$work/job/tmp" -mindepth 1 -maxdepth 1 ! -name signatures)" ] || { echo "FAIL keyring or passphrase file left in RUNNER_TEMP"; ls -la "$work/job/tmp"; fail=1; }
 

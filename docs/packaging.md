@@ -109,7 +109,8 @@ Re-running `deb-build` for a version that is already released:
 A signed package may already be installed and verified by users, so a fix
 goes out as a new version. To replace it in place anyway, delete the package,
 its `.asc`, `SHA256SUMS` and `SHA256SUMS.asc` from the release by hand, then
-re-run. An unsigned release rebuilt with signing on gets the new packages,
+re-run. With signing on, characters GitHub renames in an asset name (`~`, `+`,
+`:`) are published as `.`, so `SHA256SUMS` matches the downloaded names. An unsigned release rebuilt with signing on gets the new packages,
 their `.asc` files and a signed `SHA256SUMS`; from then on it is protected.
 
 ## Verifying a download

@@ -353,10 +353,20 @@ jobs:
             echo "::error::no files to sign"
             exit 1
           fi
+          # GitHub renames an asset with other characters than these (a
+          # Debian "1.0~rc1" is published as "1.0.rc1"), so the signatures
+          # and SHA256SUMS use the name the release job publishes.
+          : > "$out/SHA256SUMS"
+          seen=" "
           for f in "${files[@]}"; do
-            sig --armor --detach-sign --output "$out/$f.asc" -- "./$f"
+            pub="${f//[^A-Za-z0-9._-]/.}"
+            case "$seen" in *" $pub "*)
+              echo "::error::two release files would both publish as '$pub'"; exit 1 ;;
+            esac
+            seen="${seen}${pub} "
+            sig --armor --detach-sign --output "$out/$pub.asc" -- "./$f"
+            printf '%s  %s\n' "$(sha256sum -- "./$f" | cut -d' ' -f1)" "$pub" >> "$out/SHA256SUMS"
           done
-          sha256sum -- "${files[@]}" > "$out/SHA256SUMS"
           sig --armor --detach-sign --output "$out/SHA256SUMS.asc" "$out/SHA256SUMS"
           echo "signed=true" >> "$GITHUB_OUTPUT"
           echo "Signed ${#files[@]} file(s) with ${KEY_ID}."
@@ -394,6 +404,25 @@ jobs:
         with:
           artifact-ids: ${{ needs.sign.outputs.sigs_id }}
           path: release-files
+
+      # Same rule as the sign job, so each package is published under the
+      # name its .asc and SHA256SUMS give it. Unsigned runs keep their names.
+      - name: Use the names the signatures give
+        if: ${{ needs.sign.outputs.sigs_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in release-files/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            pub="${name//[^A-Za-z0-9._-]/.}"
+            [ "$pub" = "$name" ] && continue
+            if [ -e "release-files/$pub" ]; then
+              echo "::error::$name and $pub would both publish as $pub"; exit 1
+            fi
+            mv -- "$f" "release-files/$pub"
+            echo "$name is published as $pub."
+          done
 
       - name: Download release notes
         id: notes
