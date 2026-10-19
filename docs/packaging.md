@@ -31,8 +31,10 @@ account-wide secrets: set them per repository.
 | `APPLE_APP_PASSWORD` | secret | app-specific password, for notarization |
 | `APPLE_SIGNING_ENABLED` | variable | `true` once the Apple secrets are set |
 
-Nothing fails while a name is unset: `deb-build` publishes unsigned with a
-notice, the PPA job is skipped, Tauri builds unsigned.
+Nothing fails while the names are unset: `deb-build` publishes unsigned with
+a notice, the PPA job is skipped, Tauri builds unsigned. `deb-build` fails when
+only one of `GPG_PRIVATE_KEY` and `GPG_KEY_ID` is set, or when `GPG_KEY_ID` is
+not a key in `GPG_PRIVATE_KEY`.
 
 ## Callers
 

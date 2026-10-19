@@ -308,9 +308,14 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          if [ -z "$GPG_PRIVATE_KEY" ] || [ -z "$KEY_ID" ]; then
+          if [ -z "$GPG_PRIVATE_KEY" ] && [ -z "$KEY_ID" ]; then
             echo "::notice::No gpg_private_key or signing_key_id: the release is published unsigned."
             exit 0
+          fi
+          # Half a configuration would publish unsigned without anyone asking.
+          if [ -z "$GPG_PRIVATE_KEY" ] || [ -z "$KEY_ID" ]; then
+            echo "::error::signing needs both the gpg_private_key secret and the signing_key_id input; only one is set."
+            exit 1
           fi
           # Under RUNNER_TEMP, which the runner empties after the job, so
           # nothing survives on a reused machine even if the trap does not run.
@@ -320,6 +325,10 @@ jobs:
           trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME" "$pass_file"' EXIT
           chmod 700 "$GNUPGHOME"
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          if ! gpg --batch --list-secret-keys -- "$KEY_ID" >/dev/null 2>&1; then
+            echo "::error::signing_key_id ${KEY_ID} is not a secret key in gpg_private_key."
+            exit 1
+          fi
           printf '%s' "$GPG_PASSPHRASE" > "$pass_file"
           sig() { gpg --batch --yes --pinentry-mode loopback --passphrase-file "$pass_file" --local-user "$KEY_ID" "$@"; }
           out="${RUNNER_TEMP}/signatures"
@@ -331,6 +340,8 @@ jobs:
             # A name gpg could read as an option is refused, not signed.
             case "$f" in
               -*) echo "::error::refusing to sign '$f': name starts with '-'"; exit 1 ;;
+              # sha256sum escapes these, so SHA256SUMS would not name the file.
+              *$'\n'*|*\\*) echo "::error::refusing to sign a file whose name has a newline or backslash"; exit 1 ;;
               # This step writes these; a caller's copy would be replaced.
               SHA256SUMS|SHA256SUMS.asc|*.asc)
                 echo "::error::'$f' is in artifact_glob; with signing on, deb-build writes SHA256SUMS and the .asc files itself."

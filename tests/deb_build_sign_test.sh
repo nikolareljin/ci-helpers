@@ -3,7 +3,8 @@
 # DESCRIPTION: Run the "Sign packages" step of deb-build.yml with a throwaway
 #              GPG key: every file gets a verifying .asc, SHA256SUMS checks
 #              and its .asc verifies, no keyring is left behind. With no key
-#              the step passes and signs nothing; a wrong passphrase fails.
+#              the step passes and signs nothing; a wrong passphrase, half a
+#              configuration or a key id not in the key fails.
 # USAGE: bash tests/deb_build_sign_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -64,6 +65,12 @@ if run "no key" "" "" "" 0; then
   ! grep -q "signed=true" "$work/job/out" 2>/dev/null || { echo "FAIL no key: signed=true"; fail=1; }
 fi
 run "wrong passphrase" "nope" "$key" "$fpr" 2 || true
+# Half a configuration fails instead of publishing unsigned.
+run "key without id" "pw" "$key" "" 1 && { grep -q "needs both" "$work/log" || { echo "FAIL key without id: no error"; fail=1; }; }
+run "id without key" "" "" "$fpr" 1 && { grep -q "needs both" "$work/log" || { echo "FAIL id without key: no error"; fail=1; }; }
+# A key id that is not in the imported key fails before signing.
+run "other key id" "pw" "$key" "0123456789ABCDEF0123456789ABCDEF01234567" 1 \
+  && { grep -q "is not a secret key" "$work/log" || { echo "FAIL other key id: no error"; fail=1; }; }
 # A file named like an option is refused before anything is signed.
 rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
 printf 'x' > "$work/job/release-files/--output=pwned"
@@ -73,6 +80,16 @@ rc=0
 if [ "$rc" != 1 ] || ! grep -q "refusing to sign" "$work/log"; then
   echo "FAIL option-like name: exit $rc"; cat "$work/log"; fail=1
 fi
+for bad in $'a\nb.deb' 'a\\b.deb'; do
+  rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
+  printf 'x' > "$work/job/release-files/$bad"
+  rc=0
+  (cd "$work/job" && env -u GNUPGHOME RUNNER_TEMP="$work/job/tmp" GITHUB_OUTPUT="$work/job/out" \
+    GPG_PRIVATE_KEY="$key" GPG_PASSPHRASE="pw" KEY_ID="$fpr" bash -e "$work/step.sh") > "$work/log" 2>&1 || rc=$?
+  if [ "$rc" != 1 ] || ! grep -q "newline or backslash" "$work/log"; then
+    echo "FAIL name with newline or backslash: exit $rc"; cat "$work/log"; fail=1
+  fi
+done
 for clash in SHA256SUMS a_1.0_amd64.deb.asc; do
   rm -rf "$work/job"; mkdir -p "$work/job/release-files" "$work/job/tmp"
   printf 'x' > "$work/job/release-files/a_1.0_amd64.deb"
