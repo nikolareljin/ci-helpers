@@ -392,12 +392,12 @@ jobs:
           artifact-ids: ${{ needs.build.outputs.notes_id }}
           path: release-notes
 
-      # A published package is never replaced: users may have fetched and
-      # verified it. A file already on the release with the same sha256 is
-      # kept, a different one fails; delete the asset to republish. A
-      # published signature is kept when its file was kept (a new signature
-      # of the same bytes differs only in time); next to a new file it would
-      # not verify, so that fails too.
+      # Only a signed package is never replaced: users may have verified it
+      # against its signature. Signed means the release has <file>.asc, or a
+      # SHA256SUMS that SHA256SUMS.asc signs lists the file. An unsigned
+      # package with a different sha256 is replaced by this run. The same
+      # sha256 is always kept. A published signature is kept next to its
+      # kept file, and refused next to a new one, since it would not verify.
       - name: Keep what is already published
         if: ${{ needs.build.outputs.files_id != '' }}
         shell: bash
@@ -416,6 +416,9 @@ jobs:
             echo "::error::could not read release $VERSION: $(head -c 300 "${RUNNER_TEMP}/gh-api.err")"
             exit 1
           fi
+          published() { # name -> 0 when the release has it
+            printf '%s' "$json" | jq -e --arg n "$1" 'any(.assets[]; .name == $n)' >/dev/null
+          }
           digest() { # name -> published sha256:<hex>, "" when absent
             local name="$1" have
             have="$(printf '%s' "$json" | jq -r --arg n "$name" \
@@ -427,8 +430,21 @@ jobs:
             fi
             printf '%s' "$have"
           }
+          # Names a signed SHA256SUMS on the release lists, one per line.
+          signed_list=""
+          if published SHA256SUMS && published SHA256SUMS.asc; then
+            rm -rf .published-sums && mkdir -p .published-sums
+            gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p SHA256SUMS -D .published-sums \
+              || { echo "::error::could not read the published SHA256SUMS"; exit 1; }
+            signed_list="$(sed -E 's/^[0-9A-Fa-f]+ [ *]//' .published-sums/SHA256SUMS)"
+          fi
+          signed() { # name -> 0 when the published copy is signed
+            published "$1.asc" && return 0
+            [ -n "$signed_list" ] && printf '%s\n' "$signed_list" | grep -qxF -- "$1"
+          }
           rc=0
           kept=" "
+          replaced=""
           # Packages first; SHA256SUMS after them, so a changed list can be
           # told apart from a changed package.
           for f in release-files/*; do
@@ -443,9 +459,12 @@ jobs:
               echo "$name is already on $VERSION with the same sha256; kept."
               kept="${kept}${name} "
               rm -f "$f"
-            else
-              echo "::error::$name is already on $VERSION with a different sha256 ($have); refusing to replace a published package. Delete it to republish."
+            elif signed "$name"; then
+              echo "::error::$name is already on $VERSION, signed, with a different sha256 ($have); refusing to replace a signed package. Release a new version, or delete $name, its .asc, SHA256SUMS and SHA256SUMS.asc from the release by hand to republish."
               rc=1
+            else
+              echo "::warning::$name is already on $VERSION, unsigned, with a different sha256 ($have); replacing it."
+              replaced="${replaced}${name} "
             fi
           done
           [ "$rc" = 0 ] || exit 1
@@ -456,20 +475,21 @@ jobs:
               echo "SHA256SUMS is already on $VERSION with the same sha256; kept."
               kept="${kept}SHA256SUMS "
               rm -f release-files/SHA256SUMS
-            elif [ -n "$have" ]; then
-              # Every package passed above, so this run lists other files
-              # (one was added). The list is signed in the sign job; it is
-              # not replaced here.
-              echo "::error::SHA256SUMS on $VERSION lists other files than this run publishes; refusing to replace it. Delete SHA256SUMS and SHA256SUMS.asc from the release to publish the new list."
+            elif [ -n "$have" ] && published SHA256SUMS.asc; then
+              # No signed package changed above, so this run lists other
+              # files (one was added). A signed list is not replaced.
+              echo "::error::the signed SHA256SUMS on $VERSION lists other files than this run publishes; refusing to replace it. Release a new version, or delete SHA256SUMS and SHA256SUMS.asc from the release by hand to publish the new list."
               exit 1
+            elif [ -n "$have" ]; then
+              echo "::warning::SHA256SUMS on $VERSION is unsigned and differs; replacing it."
             fi
+          elif [ -n "$replaced" ] && published SHA256SUMS; then
+            echo "::warning::replaced ${replaced}but this run publishes no SHA256SUMS; the one on $VERSION may list the old sha256."
           fi
-          [ "$rc" = 0 ] || exit 1
           for f in release-files/*.asc; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
-            have="$(digest "$name")" || { echo "::error::could not read the published $name"; exit 1; }
-            [ -n "$have" ] || continue
+            published "$name" || continue
             case "$kept" in
               *" ${name%.asc} "*)
                 echo "$name is already on $VERSION; the published signature is kept."
@@ -483,12 +503,14 @@ jobs:
           done
           exit "$rc"
 
+      # Only files the step above allows are left: new ones and unsigned
+      # replacements.
       - name: Upload .deb to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
           files: release-files/*
-          overwrite_files: false
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

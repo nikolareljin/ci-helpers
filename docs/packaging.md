@@ -95,6 +95,21 @@ Do not call `codesign`, `notarytool` or `gpg` in the repository's own
 workflows: a key in a job that also runs the build is readable by every
 dependency the build installs.
 
+## Republishing a release
+
+Re-running `deb-build` for a version that is already released:
+
+| Published package | Same sha256 | Different sha256 |
+|---|---|---|
+| unsigned | kept | replaced, with a warning |
+| signed (`<file>.asc`, or listed in a signed `SHA256SUMS`) | kept | run fails |
+
+A signed package may already be installed and verified by users, so a fix
+goes out as a new version. To replace it in place anyway, delete the package,
+its `.asc`, `SHA256SUMS` and `SHA256SUMS.asc` from the release by hand, then
+re-run. An unsigned release rebuilt with signing on gets the new packages,
+their `.asc` files and a signed `SHA256SUMS`; from then on it is protected.
+
 ## Verifying a download
 
 ```bash

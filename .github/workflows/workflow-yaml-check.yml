@@ -112,7 +112,7 @@ jobs:
         shell: bash
         run: bash tests/deb_build_sign_test.sh
 
-      - name: deb-build never replaces a published package or signature
+      - name: deb-build replaces an unsigned package, never a signed one
         shell: bash
         run: bash tests/deb_build_publish_once_test.sh
 
