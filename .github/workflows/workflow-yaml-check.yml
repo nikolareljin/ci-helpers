@@ -66,6 +66,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/update_pinned_actions.sh --check
 
+      # Images by digest, downloads by sha256, SSH host keys checked. The
+      # test runs the gate against cases it must refuse and cases it must
+      # pass, then the gate runs against this tree.
+      - name: Supply-chain pin check reports what it must
+        shell: bash
+        run: bash tests/supply_chain_pins_test.sh
+
+      - name: Images, downloads and host keys are pinned
+        shell: bash
+        run: python3 scripts/check_supply_chain_pins.py
+
+      - name: fpc-release verifies appimagetool and its runtime
+        shell: bash
+        run: bash tests/fpc_appimage_verify_test.sh
+
       - name: Detect floating action refs
         shell: bash
         run: bash scripts/check_floating_refs.sh

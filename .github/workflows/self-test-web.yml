@@ -167,7 +167,7 @@ jobs:
     with:
       working_directory: tests/fixtures/django-app
       python_version: '3.12'
-      db_image: postgres:16
+      db_image: postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
       db_name: fixture_db
       db_user: fixture
       db_password: fixture

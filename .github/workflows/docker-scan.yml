@@ -148,5 +148,5 @@ jobs:
             -v "$socket":/var/run/docker.sock \
             -v "$workspace":/github/workspace \
             -w /github/workspace \
-            snyk/snyk:docker \
+            snyk/snyk:docker@sha256:d6595337edef7ce37eded247b8bb47ebb60681fd802c49e64c1b80b3a6963187 \
             snyk test --severity-threshold="$SEVERITY_THRESHOLD" --docker "$IMAGE_NAME"
