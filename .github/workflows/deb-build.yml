@@ -360,6 +360,9 @@ jobs:
           seen=" "
           for f in "${files[@]}"; do
             pub="${f//[^A-Za-z0-9._-]/.}"
+            case "$pub" in .*|*.)
+              echo "::error::'$f' would publish with a leading or trailing '.', which GitHub changes; rename it"; exit 1 ;;
+            esac
             case "$seen" in *" $pub "*)
               echo "::error::two release files would both publish as '$pub'"; exit 1 ;;
             esac
@@ -405,10 +408,10 @@ jobs:
           artifact-ids: ${{ needs.sign.outputs.sigs_id }}
           path: release-files
 
-      # Same rule as the sign job, so each package is published under the
-      # name its .asc and SHA256SUMS give it. Unsigned runs keep their names.
-      - name: Use the names the signatures give
-        if: ${{ needs.sign.outputs.sigs_id != '' }}
+      # GitHub stores these names anyway; renaming first lets the Keep step
+      # find the published copy, signed or not, and matches the sign job.
+      - name: Use the names GitHub publishes
+        if: ${{ needs.build.outputs.files_id != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -416,6 +419,9 @@ jobs:
             [ -f "$f" ] || continue
             name="$(basename "$f")"
             pub="${name//[^A-Za-z0-9._-]/.}"
+            case "$pub" in .*|*.)
+              echo "::error::'$name' would publish with a leading or trailing '.', which GitHub changes; rename it"; exit 1 ;;
+            esac
             [ "$pub" = "$name" ] && continue
             if [ -e "release-files/$pub" ]; then
               echo "::error::$name and $pub would both publish as $pub"; exit 1

@@ -4,7 +4,8 @@
 #              against a stub gh: files already on the release with the same
 #              sha256 are dropped from the upload; a different sha256 fails
 #              for a signed package and is replaced for an unsigned one; a
-#              published signature is kept only next to its kept file.
+#              published signature is kept only next to its kept file. Names
+#              are first renamed the way GitHub stores them.
 # USAGE: bash tests/deb_build_publish_once_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -13,12 +14,15 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-python3 - "$root/.github/workflows/deb-build.yml" > "$work/step.sh" <<'PY'
+python3 - "$root/.github/workflows/deb-build.yml" "$work/rename.sh" > "$work/step.sh" <<'PY'
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 steps = [s for s in d["jobs"]["release"]["steps"] if s.get("name") == "Keep what is already published"]
 assert len(steps) == 1, "no Keep what is already published step"
 print(steps[0]["run"])
+ren = [s for s in d["jobs"]["release"]["steps"] if s.get("name") == "Use the names GitHub publishes"]
+assert len(ren) == 1 and "sigs_id" not in ren[0].get("if", ""), "names must be normalised for unsigned runs too"
+open(sys.argv[2], "w").write(ren[0]["run"])
 up = [s for s in d["jobs"]["release"]["steps"] if s.get("name") == "Upload .deb to GitHub release"]
 # The step above leaves only new files and unsigned replacements.
 assert len(up) == 1 and up[0]["with"]["overwrite_files"] is True, "upload must overwrite what the step allows"
@@ -140,6 +144,30 @@ setup a.deb=A
 publish a.deb=A
 DIGESTS=0 DL_FAIL=1 run "download fails" 1 || true
 grep -q "could not read the published a.deb" "$work/log" || { echo "FAIL download fails: no error"; cat "$work/log"; fail=1; }
+
+# Unsigned run, Debian name with "~": GitHub stores it as "f_1.0.rc1_all.deb".
+# The rename step runs first, so the Keep step finds the published copy.
+renamed_run() { # name expected-rc-of-rename
+  local rc=0
+  (cd "$work/job" && bash -e "$work/rename.sh") > "$work/log" 2>&1 || rc=$?
+  if [ "$rc" != "$2" ]; then echo "FAIL $1 (rename): exit $rc, expected $2"; cat "$work/log"; fail=1; return 1; fi
+  [ "$rc" = 0 ] || return 0
+  run "$1" 0
+}
+setup 'f_1.0~rc1_all.deb=A'
+publish 'f_1.0.rc1_all.deb=A'
+renamed_run "unsigned tilde, same bytes" 0 && expect_left "unsigned tilde, same bytes" ""
+setup 'f_1.0~rc1_all.deb=B'
+publish 'f_1.0.rc1_all.deb=A'
+renamed_run "unsigned tilde, different bytes" 0 && {
+  expect_left "unsigned tilde, different bytes" "f_1.0.rc1_all.deb "
+  grep -q "unsigned, with a different sha256" "$work/log" || { echo "FAIL unsigned tilde: no warning"; cat "$work/log"; fail=1; }
+}
+# GitHub changes a trailing or leading ".", so such a name is refused.
+for bad in 'f_1.0~' '~f.deb'; do
+  setup "$bad=A"; rm -rf "$work/pub"
+  renamed_run "edge dot $bad" 1 && { grep -q "leading or trailing" "$work/log" || { echo "FAIL $bad: wrong error"; cat "$work/log"; fail=1; }; }
+done
 
 [ "$fail" = 0 ] && echo "ok: deb-build replaces unsigned packages only, never a signed one"
 exit "$fail"
