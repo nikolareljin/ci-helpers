@@ -83,6 +83,23 @@
   `scripts/check_token_exposure.sh` (zizmor 1.16.3, pinned by digest) fails
   on either finding and runs in `workflow-yaml-check.yml`.
 
+### Added
+
+- **`deb-build` signs what it publishes.** New `signing_key_id` input and
+  optional `gpg_private_key`/`gpg_passphrase` secrets: a `sign` job that runs
+  no caller code adds `<file>.asc`, `SHA256SUMS` and `SHA256SUMS.asc` to the
+  release. Without a key the release is unsigned, with a notice; a key without
+  `signing_key_id`, or the reverse, or an id not in the key, fails. A re-run
+  for a released version keeps a file with the same sha256, replaces an
+  unsigned package with a different one (with a warning), and fails on a
+  signed one (`<file>.asc` published, or listed in a signed `SHA256SUMS`);
+  before, every file was overwritten. A name GitHub would rename (`~`, `+`, `:`
+  in a Debian version) is published with those characters as `.`, the name
+  GitHub stores, so `SHA256SUMS` and the rerun check match the release; a
+  name that would start or end with `.` fails. New
+  `docs/packaging.md`: one set of secret and variable names and the caller
+  templates for `deb-build`, `ppa-deb` and `tauri-release`.
+
 ## 2026-10-17 — v0.41.0
 
 ### Fixed

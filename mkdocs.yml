@@ -153,6 +153,7 @@ nav:
       - Composite actions: actions.md
   - Guides:
       - Private-repo CI strategy: private-repo-ci-strategy.md
+      - Packaging and signing (DEB, PPA, macOS): packaging.md
       - Release RC PRs: RELEASE_RC_PR.md
       - Apple App Store (Fastlane): APPLE_FASTLANE_PUBLISH.md
       - Google Play (Fastlane): GOOGLE_PLAY_PUBLISH.md

@@ -45,6 +45,19 @@ on:
           Set explicitly when triggering via workflow_dispatch with a backfill tag.
         type: string
         default: ""
+      signing_key_id:
+        description: >
+          GPG key fingerprint that signs the published .deb files. With the
+          gpg_private_key secret, the release gets <file>.asc for each file,
+          SHA256SUMS and SHA256SUMS.asc. Empty: the release is unsigned and
+          the run says so.
+        type: string
+        default: ""
+    secrets:
+      gpg_private_key:
+        required: false
+      gpg_passphrase:
+        required: false
 
 permissions:
   contents: read
@@ -266,9 +279,114 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  release:
+  # Signs the files the build handed over. Runs nothing from the caller, so
+  # the GPG key never shares a job with the caller's build or dependencies.
+  sign:
     needs: build
-    if: inputs.upload_to_release != 'false' && needs.build.outputs.skip == 'false'
+    if: ${{ needs.build.outputs.files_id != '' }}
+    runs-on: ${{ inputs.release_runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sigs_id: ${{ steps.sigs.outputs.artifact-id }}
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          artifact-ids: ${{ needs.build.outputs.files_id }}
+          path: release-files
+
+      # The key lives in a throwaway GNUPGHOME for this step only.
+      - name: Sign packages
+        id: sign
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
+          GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
+          KEY_ID: ${{ inputs.signing_key_id }}
+        run: |
+          set -euo pipefail
+          set +x
+          if [ -z "$GPG_PRIVATE_KEY" ] && [ -z "$KEY_ID" ]; then
+            echo "::notice::No gpg_private_key or signing_key_id: the release is published unsigned."
+            exit 0
+          fi
+          # Half a configuration would publish unsigned without anyone asking.
+          if [ -z "$GPG_PRIVATE_KEY" ] || [ -z "$KEY_ID" ]; then
+            echo "::error::signing needs both the gpg_private_key secret and the signing_key_id input; only one is set."
+            exit 1
+          fi
+          # Under RUNNER_TEMP, which the runner empties after the job, so
+          # nothing survives on a reused machine even if the trap does not run.
+          GNUPGHOME="$(mktemp -d -p "$RUNNER_TEMP")"
+          export GNUPGHOME
+          pass_file="$(mktemp -p "$RUNNER_TEMP")"
+          trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME" "$pass_file"' EXIT
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          if ! gpg --batch --list-secret-keys -- "$KEY_ID" >/dev/null 2>&1; then
+            echo "::error::signing_key_id ${KEY_ID} is not a secret key in gpg_private_key."
+            exit 1
+          fi
+          printf '%s' "$GPG_PASSPHRASE" > "$pass_file"
+          sig() { gpg --batch --yes --pinentry-mode loopback --passphrase-file "$pass_file" --local-user "$KEY_ID" "$@"; }
+          out="${RUNNER_TEMP}/signatures"
+          mkdir -p "$out"
+          cd release-files
+          files=()
+          for f in *; do
+            [ -f "$f" ] || continue
+            # A name gpg could read as an option is refused, not signed.
+            case "$f" in
+              -*) echo "::error::refusing to sign '$f': name starts with '-'"; exit 1 ;;
+              # sha256sum escapes these, so SHA256SUMS would not name the file.
+              *$'\n'*|*\\*) echo "::error::refusing to sign a file whose name has a newline or backslash"; exit 1 ;;
+              # This step writes these; a caller's copy would be replaced.
+              SHA256SUMS|SHA256SUMS.asc|*.asc)
+                echo "::error::'$f' is in artifact_glob; with signing on, deb-build writes SHA256SUMS and the .asc files itself."
+                exit 1 ;;
+            esac
+            files+=("$f")
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no files to sign"
+            exit 1
+          fi
+          # GitHub renames an asset with other characters than these (a
+          # Debian "1.0~rc1" is published as "1.0.rc1"), so the signatures
+          # and SHA256SUMS use the name the release job publishes.
+          : > "$out/SHA256SUMS"
+          seen=" "
+          for f in "${files[@]}"; do
+            pub="${f//[^A-Za-z0-9._-]/.}"
+            case "$pub" in .*|*.)
+              echo "::error::'$f' would publish with a leading or trailing '.', which GitHub changes; rename it"; exit 1 ;;
+            esac
+            case "$seen" in *" $pub "*)
+              echo "::error::two release files would both publish as '$pub'"; exit 1 ;;
+            esac
+            seen="${seen}${pub} "
+            sig --armor --detach-sign --output "$out/$pub.asc" -- "./$f"
+            printf '%s  %s\n' "$(sha256sum -- "./$f" | cut -d' ' -f1)" "$pub" >> "$out/SHA256SUMS"
+          done
+          sig --armor --detach-sign --output "$out/SHA256SUMS.asc" "$out/SHA256SUMS"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "Signed ${#files[@]} file(s) with ${KEY_ID}."
+
+      - name: Hand signatures to the release job
+        id: sigs
+        if: ${{ steps.sign.outputs.signed == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: ${{ inputs.artifact_name }}-signatures
+          path: ${{ runner.temp }}/signatures
+          if-no-files-found: error
+          overwrite: true
+
+  release:
+    needs: [build, sign]
+    if: ${{ always() && inputs.upload_to_release != 'false' && needs.build.result == 'success' && needs.build.outputs.skip == 'false' && needs.sign.result != 'failure' && needs.sign.result != 'cancelled' }}
     runs-on: ${{ inputs.release_runner }}
     timeout-minutes: 10
     permissions:
@@ -283,6 +401,35 @@ jobs:
           artifact-ids: ${{ needs.build.outputs.files_id }}
           path: release-files
 
+      - name: Download signatures
+        if: ${{ needs.sign.outputs.sigs_id != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          artifact-ids: ${{ needs.sign.outputs.sigs_id }}
+          path: release-files
+
+      # GitHub stores these names anyway; renaming first lets the Keep step
+      # find the published copy, signed or not, and matches the sign job.
+      - name: Use the names GitHub publishes
+        if: ${{ needs.build.outputs.files_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in release-files/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            pub="${name//[^A-Za-z0-9._-]/.}"
+            case "$pub" in .*|*.)
+              echo "::error::'$name' would publish with a leading or trailing '.', which GitHub changes; rename it"; exit 1 ;;
+            esac
+            [ "$pub" = "$name" ] && continue
+            if [ -e "release-files/$pub" ]; then
+              echo "::error::$name and $pub would both publish as $pub"; exit 1
+            fi
+            mv -- "$f" "release-files/$pub"
+            echo "$name is published as $pub."
+          done
+
       - name: Download release notes
         id: notes
         if: ${{ needs.build.outputs.notes_id != '' }}
@@ -291,6 +438,119 @@ jobs:
           artifact-ids: ${{ needs.build.outputs.notes_id }}
           path: release-notes
 
+      # Only a signed package is never replaced: users may have verified it
+      # against its signature. Signed means the release has <file>.asc, or a
+      # SHA256SUMS that SHA256SUMS.asc signs lists the file. An unsigned
+      # package with a different sha256 is replaced by this run. The same
+      # sha256 is always kept. A published signature is kept next to its
+      # kept file, and refused next to a new one, since it would not verify.
+      - name: Keep what is already published
+        if: ${{ needs.build.outputs.files_id != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Only a 404 means "no release yet"; any other failure stops the run
+          # rather than skip the check.
+          if ! json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" 2>"${RUNNER_TEMP}/gh-api.err")"; then
+            if grep -q "HTTP 404" "${RUNNER_TEMP}/gh-api.err"; then
+              echo "No release $VERSION yet; every file is new."
+              exit 0
+            fi
+            echo "::error::could not read release $VERSION: $(head -c 300 "${RUNNER_TEMP}/gh-api.err")"
+            exit 1
+          fi
+          published() { # name -> 0 when the release has it
+            printf '%s' "$json" | jq -e --arg n "$1" 'any(.assets[]; .name == $n)' >/dev/null
+          }
+          digest() { # name -> published sha256:<hex>, "" when absent
+            local name="$1" have
+            have="$(printf '%s' "$json" | jq -r --arg n "$name" \
+              '[.assets[] | select(.name == $n)] | if length == 0 then "" else (.[0].digest // "unknown") end')"
+            if [ "$have" = "unknown" ]; then
+              rm -rf .published && mkdir -p .published
+              gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p "$name" -D .published || return 1
+              have="sha256:$(sha256sum ".published/$name" | cut -d' ' -f1)" || return 1
+            fi
+            printf '%s' "$have"
+          }
+          # Names a signed SHA256SUMS on the release lists, one per line.
+          signed_list=""
+          if published SHA256SUMS && published SHA256SUMS.asc; then
+            rm -rf .published-sums && mkdir -p .published-sums
+            gh release download "$VERSION" -R "$GITHUB_REPOSITORY" -p SHA256SUMS -D .published-sums \
+              || { echo "::error::could not read the published SHA256SUMS"; exit 1; }
+            signed_list="$(sed -E 's/^[0-9A-Fa-f]+ [ *]//' .published-sums/SHA256SUMS)"
+          fi
+          signed() { # name -> 0 when the published copy is signed
+            published "$1.asc" && return 0
+            [ -n "$signed_list" ] && printf '%s\n' "$signed_list" | grep -qxF -- "$1"
+          }
+          rc=0
+          kept=" "
+          replaced=""
+          # Packages first; SHA256SUMS after them, so a changed list can be
+          # told apart from a changed package.
+          for f in release-files/*; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            case "$name" in *.asc|SHA256SUMS) continue ;; esac
+            have="$(digest "$name")" || { echo "::error::could not read the published $name"; exit 1; }
+            want="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+            if [ -z "$have" ]; then
+              continue
+            elif [ "$have" = "$want" ]; then
+              echo "$name is already on $VERSION with the same sha256; kept."
+              kept="${kept}${name} "
+              rm -f "$f"
+            elif signed "$name"; then
+              echo "::error::$name is already on $VERSION, signed, with a different sha256 ($have); refusing to replace a signed package. Release a new version, or delete $name, its .asc, SHA256SUMS and SHA256SUMS.asc from the release by hand to republish."
+              rc=1
+            else
+              echo "::warning::$name is already on $VERSION, unsigned, with a different sha256 ($have); replacing it."
+              replaced="${replaced}${name} "
+            fi
+          done
+          [ "$rc" = 0 ] || exit 1
+          if [ -f release-files/SHA256SUMS ]; then
+            have="$(digest SHA256SUMS)" || { echo "::error::could not read the published SHA256SUMS"; exit 1; }
+            want="sha256:$(sha256sum release-files/SHA256SUMS | cut -d' ' -f1)"
+            if [ "$have" = "$want" ]; then
+              echo "SHA256SUMS is already on $VERSION with the same sha256; kept."
+              kept="${kept}SHA256SUMS "
+              rm -f release-files/SHA256SUMS
+            elif [ -n "$have" ] && published SHA256SUMS.asc; then
+              # No signed package changed above, so this run lists other
+              # files (one was added). A signed list is not replaced.
+              echo "::error::the signed SHA256SUMS on $VERSION lists other files than this run publishes; refusing to replace it. Release a new version, or delete SHA256SUMS and SHA256SUMS.asc from the release by hand to publish the new list."
+              exit 1
+            elif [ -n "$have" ]; then
+              echo "::warning::SHA256SUMS on $VERSION is unsigned and differs; replacing it."
+            fi
+          elif [ -n "$replaced" ] && published SHA256SUMS; then
+            echo "::warning::replaced ${replaced}but this run publishes no SHA256SUMS; the one on $VERSION may list the old sha256."
+          fi
+          for f in release-files/*.asc; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f")"
+            published "$name" || continue
+            case "$kept" in
+              *" ${name%.asc} "*)
+                echo "$name is already on $VERSION; the published signature is kept."
+                rm -f "$f"
+                ;;
+              *)
+                echo "::error::$name is already on $VERSION but ${name%.asc} is new; the old signature would not verify. Delete it to republish."
+                rc=1
+                ;;
+            esac
+          done
+          exit "$rc"
+
+      # Only files the step above allows are left: new ones and unsigned
+      # replacements.
       - name: Upload .deb to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:

@@ -917,6 +917,16 @@ Inputs:
 - `artifact_glob` (string, default `"../*.deb"`)
 - `upload_to_release` (string, default `"auto"`) — must be `"auto"`, `"true"`, or `"false"` (any other value fails with a clear error). `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
 - `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
+- `signing_key_id` (string, default `""`): GPG key fingerprint that signs the published files
+
+Secrets (optional):
+- `gpg_private_key` (armored private key), `gpg_passphrase`
+
+With a key, a `sign` job between the build and the release signs every file the release gets: `<file>.asc` for each, plus `SHA256SUMS` and `SHA256SUMS.asc`. It runs no caller command and is the only job with the key, which lives in a temporary keyring for one step. Without a key and key id the release is published unsigned and the run shows a notice. With only one of them, or a `signing_key_id` that is not in `gpg_private_key`, the run fails. A release file whose name starts with `-` or has a newline or backslash is refused while signing. GitHub renames an asset whose name has other characters than letters, digits, `.`, `_` and `-`, so the release job publishes such a file with each of those characters as `.` (`app_1.0~rc1+ds_all.deb` as `app_1.0.rc1.ds_all.deb`), the name GitHub stores and the name its `.asc` and `SHA256SUMS` use; the republish check looks the file up under that name, signed or not. Two files that would get the same name, or a name that would start or end with `.`, fail the run. Only release files are signed; the CI artifact (`artifact_name`) is not.
+
+A file already on the release with the same sha256 is kept. A signed package is never replaced: with a different sha256 the run fails. Signed means the release has `<file>.asc`, or has `SHA256SUMS.asc` and its `SHA256SUMS` lists the file. To publish a fix, release a new version, or delete the package, its `.asc`, `SHA256SUMS` and `SHA256SUMS.asc` from the release by hand. An unsigned package with a different sha256 is replaced, with a warning, so a bad unsigned build can be fixed in place; an unsigned `SHA256SUMS` is replaced the same way. A published `.asc` is kept only next to its unchanged file; next to a new file the run fails, because the old signature would not verify. A run that adds a package to a release with a signed `SHA256SUMS` fails until `SHA256SUMS` and `SHA256SUMS.asc` are deleted, since a signed list is not replaced. A release that was unsigned and is rebuilt with signing on gets the new packages, their `.asc` files and a new signed `SHA256SUMS`. With signing on, `artifact_glob` must not match `SHA256SUMS` or `.asc` files: the `sign` job writes them.
+
+Verify a download: `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS`.
 
 Example (automatic release upload on tag push):
 
@@ -941,6 +951,21 @@ jobs:
       working_directory: "."
       artifact_glob: "../*.deb"
       release_tag: "1.2.3"
+    permissions:
+      contents: write
+```
+
+Example (signed release; names from [packaging.md](packaging.md)):
+
+```yaml
+jobs:
+  deb:
+    uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
+    with:
+      signing_key_id: ${{ vars.GPG_KEY_ID }}
+    secrets:
+      gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+      gpg_passphrase: ${{ secrets.GPG_PASSPHRASE }}
     permissions:
       contents: write
 ```
