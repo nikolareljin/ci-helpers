@@ -1,5 +1,43 @@
 ## Unreleased
 
+### Changed for callers: pinned downloads, images and SSH host keys
+
+- **`go-deploy` needs a new `ssh_known_hosts` secret.** SSH ran with
+  `StrictHostKeyChecking=no`, so any host answering at `ssh_host` got the
+  binary and ran `post_deploy_command`. It now runs with
+  `StrictHostKeyChecking=yes` against only the keys in `ssh_known_hosts`,
+  and fails before connecting when the secret is empty. Pass the output of
+  `ssh-keyscan -t ed25519 <host>` after checking its fingerprint.
+- **`fpc-release` verifies appimagetool every time.** The default URL was the
+  rolling `continuous` build, run unverified. It is now the 1.9.1 release
+  with its sha256 as the `appimagetool_sha256` default. An empty or wrong
+  digest fails the AppImage build; a caller that overrides
+  `appimagetool_url` must set `appimagetool_sha256` too.
+  `appimagetool_verify` is ignored. appimagetool also fetched the rolling
+  `continuous` type2 runtime and embedded it in every AppImage; the runtime
+  is now release `20251108`, verified the same way and passed as
+  `--runtime-file` (new inputs `appimage_runtime_url`,
+  `appimage_runtime_sha256`).
+- **`ppa-deb` sftp pins Launchpad's host key.** `ssh-keyscan` trusted the
+  first key it saw. The new `launchpad_known_hosts` input defaults to
+  Launchpad's published RSA key for `ppa.launchpad.net`, and ssh runs with
+  `StrictHostKeyChecking yes`, written ahead of any existing `~/.ssh/config`
+  entry so a `Host *` block cannot relax it.
+- **Default images are pinned by digest** (`name:tag@sha256:...`):
+  `django` `db_image` (`postgres:16`), `laravel` and `wp-phpunit`
+  `db_image` (`mysql:8.0`), the `php-scan` MySQL service (`mysql:8`), the
+  `docker-scan` Snyk image (`snyk/snyk:docker`) and the `wp-plugin-check`
+  stack (`mariadb:10.11`, `wordpress:cli`, `wordpress:latest`). A caller
+  that passes its own `db_image` keeps it; the digest form is recommended.
+- **`php-scan` downloads wp-cli 2.12.0 by release URL with a pinned
+  sha256**, not the rolling `gh-pages` phar checked against a digest fetched
+  from the same place.
+- `scripts/check_supply_chain_pins.py` fails on a tag-only image the library
+  chooses, a download saved without a sha256 check, `StrictHostKeyChecking`
+  set to `no`, `off` or `accept-new`, and `ssh-keyscan` into `known_hosts`. It runs in `workflow-yaml-check.yml`
+  with `tests/supply_chain_pins_test.sh`; `tests/fpc_appimage_verify_test.sh`
+  drives the fpc-release download check.
+
 ### Security
 
 - **Signing secrets reached steps that run caller code.** `flutter-release`

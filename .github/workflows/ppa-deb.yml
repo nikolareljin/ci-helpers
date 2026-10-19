@@ -48,6 +48,15 @@ on:
           in ppa_target (set it when the PPA belongs to a team).
         type: string
         default: ""
+      launchpad_known_hosts:
+        description: >
+          sftp only. known_hosts line(s) for ppa.launchpad.net; ssh refuses
+          any other host key. The default is Launchpad's RSA key, fingerprint
+          SHA256:MGq+4hxD7RduVTcfwlwwboZnsgJC6SL/NltM8ye+gNg as published at
+          https://ubuntu.com/docs/launchpad/user/reference/ssh-fingerprints/.
+          Override only if Launchpad rotates it.
+        type: string
+        default: "ppa.launchpad.net ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEA0aKz5UTUndYgIGG7dQBV+HaeuEZJ2xPHo2DS2iSKvUL4xNMSAY4UguNW+pX56nAQmZKIZZ8MaEvSj6zMEDiq6HFfn5JcTlM80UwlnyKe8B8p7Nk06PPQLrnmQt5fh0HmEcZx+JU9TZsfCHPnX7MNz4ELfZE6cFsclClrKim3BHUIGq//t93DllB+h4O9LHjEUsQ1Sr63irDLSutkLJD6RXchjROXkNirlcNVHH/jwLWR5RcYilNX7S5bIkK8NlWPjsn/8Ua5O7I9/YoE97PpO6i73DTGLh5H9JN/SITwCKBkgSDWUt61uPK3Y11Gty7o2lWsBjhBUm2Y38CBsoGmBw=="
     secrets:
       gpg_private_key:
         required: true
@@ -181,6 +190,7 @@ jobs:
         env:
           LAUNCHPAD_SSH_PRIVATE_KEY: ${{ secrets.launchpad_ssh_private_key }}
           LAUNCHPAD_LOGIN: ${{ inputs.launchpad_login }}
+          LAUNCHPAD_KNOWN_HOSTS: ${{ inputs.launchpad_known_hosts }}
           UPLOAD_METHOD: ${{ inputs.upload_method }}
           PPA_TARGET: ${{ inputs.ppa_target }}
           CHANGES: ${{ steps.build.outputs.changes }}
@@ -214,7 +224,20 @@ jobs:
               chmod 700 ~/.ssh
               printf '%s\n' "$LAUNCHPAD_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
               chmod 600 ~/.ssh/id_ed25519
-              ssh-keyscan -H ppa.launchpad.net >> ~/.ssh/known_hosts
+              # Pinned host key, never trust-on-first-use: a keyscan here
+              # would accept whatever answered first.
+              if [ -z "${LAUNCHPAD_KNOWN_HOSTS:-}" ]; then
+                echo "::error::upload_method sftp needs launchpad_known_hosts (the known_hosts line for ppa.launchpad.net)."
+                exit 1
+              fi
+              printf '%s\n' "$LAUNCHPAD_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+              chmod 600 ~/.ssh/known_hosts
+              # Prepended: ssh takes the first value it reads, so an earlier
+              # `Host *` block in an existing config cannot relax this one.
+              { printf 'Host ppa.launchpad.net\n  StrictHostKeyChecking yes\n'
+                cat ~/.ssh/config 2>/dev/null || true; } > ~/.ssh/config.new
+              mv ~/.ssh/config.new ~/.ssh/config
+              chmod 600 ~/.ssh/config
               ;;
             *)
               echo "::error::upload_method must be 'ftp' or 'sftp'; got '$UPLOAD_METHOD'."

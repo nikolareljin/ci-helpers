@@ -49,6 +49,12 @@ on:
         required: true
       ssh_key:
         required: true
+      # known_hosts line(s) for ssh_host, e.g. the output of
+      # `ssh-keyscan -t ed25519 host` checked against the host's own
+      # fingerprint. The deploy refuses to run without it. Not marked
+      # required so a missing value fails with a message, not a parse error.
+      ssh_known_hosts:
+        required: false
 
 jobs:
   deploy:
@@ -108,6 +114,7 @@ jobs:
           DEPLOY_SSH_HOST: ${{ secrets.ssh_host }}
           DEPLOY_SSH_USER: ${{ secrets.ssh_user }}
           DEPLOY_SSH_KEY: ${{ secrets.ssh_key }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.ssh_known_hosts }}
           INPUT_REMOTE_PATH: ${{ inputs.remote_path }}
           INPUT_BIN_NAME: ${{ inputs.bin_name }}
           INPUT_REMOTE_BIN_NAME: ${{ inputs.remote_bin_name }}
@@ -123,8 +130,15 @@ jobs:
             printf "'%s'" "${value//\'/\'\\\'\'}"
           }
 
+          if [ -z "${DEPLOY_SSH_KNOWN_HOSTS}" ]; then
+            echo "::error::ssh_known_hosts secret is empty. Pass the known_hosts line(s) for ssh_host (for example from 'ssh-keyscan -t ed25519 <host>', checked against the host's fingerprint). Host keys are never trusted on first use."
+            exit 2
+          fi
+
           TMP_KEY=$(mktemp)
-          trap 'rm -f "$TMP_KEY"' EXIT
+          TMP_KNOWN_HOSTS=$(mktemp)
+          trap 'rm -f "$TMP_KEY" "$TMP_KNOWN_HOSTS"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$TMP_KNOWN_HOSTS"
 
           # Write SSH key without tracing to avoid leaking it. Tracing is never
           # turned back on: it was never on, and `set -x` here would trace every
@@ -134,7 +148,9 @@ jobs:
           chmod 600 "$TMP_KEY"
 
           # Use an array so word-splitting on the key path is never a concern.
-          SSH_OPTS=(-i "$TMP_KEY" -o StrictHostKeyChecking=no -o BatchMode=yes)
+          SSH_OPTS=(-i "$TMP_KEY" -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$TMP_KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null
+            -o BatchMode=yes)
           printf -v SSH_CMD '%q ' ssh "${SSH_OPTS[@]}"
           SSH_CMD="${SSH_CMD% }"
           REMOTE="${DEPLOY_SSH_USER}@${DEPLOY_SSH_HOST}"

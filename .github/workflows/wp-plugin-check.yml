@@ -260,14 +260,14 @@ jobs:
           if [[ -n "$WP" && -n "$PHP" ]]; then image="wordpress:${WP}-php${PHP}-apache"
           elif [[ -n "$WP" ]];            then image="wordpress:${WP}-apache"
           elif [[ -n "$PHP" ]];           then image="wordpress:php${PHP}-apache"
-          else                                 image="wordpress:latest"
+          else                                 image="wordpress:latest@sha256:81a34254acaa6ff3b9a67268c2745e9a041c4094cbe5ccd35b75ed3bbdc033b5"
           fi
 
           out="${RUNNER_TEMP}/wp-check-compose.yml"
           cat > "$out" <<YAML
           services:
             db:
-              image: mariadb:10.11
+              image: mariadb:10.11@sha256:0d0945c57f75b3a3b9ebe71aedaaad005fa5305054e8fca3d2e42a8c92b43b5e
               environment:
                 MARIADB_DATABASE: wordpress
                 MARIADB_USER: wordpress
@@ -290,7 +290,7 @@ jobs:
                 - \${WP_CHECK_PLUGIN_SRC}:/var/www/html/wp-content/plugins/${dir}:rw
 
             wpcli:
-              image: wordpress:cli
+              image: wordpress:cli@sha256:36243da432a0f0a3b56dc3240ecee9b159108d71305e7c064d987a20a465bfde
               depends_on:
                 - wordpress
               user: "33:33"
