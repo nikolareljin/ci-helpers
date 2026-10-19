@@ -97,6 +97,42 @@ jobs:
       - run: ssh-keyscan -H example.org >> ~/.ssh/known_hosts
 YAML
 
+expect "StrictHostKeyChecking=accept-new" 1 "hostkey: StrictHostKeyChecking=accept-new" <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh -o StrictHostKeyChecking=accept-new host true
+YAML
+
+expect "ssh-keyscan via tee" 1 "trust on first use" <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh-keyscan example.org | tee -a ~/.ssh/known_hosts
+YAML
+
+expect "curl redirected to a file" 1 "download: saved to a file" <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsSL https://example.org/tool > tool
+YAML
+
+expect "wget with no -O" 1 "download: saved to a file" <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: wget -q https://example.org/tool.tar.gz
+YAML
+
 expect "download without sha256" 1 "download: saved to a file" <<'YAML'
 on: push
 jobs:
@@ -141,6 +177,8 @@ jobs:
           echo "db:3306" "33:33" "${{ github.server_url }}/a/b"
           image="wordpress:${WP}-apache"
           curl -fsSL -o /dev/null https://example.org/health
+          curl -fsS https://example.org/api 2>/dev/null | jq . > out.json
+          sudo apt-get install -y wget
           curl -fsSLo tool https://example.org/tool
           echo "abc  tool" | sha256sum -c -
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=k host true

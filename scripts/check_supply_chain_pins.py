@@ -11,11 +11,13 @@ Scans .github/workflows/*.yml and .github/actions/*/action.yml for:
             block) that is not referenced by `name:tag@sha256:<digest>`.
             A tag alone is re-resolved on every run. Images composed from a
             caller's input (`${...}`) are the caller's choice and are skipped.
-  download  a run block that saves a curl/wget download to a file but never
-            checks a sha256; or a `*_url` input with a default whose matching
+  download  a run block that saves a curl/wget download to a file (-o/-O,
+            curl redirected with `>`, or wget with no -O) but never checks a
+            sha256; or a `*_url` input with a default whose matching
             `*_sha256` input defaults to empty.
-  hostkey   `StrictHostKeyChecking=no`, or `ssh-keyscan` output appended to a
-            known_hosts file (trust on first use).
+  hostkey   `StrictHostKeyChecking` set to `no`, `off` or `accept-new`, or
+            `ssh-keyscan` output written to a known_hosts file (`>>` or
+            `tee`): each trusts an unknown key on first use.
 
 Comment lines are ignored, so a comment may name what it guards against.
 
@@ -42,9 +44,15 @@ DIGEST = "@sha256:"
 SLASH_IMAGE = re.compile(r"(?<![\w./:-])([a-z0-9][a-z0-9._-]*/[a-z0-9._/-]+:[A-Za-z0-9._-]+)(?!@|[\w.-])")
 LINE_IMAGE = re.compile(r"""^\s*(?:-\s*)?image:\s*["']?([^"'\s#]+)""")
 ASSIGN_IMAGE = re.compile(r"""\bimage=["']?([^"'\s;]+)""")
-STRICT_NO = re.compile(r"StrictHostKeyChecking\s*[= ]\s*no\b", re.I)
-KEYSCAN_TOFU = re.compile(r"ssh-keyscan\b[^\n]*>>?\s*\S*known_hosts")
-DOWNLOAD = re.compile(r"\b(curl|wget)\b[^\n]*(\s-[A-Za-z]*[oO]\b|--output\b|--output-document\b)")
+# `accept-new` and `off` trust an unknown key on first use, same as `no`.
+STRICT_NO = re.compile(r"StrictHostKeyChecking\s*[= ]\s*[\"']?(no|off|accept-new)\b", re.I)
+KEYSCAN_TOFU = re.compile(r"ssh-keyscan\b[^\n]*(>>?|\btee\b[^\n]*)\s*\S*known_hosts")
+DOWNLOAD = re.compile(
+    r"\b(curl|wget)\b[^\n]*(\s-[A-Za-z]*[oO]\b|--output\b|--output-document\b)"
+    # curl's stdout redirected to a file (not 2>, &>, or past a pipe).
+    r"|\bcurl\b[^|\n]*(?<![0-9&])>>?\s*(?!/dev/null)[^\s&|]"
+    # wget fetching a URL with no -O saves into the current directory.
+    r"|\bwget\b(?![^\n]*(\s-[A-Za-z]*O|--output-document|--spider))[^\n]*\s[\"']?(https?|ftp)://")
 DEV_NULL = re.compile(r"(-[A-Za-z]*[oO]|--output(-document)?)[ =]+/dev/null")
 
 
@@ -119,8 +127,9 @@ def check_file(path: Path, rel: str) -> list[str]:
         has_sha = "sha256" in value.lower()
         for n, line in code_lines(value):
             where = f"{rel}: {'.'.join(map(str, keys))} line {n}"
-            if STRICT_NO.search(line):
-                out.append(f"{where}: hostkey: StrictHostKeyChecking=no")
+            m = STRICT_NO.search(line)
+            if m:
+                out.append(f"{where}: hostkey: StrictHostKeyChecking={m.group(1)}")
             if KEYSCAN_TOFU.search(line):
                 out.append(f"{where}: hostkey: ssh-keyscan written to known_hosts (trust on first use)")
             if DOWNLOAD.search(line) and not DEV_NULL.search(line) and not has_sha:

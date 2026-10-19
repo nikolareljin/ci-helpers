@@ -232,7 +232,11 @@ jobs:
               fi
               printf '%s\n' "$LAUNCHPAD_KNOWN_HOSTS" >> ~/.ssh/known_hosts
               chmod 600 ~/.ssh/known_hosts
-              printf 'Host ppa.launchpad.net\n  StrictHostKeyChecking yes\n' >> ~/.ssh/config
+              # Prepended: ssh takes the first value it reads, so an earlier
+              # `Host *` block in an existing config cannot relax this one.
+              { printf 'Host ppa.launchpad.net\n  StrictHostKeyChecking yes\n'
+                cat ~/.ssh/config 2>/dev/null || true; } > ~/.ssh/config.new
+              mv ~/.ssh/config.new ~/.ssh/config
               chmod 600 ~/.ssh/config
               ;;
             *)

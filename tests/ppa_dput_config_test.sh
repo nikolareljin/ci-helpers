@@ -52,6 +52,9 @@ run() { # name method target login key expected-rc
   local name="$1" rc=0
   shift
   rm -rf "${work:?}/home" "${work:?}/out"; mkdir -p "$work/home" "$work/out"
+  if [ -n "${PRE_SSH_CONFIG:-}" ]; then
+    mkdir -p "$work/home/.ssh"; printf '%s\n' "$PRE_SSH_CONFIG" > "$work/home/.ssh/config"
+  fi
   HOME="$work/home" OUT="$work/out" PATH="$work/bin:$PATH" \
     UPLOAD_METHOD="$1" PPA_TARGET="$2" LAUNCHPAD_LOGIN="$3" LAUNCHPAD_SSH_PRIVATE_KEY="$4" \
     LAUNCHPAD_KNOWN_HOSTS="${KNOWN_HOSTS-$known_hosts_default}" \
@@ -89,6 +92,14 @@ fi
 if run "sftp team ppa with login" sftp "ppa:team-x/debian/stuff" "bob" "stub-key" 0; then
   expect "sftp team ppa" dput.cf "incoming = ~team-x/debian/stuff/"
   expect "sftp team ppa" dput.cf "login = bob"
+fi
+# ssh takes the first value it reads: an existing `Host *` block must not
+# come before the pinned one and relax it.
+if PRE_SSH_CONFIG=$'Host *\n  StrictHostKeyChecking no' \
+    run "sftp with existing ssh config" sftp "ppa:alice/tools" "" "stub-key" 0; then
+  [ "$(head -n 2 "$work/out/ssh_config")" = $'Host ppa.launchpad.net\n  StrictHostKeyChecking yes' ] \
+    || { echo "FAIL pinned Host block is not first in ssh config"; cat "$work/out/ssh_config"; fail=1; }
+  expect "sftp with existing ssh config" ssh_config "  StrictHostKeyChecking no"
 fi
 run "sftp without key" sftp "ppa:alice/tools" "" "" 1 || true
 KNOWN_HOSTS="" run "sftp without known_hosts" sftp "ppa:alice/tools" "" "stub-key" 1 || true

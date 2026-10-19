@@ -21,7 +21,8 @@
 - **`ppa-deb` sftp pins Launchpad's host key.** `ssh-keyscan` trusted the
   first key it saw. The new `launchpad_known_hosts` input defaults to
   Launchpad's published RSA key for `ppa.launchpad.net`, and ssh runs with
-  `StrictHostKeyChecking yes`.
+  `StrictHostKeyChecking yes`, written ahead of any existing `~/.ssh/config`
+  entry so a `Host *` block cannot relax it.
 - **Default images are pinned by digest** (`name:tag@sha256:...`):
   `django` `db_image` (`postgres:16`), `laravel` and `wp-phpunit`
   `db_image` (`mysql:8.0`), the `php-scan` MySQL service (`mysql:8`), the
@@ -32,8 +33,8 @@
   sha256**, not the rolling `gh-pages` phar checked against a digest fetched
   from the same place.
 - `scripts/check_supply_chain_pins.py` fails on a tag-only image the library
-  chooses, a download saved without a sha256 check, `StrictHostKeyChecking=no`
-  and `ssh-keyscan` into `known_hosts`. It runs in `workflow-yaml-check.yml`
+  chooses, a download saved without a sha256 check, `StrictHostKeyChecking`
+  set to `no`, `off` or `accept-new`, and `ssh-keyscan` into `known_hosts`. It runs in `workflow-yaml-check.yml`
   with `tests/supply_chain_pins_test.sh`; `tests/fpc_appimage_verify_test.sh`
   drives the fpc-release download check.
 
