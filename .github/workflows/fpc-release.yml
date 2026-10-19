@@ -87,27 +87,37 @@ on:
         default: ""
       appimagetool_url:
         description: >
-          Download URL for appimagetool. Defaults to the rolling 'continuous' build.
-          Pin to a specific release URL (with a matching appimagetool_sha256) for
-          reproducible, auditable AppImage builds.
+          Download URL for appimagetool. Defaults to the pinned 1.9.1 release.
+          If you override it, also set appimagetool_sha256 to the digest of
+          that file: the download is always verified and a mismatch fails.
         type: string
-        default: "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+        default: "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
       appimagetool_sha256:
         description: >
           Expected SHA256 hex digest of the downloaded appimagetool binary.
-          When set, the download is verified before use. Leave empty to skip
-          verification (default — suitable for the rolling 'continuous' build).
+          Required. The default matches the default appimagetool_url (1.9.1,
+          x86_64); an empty value fails the AppImage build.
         type: string
-        default: ""
+        default: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
       appimagetool_verify:
         description: >
-          Set to "true" to require appimagetool_sha256 for any AppImage build,
-          regardless of the URL used. Recommended for production/release workflows
-          where supply-chain integrity matters. When "false" (the default), the
-          actual SHA256 of the downloaded binary is printed as a warning so callers
-          can copy it into appimagetool_sha256 to pin future builds.
+          Deprecated, ignored. The appimagetool download is always verified
+          against appimagetool_sha256. Kept so existing callers do not break.
         type: string
-        default: "false"
+        default: "true"
+      appimage_runtime_url:
+        description: >
+          AppImage type2 runtime embedded in the AppImage. Passed to
+          appimagetool as --runtime-file, so appimagetool does not fetch the
+          rolling 'continuous' runtime itself. Defaults to release 20251108.
+        type: string
+        default: "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64"
+      appimage_runtime_sha256:
+        description: >
+          Expected SHA256 of the file at appimage_runtime_url. Required; the
+          default matches the default URL.
+        type: string
+        default: "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
 
       # ── macOS packaging ─────────────────────────────────────────────────────
       macos_dmg:
@@ -464,7 +474,8 @@ jobs:
           ICON_PATH:             ${{ inputs.app_icon }}
           APPIMAGETOOL_URL:      ${{ inputs.appimagetool_url }}
           APPIMAGETOOL_SHA256:   ${{ inputs.appimagetool_sha256 }}
-          APPIMAGETOOL_VERIFY:   ${{ inputs.appimagetool_verify }}
+          APPIMAGE_RUNTIME_URL:    ${{ inputs.appimage_runtime_url }}
+          APPIMAGE_RUNTIME_SHA256: ${{ inputs.appimage_runtime_sha256 }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -572,39 +583,35 @@ jobs:
           PYEOF
                 fi
 
-                # Download appimagetool; use APPIMAGE_EXTRACT_AND_RUN=1 to
-                # avoid FUSE requirement on the CI runner.
-                # Enforce SHA256 when appimagetool_verify=true (opt-in) or when
-                # a non-rolling URL is used (custom pinned URL without digest
-                # would silently run an unverified arbitrary binary).
-                if [ -z "${APPIMAGETOOL_SHA256:-}" ]; then
-                  if [ "${APPIMAGETOOL_VERIFY:-false}" = "true" ]; then
-                    echo "::error::appimagetool_verify is true but appimagetool_sha256 is not set. Provide the SHA256 digest of the appimagetool binary."
-                    exit 1
+                # Download appimagetool and the runtime it embeds; use
+                # APPIMAGE_EXTRACT_AND_RUN=1 to avoid the FUSE requirement on
+                # the CI runner. Both digests are mandatory: this job holds
+                # contents: write, so it never runs or ships a binary it has
+                # not verified.
+                fetch_verified() { # name url sha256 dest
+                  if [ -z "$3" ]; then
+                    echo "::error::$1 sha256 is empty. Set it to the SHA256 of the file at its URL."
+                    return 1
                   fi
-                  case "${APPIMAGETOOL_URL}" in
-                    */continuous/*) ;;
-                    *)
-                      echo "::error::appimagetool_url is set to a non-continuous URL but appimagetool_sha256 is not provided. Set appimagetool_sha256 to verify the download."
-                      exit 1
-                      ;;
-                  esac
-                fi
-                wget -q --timeout=60 --tries=3 --waitretry=5 -O /tmp/appimagetool -- "${APPIMAGETOOL_URL}" \
-                  || curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
-                         -o /tmp/appimagetool -- "${APPIMAGETOOL_URL}"
-                actual_sha="$(sha256sum /tmp/appimagetool | awk '{print $1}')"
-                if [ -n "${APPIMAGETOOL_SHA256:-}" ]; then
-                  if [ "$actual_sha" != "${APPIMAGETOOL_SHA256}" ]; then
-                    echo "::error::appimagetool SHA256 mismatch (expected ${APPIMAGETOOL_SHA256}, got ${actual_sha}) — aborting AppImage build"
-                    exit 1
+                  if [ "${#3}" -ne 64 ] || [ -n "$(printf '%s' "$3" | tr -d '0-9a-f')" ]; then
+                    echo "::error::$1 sha256 must be 64 lowercase hex characters."
+                    return 1
                   fi
-                else
-                  echo "::warning::appimagetool_sha256 is not set — running unverified binary (supply-chain risk). Actual SHA256: ${actual_sha}. Set appimagetool_sha256 to this value and appimagetool_verify=true to enforce verification in future builds."
-                fi
+                  wget -q --timeout=60 --tries=3 --waitretry=5 -O "$4" -- "$2" \
+                    || curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$4" -- "$2"
+                  local actual
+                  actual="$(sha256sum "$4" | awk '{print $1}')"
+                  if [ "$actual" != "$3" ]; then
+                    echo "::error::$1 SHA256 mismatch (expected $3, got ${actual}), aborting AppImage build"
+                    rm -f "$4"
+                    return 1
+                  fi
+                }
+                fetch_verified appimagetool "${APPIMAGETOOL_URL}" "${APPIMAGETOOL_SHA256:-}" /tmp/appimagetool
+                fetch_verified "AppImage runtime" "${APPIMAGE_RUNTIME_URL}" "${APPIMAGE_RUNTIME_SHA256:-}" /tmp/appimage-runtime
                 chmod +x /tmp/appimagetool
                 APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
-                    /tmp/appimagetool AppDir \
+                    /tmp/appimagetool --runtime-file /tmp/appimage-runtime AppDir \
                     "dist_extra/${BIN_NAME}-${TAG}-linux-x86_64.AppImage"
                 pkg_built=$((pkg_built + 1))
                 ;;

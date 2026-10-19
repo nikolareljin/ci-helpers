@@ -91,7 +91,7 @@ jobs:
     timeout-minutes: 30
     services:
       mysql:
-        image: mysql:8
+        image: mysql:8@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: wordpress
@@ -237,18 +237,20 @@ jobs:
           wp_root="${INPUT_WP_ROOT}"
 
           # -f: an HTTP error must fail here, not leave an error page to run as
-          # PHP. The published SHA-512 catches a truncated or corrupted download.
-          wp_cli_url="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+          # PHP. A released phar with its digest pinned here: the rolling
+          # gh-pages build and a checksum fetched beside it prove nothing about
+          # who published it.
+          wp_cli_url="https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar"
+          expected="ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c"
           curl -fsSLo wp-cli.phar "$wp_cli_url"
-          curl -fsSLo wp-cli.phar.sha512 "${wp_cli_url}.sha512"
-          expected=$(tr -d '[:space:]' < wp-cli.phar.sha512)
-          if command -v sha512sum >/dev/null 2>&1; then
-            actual=$(sha512sum wp-cli.phar | awk '{ print $1 }')
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual=$(sha256sum wp-cli.phar | awk '{ print $1 }')
           else
-            actual=$(shasum -a 512 wp-cli.phar | awk '{ print $1 }')
+            actual=$(shasum -a 256 wp-cli.phar | awk '{ print $1 }')
           fi
-          if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
-            echo "::error::wp-cli.phar checksum mismatch: expected '${expected}', got '${actual}'" >&2
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::wp-cli.phar sha256 mismatch: expected '${expected}', got '${actual}'" >&2
+            rm -f wp-cli.phar
             exit 1
           fi
           php wp-cli.phar --info

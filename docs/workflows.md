@@ -62,7 +62,7 @@ Inputs:
 - `e2e_command` (string, default `""`)
 - `extra_command` (string, default `""`)
 - `extra_env` (string, default `""`) — extra environment for the command steps, one `KEY=VALUE` per line. Written to `$GITHUB_ENV` without the shell re-quoting the value, so a credential containing quotes survives intact; a line that is not `KEY=VALUE` fails the step with the value redacted.
-- `db_image` (string, default `""`) — optional database image. When set, the container is started with `docker run` before the command steps, because a `services:` block cannot be made conditional inside a reusable job.
+- `db_image` (string, default `""`) - optional database image. When set, the container is started with `docker run` before the command steps, because a `services:` block cannot be made conditional inside a reusable job. Prefer the digest form `postgres:16@sha256:<digest>`: a bare tag is re-resolved on every run.
 - `db_env` (string, default `""`) — container environment, one `KEY=VALUE` per line. A bare key is refused: `docker run -e KEY` would copy that variable off the runner and into the container.
 - `db_ports` (string, default `""`) — one published port mapping per line.
 - `db_health_cmd` (string, default `""`) — readiness probe, run **inside** the container, so it must address a local socket or port rather than a host URL.
@@ -590,6 +590,7 @@ Inputs:
 - `ppa_target` (string, required, e.g. `ppa:your-launchpad-id/ppa-name`)
 - `upload_method` (string, default `ftp`): `ftp` uploads anonymously and Launchpad accepts the upload on the GPG signature; `sftp` logs in with the SSH key
 - `launchpad_login` (string, default: the owner in `ppa_target`): sftp only; Launchpad user the SSH key belongs to; set it for a team PPA
+- `launchpad_known_hosts` (string, default: Launchpad's RSA host key for `ppa.launchpad.net`, fingerprint `SHA256:MGq+4hxD7RduVTcfwlwwboZnsgJC6SL/NltM8ye+gNg`): sftp only; the only host key ssh accepts (`StrictHostKeyChecking yes`). Launchpad publishes its fingerprints at <https://ubuntu.com/docs/launchpad/user/reference/ssh-fingerprints/>; override only if it rotates the key
 - `deb_fullname` (string, default `""`)
 - `deb_email` (string, default `""`)
 - `signing_key_id` (string, required, GPG key ID or fingerprint)
@@ -839,16 +840,16 @@ artifacts only and are not attached to the release.
 - `package_url` (string, default `""`) — homepage URL for DEB/RPM metadata
 - `app_icon` (string, default `""`) — path to a 64×64 PNG icon (relative to
   `working_directory`) for the AppImage; a placeholder is auto-generated when omitted
-- `appimagetool_url` (string, default: rolling `continuous` build URL) — download URL for
-  `appimagetool`. Override with a pinned release URL together with `appimagetool_sha256` for
-  reproducible, auditable AppImage builds
-- `appimagetool_sha256` (string, default `""`) — expected SHA256 hex digest of the downloaded
-  `appimagetool` binary. When set, the download is verified before use. When empty, a
-  `::warning::` is emitted to flag the unverified download (the actual SHA256 is printed so
-  callers can copy it to pin the build)
-- `appimagetool_verify` (string, default `"false"`) — set to `"true"` to require
-  `appimagetool_sha256` for any AppImage build. Recommended for production workflows where
-  supply-chain integrity matters; fails the build with a clear error if the digest is absent
+- `appimagetool_url` (string, default: the appimagetool 1.9.1 x86_64 release) - download URL for
+  `appimagetool`. If you override it, set `appimagetool_sha256` to that file's digest too
+- `appimagetool_sha256` (string, default: digest of the default URL) - expected SHA256 hex digest
+  of the downloaded `appimagetool` binary. Required: the download is always verified, and an
+  empty value or a mismatch fails the AppImage build
+- `appimagetool_verify` (string) - deprecated and ignored; verification is always on
+- `appimage_runtime_url` / `appimage_runtime_sha256` (strings, default: type2-runtime release
+  `20251108`, x86_64, and its digest) - the runtime embedded in the AppImage, passed to
+  `appimagetool --runtime-file`. Without it appimagetool downloads the rolling `continuous`
+  runtime itself. Same rule: an override needs its digest
 
 **macOS packaging inputs:**
 - `macos_dmg` (string, default `"false"`) — set to `"true"` to build a `.dmg` disk image on
@@ -1255,7 +1256,7 @@ Inputs (selected):
 - `fail_on_findings` (boolean, default `true`)
 - `run_snyk` (boolean, default `false`). Snyk needs an account and an API token
   -- there is no anonymous mode, and the free plan still issues a key -- so it
-  is opt-in:
+  is opt-in. The Snyk CLI image is pinned by digest (`snyk/snyk:docker@sha256:...`):
 
   ```yaml
   with:
@@ -1749,6 +1750,10 @@ Secrets:
 - `ssh_host` (required) — remote hostname or IP
 - `ssh_user` (required) — SSH username
 - `ssh_key` (required) — SSH private key
+- `ssh_known_hosts` (required at run time) - known_hosts line(s) for `ssh_host`. SSH runs with
+  `StrictHostKeyChecking=yes` against only these keys; an empty value fails the job before
+  connecting. Produce it with `ssh-keyscan -t ed25519 <host>` and compare the fingerprint
+  (`ssh-keygen -lf`) with the one the host prints locally (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`)
 
 Example (deploy a Go service to Oracle Cloud):
 
@@ -1774,6 +1779,7 @@ jobs:
       ssh_host: ${{ secrets.DEPLOY_HOST }}
       ssh_user: ${{ secrets.DEPLOY_USER }}
       ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
+      ssh_known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 ```
 
 Example (deploy to Arm instance):
@@ -1792,6 +1798,7 @@ jobs:
       ssh_host: ${{ secrets.DEPLOY_HOST }}
       ssh_user: ${{ secrets.DEPLOY_USER }}
       ssh_key: ${{ secrets.DEPLOY_SSH_KEY }}
+      ssh_known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 ```
 
 ## wp-phpunit.yml
@@ -1836,7 +1843,7 @@ Inputs:
 - `test_command` (string, default `./vendor/bin/phpunit`)
 - `build_command` (string, default `""`)
 - `extra_command` (string, default `""`)
-- `db_image` (string, default `mysql:8.0`)
+- `db_image` (string, default `mysql:8.0` pinned by digest) - pass `name:tag@sha256:<digest>` to pin your own; a tag alone works but can change under you
 - `db_database` (string, default `wordpress_test`)
 - `db_username` (string, default `wordpress`)
 - `db_password` (string, default `wordpress`)
@@ -1896,6 +1903,10 @@ Inputs:
 - `cleanup` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `plugin-check-results`)
+
+The generated stack pins `mariadb`, `wordpress:cli` and the default
+`wordpress:latest` by digest. An image composed from `wp_version`/`php_version`
+(for example `wordpress:6.6-php8.3-apache`) is your choice and is pulled by tag.
 
 Set `wp_version` (or `versions`) and the workflow generates the WordPress
 stack itself, so a plugin repository carries no compose file. Three plugins in

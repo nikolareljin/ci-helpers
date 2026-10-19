@@ -98,7 +98,7 @@ on:
       # process.
       db_image:
         type: string
-        default: "postgres:16"
+        default: "postgres:16@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
       db_name:
         type: string
         default: "django"
