@@ -97,11 +97,13 @@ runs:
         if ($env:CERT_B64 -or $env:CERT_PW -or $env:TS_URL) {
           Write-Output "::warning::certificate_base64, certificate_password and timestamp_server are ignored: pfx mode was removed."
         }
-        if ($env:SIGN_MODE -ceq "pfx") {
+        # -eq/-ne ignore case, like the `inputs.sign_mode == 'azure'` checks on
+        # the steps below, so a mode they would run is never refused here.
+        if ($env:SIGN_MODE -eq "pfx") {
           Write-Output "::error::sign_mode pfx was removed: it produced unsigned MSI/EXE files. Use azure."
           exit 1
         }
-        if ($env:SIGN_MODE -cne "tauri_updater" -and $env:SIGN_MODE -cne "azure") {
+        if ($env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "azure") {
           Write-Output "::error::sign_mode must be tauri_updater or azure (got: $($env:SIGN_MODE))."
           exit 1
         }

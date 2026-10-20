@@ -12,7 +12,8 @@
   `::warning::` when set, so existing callers do not break on an unknown
   input. They will be removed in a later release.
 - `windows-sign` now fails on any `sign_mode` other than `tauri_updater` or
-  `azure`; an unknown mode used to do nothing.
+  `azure`; an unknown mode used to do nothing. The check ignores case, as the
+  mode steps always have, so `Azure` still works.
 - `tauri-release` no longer runs the Windows certificate cleanup step.
 
 ### Docs
