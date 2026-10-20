@@ -225,7 +225,7 @@ Inputs:
 | `apple_id` | no | `""` | Apple ID email for `notarytool` (leave empty to skip notarization setup) |
 | `app_password` | no | `""` | App-specific password for `notarytool` |
 | `keychain_name` | no | `ci-build.keychain-db` | Name of the temporary keychain |
-| `export_env` | no | `"false"` | Writes only the non-secret values below; pass the secrets as env to the build step. `"true"` also writes the secrets |
+| `export_env` | no | `"false"` | Opt-in. `"true"` also writes the secrets to `GITHUB_ENV`; see below |
 
 Environment variables written to `GITHUB_ENV`: `APPLE_SIGNING_IDENTITY`,
 `APPLE_TEAM_ID` and `CI_MACOS_KEYCHAIN` always. With `export_env: "true"`
@@ -234,6 +234,12 @@ set) `APPLE_ID` + `APPLE_PASSWORD`. Every later step of the job can read what
 is in `GITHUB_ENV`, including the caller's build and its dependencies, so the
 default `"false"` leaves them out: give the secrets to the build step's `env:`,
 as `tauri-release.yml` does.
+
+`export_env` is off by default. Turn it on only when the build step cannot take
+`env:`, for example a third-party action that reads the variables itself. The
+cost: every later step in the job, including dependency installs and build
+scripts, can read the certificate and passwords. Only an exact `"true"` enables
+it.
 
 Example (inside `tauri-release.yml` or any macOS build job):
 
@@ -273,31 +279,28 @@ Notes:
 
 Path: `.github/actions/windows-sign`
 
-Purpose: Configure Windows code signing for Tauri builds. Supports three modes:
+Purpose: Configure Windows code signing for Tauri builds. Supports two modes:
 
 | Mode | Cost | What it signs | How |
 |------|------|---------------|-----|
-| `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
-| `pfx` | Paid (OV/EV) | MSI + EXE Authenticode | Imports PFX to cert store, sets `TAURI_WINDOWS_SIGN_COMMAND` via `signtool` |
-| `azure` | Paid | MSI + EXE Authenticode | Exports Azure Trusted Signing credentials to `GITHUB_ENV` for post-build action |
+| `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Checks the key; with `export_env: "true"` also sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
+| `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a post-build `azure/trusted-signing-action` step |
 
 Inputs:
 
 | Input | Required for | Default | Description |
 |-------|-------------|---------|-------------|
-| `sign_mode` | all | — | `tauri_updater`, `pfx`, or `azure` |
+| `sign_mode` | all | - | `tauri_updater` or `azure`. `pfx` was removed and fails the step |
 | `tauri_signing_private_key` | `tauri_updater` | — | Base64 or raw ED25519 private key |
 | `tauri_signing_private_key_password` | no | `""` | Password for the updater key |
-| `certificate_base64` | `pfx` | — | Base64-encoded PFX |
-| `certificate_password` | `pfx` | — | PFX password |
-| `timestamp_server` | no | `https://timestamp.sectigo.com` | RFC 3161 timestamp URL |
+| `certificate_base64`, `certificate_password`, `timestamp_server` | - | `""` | Deprecated and ignored; a non-empty value logs a warning |
 | `azure_tenant_id` | `azure` | — | Azure tenant ID |
 | `azure_client_id` | `azure` | — | Service principal client ID |
 | `azure_client_secret` | `azure` | — | Service principal secret |
 | `azure_endpoint` | `azure` | — | Trusted Signing endpoint URL |
 | `azure_code_signing_account` | `azure` | — | Account name |
 | `azure_cert_profile` | `azure` | — | Certificate profile name |
-| `export_env` | no | `"false"` | Writes no secret to `GITHUB_ENV`: pass the updater key to the build step's `env:` and the Azure values to `azure/trusted-signing-action` yourself. The pfx thumbprint, PFX path and sign command are written either way. `"true"` also writes the secrets |
+| `export_env` | no | `"false"` | Opt-in. `"true"` writes the updater key or the Azure values to `GITHUB_ENV`; see Notes |
 
 Example — free updater signing (most common):
 
@@ -313,37 +316,19 @@ Example — free updater signing (most common):
   run: cargo tauri build
 ```
 
-Example — paid PFX Authenticode:
-
-```yaml
-- name: Set up Windows signing
-  uses: nikolareljin/ci-helpers/.github/actions/windows-sign@production
-  with:
-    sign_mode: pfx
-    certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
-    certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-```
-
 Notes:
 
 - All secret inputs are masked with `::add-mask::` before any output.
-- **PFX cert cleanup is the caller's responsibility.** Composite actions have
-  no `post:` hook; cleanup inside the action would delete the cert before your
-  build step runs. Add this to your build job (after `cargo tauri build`):
-  ```yaml
-  - name: Cleanup Windows certificate
-    if: always()
-    shell: pwsh
-    env:
-      THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
-      PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
-    run: |
-      if ($env:THUMB) { Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -EA SilentlyContinue | Remove-Item -Force }
-      if ($env:PFX_PATH -and (Test-Path $env:PFX_PATH)) { Remove-Item $env:PFX_PATH -Force }
-  ```
-  `tauri-release.yml` already includes this step.
+- `export_env` is off by default: pass the updater key to the build step's
+  `env:` and the Azure values to `azure/trusted-signing-action` yourself, as
+  `tauri-release.yml` does. Set `"true"` only when a later step must read them
+  from the environment and cannot take `env:`. The cost: every later step in
+  the job, including dependency installs and build scripts, can read them.
+- `pfx` mode was removed. Tauri v2 never read the sign command it set, so the
+  MSI/EXE came out unsigned while the job passed. New OV/EV keys ship on
+  hardware tokens or cloud HSMs and cannot be exported to a `.pfx`; use `azure`.
 - `azure` mode: the actual signing happens via `azure/trusted-signing-action`
-  in a separate post-build step — this action only exports the credentials.
+  in a separate post-build step. This action only checks the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`
 
 ## pimcore-bundle-check

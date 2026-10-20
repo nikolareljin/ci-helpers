@@ -1,41 +1,33 @@
 name: windows-sign
 description: >
-  Configure Windows code signing for Tauri builds. Supports three modes.
-  Unless export_env is "true", the tauri_updater and azure modes only validate
-  their inputs and write no secret to GITHUB_ENV.
+  Configure Windows code signing for Tauri builds. Supports two modes.
+  Unless export_env is "true", both modes only validate their inputs and
+  write no secret to GITHUB_ENV.
 
   tauri_updater (FREE):
-    Sets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in
+    With export_env "true", sets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in
     GITHUB_ENV. Signs .sig updater bundles only (ED25519). Does NOT sign the
     MSI/EXE binary — no SmartScreen clearance. Generate a keypair with:
       cargo tauri signer generate -w ~/.tauri/myapp.key
 
-  pfx (PAID — OV or EV certificate from a CA):
-    Decodes a base64 PFX, imports it to the current-user cert store, extracts
-    the thumbprint, and sets TAURI_WINDOWS_SIGN_COMMAND and
-    WINDOWS_CERT_THUMBPRINT in GITHUB_ENV. Tauri reads TAURI_WINDOWS_SIGN_COMMAND
-    and invokes signtool to sign the MSI and NSIS EXE with Authenticode.
-    PFX/cert cleanup is the CALLER's responsibility — add an if:always() step
-    to your build job after cargo tauri build (see docs/actions.md).
+  pfx mode was removed: Tauri v2 never read the sign command it set, so the
+  MSI/EXE came out unsigned. sign_mode "pfx" now fails the step.
 
   azure (PAID — Azure Trusted Signing):
-    Exports Azure Trusted Signing credentials to GITHUB_ENV. After the build,
+    With export_env "true", exports the Azure credentials to GITHUB_ENV. After the build,
     the calling workflow must invoke azure/trusted-signing-action to sign the
-    MSI/EXE with azuresigntool. This mode does NOT set TAURI_WINDOWS_SIGN_COMMAND
-    because Azure signing happens post-build via a separate action step.
+    MSI/EXE with azuresigntool.
 
 inputs:
   sign_mode:
-    description: "Signing mode: tauri_updater, pfx, or azure"
+    description: "Signing mode: tauri_updater or azure"
     required: true
 
   export_env:
     description: >
       "false" (default) writes no signing secret to GITHUB_ENV: the caller
       passes them as env to the build or signing step itself. "true" writes
-      them there, where every later step of the job can read them. The pfx
-      thumbprint, PFX path and sign command are written either way; none of
-      them is a secret.
+      them there, where every later step of the job can read them.
     required: false
     default: "false"
 
@@ -49,19 +41,19 @@ inputs:
     required: false
     default: ""
 
-  # --- pfx inputs ---
+  # --- removed pfx mode: accepted and ignored, with a warning ---
   certificate_base64:
-    description: Base64-encoded PFX certificate file
+    description: Deprecated and ignored (pfx mode was removed)
     required: false
     default: ""
   certificate_password:
-    description: Password for the PFX certificate
+    description: Deprecated and ignored (pfx mode was removed)
     required: false
     default: ""
   timestamp_server:
-    description: RFC 3161 timestamp server URL
+    description: Deprecated and ignored (pfx mode was removed)
     required: false
-    default: "https://timestamp.sectigo.com"
+    default: ""
 
   # --- azure inputs ---
   azure_tenant_id:
@@ -92,6 +84,28 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check sign mode
+      shell: pwsh
+      env:
+        SIGN_MODE: ${{ inputs.sign_mode }}
+        CERT_B64: ${{ inputs.certificate_base64 }}
+        CERT_PW: ${{ inputs.certificate_password }}
+        TS_URL: ${{ inputs.timestamp_server }}
+      run: |
+        Set-StrictMode -Version Latest
+        $ErrorActionPreference = "Stop"
+        if ($env:CERT_B64 -or $env:CERT_PW -or $env:TS_URL) {
+          Write-Output "::warning::certificate_base64, certificate_password and timestamp_server are ignored: pfx mode was removed."
+        }
+        if ($env:SIGN_MODE -ceq "pfx") {
+          Write-Output "::error::sign_mode pfx was removed: it produced unsigned MSI/EXE files. Use azure."
+          exit 1
+        }
+        if ($env:SIGN_MODE -cne "tauri_updater" -and $env:SIGN_MODE -cne "azure") {
+          Write-Output "::error::sign_mode must be tauri_updater or azure (got: $($env:SIGN_MODE))."
+          exit 1
+        }
+
     # ── tauri_updater ─────────────────────────────────────────────────────────
     - name: Configure Tauri updater signing (free ED25519)
       if: ${{ inputs.sign_mode == 'tauri_updater' }}
@@ -128,94 +142,6 @@ runs:
         # Export to GITHUB_ENV for subsequent steps
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$cleanKey"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$cleanPw"
-
-    # ── pfx ───────────────────────────────────────────────────────────────────
-    - name: Import PFX certificate (paid Authenticode)
-      if: ${{ inputs.sign_mode == 'pfx' }}
-      shell: pwsh
-      env:
-        CERT_B64: ${{ inputs.certificate_base64 }}
-        CERT_PW: ${{ inputs.certificate_password }}
-        TS_URL: ${{ inputs.timestamp_server }}
-      run: |
-        Set-StrictMode -Version Latest
-        $ErrorActionPreference = "Stop"
-
-        if ([string]::IsNullOrEmpty($env:CERT_B64)) {
-          Write-Error "certificate_base64 is required for pfx mode."
-          exit 1
-        }
-
-        # Mask secrets
-        Write-Output "::add-mask::$($env:CERT_B64)"
-        Write-Output "::add-mask::$($env:CERT_PW)"
-
-        # Decode PFX to a temp file with restricted permissions
-        $pfxPath = Join-Path $env:TEMP "build-$(New-Guid).pfx"
-        [System.Convert]::FromBase64String($env:CERT_B64) | Set-Content $pfxPath -Encoding Byte
-        $acl = Get-Acl $pfxPath
-        $acl.SetAccessRuleProtection($true, $false)
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-          [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
-          "FullControl", "Allow"
-        )
-        $acl.SetAccessRule($rule)
-        Set-Acl $pfxPath $acl
-
-        # Import into current-user cert store
-        # The file is deleted as soon as the key is in the store: the caller's
-        # build runs next, as the same user, and could otherwise read it.
-        try {
-          $securePw = ConvertTo-SecureString $env:CERT_PW -AsPlainText -Force
-          $cert = Import-PfxCertificate -FilePath $pfxPath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $securePw
-        } finally {
-          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
-        }
-        $thumb = $cert.Thumbprint
-        Write-Output "::add-mask::$thumb"
-
-        # Sanitize timestamp URL: strip CR/LF and require HTTPS to prevent
-        # env-file injection and MITM timestamp forgery
-        $tsUrl = $env:TS_URL -replace '[\r\n]', ''
-        if ($tsUrl -notmatch '^https://') {
-          Write-Error "timestamp_server must start with https:// to prevent MITM tampering (got: $tsUrl)"
-          exit 1
-        }
-
-        # Build TAURI_WINDOWS_SIGN_COMMAND — %1 is the file path placeholder Tauri uses
-        $signCmd = "signtool sign /sha1 $thumb /tr $tsUrl /td sha256 /fd sha256 %1"
-
-        # Strip CR/LF from cert values before writing to GITHUB_ENV to prevent
-        # env-file injection (base64 PFX data may have wrapped newlines)
-        $cleanThumb = $thumb -replace '[\r\n]', ''
-        $cleanPfx   = $pfxPath -replace '[\r\n]', ''
-
-        # The PFX file is already gone; the path is kept for callers whose
-        # cleanup step still reads it (Test-Path finds nothing).
-        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_PFX_PATH=$cleanPfx"
-        Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_CERT_THUMBPRINT=$cleanThumb"
-        Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGN_COMMAND=$signCmd"
-
-    # PFX/cert cleanup is the CALLER's responsibility.
-    # Composite actions have no post-run hook — a cleanup step here would run
-    # immediately after import, removing the certificate from the store before
-    # the caller's build step can invoke signtool via TAURI_WINDOWS_SIGN_COMMAND.
-    #
-    # Add this to your build job (after cargo tauri build):
-    #
-    #   - name: Cleanup Windows certificate
-    #     if: always()
-    #     shell: pwsh
-    #     env:
-    #       THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
-    #       PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
-    #     run: |
-    #       if ($env:THUMB) { Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -EA SilentlyContinue | Remove-Item -Force }
-    #       if ($env:PFX_PATH -and (Test-Path $env:PFX_PATH)) { Remove-Item $env:PFX_PATH -Force }
-    #
-    # tauri-release.yml already includes this cleanup step.
 
     # ── azure ─────────────────────────────────────────────────────────────────
     - name: Configure Azure Trusted Signing credentials

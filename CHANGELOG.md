@@ -1,3 +1,26 @@
+## Unreleased
+
+### Changed for callers: Windows pfx signing removed
+
+- **`windows-sign` `sign_mode: pfx` and `tauri-release`
+  `windows_sign_mode: pfx` now fail.** Tauri v2 never read the
+  `TAURI_WINDOWS_SIGN_COMMAND` the action set, so pfx builds shipped unsigned
+  MSI/EXE files and the job passed (#286). Use `azure`.
+- The pfx inputs (`certificate_base64`, `certificate_password`,
+  `timestamp_server`) and the `WINDOWS_CERTIFICATE` /
+  `WINDOWS_CERTIFICATE_PASSWORD` secrets are kept, ignored, and log a
+  `::warning::` when set, so existing callers do not break on an unknown
+  input. They will be removed in a later release.
+- `windows-sign` now fails on any `sign_mode` other than `tauri_updater` or
+  `azure`; an unknown mode used to do nothing.
+- `tauri-release` no longer runs the Windows certificate cleanup step.
+
+### Docs
+
+- `macos-sign` and `windows-sign` document `export_env` as opt-in: off by
+  default, when to turn it on, and that it exposes the secrets to every later
+  step of the job.
+
 ## 2026-10-19 — v0.42.0
 
 ### Changed for callers: pinned downloads, images and SSH host keys

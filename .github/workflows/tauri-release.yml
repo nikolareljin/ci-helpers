@@ -68,7 +68,7 @@ on:
           Windows signing mode:
             none          — no signing (default)
             tauri_updater — free ED25519 updater bundle signing (.sig files only)
-            pfx           — paid Authenticode via PFX certificate (MSI + EXE)
+            pfx           - removed: fails the job (it produced unsigned MSI/EXE)
             azure         — paid Azure Trusted Signing (MSI + EXE, post-build)
         type: string
         default: "none"
@@ -142,10 +142,10 @@ on:
         description: Accepted as an alias of APPLE_APP_PASSWORD, which is the name most consumers already hold (#97)
         required: false
       WINDOWS_CERTIFICATE:
-        description: Base64-encoded PFX certificate for Authenticode signing
+        description: Deprecated and ignored (pfx signing was removed)
         required: false
       WINDOWS_CERTIFICATE_PASSWORD:
-        description: Password for the PFX certificate
+        description: Deprecated and ignored (pfx signing was removed)
         required: false
       TAURI_SIGNING_PRIVATE_KEY:
         description: ED25519 private key for Tauri updater bundle signing (free)
@@ -494,6 +494,16 @@ jobs:
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
           echo "ci-helpers actions at $WF_SHA"
 
+      - name: Warn on removed pfx secrets
+        shell: bash
+        env:
+          WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WIN_CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -n "${WIN_CERT}${WIN_CERT_PW}" ]; then
+            echo "::warning::WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are ignored: pfx signing was removed."
+          fi
+
       - name: Configure Windows signing
         if: ${{ inputs.windows_sign_mode != 'none' }}
         uses: ./.ci-helpers-actions/.github/actions/windows-sign
@@ -501,8 +511,6 @@ jobs:
           sign_mode: ${{ inputs.windows_sign_mode }}
           tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
-          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
           azure_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -565,20 +573,6 @@ jobs:
           name: tauri-windows-artifacts
           path: out/
           retention-days: ${{ inputs.artifact_retention_days }}
-
-      - name: Cleanup Windows certificate
-        if: always()
-        shell: pwsh
-        env:
-          THUMB: ${{ env.WINDOWS_CERT_THUMBPRINT }}
-          PFX_PATH: ${{ env.WINDOWS_PFX_PATH }}
-        run: |
-          if (-not [string]::IsNullOrEmpty($env:THUMB)) {
-            Get-ChildItem "Cert:\CurrentUser\My\$($env:THUMB)" -ErrorAction SilentlyContinue | Remove-Item -Force
-          }
-          if (-not [string]::IsNullOrEmpty($env:PFX_PATH) -and (Test-Path $env:PFX_PATH)) {
-            Remove-Item $env:PFX_PATH -Force
-          }
 
   # ── Linux ──────────────────────────────────────────────────────────────────
   build-linux:
