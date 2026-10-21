@@ -39,6 +39,14 @@
   Upstream adds `http.sh` and functions in `dialog.sh`, `json.sh` and
   `version.sh`, and trims `hub.sh`; `version_bump.sh` imports `version`,
   whose existing functions are unchanged.
+- `github/codeql-action` v4.38.3 -> v4.39.0 (`6f2ac81f`) for `init`,
+  `analyze` and `upload-sarif` together, in `codeql-scan`,
+  `trivy-scan`, `security-weekly` and the `trivy-scan` composite action.
+  Upstream raises the minimum CodeQL bundle to 2.20.7; no workflow here
+  pins `tools:`, so the default bundle is used.
+- `actions/setup-java` v6.0.1 -> v6.1.0 (`b843ebf9`) in `ci`, `deploy`,
+  `flutter-release`, `java-scan`, `pr-gate`, `release-build` and
+  `self-test-compiled`. Upstream adds features only.
 
 ## 2026-10-19 — v0.42.0
 
