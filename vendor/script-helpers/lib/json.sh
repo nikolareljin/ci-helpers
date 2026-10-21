@@ -52,3 +52,35 @@ format_md_response() {
     echo "$response"
   fi
 }
+
+# Usage: json_get_field BODY KEY; prints a top-level scalar field of a JSON
+# object, or nothing when it is absent. Returns 1 only for a KEY that is not
+# a plain word.
+json_get_field() {
+  local body="${1:-}" key="${2:-}"
+  # A word, nothing else: the fallback interpolates the key into a grep
+  # pattern, and a JSON field name here is never more than [A-Za-z0-9_].
+  [[ "$key" =~ ^[A-Za-z0-9_]+$ ]] || return 1
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$body" | python3 -c '
+import json, sys
+key = sys.argv[1]
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+v = d.get(key) if isinstance(d, dict) else None
+if v is None or isinstance(v, (dict, list)):
+    sys.exit(0)
+# Non-strings in JSON spelling: true and false, not True and False.
+print(v if isinstance(v, str) else json.dumps(v))
+' "$key"
+    return 0
+  fi
+  # No python3: a string field out of compact or pretty JSON. The quoted key
+  # keeps "api_version" from matching "version". A missing field prints
+  # nothing and still exits 0: grep's miss must not surface through a
+  # caller's set -o pipefail.
+  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
+  return 0
+}

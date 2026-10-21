@@ -15,9 +15,10 @@
 # ever; nothing without a person when a person is needed; no prompt at all
 # when stdin or stdout is not a terminal.
 #
-# Requires: curl, git. Uses python3 for JSON when present, a sed fallback when
-# not. Uses lib/logging.sh, lib/env.sh (resolve_env_value), lib/version.sh
-# (version_compare) and, in dialog mode, lib/dialog.sh (dialog_init).
+# Requires: curl, git. Built on lib/dialog.sh (ui_*), lib/http.sh, lib/json.sh
+# (json_get_field), lib/env.sh (env_set_value, resolve_env_value) and
+# lib/version.sh (version_offer_update); this file holds only what is
+# specific to the hub.
 
 # Sibling modules, sourced only if the caller has not already.
 if ! type resolve_env_value >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
@@ -28,9 +29,17 @@ if ! type version_compare >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; the
   # shellcheck source=/dev/null
   source "$_SHLIB_LIB_DIR/version.sh"
 fi
-if ! type dialog_init >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
+if ! type ui_mode >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
   # shellcheck source=/dev/null
   source "$_SHLIB_LIB_DIR/dialog.sh"
+fi
+if ! type json_get_field >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "$_SHLIB_LIB_DIR/json.sh"
+fi
+if ! type http_check_key >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "$_SHLIB_LIB_DIR/http.sh"
 fi
 
 # ---------------------------------------------------------------------------
@@ -38,292 +47,60 @@ fi
 # ---------------------------------------------------------------------------
 
 # Usage: hub_ui_mode; prints dialog | plain | none.
-#
-# HUB_UI forces a renderer (tests, and a caller that knows better). Otherwise:
-# no terminal on stdin or stdout means no prompts at all -- a systemd unit or a
-# CI job must fail naming what it wanted rather than wait forever on a read;
-# HUB_SETUP_PLAIN=1 means plain prompts even when `dialog` is installed.
-hub_ui_mode() {
-  local forced="${HUB_UI:-}"
-  if [[ -n "$forced" ]]; then
-    case "$forced" in
-      dialog|plain|none) ;;
-      *) log_error "HUB_UI must be dialog, plain or none (got '$forced')"; return 1 ;;
-    esac
-    if [[ "$forced" == "dialog" && -n "${HUB_SETUP_PLAIN:-}" ]]; then
-      echo plain
-      return 0
-    fi
-    echo "$forced"
-    return 0
-  fi
-  if [[ ! -t 0 || ! -t 1 ]]; then
-    echo none
-    return 0
-  fi
-  if [[ -z "${HUB_SETUP_PLAIN:-}" ]] && command -v dialog >/dev/null 2>&1; then
-    echo dialog
-    return 0
-  fi
-  echo plain
-}
+# HUB_UI and HUB_SETUP_PLAIN=1 are this module's names for ui_mode's SHLIB_UI
+# and SHLIB_UI_PLAIN, and win over them.
+hub_ui_mode() { _hub__ui ui_mode; }
 
-# Internal: a menu. Usage: _hub__ui_menu TITLE TEXT DEFAULT key1 label1 [key2 label2 ...]
-# Prints the chosen key. In `none` mode prints nothing and returns 1.
-_hub__ui_menu() {
-  local title="$1" text="$2" default="$3"; shift 3
-  local mode; mode="$(hub_ui_mode)" || return 1
-  local -a keys=() labels=()
-  while [[ $# -ge 2 ]]; do keys+=("$1"); labels+=("$2"); shift 2; done
-  case "$mode" in
-    none) return 1 ;;
-    dialog)
-      dialog_init
-      local -a items=() i
-      for i in "${!keys[@]}"; do items+=("${keys[$i]}" "${labels[$i]}"); done
-      local choice
-      choice="$(dialog_capture --title "$title" --default-item "$default" --menu "$text" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${items[@]}")" || return 1
-      echo "$choice"
-      ;;
-    plain)
-      local i answer
-      echo "$title" >&2
-      echo "$text" >&2
-      for i in "${!keys[@]}"; do echo "  ${keys[$i]}  -- ${labels[$i]}" >&2; done
-      read -r -p "[${default}] " answer || return 1
-      answer="${answer:-$default}"
-      for i in "${!keys[@]}"; do
-        [[ "$answer" == "${keys[$i]}" ]] && { echo "$answer"; return 0; }
-      done
-      log_error "'$answer' is not one of: ${keys[*]}"
-      return 1
-      ;;
-  esac
+# Internal: run a ui_* function with HUB_UI and HUB_SETUP_PLAIN applied.
+_hub__ui() {
+  SHLIB_UI="${HUB_UI:-${SHLIB_UI:-}}" SHLIB_UI_PLAIN="${HUB_SETUP_PLAIN:-${SHLIB_UI_PLAIN:-}}" \
+    _UI_MODE_VAR="${HUB_UI:+HUB_UI}" "$@"
 }
-
-# Internal: a text input. Usage: _hub__ui_input TITLE TEXT DEFAULT
-_hub__ui_input() {
-  local title="$1" text="$2" default="${3:-}"
-  local mode; mode="$(hub_ui_mode)" || return 1
-  case "$mode" in
-    none) return 1 ;;
-    dialog)
-      dialog_init
-      local v
-      v="$(dialog_capture --title "$title" --inputbox "$text" 10 "$DIALOG_WIDTH" "$default")" || return 1
-      echo "${v:-$default}"
-      ;;
-    plain)
-      local v
-      read -r -p "$text${default:+ [$default]}: " v || return 1
-      echo "${v:-$default}"
-      ;;
-  esac
-}
-
-# Internal: a secret input; never echoed. Usage: _hub__ui_secret TITLE TEXT
-_hub__ui_secret() {
-  local title="$1" text="$2"
-  local mode; mode="$(hub_ui_mode)" || return 1
-  case "$mode" in
-    none) return 1 ;;
-    dialog)
-      dialog_init
-      dialog_capture --title "$title" --insecure --passwordbox "$text" 10 "$DIALOG_WIDTH" || return 1
-      ;;
-    plain)
-      local v
-      if [[ -t 0 ]]; then
-        read -r -s -p "$text: " v || return 1
-        echo >&2
-      else
-        # Piped answers (tests, scripted runs): -s would still work, but a
-        # pipe is not a terminal and `stty` complaints are noise.
-        read -r v || return 1
-      fi
-      echo "$v"
-      ;;
-  esac
-}
-
-# Internal: yes/no. Usage: _hub__ui_yesno TITLE TEXT; 0 = yes, 1 = no or no UI.
-_hub__ui_yesno() {
-  local title="$1" text="$2"
-  local mode; mode="$(hub_ui_mode)" || return 1
-  case "$mode" in
-    none) return 1 ;;
-    dialog)
-      dialog_init
-      # dialog_run: a box without --stdout draws on stdout, and a caller that
-      # captured it would be asked a question nobody can see.
-      dialog_run --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
-      ;;
-    plain)
-      local v
-      read -r -p "$text [y/N] " v || return 1
-      [[ "$v" =~ ^[Yy]([Ee][Ss])?$ ]]
-      ;;
-  esac
-}
-
-# Internal: a message the person should see, in whatever renderer.
-_hub__ui_note() {
-  local mode; mode="$(hub_ui_mode 2>/dev/null || echo none)"
-  if [[ "$mode" == "dialog" ]]; then
-    dialog_init
-    dialog_run --title "Corpus hub" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
-    return 0
-  fi
-  log_info "$*"
-}
+_hub__ui_menu()   { _hub__ui ui_menu "$@"; }
+_hub__ui_input()  { _hub__ui ui_input "$@"; }
+_hub__ui_secret() { _hub__ui ui_secret "$@"; }
+_hub__ui_yesno()  { _hub__ui ui_yesno "$@"; }
+_hub__ui_note()   { _hub__ui ui_note "Corpus hub" "$@"; }
 
 # ---------------------------------------------------------------------------
 # Pure helpers.
 # ---------------------------------------------------------------------------
 
 # Usage: hub_probe URL [TIMEOUT_SECONDS]; prints the /v1/service body.
-# Returns 1 when the hub does not answer. One request, a short deadline:
-# nothing is starting, so the hub is serving or it is not.
+# Returns 1 when the hub does not answer.
 hub_probe() {
-  local url="${1:-}" timeout="${2:-5}"
-  [[ -n "$url" ]] || { log_error "hub_probe: URL required"; return 1; }
-  url="${url%/}"
-  local body
-  if ! body="$(curl -fsS --connect-timeout "$timeout" --max-time "$timeout" "$url/v1/service" 2>/dev/null)"; then
-    return 1
-  fi
-  [[ -n "$body" ]] || return 1
-  printf '%s\n' "$body"
+  [[ -n "${1:-}" ]] || { log_error "hub_probe: URL required"; return 1; }
+  http_probe_json "$1" /v1/service "${2:-5}"
 }
 
 # Usage: hub_probe_field BODY KEY; prints a top-level string field, or nothing.
-hub_probe_field() {
-  local body="${1:-}" key="${2:-}"
-  # A word, nothing else: the fallback interpolates the key into a grep
-  # pattern, and a JSON field name here is never more than [A-Za-z0-9_].
-  [[ "$key" =~ ^[A-Za-z0-9_]+$ ]] || return 1
-  if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$body" | python3 -c '
-import json, sys
-key = sys.argv[1]
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-v = d.get(key) if isinstance(d, dict) else None
-if v is not None and not isinstance(v, (dict, list)):
-    print(v)
-' "$key"
-    return 0
-  fi
-  # No python3: a string field out of compact or pretty JSON. The quoted key
-  # keeps "api_version" from matching "version". A missing field prints
-  # nothing and still exits 0: grep's miss must not surface through a
-  # caller's set -o pipefail.
-  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
-  return 0
-}
+hub_probe_field() { json_get_field "$@"; }
 
 # Usage: hub_check_key URL KEY
 # 0 = the key is accepted; 2 = the hub answered and refused the key;
 # 1 = the hub did not answer, or answered something else.
-#
 # Proves the key against an authenticated read (one document, which may not
 # exist -- an empty list is still a 200). A 401 or 403 is a wrong key, and is
 # reported as one: telling someone "the hub is not serving" when they pasted
 # the wrong key sends them to restart a hub that is fine.
-#
-# A 200 counts only with a JSON body: a single-page app or a captive portal
-# answers every path with 200 and HTML, and that is not a hub accepting a key.
-# The key reaches curl on stdin as a config line (`-K -`), never in argv,
-# where every other user on the machine could read it with ps.
 hub_check_key() {
-  local url="${1:-}" key="${2:-}"
-  [[ -n "$url" && -n "$key" ]] || { log_error "hub_check_key: URL and KEY required"; return 1; }
-  # The key becomes an HTTP header; a CR or LF inside it is header injection.
-  case "$key" in
-    *$'\r'*|*$'\n'*) log_error "hub_check_key: KEY must not contain CR or LF"; return 1 ;;
-  esac
-  url="${url%/}"
-  # curl config syntax: inside double quotes, \\ and \" are the escapes.
-  local esc="${key//\\/\\\\}"
-  esc="${esc//\"/\\\"}"
-  local out code ctype
-  out="$(printf 'header = "X-API-Key: %s"\n' "$esc" \
-    | curl -sS -K - -o /dev/null -w '%{http_code} %{content_type}' --connect-timeout 5 --max-time 10 \
-      -H 'Accept: application/json' "$url/v1/documents?limit=1" 2>/dev/null)" || return 1
-  code="${out%% *}"
-  ctype="$(printf '%s' "${out#* }" | tr '[:upper:]' '[:lower:]')"
-  # The media type without its parameters; RFC 7231 allows whitespace before
-  # the `;` (`application/json ; charset=utf-8`).
-  ctype="${ctype%%;*}"
-  ctype="${ctype%"${ctype##*[![:space:]]}"}"
-  case "$code" in
-    200)
-      case "$ctype" in
-        application/json|application/*+json) return 0 ;;
-        *) return 1 ;;
-      esac
-      ;;
-    401|403) return 2 ;;
-    *) return 1 ;;
-  esac
+  [[ -n "${1:-}" && -n "${2:-}" ]] || { log_error "hub_check_key: URL and KEY required"; return 1; }
+  http_check_key "$1" "/v1/documents?limit=1" X-API-Key "$2"
 }
 
-# Usage: hub_write_env FILE KEY VALUE; upserts KEY=VALUE.
-#
-# Rewrites in place rather than `mv`: when the env file is a symlink (a
-# dotfile-managed config is a normal setup) mv replaces the link with a
-# regular file and the real target keeps its old contents, so the write
-# appears to succeed and changes nothing anyone reads. `cat >` follows the
-# link and keeps the inode -- and the file's mode. Same reasoning as
-# adb_wireless_write_env. A file this creates is 0600: it holds an API key.
-#
-# The file is sourced (load_env), so a value is shell input. Values made only
-# of URL, key, id and path characters are written bare, exactly as before;
-# anything else is quoted so the shell and dotenv both read it literally --
-# single quotes, or double quotes for a value holding an apostrophe but no
-# $ ` \ or ". A value that fits neither is refused (return 1) rather than
-# written in a form some reader would expand or read differently -- which
-# includes any doubled backslash, a trailing backslash and `${`.
+# Usage: hub_write_env FILE KEY VALUE; upserts KEY=VALUE with env_set_value's
+# quoting, in place so a symlink keeps its target. KEY is upper case. A file
+# this creates (and its directory) starts with a comment and is 0600: it
+# holds an API key.
 hub_write_env() {
-  local file="${1:-}" key="${2:-}" value="${3:-}" tmp="" line=""
+  local file="${1:-}" key="${2:-}"
   [[ -n "$file" && -n "$key" ]] || { log_error "hub_write_env: FILE and KEY required"; return 1; }
   [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || { log_error "hub_write_env: '$key' is not an environment variable name"; return 1; }
-  case "$value" in
-    *$'\n'*|*$'\r'*) log_error "hub_write_env: a value cannot contain a newline or carriage return"; return 1 ;;
-  esac
-  local bare_re='^[][A-Za-z0-9._/:@%+=,-]*$'
-  if [[ "$value" =~ $bare_re ]]; then
-    line="$key=$value"
-  elif [[ "$value" != *"'"* && "$value" != *"\\\\"* && "$value" != *"\\" && "$value" != *"\${"* ]]; then
-    # Single quotes are not literal to python-dotenv in three cases, and each
-    # is left to the refusal below: \\ reads as one backslash; a trailing \
-    # escapes the closing quote, so the line is dropped (and docker compose
-    # rejects the whole file); ${NAME} is expanded even inside single quotes.
-    line="$key='$value'"
-  elif [[ "$value" != *[\"\$\`\\]* ]]; then
-    line="$key=\"$value\""
-  else
-    log_error "hub_write_env: the value for $key cannot be quoted so that the shell and dotenv read it the same"
-    return 1
-  fi
   if [[ ! -e "$file" ]]; then
     mkdir -p "$(dirname "$file")" || return 1
     ( umask 077 && printf '# Local environment. Gitignored -- do not commit.\n\n' >"$file" ) || return 1
   fi
-  tmp="$(mktemp)" || return 1
-  # The line travels through ENVIRON, not -v: awk -v expands backslash
-  # escapes, so a literal \n in a value became a real newline in the file.
-  _HUB_WRITE_LINE="$line" awk -v k="$key" '
-    BEGIN { pat = "^[[:space:]]*" k "="; line = ENVIRON["_HUB_WRITE_LINE"] }
-    $0 ~ pat { print line; seen = 1; next }
-    { print }
-    END { if (!seen) print line }
-  ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
-  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
-  rm -f "$tmp"
-  return 0
+  env_set_value "$file" "$key" "${3:-}"
 }
 
 # Usage: hub_latest_tag CLONE_DIR; prints the newest tag, without a v prefix.
@@ -411,26 +188,21 @@ hub_offer_update() {
   if [[ -z "$running" || -z "$latest" ]]; then
     return 0
   fi
-  local rc=0
-  version_compare "$running" "$latest" >/dev/null 2>&1 || rc=$?
-  # 255 means running < latest. 0 equal, 1 newer (a checkout ahead of its tags).
-  [[ "$rc" -eq 255 ]] || return 0
   if [[ "${HUB_MODE:-local}" == "remote" ]]; then
+    local rc=0
+    version_compare "$running" "$latest" >/dev/null 2>&1 || rc=$?
+    # 255 means running < latest. 0 equal, 1 newer (a checkout ahead of its tags).
+    [[ "$rc" -eq 255 ]] || return 0
     log_info "Remote hub at $url runs $running; $latest is available. It is updated where it runs, not from here."
     return 0
   fi
-  # An invalid HUB_UI is a misconfiguration to surface, not a silent "none".
-  local mode; mode="$(hub_ui_mode)" || return 1
-  if [[ "$mode" == "none" ]]; then
-    log_info "Hub $running is running; $latest is available: cd $dir && ./update"
-    return 0
-  fi
-  if _hub__ui_yesno "Corpus hub update" "Hub $running is running and $latest is available. Run the hub's own ./update now?"; then
-    log_info "Running $dir/update"
-    cd "$dir" && exec ./update
-  fi
-  log_info "Not updating. Later: cd $dir && ./update"
-  return 0
+  _hub__ui version_offer_update --label Hub --hint "cd $dir && ./update" "$running" "$latest" _hub__run_update "$dir"
+}
+
+# Internal: the hub's own ./update, replacing this process.
+_hub__run_update() {
+  log_info "Running $1/update"
+  cd "$1" && exec ./update
 }
 
 # Usage: hub_setup_dialog ENV_FILE [--mode local|remote] [--url URL] [--key KEY]

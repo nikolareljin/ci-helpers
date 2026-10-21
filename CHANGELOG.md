@@ -1,3 +1,20 @@
+## Unreleased
+
+### Changed
+
+- `tauri`, `tauri-scan` and `tauri-release` pin `swatinem/rust-cache` to
+  v2.9.3 (`d1527c8f`), the commit its `v2` tag now points to. The old pin
+  (v2.9.2) failed `update_pinned_actions.sh --check`.
+- `aquasecurity/trivy-action` master `6abccf39` -> `8f28faec` in
+  `trivy-scan`, `docker-scan`, `docker-multiarch`, the `trivy-scan`
+  composite action and `self-test`. Upstream changed only the default
+  `version` input, v0.76.0 -> v0.76.1, plus README and test data.
+- **`vendor/script-helpers` 0.54.1 -> 0.55.0**, and the 16 workflow `ref:`
+  pins with it (`check_script_helpers_pins.sh`, `verify_vendor.sh` pass).
+  Upstream adds `http.sh` and functions in `dialog.sh`, `json.sh` and
+  `version.sh`, and trims `hub.sh`; `version_bump.sh` imports `version`,
+  whose existing functions are unchanged.
+
 ## 2026-10-19 — v0.42.0
 
 ### Changed for callers: pinned downloads, images and SSH host keys
