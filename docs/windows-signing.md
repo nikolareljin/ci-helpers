@@ -7,7 +7,7 @@ until a caller sets the mode and its secrets.
 | Mode | What it signs | Certificate from |
 |---|---|---|
 | `tauri_updater` | `.sig` files for the Tauri updater (ED25519) | `cargo tauri signer generate`, free |
-| `pfx` | MSI and EXE, Authenticode | a `.pfx` you hold: a pre-2023 public certificate, or a private CA / self-signed one |
+| `pfx` | MSI and EXE, Authenticode | a `.pfx` you hold: in practice a private CA or self-signed certificate (see below) |
 | `azure` | MSI and EXE, Authenticode | Azure Artifact Signing (formerly Trusted Signing) |
 
 Facts on this page were checked against the linked sources on 2026-10-21.
@@ -15,10 +15,10 @@ Prices and vendor processes change; the vendor page is the authority.
 
 ## Comparison
 
-| | `tauri_updater` | `pfx` (public CA, pre-2023 key) | `pfx` (private CA / self-signed) | `azure` |
+| | `tauri_updater` | `pfx` (public CA) | `pfx` (private CA / self-signed) | `azure` |
 |---|---|---|---|---|
 | Cost | free | CA price per year, check the vendor page | free | monthly subscription, see [pricing][az-price] |
-| Who can get it | anyone | only someone who already holds an exportable certificate issued before 2023-06-01 | anyone | organizations in the listed countries; individuals in the US and Canada only ([quickstart][az-quick]) |
+| Who can get it | anyone | nobody new: exportable keys ended 2023-06-01, and those certificates have expired (see below) | anyone | organizations in the listed countries; individuals in the US and Canada only ([quickstart][az-quick]) |
 | SmartScreen | no effect (not Authenticode) | reputation builds per file and publisher; EV gives no head start since 2024 | warning on every machine that does not trust the CA | reputation builds like OV |
 | Key custody | your key file | PFX in a GitHub secret | PFX in a GitHub secret | Microsoft-managed HSM; you never hold the key |
 | CI setup effort | low: two secrets | low: two secrets | low, plus deploying the root to client machines | medium: Azure account, identity validation, app registration, six secrets |
@@ -54,8 +54,11 @@ cannot use it.
 ### Paths to a PFX that works in CI
 
 1. **A public certificate issued before 2023-06-01 with an exportable key.**
-   It still works until it expires. It cannot be renewed as a file: the
-   renewal is under the new rule.
+   This path has closed. Code-signing certificates issued before 2026-03-01
+   were valid for at most 39 months (section 6.3.2 of the
+   [Code Signing BRs][cabf]; 460 days from that date), so the last ones
+   issued before 2023-06-01 expired by 2026-09-01. Signatures already
+   timestamped with them stay valid; new signing with them does not.
 2. **A private CA or self-signed certificate.** For internal tools, test
    builds, or managed machines where you deploy the root certificate through
    Group Policy or Intune. Machines without that root see an untrusted
@@ -72,6 +75,10 @@ cannot use it.
    trust now, use `azure`.
 
 ### Where to buy
+
+A publicly trusted certificate bought today has a hardware-bound key, so it
+is for a token, an HSM or the CA's cloud signing service (path 3), not for
+pfx mode. These are the CAs and their product pages:
 
 | CA | Code-signing product page |
 |---|---|
@@ -95,7 +102,7 @@ Pick a password of at least 20 random characters, for example
 `openssl rand -base64 30`. Keep it only in the secret store and your password
 manager.
 
-**Windows, certificate in the store** (path 1, or a cert from your private
+**Windows, certificate in the store** (for example one issued by your private
 CA):
 
 ```powershell
@@ -167,8 +174,8 @@ retries each file 4 times with 2, 4 and 8 second waits, then fails.
 - The action fails on an expired certificate and warns 30 days before
   expiry.
 - Renewing a public certificate gets you a hardware-bound key (see above),
-  so plan the move to `azure` or a cloud-HSM service before a pre-2023
-  certificate expires.
+  which pfx mode cannot use: move to `azure`, or to a cloud-HSM service once
+  ci-helpers supports one.
 - If the PFX or password leaks: ask the CA to revoke the certificate, delete
   both secrets, and rotate. Tell the CA when the key was first exposed.
 
@@ -186,7 +193,8 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
 
 ### Turning pfx on
 
-1. Get a certificate on one of the paths above.
+1. Get a private CA or self-signed certificate (path 2). A publicly trusted
+   certificate cannot be had as a PFX today; for public trust use `azure`.
 2. Make the PFX and check it with `openssl pkcs12 -info`.
 3. Set `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD`.
 4. In the caller, set `windows_sign_mode: pfx` and pass both secrets:
