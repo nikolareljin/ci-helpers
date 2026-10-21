@@ -68,7 +68,7 @@ on:
           Windows signing mode:
             none          — no signing (default)
             tauri_updater — free ED25519 updater bundle signing (.sig files only)
-            pfx           - Authenticode with a .pfx certificate (MSI + EXE, post-build)
+            pfx           - Authenticode with a .pfx certificate (MSI + EXE, signed in the sign-windows job)
             azure         — paid Azure Trusted Signing (MSI + EXE, post-build)
         type: string
         default: "none"
@@ -413,18 +413,12 @@ jobs:
         shell: pwsh
         env:
           SIGN_MODE: ${{ inputs.windows_sign_mode }}
-          CERT_B64: ${{ secrets.WINDOWS_CERTIFICATE }}
-          CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
           # -eq/-ne ignore case, like the `inputs.windows_sign_mode` step conditions.
           if ($env:SIGN_MODE -ne "none" -and $env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "pfx" -and $env:SIGN_MODE -ne "azure") {
             Write-Output "::error::sign_mode must be none, tauri_updater, pfx or azure (got: $($env:SIGN_MODE))."
-            exit 1
-          }
-          if ($env:SIGN_MODE -eq "pfx" -and ([string]::IsNullOrWhiteSpace($env:CERT_B64) -or [string]::IsNullOrEmpty($env:CERT_PW))) {
-            Write-Output "::error::sign_mode pfx needs certificate_base64 and certificate_password (secrets WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD); one is empty. See docs/windows-signing.md."
             exit 1
           }
 
@@ -502,7 +496,7 @@ jobs:
       # is today, even for a caller pinned to a SHA; `./.github/actions` would
       # resolve in the caller's checkout, so the action is checked out beside it.
       - name: Check out ci-helpers actions at this workflow's commit
-        if: ${{ inputs.windows_sign_mode != 'none' }}
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: ${{ job.workflow_repository }}
@@ -515,7 +509,7 @@ jobs:
       # An empty job.workflow_sha would make the checkout above fall back to the
       # default branch and run today's actions after all; refuse instead.
       - name: Verify ci-helpers actions commit
-        if: ${{ inputs.windows_sign_mode != 'none' }}
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
         shell: bash
         env:
           WF_SHA: ${{ job.workflow_sha }}
@@ -526,24 +520,17 @@ jobs:
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
           echo "ci-helpers actions at $WF_SHA"
 
+      # Only the updater key is used in this job: Tauri writes the .sig files
+      # inside the build. The Authenticode secrets (pfx, azure) never reach a
+      # job that runs the app's code; sign-windows below signs the installers.
       - name: Configure Windows signing
-        if: ${{ inputs.windows_sign_mode != 'none' }}
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
         uses: ./.ci-helpers-actions/.github/actions/windows-sign
         with:
-          sign_mode: ${{ inputs.windows_sign_mode }}
+          sign_mode: tauri_updater
           tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # pfx: this run only checks the PFX opens; signing is after the build.
-          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
-          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          timestamp_server: ${{ inputs.windows_timestamp_server }}
-          azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-          azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          azure_endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          azure_code_signing_account: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
-          azure_cert_profile: ${{ secrets.AZURE_CERT_PROFILE }}
-          # The secrets go to the build and Azure steps below, not to GITHUB_ENV.
+          # The key goes to the build step below, not to GITHUB_ENV.
           export_env: "false"
 
       # The action keeps nothing in its own directory, so the checkout is removed
@@ -566,65 +553,6 @@ jobs:
           [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] || unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           cargo tauri build
 
-      # The checkout was removed before the build, so pfx signing checks it out
-      # again at the same commit.
-      - name: Check out ci-helpers actions for pfx signing
-        if: ${{ inputs.windows_sign_mode == 'pfx' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ci-helpers-actions
-          sparse-checkout: .github/actions
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Verify ci-helpers actions commit for pfx signing
-        if: ${{ inputs.windows_sign_mode == 'pfx' }}
-        shell: bash
-        env:
-          WF_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
-          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
-          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
-
-      # Signs every .exe and .msi under the bundle folder, timestamps and
-      # verifies each one. Tauri v2 does not read a sign command from the
-      # environment, so signing happens here, after the build.
-      - name: Sign with PFX certificate (post-build)
-        if: ${{ inputs.windows_sign_mode == 'pfx' }}
-        uses: ./.ci-helpers-actions/.github/actions/windows-sign
-        with:
-          sign_mode: pfx
-          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
-          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          timestamp_server: ${{ inputs.windows_timestamp_server }}
-          files_folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
-          verify_trust: ${{ inputs.windows_pfx_verify_trust && 'true' || 'false' }}
-
-      - name: Remove ci-helpers actions checkout after pfx signing
-        if: ${{ always() && inputs.windows_sign_mode == 'pfx' }}
-        shell: bash
-        run: rm -rf .ci-helpers-actions
-
-      - name: Sign with Azure Trusted Signing (post-build)
-        if: ${{ inputs.windows_sign_mode == 'azure' }}
-        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0 @ 2026-05-24
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
-          files-folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
-          files-folder-filter: exe,msi
-          file-digest: SHA256
-          timestamp-rfc3161: https://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
       - name: Collect Windows installers
         env:
           WORK_DIR: ${{ inputs.working_directory }}
@@ -636,11 +564,118 @@ jobs:
             -exec cp {} out/ \;
           ls -la out/
 
+      # With pfx or azure the installers are still unsigned: sign-windows
+      # takes them from tauri-windows-unsigned and publishes the signed ones
+      # as tauri-windows-artifacts, the name the release job collects.
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
         with:
-          name: tauri-windows-artifacts
+          name: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 'tauri-windows-unsigned' || 'tauri-windows-artifacts' }}
           path: out/
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+  # Authenticode signing, apart from the build. The build runs the app's own
+  # code (npm scripts, cargo build scripts), which can rewrite files, PATH or
+  # GITHUB_ENV for every later step of its job; a signing step there would
+  # hand the certificate or the Azure secret to that code. This job checks out
+  # no app code and runs none: it downloads the unsigned installers, checks
+  # out only the ci-helpers actions at this workflow's commit, signs, verifies
+  # and uploads. The signing secrets are passed to this job only.
+  sign-windows:
+    needs: build-windows
+    if: ${{ inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure' }}
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download unsigned Windows installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: tauri-windows-unsigned
+          path: ${{ runner.temp }}/windows-installers
+
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      # pfx: signs, timestamps and verifies every installer. azure: checks the
+      # credentials; the Azure action below signs.
+      - name: Sign Windows installers
+        uses: ./.ci-helpers-actions/.github/actions/windows-sign
+        with:
+          sign_mode: ${{ inputs.windows_sign_mode }}
+          certificate_base64: ${{ inputs.windows_sign_mode == 'pfx' && secrets.WINDOWS_CERTIFICATE || '' }}
+          certificate_password: ${{ inputs.windows_sign_mode == 'pfx' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          timestamp_server: ${{ inputs.windows_timestamp_server }}
+          files_folder: ${{ runner.temp }}/windows-installers
+          verify_trust: ${{ inputs.windows_pfx_verify_trust && 'true' || 'false' }}
+          azure_tenant_id: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_TENANT_ID || '' }}
+          azure_client_id: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_CLIENT_ID || '' }}
+          azure_client_secret: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_CLIENT_SECRET || '' }}
+          azure_endpoint: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_TRUSTED_SIGNING_ENDPOINT || '' }}
+          azure_code_signing_account: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_CODE_SIGNING_ACCOUNT || '' }}
+          azure_cert_profile: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_CERT_PROFILE || '' }}
+          export_env: "false"
+
+      - name: Sign with Azure Artifact Signing
+        if: ${{ inputs.windows_sign_mode == 'azure' }}
+        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0 @ 2026-05-24
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
+          files-folder: ${{ runner.temp }}/windows-installers
+          files-folder-filter: exe,msi
+          file-digest: SHA256
+          timestamp-rfc3161: https://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # The pfx path verifies inside windows-sign; this does the same for azure.
+      - name: Every installer carries a valid signature
+        if: ${{ inputs.windows_sign_mode == 'azure' }}
+        shell: pwsh
+        env:
+          DIR: ${{ runner.temp }}/windows-installers
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $files = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+          if ($files.Count -eq 0) { Write-Output "::error::no installers to check"; exit 1 }
+          $bad = 0
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature -LiteralPath $f.FullName
+            if ($sig.Status -ne "Valid" -or -not $sig.TimeStamperCertificate) {
+              Write-Output "::error::$($f.Name): signature $($sig.Status), timestamp $([bool]$sig.TimeStamperCertificate)"; $bad = 1
+            } else { Write-Output "ok: $($f.Name) signed by $($sig.SignerCertificate.Subject)" }
+          }
+          exit $bad
+
+      - name: Upload signed Windows installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
+        with:
+          name: tauri-windows-artifacts
+          path: ${{ runner.temp }}/windows-installers/
           retention-days: ${{ inputs.artifact_retention_days }}
 
   # ── Linux ──────────────────────────────────────────────────────────────────
@@ -784,8 +819,15 @@ jobs:
 
   # ── Release ────────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, build-linux]
-    if: ${{ inputs.upload_release }}
+    needs: [build-macos, build-windows, sign-windows, build-linux]
+    # sign-windows is skipped unless windows_sign_mode is pfx or azure; a skip
+    # there must not skip the release, a failure anywhere must stop it.
+    if: >-
+      ${{ !cancelled() && inputs.upload_release
+      && needs.build-macos.result == 'success'
+      && needs.build-windows.result == 'success'
+      && needs.build-linux.result == 'success'
+      && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -947,7 +989,7 @@ jobs:
     permissions:
       contents: read
     needs: release
-    if: ${{ inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.winget_submit && inputs.winget_package_id != '' && inputs.winget_installer_url != '' && inputs.winget_fork_owner != '' }}
     # Relative, not @production: a consumer pinned to a tag was getting whatever
     # `production` pointed at for this one job. A relative `uses:` resolves against
     # this repository at the ref the consumer pinned.

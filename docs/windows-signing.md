@@ -202,16 +202,26 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
    ```
 
-5. Check the first signed release: the Windows job log shows
-   `PFX ok: <subject>` before the build and `ok: <file> signed by ...` per file
-   after it. Download the MSI and setup EXE and run the verify commands above.
+5. Check the first signed release: the `sign-windows` job log shows
+   `PFX ok: <subject>` and `ok: <file> signed by ...` per file. Download the
+   MSI and setup EXE from the release and run the verify commands above.
 
 With a private CA or self-signed certificate, also set
 `windows_pfx_verify_trust: false`: the runner does not trust your root, so
 `signtool verify /pa` would fail. The signer and timestamp are still checked.
 
-What is signed: every `.exe` and `.msi` under the Tauri bundle folder, which
-is the MSI and the NSIS setup EXE. The application EXE inside the installers
+Where signing runs: in `tauri-release`'s `sign-windows` job, not in the
+build job. The build runs the app's npm and cargo scripts, and anything they
+do can change files, `PATH` or `GITHUB_ENV` for every later step of that
+job, so a signing step there would hand them the certificate. `sign-windows`
+downloads the unsigned installers, checks out only the ci-helpers actions,
+runs no app code, and is the only job given the certificate secrets. The PFX
+is written to `RUNNER_TEMP` with an owner-only ACL for `signtool /f`, deleted
+when the step ends (on failure too), and never imported into a certificate
+store.
+
+What is signed: the installers the build job collects, the MSI and the NSIS
+setup EXE. The application EXE inside the installers
 is not signed by this step; sign it from Tauri's own
 `bundle.windows.signCommand` if you need that. Authenticode changes the file,
 so pfx cannot be combined with `tauri_updater` `.sig` files made during the
@@ -248,6 +258,10 @@ Setup:
    `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TRUSTED_SIGNING_ENDPOINT`,
    `AZURE_CODE_SIGNING_ACCOUNT`, `AZURE_CERT_PROFILE`, and set
    `windows_sign_mode: azure`.
+
+`tauri-release` signs in the `sign-windows` job, away from the build, for
+the same reason as pfx (see "Where signing runs" above), and checks that
+each installer has a valid, timestamped signature.
 
 ci-helpers authenticates with the client secret; an OIDC federated
 credential (no stored secret) is not wired through `tauri-release` yet.

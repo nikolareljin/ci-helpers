@@ -977,7 +977,8 @@ jobs:
   # windows-sign pfx mode, end to end, with a throwaway self-signed PFX made
   # here: it signs and timestamps a real exe, refuses a wrong password, a
   # timestamp server that does not answer, and an untrusted chain when
-  # verify_trust is on, and leaves no key in the certificate store.
+  # verify_trust is on, and leaves no PFX file in RUNNER_TEMP and no key in
+  # the certificate store, on failure too.
   windows-sign-pfx-signs-a-real-exe:
     runs-on: windows-latest
     timeout-minutes: 15
@@ -1031,7 +1032,8 @@ jobs:
           }
           if ($sig.SignerCertificate.Thumbprint -ne $env:SELFTEST_THUMB) { Write-Output "::error::wrong signer thumbprint"; exit 1 }
           if (-not $sig.TimeStamperCertificate) { Write-Output "::error::app.exe has no timestamp"; exit 1 }
-          if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::the certificate is still in the store"; exit 1 }
+          if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::the certificate is in the store"; exit 1 }
+          if (Get-ChildItem -Path $env:RUNNER_TEMP -Filter "sign-*.pfx" -ErrorAction SilentlyContinue) { Write-Output "::error::a PFX file is left in RUNNER_TEMP"; exit 1 }
           Write-Output "signed by $($sig.SignerCertificate.Subject), timestamped by $($sig.TimeStamperCertificate.Subject)"
 
       - name: verify_trust on refuses a self-signed chain
@@ -1098,6 +1100,7 @@ jobs:
             Write-Output "::error::a wrong password still signed the exe"; $bad = 1
           }
           if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::a failed run left the certificate in the store"; $bad = 1 }
+          if (Get-ChildItem -Path $env:RUNNER_TEMP -Filter "sign-*.pfx" -ErrorAction SilentlyContinue) { Write-Output "::error::a failed run left a PFX file in RUNNER_TEMP"; $bad = 1 }
           exit $bad
 
   gitleaks-refuses-what-it-must:

@@ -6,8 +6,10 @@
 #                 check that the PFX opens and holds a code-signing key
 #   VERIFY_TRUST  "true" (default): `signtool verify /pa` must pass
 #   TS_ATTEMPTS   timestamp attempts per file (default 4)
-# The PFX is never written to disk: it is opened from memory, and its key is
-# imported into the user store only for the signing and removed afterwards.
+# The PFX is checked from memory. For signing it is written to RUNNER_TEMP
+# with an ACL that only the current user can read, handed to signtool with
+# /f, and deleted in a finally block. Nothing is imported into a certificate
+# store, so no key persists after the step.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -106,20 +108,23 @@ Write-Output "signtool: $signtool"
 $files = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
 if ($files.Count -eq 0) { Fail "no .exe or .msi files under $dir to sign." }
 
-$certPath = "Cert:\CurrentUser\My\$thumb"
-$imported = $false
+$tmpRoot = $env:RUNNER_TEMP
+if (-not $tmpRoot) { $tmpRoot = [IO.Path]::GetTempPath() }
+$pfxPath = Join-Path $tmpRoot ("sign-" + [guid]::NewGuid().ToString("N") + ".pfx")
 try {
-  $cert = $X509::new($bytes, $pw, ($Flags::UserKeySet -bor $Flags::PersistKeySet))
-  # Set before Add, so a failure inside Add still runs the cleanup below.
-  $imported = $true
-  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("My", "CurrentUser")
-  $store.Open("ReadWrite")
-  $store.Add($cert)
-  $store.Close()
+  # Create the file empty, lock it to the current user, then write the bytes.
+  New-Item -ItemType File -Path $pfxPath | Out-Null
+  $acl = New-Object System.Security.AccessControl.FileSecurity
+  $acl.SetAccessRuleProtection($true, $false)
+  $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $acl.SetOwner($me)
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, "FullControl", "Allow")))
+  Set-Acl -LiteralPath $pfxPath -AclObject $acl
+  [IO.File]::WriteAllBytes($pfxPath, $bytes)
 
   foreach ($f in $files) {
     Write-Output "signing $($f.FullName)"
-    & $signtool sign /sha1 $thumb /s My /fd SHA256 /q $f.FullName
+    & $signtool sign /f $pfxPath /p $pw /fd SHA256 /q $f.FullName
     if ($LASTEXITCODE -ne 0) { Fail "signtool sign failed ($LASTEXITCODE) on $($f.Name)." }
 
     $stamped = $false
@@ -146,7 +151,6 @@ try {
     Write-Output "ok: $($f.Name) signed by $($sig.SignerCertificate.Subject), timestamped by $($sig.TimeStamperCertificate.Subject)"
   }
 } finally {
-  if ($imported -and (Test-Path $certPath)) {
-    Remove-Item -LiteralPath $certPath -DeleteKey -Force -ErrorAction SilentlyContinue
-  }
+  Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $pfxPath) { Write-Output "::error::could not delete $pfxPath" ; exit 1 }
 }

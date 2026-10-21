@@ -287,7 +287,7 @@ for each and how to turn pfx on.
 |------|------|---------------|-----|
 | `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Checks the key; with `export_env: "true"` also sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
 | `pfx` | CA price, or free with a private CA | MSI + EXE Authenticode | Without `files_folder`: checks the PFX opens and holds an unexpired code-signing key. With it: signs, timestamps and verifies every `.exe` and `.msi` under it |
-| `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a post-build `azure/trusted-signing-action` step |
+| `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a separate `azure/trusted-signing-action` step |
 
 Inputs:
 
@@ -331,15 +331,19 @@ Notes:
   `tauri-release.yml` does. Set `"true"` only when a later step must read them
   from the environment and cannot take `env:`. The cost: every later step in
   the job, including dependency installs and build scripts, can read them.
-- `pfx` mode signs after the build: run the action once before it (no
-  `files_folder`) to fail early on a bad PFX, and once after it with
-  `files_folder`. It needs a Windows runner. The PFX is opened from memory,
-  never written to disk, and its key is removed from the certificate store
-  when the step ends, on failure too. Publicly trusted certificates issued
+- `pfx` mode with `files_folder` needs a Windows runner. Run it in a job of
+  its own that downloads the built installers and runs no build or app code,
+  as `tauri-release`'s `sign-windows` job does: a build step runs the app's
+  npm and cargo scripts, which can change files, `PATH` or `GITHUB_ENV` for
+  every later step of the same job and so reach the certificate. The PFX is
+  checked in memory, written to `RUNNER_TEMP` with an owner-only ACL for
+  `signtool /f`, and deleted when the step ends, on failure too; nothing is
+  imported into a certificate store. Publicly trusted certificates issued
   since 2023-06-01 have hardware-bound keys and cannot be exported to a
   `.pfx`; see [Windows signing](windows-signing.md).
 - `azure` mode: the actual signing happens via `azure/trusted-signing-action`
-  in a separate post-build step. This action only checks the credentials.
+  in a separate step, in the same kind of signing-only job. This action only
+  checks the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`
 
 ## pimcore-bundle-check

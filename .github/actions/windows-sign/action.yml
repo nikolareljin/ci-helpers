@@ -13,10 +13,12 @@ description: >
 
   pfx (PAID or private CA - Authenticode with a .pfx certificate):
     Without files_folder, checks that the PFX opens with the password and
-    holds an unexpired code-signing key. With files_folder (after the build),
-    signs every .exe and .msi under it with signtool (SHA256, RFC 3161
-    timestamp, retried), verifies each signature, and removes the key from
-    the certificate store. The PFX is never written to disk.
+    holds an unexpired code-signing key. With files_folder, signs every .exe
+    and .msi under it with signtool /f (SHA256, RFC 3161 timestamp, retried)
+    and verifies each signature. The PFX is written to RUNNER_TEMP with an
+    owner-only ACL for signtool and deleted when the step ends, on failure
+    too; nothing is imported into a certificate store. Run it in a job that
+    runs no build or app code (tauri-release's sign-windows job).
 
   azure (PAID - Azure Trusted Signing):
     With export_env "true", exports the Azure credentials to GITHUB_ENV. After the build,
@@ -62,8 +64,7 @@ inputs:
   files_folder:
     description: >
       pfx mode: folder whose .exe and .msi files are signed (searched
-      recursively). Empty only checks the PFX, so the action can run before
-      the build to fail early and again after it to sign.
+      recursively). Empty only checks the PFX.
     required: false
     default: ""
   verify_trust:

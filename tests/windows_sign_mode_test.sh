@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # SCRIPT: windows_sign_mode_test.sh
 # DESCRIPTION: windows-sign and tauri-release accept tauri_updater, pfx and
-#              azure (plus "none" in tauri-release), refuse pfx when the
-#              certificate or password is empty, and refuse unknown modes.
+#              azure (plus "none" in tauri-release), windows-sign refuses pfx
+#              when the certificate or password is empty, both refuse unknown
+#              modes, and tauri-release signs in a sign-windows job that gets
+#              the signing secrets and checks out and runs no app code.
 #              The pfx script is run against a throwaway PFX made with openssl:
 #              a good PFX passes, a wrong password, bad base64, a non-code-
 #              signing certificate and a bad timestamp URL are refused, and the
@@ -27,22 +29,47 @@ if len(pfx) != 1 or "sign_pfx.ps1" not in pfx[0].get("run", ""):
 for name in ("certificate_base64", "certificate_password", "timestamp_server", "files_folder", "verify_trust"):
     if name not in d["inputs"]:
         fail.append(f"windows-sign has no input {name}")
-calls = [s for s in rd["jobs"]["build-windows"]["steps"] if s.get("uses", "").endswith("/windows-sign")]
-if len(calls) != 2:
-    fail.append(f"tauri-release calls windows-sign {len(calls)} times, want 2 (check, then sign)")
-for c in calls:
-    w = c.get("with", {})
-    if w.get("certificate_base64") != "${{ secrets.WINDOWS_CERTIFICATE }}" or \
-       w.get("certificate_password") != "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}":
-        fail.append(f"'{c.get('name')}' does not pass the WINDOWS_CERTIFICATE secrets")
-if calls and not calls[-1].get("with", {}).get("files_folder"):
-    fail.append("the post-build pfx call has no files_folder")
+jobs = rd["jobs"]
+build, sign = jobs["build-windows"], jobs.get("sign-windows")
+# The build job runs the app's code, so no Authenticode secret may reach it.
+btext = yaml.safe_dump(build)
+for name in ("WINDOWS_CERTIFICATE", "AZURE_"):
+    if name in btext:
+        fail.append(f"build-windows references {name}*: signing secrets must stay out of the build job")
+if not sign:
+    fail.append("tauri-release has no sign-windows job")
+else:
+    if sign.get("needs") != "build-windows":
+        fail.append("sign-windows does not need build-windows")
+    for st in sign["steps"]:
+        uses = st.get("uses", "")
+        if uses.startswith("actions/checkout@"):
+            w = st.get("with", {})
+            if w.get("repository") != "${{ job.workflow_repository }}" or w.get("ref") != "${{ job.workflow_sha }}" \
+               or w.get("sparse-checkout") != ".github/actions":
+                fail.append("sign-windows checks out something other than the ci-helpers actions")
+        run = st.get("run", "")
+        for tool in ("cargo", "npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
+            if tool in run:
+                fail.append(f"sign-windows runs {tool.strip()}: it must run no app or build code")
+        if "working-directory" in st:
+            fail.append("sign-windows has a step with working-directory: it has no app tree")
+    stext = yaml.safe_dump(sign)
+    if "tauri-windows-unsigned" not in stext or "tauri-windows-artifacts" not in stext:
+        fail.append("sign-windows does not download tauri-windows-unsigned and upload tauri-windows-artifacts")
+    calls = [st for st in sign["steps"] if st.get("uses", "").endswith("/windows-sign")]
+    if len(calls) != 1 or not calls[0].get("with", {}).get("files_folder"):
+        fail.append("sign-windows does not run windows-sign with files_folder")
+    elif "secrets.WINDOWS_CERTIFICATE " not in calls[0]["with"].get("certificate_base64", "") + " ":
+        fail.append("sign-windows does not pass WINDOWS_CERTIFICATE to windows-sign")
+if "sign-windows" not in jobs["release"].get("needs", []):
+    fail.append("release does not wait for sign-windows")
 first_win = rd["jobs"]["build-windows"]["steps"][0]
 if first_win.get("name") != "Check Windows sign mode" or "if" in first_win:
     fail.append("build-windows does not start with an unconditional 'Check Windows sign mode'")
 if fail:
     sys.exit("FAIL: " + "; ".join(fail))
-print("ok: pfx is wired into windows-sign and tauri-release")
+print("ok: pfx is wired in; tauri-release signs in sign-windows, away from the build")
 PY
 
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -74,12 +101,14 @@ for script in "$tmp/check.ps1" "$tmp/release.ps1"; do
   check 0 Azure "" "" ""
   check 0 pfx "QUJD" "pw" ""
   check 0 PFX "QUJD" "pw" ""
-  check 1 pfx "" "pw" "$need_secrets"
-  check 1 pfx "QUJD" "" "$need_secrets"
-  check 1 pfx " " "pw" "$need_secrets"
   check 1 bogus "" "" "must be"
   check 1 "" "" "" "must be"
 done
+# Only the action sees the secrets; tauri-release's first step has none.
+script="$tmp/check.ps1"
+check 1 pfx "" "pw" "$need_secrets"
+check 1 pfx "QUJD" "" "$need_secrets"
+check 1 pfx " " "pw" "$need_secrets"
 script="$tmp/check.ps1"
 check 1 none "" "" "must be tauri_updater, pfx or azure"
 script="$tmp/release.ps1"
@@ -87,7 +116,7 @@ check 0 none "" "" ""
 check 0 None "" "" ""
 check 1 bogus "" "" "must be none, tauri_updater, pfx or azure"
 [ "$fail" = 0 ] || exit 1
-echo "ok: both checks accept pfx with secrets, refuse it without, refuse unknown modes"
+echo "ok: both checks accept pfx, the action refuses it without secrets, both refuse unknown modes"
 
 # sign_pfx.ps1 itself, up to the point where signtool would run.
 pw='T3st-only pw!'
