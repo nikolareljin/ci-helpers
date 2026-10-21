@@ -449,3 +449,150 @@ dialog_download_file() {
     return $rc
   fi
 }
+
+# ---------------------------------------------------------------------------
+# One set of prompts, three renderers: dialog, plain (read), none.
+# ---------------------------------------------------------------------------
+
+# Usage: ui_mode; prints dialog | plain | none.
+#
+# SHLIB_UI forces a renderer (tests, and a caller that knows better). Otherwise:
+# no terminal on stdin or stdout means no prompts at all -- a systemd unit or a
+# CI job must fail naming what it wanted rather than wait forever on a read;
+# SHLIB_UI_PLAIN=1 means plain prompts even when `dialog` is installed.
+ui_mode() {
+  local forced="${SHLIB_UI:-}"
+  if [[ -n "$forced" ]]; then
+    case "$forced" in
+      dialog|plain|none) ;;
+      *) log_error "${_UI_MODE_VAR:-SHLIB_UI} must be dialog, plain or none (got '$forced')"; return 1 ;;
+    esac
+    if [[ "$forced" == "dialog" && -n "${SHLIB_UI_PLAIN:-}" ]]; then
+      echo plain
+      return 0
+    fi
+    echo "$forced"
+    return 0
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    echo none
+    return 0
+  fi
+  if [[ -z "${SHLIB_UI_PLAIN:-}" ]] && command -v dialog >/dev/null 2>&1; then
+    echo dialog
+    return 0
+  fi
+  echo plain
+}
+
+# Usage: ui_menu TITLE TEXT DEFAULT key1 label1 [key2 label2 ...]
+# Prints the chosen key. In `none` mode prints nothing and returns 1.
+ui_menu() {
+  local title="$1" text="$2" default="$3"; shift 3
+  local mode; mode="$(ui_mode)" || return 1
+  local -a keys=() labels=()
+  while [[ $# -ge 2 ]]; do keys+=("$1"); labels+=("$2"); shift 2; done
+  case "$mode" in
+    none) return 1 ;;
+    dialog)
+      dialog_init
+      local -a items=()
+      local i
+      for i in "${!keys[@]}"; do items+=("${keys[$i]}" "${labels[$i]}"); done
+      local choice
+      choice="$(dialog_capture --title "$title" --default-item "$default" --menu "$text" "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 0 "${items[@]}")" || return 1
+      echo "$choice"
+      ;;
+    plain)
+      local i answer
+      echo "$title" >&2
+      echo "$text" >&2
+      for i in "${!keys[@]}"; do echo "  ${keys[$i]}  -- ${labels[$i]}" >&2; done
+      read -r -p "[${default}] " answer || return 1
+      answer="${answer:-$default}"
+      for i in "${!keys[@]}"; do
+        [[ "$answer" == "${keys[$i]}" ]] && { echo "$answer"; return 0; }
+      done
+      log_error "'$answer' is not one of: ${keys[*]}"
+      return 1
+      ;;
+  esac
+}
+
+# Usage: ui_input TITLE TEXT [DEFAULT]; prints the answer, or DEFAULT when empty.
+ui_input() {
+  local title="$1" text="$2" default="${3:-}"
+  local mode; mode="$(ui_mode)" || return 1
+  case "$mode" in
+    none) return 1 ;;
+    dialog)
+      dialog_init
+      local v
+      v="$(dialog_capture --title "$title" --inputbox "$text" 10 "$DIALOG_WIDTH" "$default")" || return 1
+      echo "${v:-$default}"
+      ;;
+    plain)
+      local v
+      read -r -p "$text${default:+ [$default]}: " v || return 1
+      echo "${v:-$default}"
+      ;;
+  esac
+}
+
+# Usage: ui_secret TITLE TEXT; prints the answer, never echoed while typed.
+ui_secret() {
+  local title="$1" text="$2"
+  local mode; mode="$(ui_mode)" || return 1
+  case "$mode" in
+    none) return 1 ;;
+    dialog)
+      dialog_init
+      dialog_capture --title "$title" --insecure --passwordbox "$text" 10 "$DIALOG_WIDTH" || return 1
+      ;;
+    plain)
+      local v
+      if [[ -t 0 ]]; then
+        read -r -s -p "$text: " v || return 1
+        echo >&2
+      else
+        # Piped answers (tests, scripted runs): -s would still work, but a
+        # pipe is not a terminal and `stty` complaints are noise.
+        read -r v || return 1
+      fi
+      echo "$v"
+      ;;
+  esac
+}
+
+# Usage: ui_yesno TITLE TEXT; 0 = yes, 1 = no, or no person to ask.
+ui_yesno() {
+  local title="$1" text="$2"
+  local mode; mode="$(ui_mode)" || return 1
+  case "$mode" in
+    none) return 1 ;;
+    dialog)
+      dialog_init
+      # dialog_run: a box without --stdout draws on stdout, and a caller that
+      # captured it would be asked a question nobody can see.
+      dialog_run --title "$title" --defaultno --yesno "$text" 10 "$DIALOG_WIDTH"
+      ;;
+    plain)
+      local v
+      read -r -p "$text [y/N] " v || return 1
+      [[ "$v" =~ ^[Yy]([Ee][Ss])?$ ]]
+      ;;
+  esac
+}
+
+# Usage: ui_note TITLE TEXT...; a message the person should see, in whatever
+# renderer. Never fails.
+ui_note() {
+  local title="$1"; shift
+  local mode; mode="$(ui_mode 2>/dev/null || echo none)"
+  if [[ "$mode" == "dialog" ]]; then
+    dialog_init
+    dialog_run --title "$title" --msgbox "$*" 12 "$DIALOG_WIDTH" 2>/dev/null || true
+    return 0
+  fi
+  log_info "$*"
+}

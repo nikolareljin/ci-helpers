@@ -199,17 +199,18 @@ Loader and modules
 - `helpers.sh`: resolves library path and provides `shlib_import` to source modules by name.
 - Modules live in `lib/*.sh` and are small, dependency-light files:
   - `logging.sh` — color constants and logging helpers (`print_info`, `log_info`, etc.).
-  - `dialog.sh`: dialog sizing helpers, `get_value`, and boxes that show even when the caller has captured stdout (`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`, `has_interactive_dialog_session`).
+  - `dialog.sh`: dialog sizing helpers, `get_value`, and boxes that show even when the caller has captured stdout (`dialog_capture`, `dialog_run`, `dialog_gauge`, `dialog_has_tty`, `has_interactive_dialog_session`), and prompts with dialog, plain and no-terminal renderers (`ui_mode`, `ui_menu`, `ui_input`, `ui_secret`, `ui_yesno`, `ui_note`).
   - `os.sh` — OS detection (`get_os`, `getos`, `is_wsl`) and conditional sudo helper.
   - `deps.sh` — install utilities (`install_dependencies`) where applicable.
   - `docker.sh` — docker compose detection/wrapper (`docker_compose`, `run_docker_compose_command`), status utility (`docker_status`).
   - `file.sh` — file/dir helpers, checksum verification.
-  - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`).
+  - `json.sh` — json utilities (`json_escape`, `format_response`, `format_md_response`, `json_get_field`).
+  - `http.sh` — probe a JSON service and prove an API key without putting it in argv (`http_probe_json`, `http_check_key`).
   - `svg.sh` — rasterize SVG art to PNG (`svg_rasterize <in> <out> [size]`, `svg_rasterize_sizes`) for app logos/launcher icons; prefers Inkscape, falls back to ImageMagick. CLI: `bin/svg-rasterize`.
   - `webshot.sh`: screenshots of web pages from a JSON spec (`webshot_capture <spec> <out_dir>`: login profiles, clicks and fills, element clips, hidden elements) and HTML-to-PDF (`webshot_pdf`), with Playwright in a cached venv (`webshot_ensure`). CLI: `bin/webshot`.
 - `env.sh` — `.env` loading, `require_env`, project-root detection.
 - `python.sh` — resolve Python 3 executables and ensure local virtualenvs.
-- `version.sh` — semantic version helpers (`version_bump`, `version_compare`).
+- `version.sh` — semantic version helpers (`version_bump`, `version_compare`, `version_offer_update`).
 - `hub.sh` — corpus-hub setup for capture clients: local-or-remote dialog with a plain and a no-terminal fallback, probe, key check, `.env` writer, bootstrap through the hub's own scripts, and an offer to run the hub's own `./update` (`hub_setup_dialog`, `hub_probe`, `hub_check_key`, `hub_write_env`, `hub_bootstrap`, `hub_offer_update`, `hub_latest_tag`, `hub_ui_mode`).
 - `cloudflare.sh` — deploy to Cloudflare with wrangler: credential and account-id resolution, version and deploy-config derivation, a typed confirmation before a protected environment, and a smoke test that asserts the version now live is the one just deployed (`cloudflare_deploy`, `cloudflare_wrangler`, `cloudflare_credentials_ok`, `cloudflare_account_id`, `cloudflare_version_string`, `cloudflare_deploy_config`, `cloudflare_base_url`, `cloudflare_confirm_environment`, `cloudflare_smoke_test`). Backs `./dev deploy cloudflare`, and shares one deploy definition with CI through `CF_DEPLOY_*`.
 - `ports.sh` — port usage/availability helpers.

@@ -1,6 +1,6 @@
 # Findings a person has looked at and accepted. One line per finding, as
-# path:rule:line -- a fingerprint suppresses exactly that finding and nothing
-# else.
+# path:rule:line, or commit:path:rule:line for a finding in history -- a
+# fingerprint suppresses exactly that finding and nothing else.
 #
 # Deliberately NOT a .gitleaks.toml allowlist. An allowlist entry keyed on a
 # path excludes that whole file from every rule, even with condition = "AND":
@@ -16,5 +16,12 @@
 #   value at all, let alone a secret. The caller supplies the password.
 # tests/publish_homebrew_test.sh:25  a dummy tap token. The test's whole point
 #   is asserting it never reaches argv or .git/config.
+# tests/security_gate_test.sh  aws_secret: AWS's documented example secret with
+#   EXAMPLEKEY replaced, kept on purpose. The test commits it into a temp repo
+#   with no ignore file and asserts gitleaks blocks it. Two entries are the same
+#   line in older commits (it was at 50, then 52).
 scripts/ci_pimcore_bundle_check.sh:generic-api-key:45
 tests/publish_homebrew_test.sh:generic-api-key:25
+tests/security_gate_test.sh:generic-api-key:58
+1eec243deec4774dde09762b8c584e4ca91bcd67:tests/security_gate_test.sh:generic-api-key:50
+7b29172a911431995cb5be3fd7be143608ce18c3:tests/security_gate_test.sh:generic-api-key:52

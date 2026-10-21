@@ -181,6 +181,7 @@ nav:
           - gradle: modules/gradle.md
           - flutter: modules/flutter.md
           - json: modules/json.md
+          - http: modules/http.md
       - Devices:
           - adb: modules/adb.md
           - android: modules/android.md
