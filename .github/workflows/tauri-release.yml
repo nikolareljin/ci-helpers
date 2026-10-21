@@ -227,7 +227,7 @@ jobs:
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2 @ 2026-10-20
         with:
           workspaces: ${{ inputs.working_directory }}
 
@@ -432,7 +432,7 @@ jobs:
           toolchain: ${{ inputs.rust_toolchain }}
 
       - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2 @ 2026-10-20
         with:
           workspaces: ${{ inputs.working_directory }}
 
@@ -636,7 +636,7 @@ jobs:
           toolchain: ${{ inputs.rust_toolchain }}
 
       - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2 @ 2026-08-08
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2 @ 2026-10-20
         with:
           workspaces: ${{ inputs.working_directory }}
           # The runner label is part of the key. -sys crates compile against the
@@ -758,7 +758,7 @@ jobs:
         with:
           persist-credentials: false
           repository: nikolareljin/script-helpers
-          ref: a1f68263c788ac2bb6064cac84d29228a1480641 # 0.54.1
+          ref: 678efa141aa43625ebb09d8f3cd80c98b0f6adb4 # 0.55.0
           path: .script-helpers
           fetch-depth: 1
 

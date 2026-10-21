@@ -162,3 +162,48 @@ version_bump() {
   printf "%s\n" "$new_version" > "$version_file"
   print_success "Bumped version: ${prefix}${normalized}${suffix} -> $new_version"
 }
+
+# Usage: version_offer_update [--label TEXT] [--hint TEXT] RUNNING LATEST COMMAND [ARG...]
+#
+# RUNNING older than LATEST and a person present (ui_mode is not none): ask,
+# and on yes run COMMAND ARG... in this shell, returning its status (a COMMAND
+# that execs replaces the caller, as an updater usually should). No person:
+# print one line naming the update, and the hint (default: the command).
+# Equal, newer or unreadable versions: nothing to offer, return 0. A declined
+# offer is not a failure. --label names what is running ("App" -> "App 1.2.0
+# is running"). Needs lib/dialog.sh for ui_mode and ui_yesno.
+version_offer_update() {
+  local label="" hint=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --label) [[ $# -ge 2 ]] || { log_error "version_offer_update: --label needs a value"; return 1; }; label="${2:+$2 }"; shift 2 ;;
+      --hint) [[ $# -ge 2 ]] || { log_error "version_offer_update: --hint needs a value"; return 1; }; hint="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
+  local running="${1:-}" latest="${2:-}"
+  [[ $# -ge 3 ]] || { log_error "version_offer_update: RUNNING, LATEST and COMMAND required"; return 1; }
+  shift 2
+  [[ -n "$hint" ]] || hint="$*"
+  [[ -n "$running" && -n "$latest" ]] || return 0
+  if ! declare -F ui_yesno >/dev/null 2>&1 && [[ -n "${_SHLIB_LIB_DIR:-}" ]]; then
+    # shellcheck source=/dev/null
+    source "$_SHLIB_LIB_DIR/dialog.sh" || return 1
+  fi
+  local rc=0
+  version_compare "$running" "$latest" >/dev/null 2>&1 || rc=$?
+  # 255 means running < latest. 0 equal, 1 newer (a checkout ahead of its tags).
+  [[ "$rc" -eq 255 ]] || return 0
+  # An invalid SHLIB_UI is a misconfiguration to surface, not a silent "none".
+  local mode; mode="$(ui_mode)" || return 1
+  if [[ "$mode" == "none" ]]; then
+    log_info "${label}$running is running; $latest is available: $hint"
+    return 0
+  fi
+  if ui_yesno "Update available" "${label}$running is running and $latest is available. Run $hint now?"; then
+    "$@"
+    return $?
+  fi
+  log_info "Not updating. Later: $hint"
+  return 0
+}
