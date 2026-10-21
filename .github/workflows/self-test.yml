@@ -1006,7 +1006,10 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "SELFTEST_THUMB=$($cert.Thumbprint)"
           foreach ($d in "sign", "untrusted", "nots", "badpw") {
             New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP $d) | Out-Null
-            Copy-Item "$env:SystemRoot\System32\whoami.exe" (Join-Path $env:RUNNER_TEMP "$d\app.exe")
+            # Not a System32 file: those are catalog-signed, and
+            # Get-AuthenticodeSignature reports the catalog signer for them,
+            # whatever is embedded. pwsh.exe carries only an embedded signature.
+            Copy-Item (Join-Path $PSHOME "pwsh.exe") (Join-Path $env:RUNNER_TEMP "$d\app.exe")
           }
 
       - name: Sign with pfx mode
