@@ -1,3 +1,11 @@
+## Unreleased
+
+### Changed
+
+- `tauri`, `tauri-scan` and `tauri-release` pin `swatinem/rust-cache` to
+  v2.9.3 (`d1527c8f`), the commit its `v2` tag now points to. The old pin
+  (v2.9.2) failed `update_pinned_actions.sh --check`.
+
 ## 2026-10-19 — v0.42.0
 
 ### Changed for callers: pinned downloads, images and SSH host keys
