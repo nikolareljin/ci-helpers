@@ -1089,17 +1089,19 @@ jobs:
             $o = [Environment]::GetEnvironmentVariable($n)
             if ($o -ne "failure") { Write-Output "::error::$n outcome '$o', expected failure"; $bad = 1 }
           }
+          # pwsh.exe arrives signed by Microsoft, so "ours" means our thumbprint.
+          function Ours($sig) { $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint -eq $env:SELFTEST_THUMB }
           # The first two must fail at their own check, not earlier: the
           # untrusted exe is signed and timestamped, the other only signed.
           $u = Get-AuthenticodeSignature -LiteralPath $env:UNTRUSTED_EXE
-          if (-not $u.SignerCertificate -or -not $u.TimeStamperCertificate) {
+          if (-not (Ours $u) -or -not $u.TimeStamperCertificate) {
             Write-Output "::error::verify_trust refused before signing and timestamping"; $bad = 1
           }
           $t = Get-AuthenticodeSignature -LiteralPath $env:NOTS_EXE
-          if (-not $t.SignerCertificate -or $t.TimeStamperCertificate) {
+          if (-not (Ours $t) -or $t.TimeStamperCertificate) {
             Write-Output "::error::the dead timestamp server run did not stop at the timestamp"; $bad = 1
           }
-          if ((Get-AuthenticodeSignature -LiteralPath $env:BADPW_EXE).SignerCertificate) {
+          if (Ours (Get-AuthenticodeSignature -LiteralPath $env:BADPW_EXE)) {
             Write-Output "::error::a wrong password still signed the exe"; $bad = 1
           }
           if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::a failed run left the certificate in the store"; $bad = 1 }
