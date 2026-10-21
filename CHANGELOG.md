@@ -19,7 +19,8 @@
   key, its certificate is not for code signing or has expired, or
   `timestamp_server` is not an http(s) URL. The default timestamp server is
   now `http://timestamp.digicert.com`; `tauri-release` takes
-  `windows_timestamp_server` to override it.
+  `windows_timestamp_server` to override it, and
+  `windows_pfx_verify_trust: false` for a private CA certificate.
 - `windows-sign` now fails on any `sign_mode` other than `tauri_updater`,
   `pfx` or `azure`; an unknown mode used to do nothing. The check ignores
   case, as the mode steps always have, so `Azure` still works.

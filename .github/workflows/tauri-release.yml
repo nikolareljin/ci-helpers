@@ -76,6 +76,13 @@ on:
         description: RFC 3161 timestamp URL for windows_sign_mode pfx (empty uses http://timestamp.digicert.com)
         type: string
         default: ""
+      windows_pfx_verify_trust:
+        description: >
+          windows_sign_mode pfx: require `signtool verify /pa` to pass. Set false
+          for a private CA or self-signed certificate the runner does not trust;
+          the signer and timestamp are still checked.
+        type: boolean
+        default: true
       upload_release:
         description: Create/update a GitHub Release and upload all installers
         type: boolean
@@ -595,6 +602,7 @@ jobs:
           certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           timestamp_server: ${{ inputs.windows_timestamp_server }}
           files_folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
+          verify_trust: ${{ inputs.windows_pfx_verify_trust && 'true' || 'false' }}
 
       - name: Remove ci-helpers actions checkout after pfx signing
         if: ${{ always() && inputs.windows_sign_mode == 'pfx' }}

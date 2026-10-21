@@ -2058,6 +2058,7 @@ Inputs (selected):
 | `notarize_macos` | `true` | Gate notarization + staple |
 | `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
 | `windows_timestamp_server` | `""` | RFC 3161 URL for `pfx`; empty uses `http://timestamp.digicert.com` |
+| `windows_pfx_verify_trust` | `true` | `pfx`: require `signtool verify /pa`; `false` for a private CA or self-signed certificate |
 | `upload_release` | `true` | Upload to GitHub Releases |
 | `release_tag` | `""` | Defaults to `GITHUB_REF_NAME` |
 | `dist_repo` | `""` | Cross-repo artifact push |

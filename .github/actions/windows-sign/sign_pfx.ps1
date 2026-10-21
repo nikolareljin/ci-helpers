@@ -27,6 +27,7 @@ if ([string]::IsNullOrWhiteSpace($b64) -or [string]::IsNullOrEmpty($pw)) {
 # Mask before anything can print them. GitHub masks each line of a multi-line
 # value only when it is registered line by line.
 foreach ($line in ($pw -split "`r?`n")) { if ($line) { Write-Output "::add-mask::$line" } }
+Write-Output "::add-mask::$($b64.Trim())"
 
 $tsUrl = ([string]$env:TS_URL).Trim()
 if (-not $tsUrl) { $tsUrl = $DefaultTimestampUrl }
@@ -109,11 +110,12 @@ $certPath = "Cert:\CurrentUser\My\$thumb"
 $imported = $false
 try {
   $cert = $X509::new($bytes, $pw, ($Flags::UserKeySet -bor $Flags::PersistKeySet))
+  # Set before Add, so a failure inside Add still runs the cleanup below.
+  $imported = $true
   $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("My", "CurrentUser")
   $store.Open("ReadWrite")
   $store.Add($cert)
   $store.Close()
-  $imported = $true
 
   foreach ($f in $files) {
     Write-Output "signing $($f.FullName)"

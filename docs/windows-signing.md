@@ -59,9 +59,10 @@ cannot use it.
 2. **A private CA or self-signed certificate.** For internal tools, test
    builds, or managed machines where you deploy the root certificate through
    Group Policy or Intune. Machines without that root see an untrusted
-   signature. Set `verify_trust: "false"` on `windows-sign` (the runner does
-   not trust your root either); the action still checks that each file
-   carries your certificate's signature and a timestamp.
+   signature. Set `windows_pfx_verify_trust: false` in `tauri-release`
+   (`verify_trust: "false"` on `windows-sign`): the runner does not trust
+   your root either. Each file is still checked for your certificate's
+   signature and a timestamp.
 3. **Public trust today: a CA cloud-HSM signing service.** These are not
    pfx mode: the key never leaves the CA. Examples:
    [DigiCert KeyLocker][dc-kl], [SSL.com eSigner][ssl-es],
@@ -205,9 +206,9 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
    `PFX ok: <subject>` before the build and `ok: <file> signed by ...` per file
    after it. Download the MSI and setup EXE and run the verify commands above.
 
-`tauri-release` with a private CA certificate fails at `signtool verify /pa`,
-because the runner does not trust the root. Call `windows-sign` from your own
-workflow with `verify_trust: "false"` for that case.
+With a private CA or self-signed certificate, also set
+`windows_pfx_verify_trust: false`: the runner does not trust your root, so
+`signtool verify /pa` would fail. The signer and timestamp are still checked.
 
 What is signed: every `.exe` and `.msi` under the Tauri bundle folder, which
 is the MSI and the NSIS setup EXE. The application EXE inside the installers
