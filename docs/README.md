@@ -26,6 +26,7 @@ Start here:
 
 - [Reusable workflows](workflows.md) — CI, PR gate, deploy, scan, release, Tauri, WinGet, Docker multi-arch, manifest versioning, and release-rc-pr.
 - [Packaging and signing](packaging.md): DEB on a release, Launchpad PPA, macOS; one set of secret names.
+- [Windows signing](windows-signing.md): certificates for pfx and Azure Artifact Signing, making the PFX, timestamping, turning pfx on.
 - [Presets](presets.md) — stack-specific presets (Java/Gradle/Kotlin/Rust/Node/React/PHP/Pimcore/Playwright/Cypress).
 - [Composite actions](actions.md) — semver compare, release tag guard, release notes, scan helpers, macOS signing, Windows signing.
 - [Examples](examples.md) — common usage patterns (monorepos, E2E servers, Docker + E2E).

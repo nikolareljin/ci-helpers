@@ -68,10 +68,14 @@ on:
           Windows signing mode:
             none          — no signing (default)
             tauri_updater — free ED25519 updater bundle signing (.sig files only)
-            pfx           - removed: fails the job (it produced unsigned MSI/EXE)
+            pfx           - Authenticode with a .pfx certificate (MSI + EXE, post-build)
             azure         — paid Azure Trusted Signing (MSI + EXE, post-build)
         type: string
         default: "none"
+      windows_timestamp_server:
+        description: RFC 3161 timestamp URL for windows_sign_mode pfx (empty uses http://timestamp.digicert.com)
+        type: string
+        default: ""
       upload_release:
         description: Create/update a GitHub Release and upload all installers
         type: boolean
@@ -142,10 +146,10 @@ on:
         description: Accepted as an alias of APPLE_APP_PASSWORD, which is the name most consumers already hold (#97)
         required: false
       WINDOWS_CERTIFICATE:
-        description: Deprecated and ignored (pfx signing was removed)
+        description: Base64-encoded PFX for windows_sign_mode pfx (docs/windows-signing.md)
         required: false
       WINDOWS_CERTIFICATE_PASSWORD:
-        description: Deprecated and ignored (pfx signing was removed)
+        description: Password of the PFX in WINDOWS_CERTIFICATE
         required: false
       TAURI_SIGNING_PRIVATE_KEY:
         description: ED25519 private key for Tauri updater bundle signing (free)
@@ -402,16 +406,18 @@ jobs:
         shell: pwsh
         env:
           SIGN_MODE: ${{ inputs.windows_sign_mode }}
+          CERT_B64: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
           # -eq/-ne ignore case, like the `inputs.windows_sign_mode` step conditions.
-          if ($env:SIGN_MODE -eq "pfx") {
-            Write-Output "::error::sign_mode pfx was removed: it produced unsigned MSI/EXE files. Use azure."
+          if ($env:SIGN_MODE -ne "none" -and $env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "pfx" -and $env:SIGN_MODE -ne "azure") {
+            Write-Output "::error::sign_mode must be none, tauri_updater, pfx or azure (got: $($env:SIGN_MODE))."
             exit 1
           }
-          if ($env:SIGN_MODE -ne "none" -and $env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "azure") {
-            Write-Output "::error::sign_mode must be none, tauri_updater or azure (got: $($env:SIGN_MODE))."
+          if ($env:SIGN_MODE -eq "pfx" -and ([string]::IsNullOrWhiteSpace($env:CERT_B64) -or [string]::IsNullOrEmpty($env:CERT_PW))) {
+            Write-Output "::error::sign_mode pfx needs certificate_base64 and certificate_password (secrets WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD); one is empty. See docs/windows-signing.md."
             exit 1
           }
 
@@ -513,16 +519,6 @@ jobs:
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
           echo "ci-helpers actions at $WF_SHA"
 
-      - name: Warn on removed pfx secrets
-        shell: bash
-        env:
-          WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WIN_CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -n "${WIN_CERT}${WIN_CERT_PW}" ]; then
-            echo "::warning::WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are ignored: pfx signing was removed."
-          fi
-
       - name: Configure Windows signing
         if: ${{ inputs.windows_sign_mode != 'none' }}
         uses: ./.ci-helpers-actions/.github/actions/windows-sign
@@ -530,6 +526,10 @@ jobs:
           sign_mode: ${{ inputs.windows_sign_mode }}
           tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # pfx: this run only checks the PFX opens; signing is after the build.
+          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
+          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          timestamp_server: ${{ inputs.windows_timestamp_server }}
           azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
           azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
           azure_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -558,6 +558,48 @@ jobs:
           # An empty variable is not an unset one to Tauri.
           [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] || unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           cargo tauri build
+
+      # The checkout was removed before the build, so pfx signing checks it out
+      # again at the same commit.
+      - name: Check out ci-helpers actions for pfx signing
+        if: ${{ inputs.windows_sign_mode == 'pfx' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit for pfx signing
+        if: ${{ inputs.windows_sign_mode == 'pfx' }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+
+      # Signs every .exe and .msi under the bundle folder, timestamps and
+      # verifies each one. Tauri v2 does not read a sign command from the
+      # environment, so signing happens here, after the build.
+      - name: Sign with PFX certificate (post-build)
+        if: ${{ inputs.windows_sign_mode == 'pfx' }}
+        uses: ./.ci-helpers-actions/.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ secrets.WINDOWS_CERTIFICATE }}
+          certificate_password: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          timestamp_server: ${{ inputs.windows_timestamp_server }}
+          files_folder: ${{ inputs.working_directory }}/src-tauri/target/release/bundle
+
+      - name: Remove ci-helpers actions checkout after pfx signing
+        if: ${{ always() && inputs.windows_sign_mode == 'pfx' }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
 
       - name: Sign with Azure Trusted Signing (post-build)
         if: ${{ inputs.windows_sign_mode == 'azure' }}

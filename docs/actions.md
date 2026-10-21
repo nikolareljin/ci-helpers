@@ -279,21 +279,28 @@ Notes:
 
 Path: `.github/actions/windows-sign`
 
-Purpose: Configure Windows code signing for Tauri builds. Supports two modes:
+Purpose: Configure Windows code signing for Tauri builds. Supports three
+modes. [Windows signing](windows-signing.md) says how to get a certificate
+for each and how to turn pfx on.
 
 | Mode | Cost | What it signs | How |
 |------|------|---------------|-----|
 | `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Checks the key; with `export_env: "true"` also sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
+| `pfx` | CA price, or free with a private CA | MSI + EXE Authenticode | Without `files_folder`: checks the PFX opens and holds an unexpired code-signing key. With it: signs, timestamps and verifies every `.exe` and `.msi` under it |
 | `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a post-build `azure/trusted-signing-action` step |
 
 Inputs:
 
 | Input | Required for | Default | Description |
 |-------|-------------|---------|-------------|
-| `sign_mode` | all | - | `tauri_updater` or `azure`. `pfx` was removed and fails the step |
+| `sign_mode` | all | - | `tauri_updater`, `pfx` or `azure`; anything else fails the step |
 | `tauri_signing_private_key` | `tauri_updater` | — | Base64 or raw ED25519 private key |
 | `tauri_signing_private_key_password` | no | `""` | Password for the updater key |
-| `certificate_base64`, `certificate_password`, `timestamp_server` | - | `""` | Deprecated and ignored; a non-empty value logs a warning |
+| `certificate_base64` | `pfx` | - | Base64 of the `.pfx` |
+| `certificate_password` | `pfx` | - | PFX password |
+| `timestamp_server` | no | `""` | RFC 3161 URL; empty uses `http://timestamp.digicert.com` |
+| `files_folder` | no | `""` | `pfx`: folder to sign (recursive `.exe`, `.msi`); empty only checks the PFX |
+| `verify_trust` | no | `"true"` | `pfx`: require `signtool verify /pa`; `"false"` for a private CA or self-signed certificate |
 | `azure_tenant_id` | `azure` | — | Azure tenant ID |
 | `azure_client_id` | `azure` | — | Service principal client ID |
 | `azure_client_secret` | `azure` | — | Service principal secret |
@@ -324,9 +331,13 @@ Notes:
   `tauri-release.yml` does. Set `"true"` only when a later step must read them
   from the environment and cannot take `env:`. The cost: every later step in
   the job, including dependency installs and build scripts, can read them.
-- `pfx` mode was removed. Tauri v2 never read the sign command it set, so the
-  MSI/EXE came out unsigned while the job passed. New OV/EV keys ship on
-  hardware tokens or cloud HSMs and cannot be exported to a `.pfx`; use `azure`.
+- `pfx` mode signs after the build: run the action once before it (no
+  `files_folder`) to fail early on a bad PFX, and once after it with
+  `files_folder`. It needs a Windows runner. The PFX is opened from memory,
+  never written to disk, and its key is removed from the certificate store
+  when the step ends, on failure too. Publicly trusted certificates issued
+  since 2023-06-01 have hardware-bound keys and cannot be exported to a
+  `.pfx`; see [Windows signing](windows-signing.md).
 - `azure` mode: the actual signing happens via `azure/trusted-signing-action`
   in a separate post-build step. This action only checks the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`

@@ -1,26 +1,39 @@
 ## Unreleased
 
-### Changed for callers: Windows pfx signing removed
+### Fixed
 
-- **`windows-sign` `sign_mode: pfx` and `tauri-release`
-  `windows_sign_mode: pfx` now fail.** Tauri v2 never read the
-  `TAURI_WINDOWS_SIGN_COMMAND` the action set, so pfx builds shipped unsigned
-  MSI/EXE files and the job passed (#286). Use `azure`.
-- The pfx inputs (`certificate_base64`, `certificate_password`,
-  `timestamp_server`) and the `WINDOWS_CERTIFICATE` /
-  `WINDOWS_CERTIFICATE_PASSWORD` secrets are kept, ignored, and log a
-  `::warning::` when set, so existing callers do not break on an unknown
-  input. They will be removed in a later release.
-- `windows-sign` now fails on any `sign_mode` other than `tauri_updater` or
-  `azure`; an unknown mode used to do nothing. The check ignores case, as the
-  mode steps always have, so `Azure` still works.
-- `tauri-release` no longer runs the Windows certificate cleanup step.
-- `tauri-release` checks `windows_sign_mode` as the first step of the
-  Windows job, so `pfx` or an unknown mode fails before checkout and
-  `cargo install`, not after.
+- **`windows-sign` pfx mode signs again.** Tauri v2 never read the
+  `TAURI_WINDOWS_SIGN_COMMAND` the action set, so pfx builds shipped
+  unsigned MSI/EXE files and the job passed (#286). With the new
+  `files_folder` input the action now signs every `.exe` and `.msi` under
+  it with signtool (newest Windows SDK copy, `/fd SHA256`), timestamps each
+  file over RFC 3161 (`/td SHA256`, 4 attempts with backoff), runs
+  `signtool verify /pa` (`verify_trust: "false"` for a private CA), checks
+  the signer thumbprint and timestamp, and removes the key from the store
+  even on failure. The PFX is opened from memory and never written to disk;
+  the password is masked. `tauri-release` runs it after the build when
+  `windows_sign_mode: pfx`. pfx stays opt-in: the default mode is still
+  `none`, and callers of other modes see no change.
+- pfx mode refuses early, with a message naming the secrets, when the
+  certificate or password is empty, the PFX does not open, it has no private
+  key, its certificate is not for code signing or has expired, or
+  `timestamp_server` is not an http(s) URL. The default timestamp server is
+  now `http://timestamp.digicert.com`; `tauri-release` takes
+  `windows_timestamp_server` to override it.
+- `windows-sign` now fails on any `sign_mode` other than `tauri_updater`,
+  `pfx` or `azure`; an unknown mode used to do nothing. The check ignores
+  case, as the mode steps always have, so `Azure` still works.
+- `tauri-release` checks `windows_sign_mode` (and, for pfx, that both
+  secrets are set) as the first step of the Windows job, so a bad mode fails
+  before checkout and `cargo install`, not after. The certificate cleanup
+  step is gone: nothing is left in the store to clean.
 
 ### Docs
 
+- New `docs/windows-signing.md`: how to get a certificate for each Windows
+  signing mode (OV/EV, the 2023 hardware-key rule, private CA, Azure
+  Artifact Signing), how to build and store the PFX, timestamping,
+  verification, renewal, and a checklist for turning pfx on.
 - `macos-sign` and `windows-sign` document `export_env` as opt-in: off by
   default, when to turn it on, and that it exposes the secrets to every later
   step of the job.

@@ -1,26 +1,31 @@
 name: windows-sign
 description: >
-  Configure Windows code signing for Tauri builds. Supports two modes.
-  Unless export_env is "true", both modes only validate their inputs and
-  write no secret to GITHUB_ENV.
+  Configure Windows code signing for Tauri builds. Supports three modes.
+  Unless export_env is "true", the tauri_updater and azure modes only validate
+  their inputs and write no secret to GITHUB_ENV. docs/windows-signing.md says
+  how to get a certificate for each mode.
 
   tauri_updater (FREE):
     With export_env "true", sets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in
     GITHUB_ENV. Signs .sig updater bundles only (ED25519). Does NOT sign the
-    MSI/EXE binary — no SmartScreen clearance. Generate a keypair with:
+    MSI/EXE binary, so no SmartScreen effect. Generate a keypair with:
       cargo tauri signer generate -w ~/.tauri/myapp.key
 
-  pfx mode was removed: Tauri v2 never read the sign command it set, so the
-  MSI/EXE came out unsigned. sign_mode "pfx" now fails the step.
+  pfx (PAID or private CA - Authenticode with a .pfx certificate):
+    Without files_folder, checks that the PFX opens with the password and
+    holds an unexpired code-signing key. With files_folder (after the build),
+    signs every .exe and .msi under it with signtool (SHA256, RFC 3161
+    timestamp, retried), verifies each signature, and removes the key from
+    the certificate store. The PFX is never written to disk.
 
-  azure (PAID — Azure Trusted Signing):
+  azure (PAID - Azure Trusted Signing):
     With export_env "true", exports the Azure credentials to GITHUB_ENV. After the build,
     the calling workflow must invoke azure/trusted-signing-action to sign the
     MSI/EXE with azuresigntool.
 
 inputs:
   sign_mode:
-    description: "Signing mode: tauri_updater or azure"
+    description: "Signing mode: tauri_updater, pfx or azure"
     required: true
 
   export_env:
@@ -41,19 +46,34 @@ inputs:
     required: false
     default: ""
 
-  # --- removed pfx mode: accepted and ignored, with a warning ---
+  # --- pfx inputs ---
   certificate_base64:
-    description: Deprecated and ignored (pfx mode was removed)
+    description: Base64-encoded PFX (certificate and private key), for pfx mode
     required: false
     default: ""
   certificate_password:
-    description: Deprecated and ignored (pfx mode was removed)
+    description: Password of the PFX, for pfx mode
     required: false
     default: ""
   timestamp_server:
-    description: Deprecated and ignored (pfx mode was removed)
+    description: RFC 3161 timestamp server URL for pfx mode (empty uses http://timestamp.digicert.com)
     required: false
     default: ""
+  files_folder:
+    description: >
+      pfx mode: folder whose .exe and .msi files are signed (searched
+      recursively). Empty only checks the PFX, so the action can run before
+      the build to fail early and again after it to sign.
+    required: false
+    default: ""
+  verify_trust:
+    description: >
+      pfx mode: "true" (default) requires `signtool verify /pa` to pass, i.e.
+      the certificate chains to a root the runner trusts. "false" only checks
+      that the file carries this certificate's signature and a timestamp; use
+      it for a private CA or self-signed certificate.
+    required: false
+    default: "true"
 
   # --- azure inputs ---
   azure_tenant_id:
@@ -90,21 +110,17 @@ runs:
         SIGN_MODE: ${{ inputs.sign_mode }}
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
-        TS_URL: ${{ inputs.timestamp_server }}
       run: |
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
-        if ($env:CERT_B64 -or $env:CERT_PW -or $env:TS_URL) {
-          Write-Output "::warning::certificate_base64, certificate_password and timestamp_server are ignored: pfx mode was removed."
-        }
         # -eq/-ne ignore case, like the `inputs.sign_mode == 'azure'` checks on
         # the steps below, so a mode they would run is never refused here.
-        if ($env:SIGN_MODE -eq "pfx") {
-          Write-Output "::error::sign_mode pfx was removed: it produced unsigned MSI/EXE files. Use azure."
+        if ($env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "pfx" -and $env:SIGN_MODE -ne "azure") {
+          Write-Output "::error::sign_mode must be tauri_updater, pfx or azure (got: $($env:SIGN_MODE))."
           exit 1
         }
-        if ($env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "azure") {
-          Write-Output "::error::sign_mode must be tauri_updater or azure (got: $($env:SIGN_MODE))."
+        if ($env:SIGN_MODE -eq "pfx" -and ([string]::IsNullOrWhiteSpace($env:CERT_B64) -or [string]::IsNullOrEmpty($env:CERT_PW))) {
+          Write-Output "::error::sign_mode pfx needs certificate_base64 and certificate_password (secrets WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD); one is empty. See docs/windows-signing.md."
           exit 1
         }
 
@@ -144,6 +160,18 @@ runs:
         # Export to GITHUB_ENV for subsequent steps
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$cleanKey"
         Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$cleanPw"
+
+    # --- pfx ---
+    - name: Check or sign with the PFX certificate (Authenticode)
+      if: ${{ inputs.sign_mode == 'pfx' }}
+      shell: pwsh
+      env:
+        CERT_B64: ${{ inputs.certificate_base64 }}
+        CERT_PW: ${{ inputs.certificate_password }}
+        TS_URL: ${{ inputs.timestamp_server }}
+        FILES_DIR: ${{ inputs.files_folder }}
+        VERIFY_TRUST: ${{ inputs.verify_trust }}
+      run: '& (Join-Path $env:GITHUB_ACTION_PATH "sign_pfx.ps1")'
 
     # ── azure ─────────────────────────────────────────────────────────────────
     - name: Configure Azure Trusted Signing credentials

@@ -2026,13 +2026,16 @@ Key design notes:
 - macOS builds a **universal binary** (`aarch64 + x86_64`); both rustup targets
   must be added — `universal-apple-darwin` is a Tauri synthetic target, not a
   native rustup triple.
-- Windows signing modes: `none`, `tauri_updater` (free ED25519), `azure`
-  (Azure Trusted Signing). `pfx` or any other value fails the first step
-  of the Windows job.
+- Windows signing modes: `none` (default), `tauri_updater` (free ED25519),
+  `pfx` (Authenticode with a `.pfx`, signed after the build) and `azure`
+  (Azure Artifact Signing). Any other value, or `pfx` without both
+  `WINDOWS_CERTIFICATE` secrets, fails the first step of the Windows job.
+  [Windows signing](windows-signing.md) covers certificates and setup.
 - Uses the `macos-sign` and `windows-sign` composite actions from this repo.
 - Signing secrets reach only the step that signs: the Apple certificate,
-  passwords and the updater key are env on the build step, the Azure values
-  go straight to `azure/trusted-signing-action`. Both actions run with
+  passwords and the updater key are env on the build step, the PFX goes to
+  the `windows-sign` steps only, the Azure values go straight to
+  `azure/trusted-signing-action`. Both actions run with
   `export_env: "false"`, so nothing secret is in `GITHUB_ENV`.
 - A published installer is never replaced, on the release or on `dist_repo`:
   one already there with the same sha256 passes (a rerun of the `release` job),
@@ -2053,7 +2056,8 @@ Inputs (selected):
 | `frontend_build_command` | `""` | Empty = skip explicit build step |
 | `sign_macos` | `true` | Gate macOS codesigning |
 | `notarize_macos` | `true` | Gate notarization + staple |
-| `windows_sign_mode` | `none` | `none`, `tauri_updater`, `azure` |
+| `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
+| `windows_timestamp_server` | `""` | RFC 3161 URL for `pfx`; empty uses `http://timestamp.digicert.com` |
 | `upload_release` | `true` | Upload to GitHub Releases |
 | `release_tag` | `""` | Defaults to `GITHUB_REF_NAME` |
 | `dist_repo` | `""` | Cross-repo artifact push |
@@ -2076,8 +2080,8 @@ Secrets:
 | `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD` — the name most consumers already hold; pass either, not both (#97) |
 | `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
-| `WINDOWS_CERTIFICATE` | deprecated and ignored; a set value logs a warning |
-| `WINDOWS_CERTIFICATE_PASSWORD` | deprecated and ignored; a set value logs a warning |
+| `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` (base64 `.pfx`) |
+| `WINDOWS_CERTIFICATE_PASSWORD` | `windows_sign_mode: pfx` |
 | `AZURE_TENANT_ID` | `windows_sign_mode: azure` |
 | `AZURE_CLIENT_ID` | `windows_sign_mode: azure` |
 | `AZURE_CLIENT_SECRET` | `windows_sign_mode: azure` |

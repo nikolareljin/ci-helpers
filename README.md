@@ -16,7 +16,7 @@ Includes:
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
 - Composite actions for semver comparison, release tag checks, and release notes.
 - Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
-- Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519 or Azure Trusted Signing).
+- Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519, Authenticode with a `.pfx`, or Azure Artifact Signing; see [Windows signing](docs/windows-signing.md)).
 - Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
 - `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
@@ -36,6 +36,7 @@ See detailed usage, inputs, and examples in:
 - [Docs index](docs/README.md)
 - [Reusable workflows](docs/workflows.md)
 - [Packaging and signing (DEB, PPA, macOS)](docs/packaging.md)
+- [Windows signing (certificates, PFX, Azure)](docs/windows-signing.md)
 - [Presets](docs/presets.md)
 - [Composite actions](docs/actions.md)
 - [Examples](docs/examples.md)
