@@ -396,6 +396,25 @@ jobs:
       run:
         shell: bash
     steps:
+      # Same rule as the windows-sign 'Check sign mode' step (plus 'none'),
+      # run first so a bad mode fails before checkout and cargo install.
+      - name: Check Windows sign mode
+        shell: pwsh
+        env:
+          SIGN_MODE: ${{ inputs.windows_sign_mode }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          # -eq/-ne ignore case, like the `inputs.windows_sign_mode` step conditions.
+          if ($env:SIGN_MODE -eq "pfx") {
+            Write-Output "::error::sign_mode pfx was removed: it produced unsigned MSI/EXE files. Use azure."
+            exit 1
+          }
+          if ($env:SIGN_MODE -ne "none" -and $env:SIGN_MODE -ne "tauri_updater" -and $env:SIGN_MODE -ne "azure") {
+            Write-Output "::error::sign_mode must be none, tauri_updater or azure (got: $($env:SIGN_MODE))."
+            exit 1
+          }
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
           persist-credentials: false

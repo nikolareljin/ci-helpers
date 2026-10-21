@@ -4,7 +4,8 @@
 #              first step, run here with pwsh, fails sign_mode "pfx" and any
 #              unknown mode (Tauri v2 never used the sign command, so pfx
 #              builds came out unsigned); tauri-release passes no certificate
-#              to the action and has no certificate cleanup.
+#              to the action, has no certificate cleanup, and its Windows job
+#              runs the same check (plus "none") as its first step.
 # USAGE: bash tests/windows_sign_no_pfx_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -30,6 +31,9 @@ for job in rd["jobs"].values():
             passed = set(st.get("with", {})) & {"certificate_base64", "certificate_password", "timestamp_server"}
             if passed:
                 fail.append(f"tauri-release passes {sorted(passed)} to windows-sign")
+first_win = rd["jobs"]["build-windows"]["steps"][0]
+if first_win.get("name") != "Check Windows sign mode" or "if" in first_win:
+    fail.append("build-windows does not start with an unconditional 'Check Windows sign mode'")
 if re.search(r"WINDOWS_CERT_THUMBPRINT|WINDOWS_PFX_PATH", release):
     fail.append("tauri-release still cleans up a pfx certificate")
 if fail:
@@ -46,14 +50,18 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" <<'PY'
+python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" \
+  "$root/.github/workflows/tauri-release.yml" "$tmp/release.ps1" <<'PY'
 import sys, yaml
 open(sys.argv[2], "w").write(yaml.safe_load(open(sys.argv[1]))["runs"]["steps"][0]["run"])
+job = yaml.safe_load(open(sys.argv[3]))["jobs"]["build-windows"]
+open(sys.argv[4], "w").write(job["steps"][0]["run"])
 PY
 fail=0
+script="$tmp/check.ps1"
 check() { # want_rc mode timestamp_server want_text
   local rc=0 out
-  out="$(SIGN_MODE="$2" TS_URL="$3" CERT_B64="" CERT_PW="" pwsh -NoProfile -File "$tmp/check.ps1" 2>&1)" || rc=$?
+  out="$(SIGN_MODE="$2" TS_URL="$3" CERT_B64="" CERT_PW="" pwsh -NoProfile -File "$script" 2>&1)" || rc=$?
   if [ "$rc" != "$1" ] || [[ "$out" != *"$4"* ]]; then
     echo "FAIL: sign_mode='$2' timestamp_server='$3': rc $rc, want $1 and '$4'; output: $out"
     fail=1
@@ -69,3 +77,16 @@ check 1 none "" "must be tauri_updater or azure"
 check 0 azure "https://timestamp.example" "::warning::"
 [ "$fail" = 0 ] || exit 1
 echo "ok: 'Check sign mode' rejects pfx and unknown modes, accepts the rest"
+
+# tauri-release's early check: same rule, and "none" skips signing.
+script="$tmp/release.ps1"
+check 0 none "" ""
+check 0 None "" ""
+check 0 tauri_updater "" ""
+check 0 Azure "" ""
+check 1 pfx "" "sign_mode pfx was removed"
+check 1 PFX "" "sign_mode pfx was removed"
+check 1 "" "" "must be none, tauri_updater or azure"
+check 1 bogus "" "must be none, tauri_updater or azure"
+[ "$fail" = 0 ] || exit 1
+echo "ok: tauri-release refuses pfx and unknown modes before the build"

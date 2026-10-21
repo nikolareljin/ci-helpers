@@ -2027,7 +2027,8 @@ Key design notes:
   must be added — `universal-apple-darwin` is a Tauri synthetic target, not a
   native rustup triple.
 - Windows signing modes: `none`, `tauri_updater` (free ED25519), `azure`
-  (Azure Trusted Signing). `pfx` was removed and fails the Windows job.
+  (Azure Trusted Signing). `pfx` or any other value fails the first step
+  of the Windows job.
 - Uses the `macos-sign` and `windows-sign` composite actions from this repo.
 - Signing secrets reach only the step that signs: the Apple certificate,
   passwords and the updater key are env on the build step, the Azure values

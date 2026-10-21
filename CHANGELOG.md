@@ -15,6 +15,9 @@
   `azure`; an unknown mode used to do nothing. The check ignores case, as the
   mode steps always have, so `Azure` still works.
 - `tauri-release` no longer runs the Windows certificate cleanup step.
+- `tauri-release` checks `windows_sign_mode` as the first step of the
+  Windows job, so `pfx` or an unknown mode fails before checkout and
+  `cargo install`, not after.
 
 ### Docs
 
