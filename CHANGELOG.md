@@ -46,7 +46,9 @@
   pins `tools:`, so the default bundle is used.
 - `actions/setup-java` v6.0.1 -> v6.1.0 (`b843ebf9`) in `ci`, `deploy`,
   `flutter-release`, `java-scan`, `pr-gate`, `release-build` and
-  `self-test-compiled`. Upstream adds features only.
+  `self-test-compiled`. Upstream adds RISC-V Temurin, Maven
+  credential origins and plugin repositories, plus version-resolution
+  fixes; no input is removed or renamed.
 
 ## 2026-10-19 — v0.42.0
 
