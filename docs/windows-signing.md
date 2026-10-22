@@ -146,7 +146,7 @@ openssl pkcs12 -in codesign.pfx -noout -info    # asks for the password
 base64 -w0 codesign.pfx > codesign.pfx.b64          # Linux; macOS: base64 -i codesign.pfx
 gh secret set WINDOWS_CERTIFICATE < codesign.pfx.b64
 gh secret set WINDOWS_CERTIFICATE_PASSWORD           # prompts; nothing in shell history
-shred -u codesign.pfx.b64
+shred -u codesign.pfx.b64                            # macOS: rm -P codesign.pfx.b64
 ```
 
 On Windows: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("codesign.pfx")) | Set-Content codesign.pfx.b64`.
@@ -234,7 +234,8 @@ when the step ends (on failure too), and never imported into a certificate
 store.
 
 What is signed: the installers the build job collects, the MSI and the NSIS
-setup EXE. The application EXE inside the installers
+setup EXE, found recursively under the downloaded folder; a symbolic
+link or junction there is refused. The application EXE inside the installers
 is not signed by this step; sign it from Tauri's own
 `bundle.windows.signCommand` if you need that. Authenticode changes the file,
 so pfx cannot be combined with `tauri_updater` `.sig` files made during the
