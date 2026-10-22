@@ -1,4 +1,17 @@
-## Unreleased
+## 2026-10-22 — v0.43.0
+
+### Changed for callers: windows-sign
+
+- **`windows-sign` pfx mode no longer imports the PFX into a certificate
+  store or writes `TAURI_WINDOWS_SIGN_COMMAND`, `WINDOWS_CERT_THUMBPRINT` or
+  `WINDOWS_PFX_PATH` to `GITHUB_ENV`.** A caller that signed with those must
+  pass `files_folder`; the action then signs the `.exe` and `.msi` files
+  itself. Without `files_folder` it only checks the PFX.
+- **The pfx timestamp server defaults to `http://timestamp.digicert.com`**
+  (was `https://timestamp.sectigo.com`). Set `timestamp_server`, or
+  `windows_timestamp_server` in `tauri-release`, to keep another one.
+- **An unknown `sign_mode` fails the `windows-sign` step.** It used to do
+  nothing. `tauri-release` checks `windows_sign_mode` before checkout.
 
 ### Fixed
 
