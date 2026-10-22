@@ -1,3 +1,15 @@
+## Unreleased
+
+### Changed
+
+- **`vendor/script-helpers` 0.56.0 -> 0.57.0**, and the 16 workflow `ref:`
+  pins with it. Upstream adds `signing_secrets.sh --group windows` and docs
+  gates in `lint_docs.sh`; neither is called here. The `ci_wp_build.sh` and
+  `ci_wp_plugin_check.sh` changes are header comments only, so no caller
+  changes.
+- `docs/windows-signing.md` shows `signing_secrets.sh --group windows` for
+  setting the two pfx secrets on several repositories.
+
 ## 2026-10-22 — v0.43.0
 
 ### Changed for callers: windows-sign

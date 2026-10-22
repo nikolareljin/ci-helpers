@@ -150,6 +150,14 @@ shred -u codesign.pfx.b64                            # macOS: rm -P codesign.pfx
 
 On Windows: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("codesign.pfx")) | Set-Content codesign.pfx.b64`.
 
+For several repositories, script-helpers (0.57.0 or newer) sets both secrets
+and first checks that the `.pfx` opens with the password and holds an
+in-date code-signing certificate with its private key:
+
+```bash
+scripts/signing_secrets.sh --repos owner/repo-a,owner/repo-b --group windows --windows-pfx codesign.pfx
+```
+
 Keep the `.pfx` itself offline (password manager or encrypted backup), not
 in the repository. Use an environment secret with required reviewers if more
 than the release workflow can read repository secrets.
