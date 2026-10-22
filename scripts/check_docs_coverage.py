@@ -101,7 +101,8 @@ def check_readme(
     readme = root / "README.md"
     text = readme.read_text(encoding="utf-8") if readme.is_file() else ""
     for name in workflows:
-        if name not in text:
+        # Whole names: `go.yml` must not be satisfied by `cargo.yml`.
+        if not re.search(r"(?<![\w-])" + re.escape(name), text):
             problems.append(f"README.md does not name {name}")
     for name in actions:
         if f".github/actions/{name}" not in text:
