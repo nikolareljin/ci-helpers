@@ -52,6 +52,7 @@ echo "A password used to decrypt the match repository." | expect "used to decryp
 echo "Pass the output to a later job with needs." | expect "plain prose" 0
 printf '%s\n' '```text' 'There was none here before.' '```' | expect "fenced code" 0
 printf '%s\n' '~~~' 'It now runs.' '~~~' | expect "tilde fence" 0
+printf '%s\n' '1. Step:' '' '    ```' '    It now runs.' '    ```' | expect "fence in a list item" 0
 printf '%s\n' '````md' '```' 'It now runs.' '```' '````' | expect "nested fence" 0
 echo 'Run `git log --since now` or `it now runs` here.' | expect "inline code" 0
 echo 'Headings look like `## Unreleased`.' | expect "quoted CHANGELOG heading" 0

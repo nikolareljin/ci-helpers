@@ -5,8 +5,8 @@ History belongs in CHANGELOG.md. A page that says "the previous default was"
 or "new in 0.24.0" is out of date the day it is published, and it buries the
 current behaviour under an account of an older one.
 
-Checks README.md and every docs/*.md outside fenced and inline code for the clearest
-history phrases. A line that must keep one (a product's own former name, say)
+Checks README.md and every docs/*.md outside fenced and inline code for the
+clearest history phrases. A line that must keep one (a product's own former name, say)
 is listed in ALLOW as (file, text on that line).
 
 Usage: check_docs_tense.py [--root <dir>] [--quiet]
@@ -46,7 +46,7 @@ PHRASES = [
 PHRASE_RE = re.compile("|".join(PHRASES), re.I)
 # A fence opens with three or more backticks or tildes and closes with a run of
 # the same character at least as long, with nothing after it.
-FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Inline code quotes a literal; history words inside one are not prose.
 INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 

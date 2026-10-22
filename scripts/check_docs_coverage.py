@@ -54,13 +54,23 @@ INPUT_LINE_RE = re.compile(
 )
 
 
+# A fence opens with three or more backticks or tildes and closes with a run of
+# the same character at least as long, with nothing after it.
+FENCE_MARK_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
 def sections(text: str) -> list[tuple[str, str]]:
     """(heading, body) for each `## ` section; fenced code is not a heading."""
     out: list[tuple[str, list[str]]] = []
-    fence = False
+    fence = ""  # the opening marker while inside a fence
     for line in text.splitlines():
-        if line.lstrip().startswith(("```", "~~~")):
-            fence = not fence
+        marker = FENCE_MARK_RE.match(line)
+        if marker:
+            run = marker.group(1)
+            if not fence:
+                fence = run
+            elif run[0] == fence[0] and len(run) >= len(fence) and not line.strip()[len(run):]:
+                fence = ""
         if not fence and line.startswith("## "):
             out.append((line, []))
         elif out:
