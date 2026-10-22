@@ -95,7 +95,7 @@ if (-not (Test-Path -LiteralPath $dir -PathType Container)) { Fail "files folder
 $links = @(Get-ChildItem -LiteralPath $dir -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
 foreach ($l in $links) { Write-Output "::error::$($l.FullName) is a symbolic link or junction; put the file itself in the folder." }
 if ($links.Count -gt 0) { exit 1 }
-$files = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+$files = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Force | Where-Object { $_.Extension -in '.exe', '.msi' })
 if ($files.Count -eq 0) { Fail "no .exe or .msi files under $dir to sign." }
 
 if (-not $IsWindows) { Fail "signing with a PFX needs a Windows runner (signtool)." }

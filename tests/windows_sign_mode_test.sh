@@ -99,6 +99,11 @@ DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1 
 if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
   echo "FAIL: sign-windows would publish payload.dll unsigned"; exit 1
 fi
+rm "$tmp/inst/nsis dir/payload.dll"; : > "$tmp/inst/.payload.dll"
+# A hidden file (a dot file here, the hidden attribute on Windows) counts too.
+if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
+  echo "FAIL: sign-windows would publish hidden .payload.dll unsigned"; exit 1
+fi
 echo "ok: sign-windows refuses a file it would not sign"
 fail=0
 need_secrets="sign_mode pfx needs certificate_base64 and certificate_password"
@@ -178,6 +183,8 @@ sign 1 "$good" "$pw" "" "$tmp/link" "is a symbolic link or junction"
 sign 1 "$good" "$pw" "" "$tmp/dirlink" "is a symbolic link or junction"
 sign 1 "$good" "$pw" "" "$tmp/none" "no .exe or .msi files under"
 sign 1 "$good" "$pw" "" "$tmp/missing" "files folder not found"
+mkdir -p "$tmp/hidden"; : > "$tmp/hidden/.app.exe"
+sign 1 "$good" "$pw" "" "$tmp/hidden" "needs a Windows runner"
 # The certificate signtool uses is the one checked above, not its pick.
 grep -q 'sign /sha1 $thumb /f $pfxPath' "$root/.github/actions/windows-sign/sign_pfx.ps1" || { echo "FAIL: signtool sign is not pinned to the checked thumbprint"; fail=1; }
 sign 1 "$nokey" "$pw" "" "" "holds no private key"

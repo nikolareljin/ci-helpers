@@ -38,7 +38,8 @@
   would sign a file outside the folder or leave one unsigned, and
   `signtool sign` is pinned with `/sha1` to the certificate that was
   checked, so a PFX with more than one keyed certificate cannot sign with
-  another. The unsigned Windows artifact is kept for 1 day.
+  another. Hidden files count too, in the signing and in the installers-only
+  check. The unsigned Windows artifact is kept for 1 day.
 - `windows-sign` now fails on any `sign_mode` other than `tauri_updater`,
   `pfx` or `azure`; an unknown mode used to do nothing. The check ignores
   case, as the mode steps always have, so `Azure` still works.

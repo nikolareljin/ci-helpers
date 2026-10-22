@@ -607,7 +607,7 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
-          $other = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File | Where-Object { $_.Extension -notin '.exe', '.msi' })
+          $other = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File -Force | Where-Object { $_.Extension -notin '.exe', '.msi' })
           foreach ($f in $other) { Write-Output "::error::not an installer, would ship unsigned: $($f.FullName)" }
           if ($other.Count -gt 0) { exit 1 }
 
@@ -676,7 +676,7 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
-          $files = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+          $files = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File -Force | Where-Object { $_.Extension -in '.exe', '.msi' })
           if ($files.Count -eq 0) { Write-Output "::error::no installers to check"; exit 1 }
           $bad = 0
           foreach ($f in $files) {
