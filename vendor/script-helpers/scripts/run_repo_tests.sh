@@ -24,7 +24,7 @@ _require=false
 case "${1:-}" in
   "") ;;
   --require) _require=true ;;
-  -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
   *) echo "[tests] unknown option: $1 (usage: run_repo_tests.sh [--require])" >&2; exit 2 ;;
 esac
 
@@ -45,7 +45,7 @@ fi
 _ran_tests=false
 
 # preflight.sh, when the submodule is new enough, runs every check the repo's CI
-# would have run and knows about stacks this hook's own chain does not — Gradle
+# would have run and knows about stacks this hook's own chain does not - Gradle
 # and Android among them. In a repo that has deleted its build workflows this
 # hook is the only remaining gate, so prefer the thorough runner and fall back
 # to the per-language chain below only when it is absent.
@@ -83,12 +83,12 @@ run_go_tests_inline() {
 }
 
 run_tests() {
-  # PHP / Laravel — composer.json is authoritative: Laravel apps also ship a
+  # PHP / Laravel - composer.json is authoritative: Laravel apps also ship a
   # package.json for Vite, so once composer.json is present we run the PHP suite
   # (or skip with a clear message) and never fall through to the Node runner.
   if [[ -f composer.json ]]; then
     if ! command -v php &>/dev/null || ! command -v composer &>/dev/null; then
-      echo "[tests] composer.json found but php/composer are not installed — skipping PHP checks; push proceeds." >&2
+      echo "[tests] composer.json found but php/composer are not installed - skipping PHP checks; push proceeds." >&2
       echo "[tests] Install PHP and Composer to run these checks before pushing." >&2
       return 0
     fi
@@ -124,7 +124,7 @@ run_tests() {
     return 0
   fi
 
-  # Node / npm workspaces — only return when tests actually ran; otherwise fall through.
+  # Node / npm workspaces - only return when tests actually ran; otherwise fall through.
   if [[ -f package.json ]] && command -v npm &>/dev/null; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_node.sh" ]]; then
       echo "[tests] local_test_node.sh --quick"
@@ -147,10 +147,10 @@ run_tests() {
         return 0
       fi
     fi
-    # package.json present but no runnable test command — fall through to other runners.
+    # package.json present but no runnable test command - fall through to other runners.
   fi
 
-  # Python — only return when tests actually ran; otherwise fall through.
+  # Python - only return when tests actually ran; otherwise fall through.
   if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[tests] local_test_python.sh --quick"
@@ -171,10 +171,10 @@ run_tests() {
         return 0
       fi
     fi
-    # Python files present but pytest not available — fall through to other runners.
+    # Python files present but pytest not available - fall through to other runners.
   fi
 
-  # Go — detect go.mod first so non-Go repos fall through to Rust/Flutter.
+  # Go - detect go.mod first so non-Go repos fall through to Rust/Flutter.
   if command -v go &>/dev/null; then
     local first_gomod
     first_gomod="$(find . \( -name .git -o -path "*/node_modules" -o -path "*/vendor" \) -prune \
@@ -191,7 +191,7 @@ run_tests() {
     fi
   fi
 
-  # Gradle / Android — checked before Flutter, because a Flutter repo's android/
+  # Gradle / Android - checked before Flutter, because a Flutter repo's android/
   # subdirectory is built by `flutter build` and must not match here, while a
   # native Android or plain JVM repo has no pubspec.yaml to fall through to.
   if [[ ! -f pubspec.yaml ]] && { [[ -x ./gradlew ]] || [[ -f settings.gradle ]] || [[ -f settings.gradle.kts ]]; }; then
@@ -206,7 +206,7 @@ run_tests() {
       _ran_tests=true
       return 0
     fi
-    # settings.gradle but no wrapper — fall through rather than invoking a
+    # settings.gradle but no wrapper - fall through rather than invoking a
     # system gradle at a version the project did not pin.
   fi
 
@@ -275,11 +275,11 @@ run_tests() {
   fi
 
   if [[ ${#bats_files[@]} -gt 0 ]]; then
-    echo "[tests] tests/*.bats present but bats is not installed — nothing ran." >&2
+    echo "[tests] tests/*.bats present but bats is not installed - nothing ran." >&2
     return 1
   fi
 
-  echo "[tests] No test runner detected — skipping. Nothing to run."
+  echo "[tests] No test runner detected - skipping. Nothing to run."
 }
 
 # Unset git's hook variables before running the repository's tests.

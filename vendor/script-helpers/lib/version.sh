@@ -21,6 +21,8 @@ _version__parse_triplet() {
 }
 
 # Usage: version_compare <version_a> <version_b>; returns 0 if equal.
+# Returns: 0 equal; 1 a > b; 255 a < b; 2 missing argument; 3 not X.Y.Z.
+# Output: stdout the usage error (print_error) on code 2; else nothing.
 version_compare() {
   local left="${1:-}" right="${2:-}"
   if [[ -z "$left" || -z "$right" ]]; then
@@ -57,9 +59,31 @@ version_compare() {
   fi
 }
 
+# Usage: version_project_root
+# The caller's project root: the top of the git work tree holding the cwd, or
+# the cwd outside git. When that work tree is a script-helpers checkout vendored
+# as a submodule, the superproject is the project.
+# Returns: 0 always.
+# Output: stdout the absolute directory; stderr nothing.
+version_project_root() {
+  local top super
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || top=""
+  if [[ -z "$top" ]]; then pwd; return 0; fi
+  if [[ -f "$top/helpers.sh" && -d "$top/lib" ]]; then
+    super="$(git -C "$top" rev-parse --show-superproject-working-tree 2>/dev/null)" || super=""
+    [[ -n "$super" ]] && top="$super"
+  fi
+  printf '%s\n' "$top"
+}
+
 # Usage: version_bump {major|minor|patch} [-f VERSION_FILE]; bumps version file.
+# Without -f: VERSION at version_project_root (the project's, never a vendored
+# script-helpers copy's). A relative -f is relative to the cwd. A missing file
+# is created, bumped from 0.1.0.
+# Returns: 0 bumped or help shown; 1 bad arguments, unparseable version, or the file could not be written.
+# Output: stdout success or error lines (print_success/print_error) and help.
 version_bump() {
-  local bump_type="" version_file="" prefix="" suffix="" normalized current_dir
+  local bump_type="" version_file="" prefix="" suffix="" normalized
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -100,15 +124,12 @@ version_bump() {
   fi
 
   if [[ -z "$version_file" ]]; then
-    version_file="VERSION"
-  fi
-
-  if [[ "$version_file" != /* ]]; then
-    current_dir="$(pwd)"
-    if declare -F get_project_root >/dev/null 2>&1; then
-      current_dir="$(get_project_root)"
-    fi
-    version_file="${current_dir}/${version_file}"
+    # The default: VERSION at the caller's project root, never in a vendored
+    # script-helpers copy.
+    version_file="$(version_project_root)/VERSION"
+  elif [[ "$version_file" != /* ]]; then
+    # An explicit relative path means relative to where the caller stands.
+    version_file="${PWD}/${version_file}"
   fi
 
   local version_dir
@@ -159,7 +180,10 @@ version_bump() {
   local new_core="${major}.${minor}.${patch}"
   local new_version="${prefix}${new_core}${suffix}"
 
-  printf "%s\n" "$new_version" > "$version_file"
+  if ! printf "%s\n" "$new_version" > "$version_file"; then
+    print_error "Failed to write version file: $version_file"
+    return 1
+  fi
   print_success "Bumped version: ${prefix}${normalized}${suffix} -> $new_version"
 }
 
@@ -172,6 +196,8 @@ version_bump() {
 # Equal, newer or unreadable versions: nothing to offer, return 0. A declined
 # offer is not a failure. --label names what is running ("App" -> "App 1.2.0
 # is running"). Needs lib/dialog.sh for ui_mode and ui_yesno.
+# Returns: 0 nothing to offer, declined, or no person present; 1 bad arguments, dialog.sh or ui_mode failed; else COMMAND's exit code.
+# Output: stderr log_info/log_error lines; a dialog prompt when interactive.
 version_offer_update() {
   local label="" hint=""
   while [[ $# -gt 0 ]]; do

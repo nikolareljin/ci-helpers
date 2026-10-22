@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# serve.sh — serve a static site directory locally for preview/testing.
+# serve.sh -- serve a static site directory locally for preview/testing.
 # Part of script-helpers. Source via helpers.sh, or run bin/serve-pages.
 
 # serve_static_site <dir> [port]
 # Serves <dir> over HTTP on the first free port at/after [port] (default 8000).
 # Prefers python3, then `python` (3 or 2), then npx http-server. Blocks until Ctrl-C.
+# Usage: serve_static_site <dir> [port]
+# Returns: 2 missing dir or invalid port; 3 no python or npx; 4 no free port; else the server's exit code (130 on Ctrl-C).
+# Output: stdout "Serving ... at <url>" and the server log; stderr errors.
 serve_static_site() {
   local dir="${1:-}"
   local port="${2:-8000}"

@@ -40,19 +40,25 @@ _help__meta_get() {
   printf '%s' "${!_ref:-}"
 }
 
-# Usage: display_help [script_file]; renders concise help.
+# Usage: display_help [script_file]; renders concise help (usage, description, parameters, exit codes, example).
+# Returns: 0 rendered; 1 the script file does not exist. Sets SHLIB_HELP_SHOWN=true.
+# Output: stdout the help text; stderr an error when the file is missing.
 display_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "concise" "${1:-$0}"
 }
 
-# Usage: print_help [script_file]; renders full help.
+# Usage: print_help [script_file]; renders full help (adds author, created, version).
+# Returns: same as display_help.
+# Output: same as display_help.
 print_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "full" "${1:-$0}"
 }
 
-# Usage: show_help [script_file]; renders minimal help.
+# Usage: show_help [script_file]; renders minimal help (adds date, version, creator).
+# Returns: same as display_help.
+# Output: same as display_help.
 show_help() {
   export SHLIB_HELP_SHOWN=true
   _help__render "minimal" "${1:-${BASH_SOURCE[1]:-$0}}"
@@ -61,6 +67,8 @@ show_help() {
 # Usage: _help__print_inline <color> <label> <value>; internal inline renderer.
 _help__print_inline() {
   local color="$1" label="$2" value="$3"
+  # A field the header does not set is left out, not printed as "Label: ".
+  [[ -n "$value" ]] || return 0
   local line="${label}: ${value}"
   if declare -F print_color >/dev/null 2>&1; then
     print_color "$color" "$line"
@@ -150,9 +158,10 @@ _help__render() {
     _help__print_block "white" "Parameters" "$params"
   fi
 
-  if [[ "$mode" == "concise" || "$mode" == "minimal" ]]; then
-    _help__print_block "yellow" "Example" "$m_example"
-  fi
+  # Every mode shows the exit codes and the example: a script's contract is
+  # incomplete without them.
+  _help__print_block "white" "Exit Codes" "$m_exit_codes"
+  _help__print_block "yellow" "Example" "$m_example"
 
   if [[ "$mode" == "full" ]]; then
     _help__print_inline "white" "Author" "$m_author"
@@ -161,7 +170,6 @@ _help__render() {
   fi
 
   if [[ "$mode" == "minimal" ]]; then
-    _help__print_block "white" "Exit Codes" "$m_exit_codes"
     _help__print_inline "white" "Date" "$m_date"
     _help__print_inline "white" "Version" "$m_version"
     _help__print_inline "white" "Creator" "$m_creator"
@@ -180,6 +188,8 @@ _help__render() {
 # through a nameref. Both are bash 4.3+ features, which made every --help path
 # in this library dead on the bash 3.2 that macOS ships. A name prefix plus
 # `printf -v` needs nothing newer than bash 3.1 and no eval.
+# Returns: 0 parsed; 2 missing script file, invalid prefix, or unreadable file.
+# Output: stdout nothing; stderr the error. Sets <prefix>_<field> and <prefix>_param_lines in the caller.
 get_script_metadata() {
   # Defaulted, not bare: under `set -u` a bare "$2" aborts the caller on the
   # expansion itself, before this function can return the documented exit 2.
@@ -231,7 +241,9 @@ get_script_metadata() {
         fi
         continue
       fi
-      if [[ $line =~ ^#[-]{3,}$ ]]; then
+      # The rule that ends the header: "#----" or "# ----". Checked before the
+      # fields, or a one-line EXAMPLE took "# ----" as its continuation.
+      if [[ $line =~ ^#[[:space:]]*-{3,}[[:space:]]*$ ]]; then
         break
       fi
     fi
@@ -282,7 +294,10 @@ get_script_metadata() {
   printf -v "${prefix}_param_lines" '%s' "${param_lines%$'\n'}"
 }
 
+# Usage: show_usage [script]
 # Generic usage printer and common arg parser.
+# Returns: always 0.
+# Output: stdout a generic usage text.
 show_usage() {
   local script_name; script_name="$(basename "${1:-$0}")"
   cat << EOF
@@ -300,6 +315,8 @@ EOF
 }
 
 # Usage: parse_common_args <args...>; handles -h/-v/-d for scripts.
+# Returns: 0 after consuming -v/-d. EXITS the calling script with 0 after printing help on -h/--help; this is deliberate CLI behaviour, so call it from a script's argument parsing, not from library code. Exports VERBOSE/DEBUG/SHLIB_HELP_SHOWN.
+# Output: stdout the help text on -h.
 parse_common_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -318,4 +335,17 @@ parse_common_args() {
     esac
     shift
   done
+}
+
+# Usage: require_value "$@"   (inside an option loop, with $1 the option)
+# Checks that the option in $1 has a value after it. An empty string counts as
+# a value, so `--prebuild ""` still works; only a missing argument is refused.
+# Call it as `require_value "$@" || exit 2` so a missing value is a usage error
+# (exit 2) instead of an unbound-variable crash (exit 1) under set -u.
+# Returns: 0 when a value follows; 2 when $1 is the last argument.
+# Output: stdout nothing; stderr "<script>: <option> needs a value" on 2.
+require_value() {
+  if [[ $# -ge 2 ]]; then return 0; fi
+  echo "$(basename "${0:-script}"): ${1:-option} needs a value" >&2
+  return 2
 }

@@ -2,7 +2,6 @@
 # SCRIPT: publish_homebrew.sh
 # DESCRIPTION: Publish a Homebrew formula to a tap repository.
 # USAGE: ./publish_homebrew.sh [--repo PATH] [--formula PATH] [--name NAME] [--tap-repo OWNER/REPO] [--tap-token TOKEN] [--tap-branch BRANCH] [--tap-dir DIR] [--commit-message MESSAGE]
-# EXAMPLE: ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 # PARAMETERS:
 #   --repo <path>            Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --formula <path>         Formula path (default: packaging/brew/<name>.rb).
@@ -15,6 +14,14 @@
 #   --tap-dir <dir>          Destination directory in tap (default: Formula).
 #   --commit-message <msg>   Commit message (default: "Update <name> formula").
 #   -h, --help               Show help.
+# EXIT_CODES:
+#   0  Published, already up to date, or skipped because no tap repo/token is set.
+#   1  Copying the formula into the tap checkout failed.
+#   2  Unknown argument, an option without its value, or the formula file was
+#      not found.
+#   N  A failing git command's own exit code (clone, commit, push), passed through.
+# EXAMPLE:
+#   ./publish_homebrew.sh --formula packaging/brew/myapp.rb --tap-repo owner/homebrew-example
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -44,14 +51,14 @@ commit_message=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) repo_dir="$2"; shift 2;;
-    --formula) formula_path="$2"; shift 2;;
-    --name) formula_name="$2"; shift 2;;
-    --tap-repo) tap_repo="$2"; shift 2;;
-    --tap-token) tap_token="$2"; shift 2;;
-    --tap-branch) tap_branch="$2"; shift 2;;
-    --tap-dir) tap_dir="$2"; shift 2;;
-    --commit-message) commit_message="$2"; shift 2;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2;;
+    --formula) require_value "$@" || exit 2; formula_path="$2"; shift 2;;
+    --name) require_value "$@" || exit 2; formula_name="$2"; shift 2;;
+    --tap-repo) require_value "$@" || exit 2; tap_repo="$2"; shift 2;;
+    --tap-token) require_value "$@" || exit 2; tap_token="$2"; shift 2;;
+    --tap-branch) require_value "$@" || exit 2; tap_branch="$2"; shift 2;;
+    --tap-dir) require_value "$@" || exit 2; tap_dir="$2"; shift 2;;
+    --commit-message) require_value "$@" || exit 2; commit_message="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac
@@ -65,9 +72,9 @@ if [[ -z "$formula_path" ]]; then
       formula_path="$repo_dir/packaging/homebrew/${formula_name}.rb"
     fi
   else
-    formula_path="$(find "$repo_dir/packaging/brew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | head -n 1 || true)"
+    formula_path="$(find "$repo_dir/packaging/brew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | sed -n 1p || true)"
     if [[ -z "$formula_path" ]]; then
-      formula_path="$(find "$repo_dir/packaging/homebrew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | head -n 1 || true)"
+      formula_path="$(find "$repo_dir/packaging/homebrew" -maxdepth 1 -type f -name '*.rb' 2>/dev/null | sed -n 1p || true)"
     fi
   fi
 fi

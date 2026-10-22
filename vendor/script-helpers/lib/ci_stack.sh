@@ -23,6 +23,8 @@
 # Echoes mysql, pgsql or mariadb-as-mysql for a known image; returns 1 for an
 # image it cannot place, so a caller can refuse rather than guess. Guessing is
 # how a container comes up and is then talked to in the wrong dialect.
+# Returns: 0 image recognised; 1 unknown image.
+# Output: stdout the engine name (pgsql or mysql) on success; nothing otherwise.
 ci_stack_engine_for_image() {
   local image="${1:-}"
   case "$image" in
@@ -33,6 +35,8 @@ ci_stack_engine_for_image() {
 }
 
 # Usage: ci_stack_default_port <engine>
+# Returns: always 0.
+# Output: stdout 5432 for pgsql, 3306 for anything else.
 ci_stack_default_port() {
   case "${1:-}" in
     pgsql) printf '5432\n' ;;
@@ -48,6 +52,8 @@ ci_stack_default_port() {
 # in a container reaches the database by name on a shared network, and one whose
 # steps run on the host reaches a published port. Publishing when nothing will
 # use it fails the run with "port is already allocated" for a port nobody wanted.
+# Returns: 0 the database answered within --wait-seconds; 1 docker missing, network create or docker run failed, or not ready in time; 2 unknown argument, missing --image/--name, or bad --wait-seconds.
+# Output: stdout nothing; stderr progress and errors.
 ci_stack_start_database() {
   local image="" engine="mysql" name="" network="" publish_spec=""
   local db_name="app" db_user="app" db_password="app" root_password="root"
@@ -149,6 +155,8 @@ ci_stack_start_database() {
 # Echoes the program a step command would run, or nothing when the command is a
 # shell construct rather than a plain invocation. Environment prefixes are
 # stepped over: `DJANGO_SETTINGS_MODULE=x python manage.py test` runs `python`.
+# Returns: always 0.
+# Output: stdout the program name, or nothing for an empty command or a shell construct.
 ci_stack_command_program() {
   local command="${1:-}" word
   [[ -n "$command" ]] || return 0
@@ -179,6 +187,8 @@ ci_stack_command_program() {
 # `.venv/bin/python`, `vendor/bin/phpunit` -- was refused before it ran, while
 # the step itself would have `cd`-ed there and run it happily. A check that
 # fires on correct input is worse than no check: it gets switched off.
+# Returns: 0 the program can be run, or no program was given; 1 it cannot, or <workdir> does not exist.
+# Output: nothing.
 ci_stack_command_available() {
   local workdir="${1:-.}" image="${2:-}" docker_user="${3:-}" program="${4:-}"
   [[ -n "$program" ]] || return 0
@@ -208,6 +218,8 @@ ci_stack_command_available() {
 #
 # Never fails: it is called from an EXIT trap, where a non-zero return would
 # replace the real exit status with the cleanup's.
+# Returns: always 0 (failures are ignored).
+# Output: stdout nothing; stderr one line when a container is removed.
 ci_stack_remove() {
   local container="" network=""
   while [[ $# -gt 0 ]]; do

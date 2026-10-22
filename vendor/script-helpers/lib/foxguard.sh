@@ -14,18 +14,21 @@
 #   1  the operation failed (download, checksum mismatch)
 #   3  not installed, a required tool is missing, or the platform has no binary
 
-if [[ -z "${CI_DEFAULT_FOXGUARD_VERSION:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
 # The file names foxguard reads its configuration from, in each directory from
-# the scan path upward. Measured on 0.14.0: all four are read.
+# the scan path upward. Measured on 0.14.1: all four are read.
 FOXGUARD_CONFIG_NAMES=".foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml"
 
+# Usage: foxguard_asset
 # foxguard_asset; the release asset name for this machine, e.g.
 # foxguard-linux-x86_64, or foxguard-windows-x86_64.exe under Git Bash, MSYS or
 # Cygwin. Returns 3 on a platform with no release binary.
+# Returns: 0 known platform; 3 no release binary for this OS or CPU.
+# Output: stdout the asset name.
 foxguard_asset() {
   local os arch ext=""
   case "$(uname -s)" in
@@ -43,8 +46,11 @@ foxguard_asset() {
   printf 'foxguard-%s-%s%s\n' "$os" "$arch" "$ext"
 }
 
+# Usage: foxguard_config_in <dir>
 # foxguard_config_in <dir>; print the foxguard config file in that directory, if
 # there is one (see FOXGUARD_CONFIG_NAMES). Returns 1 when there is none.
+# Returns: 0 a config file exists; 1 none.
+# Output: stdout the config path.
 foxguard_config_in() {
   local name
   for name in $FOXGUARD_CONFIG_NAMES; do
@@ -53,7 +59,10 @@ foxguard_config_in() {
   return 1
 }
 
+# Usage: foxguard_expected_sha256 <asset>
 # foxguard_expected_sha256 <asset>; the pinned SHA-256 of that release asset.
+# Returns: 0 known asset; 3 unknown asset.
+# Output: stdout the pinned SHA-256.
 foxguard_expected_sha256() {
   case "$1" in
     foxguard-linux-x86_64)  printf '%s\n' "$CI_DEFAULT_FOXGUARD_SHA256_LINUX_X86_64" ;;
@@ -65,8 +74,11 @@ foxguard_expected_sha256() {
   esac
 }
 
+# Usage: foxguard_cache_path
 # foxguard_cache_path; where --install-foxguard puts the pinned binary
 # (foxguard.exe on Windows, which runs nothing without the extension).
+# Returns: always 0.
+# Output: stdout the cache path of the binary.
 foxguard_cache_path() {
   local name=foxguard
   case "$(foxguard_asset 2>/dev/null)" in *.exe) name=foxguard.exe ;; esac
@@ -74,8 +86,11 @@ foxguard_cache_path() {
     "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_FOXGUARD_VERSION" "$name"
 }
 
+# Usage: foxguard_bin
 # foxguard_bin; the foxguard to run: the pinned binary in the cache, else one on
 # PATH. Returns 3 when there is neither.
+# Returns: 0 found; 3 not in the cache and not on PATH.
+# Output: stdout the binary path.
 foxguard_bin() {
   local cached
   cached="$(foxguard_cache_path)"
@@ -88,9 +103,12 @@ foxguard_bin() {
   fi
 }
 
+# Usage: foxguard_sha256 <file>
 # foxguard_sha256 <file>; its SHA-256, with shasum, sha256sum or openssl.
 # shasum and openssl are on macOS; a minimal Linux (Alpine, slim images) may
 # have only coreutils' or busybox's sha256sum.
+# Returns: 3 no shasum, sha256sum or openssl; otherwise the exit code of the awk pipeline (0, also for an unreadable file).
+# Output: stdout the hex digest; stderr the hash tool's error for an unreadable file.
 foxguard_sha256() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
@@ -103,9 +121,12 @@ foxguard_sha256() {
   fi
 }
 
+# Usage: foxguard_install
 # foxguard_install; download the pinned release binary for this machine, check
 # it against the pinned SHA-256, and put it at foxguard_cache_path. A mismatch
 # deletes the download and returns 1.
+# Returns: 0 installed; 1 mkdir, mktemp, download, checksum or move failed; 3 no binary for this platform, or curl/wget or a SHA-256 tool is missing.
+# Output: stdout nothing; stderr progress and errors.
 foxguard_install() {
   local asset want got dest tmp url
   asset="$(foxguard_asset)" || { log_error "foxguard: no release binary for $(uname -s) $(uname -m)"; return 3; }

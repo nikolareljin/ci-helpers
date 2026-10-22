@@ -3,6 +3,9 @@
 # DESCRIPTION: Example script that demonstrates logging and structured log helpers.
 # USAGE: ./example_logging.sh
 # PARAMETERS: No required parameters.
+#   -h, --help   Show this help and exit.
+# EXIT_CODES:
+#   0  The demo ran (it prints error lines on purpose; they do not fail it).
 # EXAMPLE: ./example_logging.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -13,7 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$SCRIPT_DIR/..}"
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import logging
+shlib_import help logging
+
+case "${1:-}" in -h|--help) print_help "${BASH_SOURCE[0]}"; exit 0 ;; esac
 
 print_info "This is an info message"
 print_success "This is a success message"

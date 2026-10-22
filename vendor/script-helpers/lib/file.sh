@@ -2,14 +2,22 @@
 # File/dir and checksum helpers
 
 # Usage: command_exists <command>; returns 0 when command is available.
+# Returns: 0 on PATH (or a function/builtin); 1 not found.
+# Output: nothing.
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 # Usage: directory_exists <path>; returns 0 if directory exists.
+# Returns: 0 a directory; 1 otherwise.
+# Output: nothing.
 directory_exists() { [[ -d "$1" ]]; }
 # Usage: file_exists <path>; returns 0 if file exists.
+# Returns: 0 a regular file; 1 otherwise.
+# Output: nothing.
 file_exists() { [[ -f "$1" ]]; }
 
 # Usage: create_directory <path>; creates directory if missing.
+# Returns: 0 created or already present; 1 mkdir failed.
+# Output: stdout a created/already-exists line; stderr the failure.
 create_directory() {
   if ! directory_exists "$1"; then
     mkdir -p "$1" && { echo "Directory $1 created."; return 0; }
@@ -20,6 +28,8 @@ create_directory() {
 }
 
 # Usage: download_file <url> [output]; downloads quietly with optional dialog.
+# Returns: 0 downloaded; 1 no curl or wget, mktemp failed, or the final write failed; otherwise the exit code of curl or wget.
+# Output: stdout an [Error!] line when no download tool exists; stderr curl/wget errors; a dialog gauge when dialog is used.
 download_file() {
   local url="$1"; local output="${2:-}"
   if [[ -z "$output" ]]; then
@@ -38,7 +48,12 @@ download_file() {
     if command_exists dialog; then
       # Ensure dialog_download_file is available; try sourcing if missing
       if ! declare -F dialog_download_file >/dev/null 2>&1; then
-        local _lib_dialog="${SCRIPT_HELPERS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/lib/dialog.sh"
+        local _lib_dialog
+        if [[ -n "${SCRIPT_HELPERS_DIR:-}" ]]; then
+          _lib_dialog="${SCRIPT_HELPERS_DIR}/lib/dialog.sh"
+        else
+          _lib_dialog="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dialog.sh"
+        fi
         # shellcheck disable=SC1090
         [[ -f "$_lib_dialog" ]] && source "$_lib_dialog"
       fi
@@ -88,11 +103,19 @@ download_file() {
 }
 
 # Usage: is_valid_iso <path>; returns 0 if ISO signature is detected.
-is_valid_iso() { file "$1" | grep -q "ISO 9660"; }
+# Returns: 0 file(1) reports ISO 9660; 1 otherwise.
+# Output: nothing.
+# Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+is_valid_iso() { grep -q "ISO 9660" <<< "$(file "$1")"; }
 # Usage: is_valid_checksum <path>; returns 0 if checksum file looks like text.
-is_valid_checksum() { file "$1" | grep -q "ASCII text"; }
+# Returns: 0 file(1) reports ASCII text; 1 otherwise.
+# Output: nothing.
+# Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+is_valid_checksum() { grep -q "ASCII text" <<< "$(file "$1")"; }
 
 # Usage: verify_checksum <iso_file> <checksum_file> [checksum_type]; checks hashes.
+# Returns: 0 the hash matches the entry for this file; 1 not an ISO, not a checksum file, no entry, mismatch, or hash tool missing.
+# Output: stdout a [Success]/[Error!] line.
 verify_checksum() {
   local iso_file="$1"; local checksum_file="$2"; local checksum_type="${3:-sha256sum}"
   if ! is_valid_iso "$iso_file"; then
@@ -126,7 +149,7 @@ verify_checksum() {
         128) hash_cmd+=(-a 512) ;;
       esac
     fi
-    actual="$("${hash_cmd[@]}" "$iso_file" 2>/dev/null | awk '{print $1; exit}')"
+    actual="$("${hash_cmd[@]}" "$iso_file" 2>/dev/null | awk 'NR == 1 {print $1}')"
     actual="${actual#\\}"
     expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
     actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
@@ -177,7 +200,10 @@ if ! declare -f require_bash4 >/dev/null 2>&1; then
   fi
 fi
 
+# Usage: download_iso <distro_name>
 # Convenience used by iso-forge: expects DISTROS associative array defined by caller
+# Returns: 0 the file is (or already was) present and is an ISO; 1 bash older than 4, no URL in DISTROS, download failed, or not an ISO.
+# Output: stdout [Success]/[Warning!]/[Error!] lines.
 download_iso() {
   require_bash4 "download_iso (DISTROS associative array)" || return 1
   local distro_name="$1"

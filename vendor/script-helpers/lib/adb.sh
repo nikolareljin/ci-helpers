@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# adb / Android device utilities — a general toolkit for inspecting and debugging
+# adb / Android device utilities -- a general toolkit for inspecting and debugging
 # Android devices over USB via the Android Debug Bridge (`adb`).
 #
 # Everything is MULTI-DEVICE SAFE: functions target a device with
@@ -10,11 +10,15 @@
 # --- discovery -------------------------------------------------------------
 
 # Usage: adb_available; returns 0 if the adb CLI is on PATH.
+# Returns: 0 adb is on PATH; 1 not.
+# Output: nothing.
 adb_available() { command -v adb >/dev/null 2>&1; }
 
 # Usage: adb_ready_serials; prints the serial of each *ready* device, one per
 # line, skipping the header and any offline/unauthorized entries (state column
 # must be exactly "device"). Prints nothing when none are ready.
+# Returns: 0 listed (also when none are ready); 1 adb missing.
+# Output: stdout one serial per line for devices in state "device".
 adb_ready_serials() {
   adb_available || return 1
   adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}'
@@ -23,6 +27,8 @@ adb_ready_serials() {
 # --- device info -----------------------------------------------------------
 
 # Usage: adb_getprop <serial> <prop>; prints a system property (CR/LF trimmed).
+# Returns: 0 queried (the value may be empty); 1 adb missing or a missing argument; otherwise the exit code of tr.
+# Output: stdout the property value, no trailing newline.
 adb_getprop() {
   local serial="$1" prop="$2"
   adb_available || return 1
@@ -31,23 +37,31 @@ adb_getprop() {
 }
 
 # Usage: adb_device_model <serial>; prints ro.product.model (e.g. "Pixel 5").
+# Returns: same as adb_getprop.
+# Output: stdout ro.product.model.
 adb_device_model() { adb_getprop "$1" ro.product.model; }
 
 # Usage: adb_android_version <serial>; prints the Android OS release (e.g. "9").
+# Returns: same as adb_getprop.
+# Output: stdout ro.build.version.release.
 adb_android_version() { adb_getprop "$1" ro.build.version.release; }
 
 # Usage: adb_device_api <serial>; prints the supported API / SDK level (e.g. 28).
+# Returns: same as adb_getprop.
+# Output: stdout ro.build.version.sdk.
 adb_device_api() { adb_getprop "$1" ro.build.version.sdk; }
 
 # Usage: adb_device_ip <serial> [iface=wlan0]; prints the device's IPv4 on the
 # interface (default wlan0 / Wi-Fi; pass e.g. rmnet_data0 for cellular). Returns
 # non-zero with no output when adb is missing or the interface has no address.
+# Returns: 0 found; 1 adb missing, no serial, or no IPv4 address on the interface.
+# Output: stdout the IPv4 address.
 adb_device_ip() {
   local serial="$1" iface="${2:-wlan0}" ip=""
   adb_available || return 1
   [[ -n "$serial" ]] || return 1
   ip="$(adb -s "$serial" shell ip -f inet addr show "$iface" 2>/dev/null \
-        | grep -o 'inet [0-9.]*' | awk '{print $2}' | head -n1)"
+        | grep -o 'inet [0-9.]*' | awk '{print $2}' | sed -n 1p)"
   [[ -n "$ip" ]] || return 1
   printf '%s\n' "$ip"
 }
@@ -55,6 +69,8 @@ adb_device_ip() {
 # Usage: adb_list_devices [iface=wlan0]; prints a table of every ready device
 # with its model, Android OS version, API level and IP. Works with any number of
 # devices attached. Returns 1 when adb is missing; 0 (empty table) when none.
+# Returns: 0 listed, or no ready devices; 1 adb missing.
+# Output: stdout a table (serial, model, Android, API, IP); stderr warnings.
 adb_list_devices() {
   local iface="${1:-wlan0}" s
   local _sh_line
@@ -66,7 +82,7 @@ adb_list_devices() {
   serials=()
   while IFS= read -r _sh_line; do serials+=("$_sh_line"); done < <(adb_ready_serials)
   if [[ ${#serials[@]} -eq 0 ]]; then
-    log_warn "No ready devices. Check the USB cable and 'adb devices' — authorize the on-phone prompt if it shows 'unauthorized'."
+    log_warn "No ready devices. Check the USB cable and 'adb devices' - authorize the on-phone prompt if it shows 'unauthorized'."
     return 0
   fi
   printf '%-20s %-18s %-9s %-5s %s\n' "SERIAL" "MODEL" "ANDROID" "API" "IP ($iface)"
@@ -83,6 +99,8 @@ adb_list_devices() {
 # --- shell / debugging -----------------------------------------------------
 
 # Usage: adb_shell <serial> <command...>; run a shell command on a device.
+# Returns: 1 adb missing; 2 missing argument; otherwise the exit code of adb shell.
+# Output: stdout/stderr the command's output.
 adb_shell() {
   local serial="$1"; shift || true   # drop the serial; the rest is the command
   adb_available || return 1
@@ -93,6 +111,8 @@ adb_shell() {
 # Usage: adb_logcat <serial> [regex]; dump the current logcat buffer (-d),
 # optionally filtered to lines matching <regex>. Non-streaming (scriptable); for
 # a live tail use `adb -s <serial> logcat` directly.
+# Returns: 1 adb missing or no serial (also: no line matched the regex); otherwise the exit code of adb logcat or grep.
+# Output: stdout the logcat dump, filtered by regex when given.
 adb_logcat() {
   local serial="$1" regex="${2:-}"
   adb_available || return 1
@@ -106,6 +126,8 @@ adb_logcat() {
 }
 
 # Usage: adb_clear_logcat <serial>; clears the device's logcat buffer.
+# Returns: 1 adb missing or no serial; otherwise the exit code of adb logcat -c.
+# Output: nothing.
 adb_clear_logcat() {
   local serial="$1"
   adb_available || return 1
@@ -116,6 +138,8 @@ adb_clear_logcat() {
 # --- file transfer ---------------------------------------------------------
 
 # Usage: adb_push <serial> <local> <remote>; copy a local file/dir TO the device.
+# Returns: 1 adb missing; 2 missing argument or local path not found; otherwise adb push's exit code.
+# Output: stdout/stderr adb's output; stderr a progress line.
 adb_push() {
   local serial="$1" local_path="$2" remote_path="$3"
   adb_available || return 1
@@ -127,6 +151,8 @@ adb_push() {
 }
 
 # Usage: adb_pull <serial> <remote> [local=.]; copy a file/dir FROM the device.
+# Returns: 1 adb missing; 2 missing argument; otherwise adb pull's exit code.
+# Output: stdout/stderr adb's output; stderr a progress line.
 adb_pull() {
   local serial="$1" remote_path="$2" local_path="${3:-.}"
   adb_available || return 1
@@ -143,13 +169,15 @@ adb_pull() {
 #
 # --user defaults to 0, the device owner, and is passed through to adb. This is
 # not a cosmetic default. An unqualified `adb install` can land the package in a
-# profile the shell cannot subsequently read — on a device with a work profile or
+# profile the shell cannot subsequently read -- on a device with a work profile or
 # Samsung Secure Folder, the install prints Success and exits 0 while
 # `pm list packages` fails with "SecurityException: Shell does not have
 # permission to access user <id>". The app is then absent from the launcher and
 # unstartable, with every signal saying the install worked. Pass an explicit
 # --user to target a profile deliberately; see adb_installed_for_user to confirm
 # it landed.
+# Returns: 1 adb missing; 2 missing argument, APK not found, or bad --user; otherwise adb install's exit code.
+# Output: stdout/stderr adb's output; stderr a progress line.
 adb_install() {
   # ${1:-} rather than $1: a caller running with `set -u` would otherwise get a
   # fatal unbound-variable error instead of the documented exit 2.
@@ -174,11 +202,13 @@ adb_install() {
 
 # Usage: adb_installed_for_user <serial> <package> [user=0]; returns 0 when the
 # package is visible to that user, 1 when it is not, and 3 when the shell is not
-# permitted to query the user at all — which is itself the answer, because a
+# permitted to query the user at all -- which is itself the answer, because a
 # package the shell cannot see is a package the launcher will not show.
 #
 # Call this after adb_install. An installer's exit code asserts that adb accepted
 # the command, not that the app is usable.
+# Returns: 0 installed for that user; 1 adb missing or not installed; 2 bad arguments; 3 the shell cannot read that user.
+# Output: stderr errors and, for code 3, the device's user list.
 adb_installed_for_user() {
   local serial="${1:-}" pkg="${2:-}" user="${3:-0}" out
   adb_available || return 1
@@ -188,7 +218,7 @@ adb_installed_for_user() {
   # output is checked before the status. Observed on a Galaxy S21 FE (Android 16):
   # `pm list packages --user 150` prints "SecurityException: Shell does not have
   # permission to access user 150" and still exits 0. Reading the status alone
-  # would classify that as "package absent" — the same trusting-an-exit-code
+  # would classify that as "package absent" -- the same trusting-an-exit-code
   # mistake this function exists to catch.
   out="$(adb -s "$serial" shell pm list packages --user "$user" 2>&1)" || true
   out="${out//$'\r'/}"
@@ -208,6 +238,8 @@ adb_installed_for_user() {
 #
 # Returns adb's status on an install failure, 4 when the install reported success
 # but the package is not visible to the target user, and 0 only when both hold.
+# Returns: 0 installed and visible to the user; 2 bad arguments; 3 the user cannot be read; 4 installed but not visible to the user; otherwise adb_install's code.
+# Output: stdout/stderr adb's output; stderr progress, errors and the user list on failure.
 adb_install_verified() {
   local serial="${1:-}" apk="${2:-}" pkg="${3:-}"; shift 3 2>/dev/null || true
   local user="0" rc=0
@@ -226,7 +258,7 @@ adb_install_verified() {
   adb_install "$serial" "$apk" "${passthru[@]+"${passthru[@]}"}" || return $?
 
   # Capture the status directly. After a failed `if` with no `else`, `$?` is the
-  # status of the `if` statement itself — zero — so reading it afterwards loses
+  # status of the `if` statement itself -- zero -- so reading it afterwards loses
   # the distinction between "not installed" and "cannot read that profile".
   rc=0
   adb_installed_for_user "$serial" "$pkg" "$user" || rc=$?
@@ -245,6 +277,8 @@ adb_install_verified() {
 
 # Usage: adb_install_all <apk> [extra adb install args...]; install the APK to
 # every ready device. Continues past failures; returns non-zero if any failed.
+# Returns: 0 installed on every ready device, or none are ready; 1 adb missing, or any install failed; 2 APK not found.
+# Output: stderr one line per device and a summary.
 adb_install_all() {
   local apk="$1"; shift || true   # drop the apk; rest = extra adb install flags
   local s rc=0 ok=0 fail=0
@@ -267,6 +301,8 @@ adb_install_all() {
 }
 
 # Usage: adb_uninstall <serial> <package>; uninstall an app package.
+# Returns: 1 adb missing; 2 missing argument; otherwise adb uninstall's exit code.
+# Output: stdout/stderr adb's output.
 adb_uninstall() {
   local serial="$1" pkg="$2"
   adb_available || return 1
@@ -277,16 +313,20 @@ adb_uninstall() {
 # --- status ----------------------------------------------------------------
 
 # Usage: adb_battery_level <serial>; prints battery charge percent (0-100).
+# Returns: 1 adb missing or no serial; otherwise the exit code of tr (0).
+# Output: stdout the battery level, or nothing when unknown.
 adb_battery_level() {
   local serial="$1"
   adb_available || return 1
   [[ -n "$serial" ]] || return 1
   adb -s "$serial" shell dumpsys battery 2>/dev/null \
-    | awk -F': *' '/ level:/{print $2; exit}' | tr -d '\r'
+    | awk -F': *' '!f && / level:/ {print $2; f = 1}' | tr -d '\r'
 }
 
 # Usage: adb_screen_on <serial>; returns 0 if the display is on, 1 if off, 2 if
 # it can't be determined (varies across Android versions).
+# Returns: 0 screen on; 1 screen off; 2 unknown, adb missing, or no serial.
+# Output: nothing.
 adb_screen_on() {
   local serial="$1" out
   adb_available || return 2
@@ -305,6 +345,8 @@ adb_screen_on() {
 
 # Usage: adb_device_status <serial>; print a human-readable status block (model,
 # Android + API, battery, screen, Wi-Fi IP) for one device.
+# Returns: 0 printed; 1 adb missing or no serial.
+# Output: stdout key: value lines (serial, model, android, battery, screen, wifi_ip).
 adb_device_status() {
   local serial="$1" screen="unknown"
   adb_available || return 1
@@ -328,7 +370,7 @@ adb_device_status() {
 #  - Android 11+ "Wireless debugging" allocates a RANDOM port per session, so a
 #    hard-coded 5555 silently stops working;
 #  - the device's address belongs in a gitignored env file, never in a tracked
-#    one — see `check_no_private_ips` in scripts/.
+#    one -- see `check_no_private_ips` in scripts/.
 #
 # Address is taken from ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT, which
 # `load_env` (lib/env.sh) puts in scope from a project's .env.
@@ -340,12 +382,14 @@ adb_device_status() {
 # "which device", it is what --device sets, and for a wireless device the device
 # id IS "ip:port". One variable rather than two spellings of the same fact.
 #
-# A DEV_DEVICE holding a USB serial is correctly ignored here — a serial has no
+# A DEV_DEVICE holding a USB serial is correctly ignored here -- a serial has no
 # colon, so it is not something to `adb connect`, and the split form below (or
 # nothing) applies instead.
 #
 # ANDROID_DEVICE_IP / ANDROID_DEVICE_PORT remain supported as an explicit split
 # form. Port defaults to 5555.
+# Returns: 0 an address is configured; 1 neither DEV_DEVICE (host:port) nor ANDROID_DEVICE_IP is set.
+# Output: stdout host:port.
 adb_wireless_addr() {
   local dev="${DEV_DEVICE:-}"
   if [[ "$dev" == *:* ]]; then
@@ -359,6 +403,8 @@ adb_wireless_addr() {
 # Usage: adb_wireless_attached <addr>; returns 0 when that exact address is
 # attached AND ready. Checks the state column, so an "offline" or
 # "unauthorized" entry correctly counts as not attached.
+# Returns: 0 attached in state "device"; 1 not, no address, or adb missing.
+# Output: nothing.
 adb_wireless_attached() {
   local addr="${1:-}" found=""
   [[ -n "$addr" ]] || return 1
@@ -368,12 +414,14 @@ adb_wireless_attached() {
 }
 
 # Usage: adb_wireless_connect [addr]; attaches the device, defaulting to
-# adb_wireless_addr. Returns 0 if it ends up attached — including when it
+# adb_wireless_addr. Returns 0 if it ends up attached -- including when it
 # already was, so this is safe to call before every command.
 #
 # `adb connect` reports success on a bare TCP handshake even when the far end is
 # not a usable adb daemon, so the result is confirmed against `adb devices`
 # rather than trusted.
+# Returns: 0 attached; 1 no address, adb missing, or the connect did not attach.
+# Output: nothing.
 adb_wireless_connect() {
   local addr="${1:-$(adb_wireless_addr 2>/dev/null || true)}"
   [[ -n "$addr" ]] || return 1
@@ -383,8 +431,10 @@ adb_wireless_connect() {
   adb_wireless_attached "$addr"
 }
 
-# Usage: adb_wireless_disconnect [addr]; detaches. Always returns 0 — detaching
+# Usage: adb_wireless_disconnect [addr]; detaches. Always returns 0 -- detaching
 # something already detached is not an error worth propagating.
+# Returns: always 0.
+# Output: nothing.
 adb_wireless_disconnect() {
   local addr="${1:-$(adb_wireless_addr 2>/dev/null || true)}"
   adb_available || return 0
@@ -396,6 +446,8 @@ adb_wireless_disconnect() {
 # Usage: adb_wireless_enable <serial> [port=5555]; puts a USB-attached device
 # into tcpip mode. This is the step that needs the cable, and the step that is
 # undone by a reboot.
+# Returns: 0 tcpip mode set; 1 adb missing, no serial, or adb tcpip failed.
+# Output: nothing.
 adb_wireless_enable() {
   local serial="${1:-}" port="${2:-5555}"
   adb_available || return 1
@@ -414,10 +466,12 @@ adb_wireless_enable() {
 #
 # With no serial it uses the first ready device, which is the common case (one
 # phone, just plugged in).
+# Returns: 0 connected; 1 any step failed.
+# Output: stdout host:port on success.
 adb_wireless_setup() {
   local serial="${1:-}" port="${2:-5555}" iface="${3:-wlan0}" ip="" addr=""
   adb_available || return 1
-  [[ -n "$serial" ]] || serial="$(adb_ready_serials | head -n1)"
+  [[ -n "$serial" ]] || serial="$(adb_ready_serials | sed -n 1p)"
   [[ -n "$serial" ]] || return 1
 
   ip="$(adb_device_ip "$serial" "$iface")" || return 1
@@ -447,17 +501,24 @@ adb_wireless_setup() {
 #   adb_wireless_write_env .env "$(printf '203.0.113.1\nFOO=$(id)')"
 #
 # wrote a literal `FOO=$(id)` line, and sourcing ran it. The value is not always
-# hand-typed either — adb_wireless_setup takes it from `adb shell ip ...`, which
+# hand-typed either -- adb_wireless_setup takes it from `adb shell ip ...`, which
 # is whatever the attached device chose to print.
+# Returns: 0 valid hostname or IPv4 literal; 1 not.
+# Output: nothing.
 adb_wireless_valid_host() {
   [[ "${1:-}" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$ ]]
 }
 
 # Usage: adb_wireless_valid_port <value>; returns 0 for 1-65535.
+# Returns: 0 1-65535; 1 not.
+# Output: nothing.
 adb_wireless_valid_port() {
   [[ "${1:-}" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
+# Usage: adb_wireless_write_env <file> <host> [port=5555]
+# Returns: 0 written; 1 missing or invalid argument, or the write failed.
+# Output: nothing.
 adb_wireless_write_env() {
   local file="${1:-}" ip="${2:-}" port="${3:-5555}" tmp=""
   [[ -n "$file" && -n "$ip" ]] || return 1
@@ -468,7 +529,7 @@ adb_wireless_write_env() {
   adb_wireless_valid_port "$port" || return 1
 
   if [[ ! -f "$file" ]]; then
-    printf '# Local environment. Gitignored — do not commit.\n\n' >"$file" || return 1
+    printf '# Local environment. Gitignored - do not commit.\n\n' >"$file" || return 1
   fi
 
   tmp="$(mktemp)" || return 1
@@ -496,6 +557,8 @@ adb_wireless_write_env() {
 # wireless device will not attach. Worth a function rather than a comment: the
 # reboot case is indistinguishable from a wrong address at the point of failure,
 # and without the hint the natural response is to retry forever.
+# Returns: always 0.
+# Output: stdout the recovery steps.
 adb_wireless_recovery_hint() {
   local port="${1:-${ANDROID_DEVICE_PORT:-5555}}"
   cat <<EOF
@@ -503,7 +566,7 @@ adb's tcpip mode does not survive a device reboot. To restore it:
   1. connect the device by USB
   2. adb tcpip $port      (or: adb_wireless_setup, which also stores the address)
   3. unplug, then reconnect
-On Android 11+ "Wireless debugging" the port is RANDOM per session — read it
+On Android 11+ "Wireless debugging" the port is RANDOM per session - read it
 from Developer options -> Wireless debugging and update ANDROID_DEVICE_PORT.
 EOF
 }

@@ -20,6 +20,9 @@
 #   0  nothing found (audit, verify); done (clean)
 #   1  something found
 #   2  usage error, or a check could not run: the result is NOT clean
+#   130, 143  interrupted (INT, TERM); scratch directories are removed
+# EXAMPLE:
+#   scripts/prepare_public.sh audit --source ../my-repo --work /tmp/pub-audit
 # ----------------------------------------------------
 #
 # Every commit, message, tag and file a repository ever held is audited, on
@@ -65,7 +68,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 die()  { echo "$TAG ERROR: $*" >&2; exit 2; }
 
-usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
 
 CMD="${1:-}"
 [[ -n "$CMD" ]] || { usage >&2; exit 2; }
@@ -137,7 +140,7 @@ require_work() {
   [[ -f "$WORK/$MARKER" ]] || die "$WORK was not made by prepare_public.sh audit"
   WORK="$(abspath "$WORK")"
   [[ -d "$WORK/source.git" ]] || die "$WORK/source.git is missing"
-  if [[ -z "$SELF" ]]; then SELF="$(sed -n 's/^self=//p' "$WORK/$MARKER" | head -1)"; fi
+  if [[ -z "$SELF" ]]; then SELF="$(sed -n 's/^self=//p' "$WORK/$MARKER" | sed -n 1p)"; fi
 }
 
 # ---- the audit -------------------------------------------------------------
@@ -331,7 +334,7 @@ PY
   cut -f2 "$t/hits.tsv" | awk '{ print $1 }' | grep -E '^[0-9a-f]{7,40}$' | sort -u | while read -r c; do
     # The default branch when it has the commit, else the first ref that does.
     git -C "$g" for-each-ref --contains "$c" --format='%(refname)' 2>/dev/null > "$t/on" || true
-    r="$(grep -xF "$head_ref" "$t/on" || head -1 "$t/on")"
+    r="$(grep -xF "$head_ref" "$t/on" || sed -n 1p "$t/on")"
     printf '%s\t%s\n' "$c" "$r"
   done > "$t/commit-refs"
 

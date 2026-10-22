@@ -28,9 +28,12 @@
 #   --docker-user <user>          User for that image, as uid:gid (default: the invoking user).
 #   -h, --help                    Show this help message.
 # EXIT_CODES:
-#   0  The tests passed.
-#   1  A step failed; its own exit code is used where there is one.
+#   0  The tests passed (also -h/--help).
+#   1  A step failed, or the database did not start.
 #   2  Bad arguments, or a combination that cannot work.
+#   N  A failing step exits with its own code (e.g. the test command's).
+# EXAMPLE:
+#   scripts/ci_laravel.sh --db-image mysql:8.0
 # ----------------------------------------------------
 #
 # Laravel's test suite needs three things a generic PHP runner does not provide:

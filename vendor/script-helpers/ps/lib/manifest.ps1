@@ -1,4 +1,4 @@
-# Version manifests — PowerShell companion to lib/manifest.sh.
+# Version manifests - PowerShell companion to lib/manifest.sh.
 #
 # A phone app routinely states its version in three places at once: pubspec.yaml
 # for Flutter, versionName/versionCode in a Gradle build file for the Play Store,
@@ -12,6 +12,9 @@
 #   pyproject     pyproject.toml          version = "1.2.3"
 
 # The manifest kind for a path, based on its name. $null when unrecognized.
+# Usage: manifest_kind -File <path>
+# Returns: 'pubspec', 'gradle', 'version_file', 'package_json' or 'pyproject'; $null when unrecognized.
+# Output: stderr [ERROR] when unrecognized.
 function manifest_kind {
     param([Parameter(Mandatory)][string]$File)
     switch ([System.IO.Path]::GetFileName($File)) {
@@ -29,8 +32,11 @@ function manifest_kind {
 }
 
 # One object per version manifest found, with Kind and Path. Searches the
-# directory and two levels down — an app under mobile/ or android/ is the
+# directory and two levels down - an app under mobile/ or android/ is the
 # common layout.
+# Usage: manifest_detect [-Dir <dir>]
+# Returns: one object with Kind and Path per manifest within two levels (build dirs skipped).
+# Output: none.
 function manifest_detect {
     param([string]$Dir = '.')
     $names = @('pubspec.yaml','build.gradle','build.gradle.kts','VERSION','package.json','pyproject.toml')
@@ -45,7 +51,10 @@ function manifest_detect {
 }
 
 # The version recorded in a manifest. For a pubspec the build number after `+`
-# is dropped — that is a build counter, not part of the version.
+# is dropped - that is a build counter, not part of the version.
+# Usage: manifest_read_version -File <path>
+# Returns: the version string; $null when missing, unrecognized or without a version.
+# Output: stderr [ERROR] on failure.
 function manifest_read_version {
     param([Parameter(Mandatory)][string]$File)
     if (-not (Test-Path $File -PathType Leaf)) {
@@ -76,6 +85,9 @@ function manifest_read_version {
 # The Play Store requires a strictly increasing integer, and this mapping stays
 # monotonic while minor and patch remain below 100. Returns $null on non-semver
 # rather than a wrong number, which the Play Store rejects only after upload.
+# Usage: manifest_android_version_code -Version <x.y.z> [-Offset <n>]
+# Returns: MAJOR*10000 + MINOR*100 + PATCH + Offset; $null on a non-semver version.
+# Output: stderr [ERROR] on a bad version; [WARN] when minor or patch >= 100.
 function manifest_android_version_code {
     param([Parameter(Mandatory)][string]$Version, [int]$Offset = 0)
     if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
@@ -84,7 +96,7 @@ function manifest_android_version_code {
     }
     $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $patch = [int]$Matches[3]
     if (($minor -ge 100 -or $patch -ge 100) -and (Get-Command log_warn -ErrorAction SilentlyContinue)) {
-        log_warn "manifest_android_version_code: minor/patch >= 100 in $Version — the code is no longer monotonic"
+        log_warn "manifest_android_version_code: minor/patch >= 100 in $Version - the code is no longer monotonic"
     }
     return ($major * 10000 + $minor * 100 + $patch + $Offset)
 }
@@ -92,6 +104,9 @@ function manifest_android_version_code {
 # Set the version in a manifest, in place. For gradle, versionCode is recomputed
 # unless -Build overrides it; for a pubspec, -Build sets the `+n` suffix and an
 # existing suffix is preserved when it is not given.
+# Usage: manifest_write_version -File <path> -Version <x.y.z> [-Build <n>]
+# Returns: $true when written, else $false.
+# Output: stderr [INFO] on success, [ERROR] on failure.
 function manifest_write_version {
     param(
         [Parameter(Mandatory)][string]$File,
@@ -129,7 +144,7 @@ function manifest_write_version {
 
     if (-not $text) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) {
-            log_error "manifest_write_version: rewriting $File produced an empty file — refusing to replace it"
+            log_error "manifest_write_version: rewriting $File produced an empty file - refusing to replace it"
         }
         return $false
     }
@@ -140,6 +155,9 @@ function manifest_write_version {
 
 # Write $Version into every manifest under $Dir. The "one release, one number"
 # operation. Attempts all of them and reports a partial sync rather than hiding it.
+# Usage: manifest_sync_version -Dir <dir> -Version <x.y.z> [-Build <n>]
+# Returns: $true when every manifest was written, else $false (the others are still written).
+# Output: as manifest_write_version; stderr [ERROR] on a partial sync.
 function manifest_sync_version {
     param(
         [Parameter(Mandatory)][string]$Dir,

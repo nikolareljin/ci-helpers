@@ -10,6 +10,16 @@
 #   --config-path <path>         Requested config path; logged when unsupported.
 #   --fail-on-findings <bool>    Exit non-zero when findings exist. Optional; defaults to false.
 #   -h, --help                   Show this help message.
+# EXIT_CODES:
+#   0  Report read; no findings, or findings with --fail-on-findings false (also
+#      -h/--help).
+#   1  Report missing, empty, not JSON, not the SARIF shape expected, an
+#      unsupported --report-format.
+#   2  Unknown argument, an option without its value, a bad --fail-on-findings, an empty --output or
+#      --requested-output, or python3 not found.
+#   3  Findings present and --fail-on-findings true.
+# EXAMPLE:
+#   scripts/ci_gitleaks_report.sh --output results.sarif --fail-on-findings true
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -31,12 +41,12 @@ fail_on_findings="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --output) output="$2"; shift 2 ;;
-    --requested-output) requested_output="$2"; shift 2 ;;
-    --report-format) report_format="$2"; shift 2 ;;
-    --scan-path) scan_path="$2"; shift 2 ;;
-    --config-path) config_path="$2"; shift 2 ;;
-    --fail-on-findings) fail_on_findings="$2"; shift 2 ;;
+    --output) require_value "$@" || exit 2; output="$2"; shift 2 ;;
+    --requested-output) require_value "$@" || exit 2; requested_output="$2"; shift 2 ;;
+    --report-format) require_value "$@" || exit 2; report_format="$2"; shift 2 ;;
+    --scan-path) require_value "$@" || exit 2; scan_path="$2"; shift 2 ;;
+    --config-path) require_value "$@" || exit 2; config_path="$2"; shift 2 ;;
+    --fail-on-findings) require_value "$@" || exit 2; fail_on_findings="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac

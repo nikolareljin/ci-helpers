@@ -10,6 +10,12 @@
 # -R                : run the selected model in background after pulling
 # -n                : non-interactive; use model/size from env file and only pull (no dialog)
 # -h                : show help
+# -h, --help        : show help
+# EXIT_CODES:
+#   0  The model was pulled (and started with -R).
+#   1  Unknown option, -n without 'model' in the env file, or a helper failed.
+#   2  -r or -e without its value.
+#   N  The exit code of a cancelled dialog or a failed ollama step, passed through.
 # EXAMPLE: ./install_ollama_model.sh -i -D -R -e .env
 # ----------------------------------------------------
 set -euo pipefail
@@ -22,6 +28,8 @@ source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import logging dialog os env json file deps ollama help
 
 help() { display_help "$0"; }
+
+[[ "${1:-}" == "--help" ]] && { help; exit 0; }
 
 install_cli=false
 install_deps=false
@@ -39,7 +47,7 @@ while getopts ":hiDr:e:Rn" opt; do
     e) env_file="$OPTARG" ;;
     R) run_after=true ;;
     n) non_interactive=true ;;
-    :) print_error "Option -$OPTARG requires an argument"; exit 1 ;;
+    :) print_error "Option -$OPTARG requires an argument"; exit 2 ;;
     \?) print_error "Invalid option: -$OPTARG"; help; exit 1 ;;
   esac
 done

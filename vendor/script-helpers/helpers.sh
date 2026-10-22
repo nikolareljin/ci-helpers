@@ -63,7 +63,11 @@ if [[ -n "${BASH_SOURCE[1]:-}" ]]; then
   export SHLIB_CALLER_SCRIPT="${BASH_SOURCE[1]}"
 fi
 
+# Usage: shlib_import <module> [module...]; sources lib/<module>.sh for each name.
 # Import modules by name. Example: shlib_import logging docker json
+# logging is always imported first, also when not named.
+# Returns: 0 all sourced; 1 an unknown module (the ones before it stay loaded).
+# Output: stderr "[script-helpers] Unknown module: <name>"; stdout nothing.
 shlib_import() {
   local name file
   # Ensure logging is available first if not explicitly requested
@@ -87,7 +91,10 @@ shlib_import() {
   done
 }
 
+# Usage: shlib_import_all; sources every lib/*.sh module.
 # Convenience: import-all when requested
+# Returns: the status of the last module sourced (0).
+# Output: none.
 shlib_import_all() {
   local f
   for f in "$_SHLIB_LIB_DIR"/*.sh; do

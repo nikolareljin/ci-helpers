@@ -23,6 +23,16 @@
 #   --test-command <command>      Command that runs the tests (default: ./vendor/bin/phpunit).
 #   --skip-provision <true|false> Reuse an existing test library rather than downloading (default: false).
 #   -h, --help                    Show this help message.
+# EXIT_CODES:
+#   0  The tests passed (also -h/--help).
+#   1  The database did not start, the WordPress test library could not be
+#      provisioned, or a step failed.
+#   2  Bad arguments: unknown option, an option without its value, a relative
+#      or unsafe --wp-tests-dir or --wp-core-dir, missing --workdir, or a
+#      database host a container cannot reach.
+#   N  The PHPUnit command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_wp_phpunit.sh --db-image mysql:8.0 --wp-version 6.5
 # ----------------------------------------------------
 #
 # A plugin's tests/bootstrap.php is written against the WordPress test library,
@@ -68,22 +78,22 @@ skip_provision="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wp-version) wp_version="$2"; shift 2 ;;
-    --wp-tests-dir) wp_tests_dir="$2"; shift 2 ;;
-    --wp-core-dir) wp_core_dir="$2"; shift 2 ;;
-    --multisite) multisite="$2"; shift 2 ;;
-    --db-host) db_host="$2"; shift 2 ;;
-    --db-port) db_port="$2"; shift 2 ;;
-    --db-name) db_name="$2"; shift 2 ;;
-    --db-user) db_user="$2"; shift 2 ;;
-    --db-password) db_password="$2"; shift 2 ;;
-    --db-image) db_image="$2"; shift 2 ;;
-    --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
-    --workdir) workdir="$2"; shift 2 ;;
-    --php-image) php_image="$2"; shift 2 ;;
-    --docker-user) docker_user="$2"; shift 2 ;;
-    --test-command) test_command="$2"; shift 2 ;;
-    --skip-provision) skip_provision="$2"; shift 2 ;;
+    --wp-version) require_value "$@" || exit 2; wp_version="$2"; shift 2 ;;
+    --wp-tests-dir) require_value "$@" || exit 2; wp_tests_dir="$2"; shift 2 ;;
+    --wp-core-dir) require_value "$@" || exit 2; wp_core_dir="$2"; shift 2 ;;
+    --multisite) require_value "$@" || exit 2; multisite="$2"; shift 2 ;;
+    --db-host) require_value "$@" || exit 2; db_host="$2"; shift 2 ;;
+    --db-port) require_value "$@" || exit 2; db_port="$2"; shift 2 ;;
+    --db-name) require_value "$@" || exit 2; db_name="$2"; shift 2 ;;
+    --db-user) require_value "$@" || exit 2; db_user="$2"; shift 2 ;;
+    --db-password) require_value "$@" || exit 2; db_password="$2"; shift 2 ;;
+    --db-image) require_value "$@" || exit 2; db_image="$2"; shift 2 ;;
+    --db-wait-seconds) require_value "$@" || exit 2; db_wait_seconds="$2"; shift 2 ;;
+    --workdir) require_value "$@" || exit 2; workdir="$2"; shift 2 ;;
+    --php-image) require_value "$@" || exit 2; php_image="$2"; shift 2 ;;
+    --docker-user) require_value "$@" || exit 2; docker_user="$2"; shift 2 ;;
+    --test-command) require_value "$@" || exit 2; test_command="$2"; shift 2 ;;
+    --skip-provision) require_value "$@" || exit 2; skip_provision="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac

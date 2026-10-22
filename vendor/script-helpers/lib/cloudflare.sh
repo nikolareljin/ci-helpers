@@ -121,7 +121,7 @@ if v is not None and not isinstance(v, (dict, list)):
     return 0
   fi
   # The quoted key keeps "api_version" from matching "version".
-  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n 1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
+  printf '%s' "$body" | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | sed -n 1p | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true
   return 0
 }
 
@@ -154,6 +154,8 @@ _cloudflare__is_protected() {
 #
 # The API token is passed through the environment, never in argv: every other
 # user on the machine can read argv with ps.
+# Returns: 2 no arguments; 3 no way to run wrangler; otherwise wrangler's exit code.
+# Output: stdout/stderr wrangler's output; stderr errors.
 cloudflare_wrangler() {
   [[ $# -gt 0 ]] || { log_error "cloudflare_wrangler: at least one argument required"; return 2; }
   local runner=""
@@ -170,6 +172,8 @@ cloudflare_wrangler() {
 # Usage: cloudflare_credentials_ok
 # 0 when a token is set or an interactive wrangler session is authenticated,
 # 4 when neither, 3 when wrangler cannot run.
+# Returns: 0 CLOUDFLARE_API_TOKEN set or wrangler whoami succeeds; 3 no token and no wrangler; 4 no credentials.
+# Output: stdout nothing; stderr errors.
 cloudflare_credentials_ok() {
   if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
     return 0
@@ -197,6 +201,8 @@ cloudflare_credentials_ok() {
 #
 # shellcheck disable=SC2120  # env_file is an optional argument; callers inside
 # this module use the default, callers outside may not.
+# Returns: 0 found; 1 not set in the environment or env file.
+# Output: stdout the account id; stderr an error.
 cloudflare_account_id() {
   local env_file="${1:-.env}" value=""
   if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
@@ -220,6 +226,8 @@ cloudflare_account_id() {
 #
 # Returns CF_DEPLOY_VERSION verbatim when CI has exported it, so the workflow's
 # definition is the only live one in a CI run and this one is a pure fallback.
+# Returns: 0 printed; 1 unreadable or empty version file; 2 version file missing.
+# Output: stdout <version>-<short sha> (or -unknown outside git, or CF_DEPLOY_VERSION); stderr errors and warnings.
 cloudflare_version_string() {
   local version_file="${1:-VERSION}" base="" sha=""
   if [[ -n "${CF_DEPLOY_VERSION:-}" ]]; then
@@ -255,6 +263,8 @@ cloudflare_version_string() {
 # Derived rather than hardcoded: a build plugin writes its generated config
 # under a directory named after the worker, so reading the name out of the
 # authored config is what keeps the two in step when the name changes.
+# Returns: 0 printed; 1 config unreadable or has no top-level name; 2 missing argument.
+# Output: stdout the generated wrangler.json path; stderr errors.
 cloudflare_deploy_config() {
   local config="${1:-}" dist="${2:-}" name="" dir_name=""
   if [[ -z "$config" || -z "$dist" ]]; then
@@ -269,7 +279,7 @@ cloudflare_deploy_config() {
     log_error "cloudflare_deploy_config: cannot read '${config}'."
     return 1
   fi
-  name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -n 1)"
+  name="$(sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | sed -n 1p)"
   if [[ -z "$name" ]]; then
     log_error "cloudflare_deploy_config: no top-level name in '${config}'. Set CLOUDFLARE_DEPLOY_CONFIG to name the generated config directly."
     return 1
@@ -287,6 +297,8 @@ cloudflare_deploy_config() {
 # Resolution order: CF_DEPLOY_BASE_URL (CI has already decided), then
 # <ENVIRONMENT>_BASE_URL, then BASE_URL. The per-environment name is what lets
 # one .env describe a laptop's view of several environments.
+# Returns: 0 found; 1 no base URL; 2 missing environment.
+# Output: stdout the base URL; stderr errors.
 cloudflare_base_url() {
   local env_name="${1:-}" env_file="${2:-.env}" upper="" value=""
   if [[ -z "$env_name" ]]; then
@@ -321,6 +333,8 @@ cloudflare_base_url() {
 # immediately rather than blocking forever on a read nobody can answer: an
 # unattended run that hangs to its timeout is worse than one that says what it
 # needed.
+# Returns: 0 not protected, or confirmed; 2 missing environment; 5 protected and not confirmed (no terminal, or wrong answer).
+# Output: stderr the prompt and errors.
 cloudflare_confirm_environment() {
   local env_name="${1:-}" assume_yes="" reply=""
   shift || true
@@ -360,6 +374,8 @@ cloudflare_confirm_environment() {
 # Two separate assertions. Reachability proves something answers. The version
 # assertion proves it is the thing just deployed -- without it a smoke test
 # passes against the previous release, which is the failure it exists to catch.
+# Returns: 0 healthy (and the live version matches when a status path is given); 1 no answer, missing field, or version mismatch; 2 missing base URL, or a status path without an expected version; 3 curl missing.
+# Output: stdout nothing; stderr errors and warnings.
 cloudflare_smoke_test() {
   local base="${1:-}" expected="${2:-}" status_path="${3:-}" field="${4:-version}"
   local body="" actual=""
@@ -378,7 +394,8 @@ cloudflare_smoke_test() {
   # stderr discarded, read as "the service did not answer" and failed a deploy
   # that had worked. Probe once and drop the flag rather than mis-report.
   local retry_all=""
-  if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q -- '--retry-all-errors' <<< "$(curl --help all 2>/dev/null)"; then
     retry_all="--retry-all-errors"
   fi
   local curl_err=""
@@ -435,6 +452,8 @@ cloudflare_smoke_test() {
 # This is the single deploy sequence. CI calls it through the workflow's
 # deploy_command so that a laptop and a pipeline run the same steps in the same
 # order.
+# Returns: 0 deployed and verified (or dry run, or --no-smoke, or no base URL to check); 1 a step failed (account id, version, build, config, wrangler, smoke test); 2 bad options; otherwise the code of cloudflare_confirm_environment (5) or cloudflare_credentials_ok (3, 4). Defines a global helper function _need_value.
+# Output: stdout/stderr wrangler and build output; stderr progress and errors.
 cloudflare_deploy() {
   local env_name="" config="" dist="" source_config="" build_command=""
   local command_kind="deploy" version_file="VERSION" status_path=""

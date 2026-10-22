@@ -6,11 +6,15 @@
 # PARAMETERS:
 #   --test    Run a single test file instead of the whole suite.
 #   --shell   Drop into an interactive bash 3.2 shell in the container.
+#   -h, --help  Show this help and exit.
 #
 # EXIT_CODES:
 #   0  every test passed under bash 3.2
-#   1  a test failed
+#   1  a test failed, or run with CI=true (this is a local gate)
+#   2  bad arguments
 #   3  docker is unavailable
+# EXAMPLE:
+#   bash scripts/local_test_bash32.sh --test tests/version_test.sh
 # ----------------------------------------------------
 #
 # macOS ships bash 3.2 as /bin/bash and, for licensing reasons, always will.
@@ -29,6 +33,8 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
 shlib_import help logging ci_defaults
+
+case "${1:-}" in -h|--help) parse_common_args --help ;; esac
 
 # In line with every other local_test_* runner: this replaces a CI job, it does
 # not run inside one.
@@ -60,7 +66,7 @@ IMAGE="${CI_DEFAULT_BASH32_IMAGE}:${CI_DEFAULT_BASH32_VERSION}"
 # Desktop is reported as an image that could not be fetched, and the reader goes
 # looking at the network.
 if ! docker info >/dev/null 2>&1; then
-  log_error "local_test_bash32: the docker daemon is not reachable — start Docker and retry"
+  log_error "local_test_bash32: the docker daemon is not reachable - start Docker and retry"
   exit 3
 fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -80,7 +86,7 @@ fi
 # does not, the affected tests are reported as SKIPPED -- a test that failed for
 # want of git says nothing about bash 3.2, and a gate that cries wolf is a gate
 # people learn to ignore.
-BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip jq >/dev/null 2>&1 || true'
+BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip jq gnupg >/dev/null 2>&1 || true'
 
 # Offline, `docker run` on an image that was never pulled fails with a registry
 # error that reads like the gate is broken. Say what actually happened, and use
@@ -93,7 +99,7 @@ BOOTSTRAP='apk add --no-cache git python3 curl openssl make rsync zip jq >/dev/n
 # is skipped the same way for one file.
 RUNNER='
   set -u
-  bash --version | head -n1
+  bash --version | sed -n 1p
   case "${BASH_VERSINFO[0]}" in
     3) ;;
     *) echo "expected bash 3.x in this image, got ${BASH_VERSION}" >&2; exit 1 ;;
@@ -115,9 +121,10 @@ RUNNER='
     # single quote anywhere: this function is carried inside a single-quoted
     # RUNNER string, and one quote here ends it and breaks the embedded script.
     body="$(grep -v "^[[:space:]]*#" "$1" 2>/dev/null)"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_-])git " && need="$need git"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])python3?( |$)" && need="$need python3"
-    printf "%s" "$body" | grep -qE "(^|[^[:alnum:]_])curl( |$)" && need="$need curl"
+    # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+    grep -qE "(^|[^[:alnum:]_-])git " <<< "$body" && need="$need git"
+    grep -qE "(^|[^[:alnum:]_])python3?( |$)" <<< "$body" && need="$need python3"
+    grep -qE "(^|[^[:alnum:]_])curl( |$)" <<< "$body" && need="$need curl"
     case "$1" in
       # docker_install supports apt/dnf/pacman, not apk, so on this Alpine-based
       # image the installer correctly refuses and the test correctly fails.

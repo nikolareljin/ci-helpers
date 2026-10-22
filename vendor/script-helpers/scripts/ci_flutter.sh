@@ -13,13 +13,16 @@
 #   --digest <sha256>  Pin image to specific digest for supply-chain security (e.g., sha256:d18e04...).
 #   --no-docker        Run on the host instead of Docker.
 #   -h, --help         Show this help message.
+# EXIT_CODES:
+#   0  All requested steps passed (also -h/--help).
+#   1  CI=true (local use only), unknown argument, bad --digest, or docker
+#      (Docker mode) or flutter (--no-docker) not found.
+#   2  An option without its value.
+#   N  The first failing step exits with its own code.
+# EXAMPLE:
+#   scripts/ci_flutter.sh --workdir app
 # ----------------------------------------------------
 set -euo pipefail
-
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -40,19 +43,25 @@ DIGEST=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir) require_value "$@" || exit 2; WORKDIR="$2"; shift 2;;
     --skip-analyze) SKIP_ANALYZE=true; shift;;
     --skip-test) SKIP_TEST=true; shift;;
     --skip-build) SKIP_BUILD=true; shift;;
-    --build-cmd) BUILD_CMD="$2"; shift 2;;
-    --version) IMAGE_TAG="$2"; shift 2;;
-    --image) IMAGE_OVERRIDE="$2"; shift 2;;
-    --digest) DIGEST="$2"; shift 2;;
+    --build-cmd) require_value "$@" || exit 2; BUILD_CMD="$2"; shift 2;;
+    --version) require_value "$@" || exit 2; IMAGE_TAG="$2"; shift 2;;
+    --image) require_value "$@" || exit 2; IMAGE_OVERRIDE="$2"; shift 2;;
+    --digest) require_value "$@" || exit 2; DIGEST="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# After argument parsing, so -h/--help still works under CI=true.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  exit 1
+fi
 
 if [[ -n "$IMAGE_OVERRIDE" ]]; then
   IMAGE="$IMAGE_OVERRIDE"

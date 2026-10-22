@@ -9,6 +9,13 @@
 #   --fetch-tags         Fetch tags from --remote before checking.
 #   --print-version      Print the parsed version if eligible.
 #   -h, --help           Show this help message.
+# EXIT_CODES:
+#   0  Tag is free, or the branch is not a release branch (also -h/--help).
+#   1  Tag already exists, or fetching tags failed.
+#   2  Unknown argument, an option without its value, no branch given or in the environment, or --repo is not
+#      a git work tree.
+# EXAMPLE:
+#   scripts/check_release_tag.sh --branch release/1.4.0 --fetch-tags --print-version
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -29,9 +36,9 @@ print_version=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --branch) branch="$2"; shift 2 ;;
-    --repo) repo_dir="$2"; shift 2 ;;
-    --remote) remote="$2"; shift 2 ;;
+    --branch) require_value "$@" || exit 2; branch="$2"; shift 2 ;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2 ;;
+    --remote) require_value "$@" || exit 2; remote="$2"; shift 2 ;;
     --fetch-tags) fetch_tags=true; shift ;;
     --print-version) print_version=true; shift ;;
     -h|--help) usage; exit 0 ;;

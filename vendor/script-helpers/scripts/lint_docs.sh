@@ -2,10 +2,17 @@
 # SCRIPT: lint_docs.sh
 # DESCRIPTION: Validate docs coverage and API index consistency for script-helpers modules.
 # USAGE: ./lint_docs.sh
-# PARAMETERS: No required parameters.
-# EXAMPLE: ./lint_docs.sh
+# PARAMETERS:
+#   -h, --help  Show this help and exit.
+# EXIT_CODES:
+#   0  Every module and function is documented and listed in docs/api.md.
+#   1  At least one documentation gap (each printed on stderr).
+# EXAMPLE:
+#   bash scripts/lint_docs.sh
 # ----------------------------------------------------
 set -euo pipefail
+
+case "${1:-}" in -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;; esac
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 cd "$root_dir"

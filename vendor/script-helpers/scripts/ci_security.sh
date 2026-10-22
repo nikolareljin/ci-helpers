@@ -39,16 +39,23 @@
 #                          foxguard.yml, foxguard.yaml); elsewhere they are
 #                          reported, not counted.
 #   -h, --help             Show this help message.
-# EXIT CODES: 0 clean (or reported only); 1 findings with --fail-on-findings;
-#   3 only under preflight (PREFLIGHT_SKIP_FILE set): nothing it was asked for
-#   could run (a missing tool, no manifest, no lockfile), reason in that file.
+# EXIT_CODES:
+#   0  Clean, or findings reported only (also -h/--help, --check-foxguard when
+#      foxguard is available, and a successful --install-*).
+#   1  Findings with --fail-on-findings; CI=true (local use only); unknown
+#      argument; bad --gitleaks-digest; docker
+#      missing in Docker mode; a temp directory could not be made; or an
+#      --install-* download or checksum failed.
+#   2  An option without its value.
+#   3  --check-foxguard: foxguard not available. --install-*: no release binary
+#      for this platform, or no curl/wget/sha256 tool. Under preflight
+#      (PREFLIGHT_SKIP_FILE set): nothing it was asked for could run, reason in
+#      that file.
+# EXAMPLE:
+#   scripts/ci_security.sh --fail-on-findings
 # ----------------------------------------------------
 set -euo pipefail
 
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -64,6 +71,8 @@ SKIP_NODE=false
 SKIP_GITLEAKS=false
 SKIP_FOXGUARD=false
 INSTALL_FOXGUARD=false
+INSTALL_GITLEAKS=false
+CHECK_FOXGUARD=false
 FAIL_ON_FINDINGS=false
 GITLEAKS_LOG_OPTS=""
 FINDINGS=0
@@ -80,31 +89,40 @@ GITLEAKS_IMAGE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir) require_value "$@" || exit 2; WORKDIR="$2"; shift 2;;
     --install) INSTALL_TOOLS=true; shift;;
     --skip-python) SKIP_PYTHON=true; shift;;
     --skip-node) SKIP_NODE=true; shift;;
     --skip-gitleaks) SKIP_GITLEAKS=true; shift;;
     --skip-foxguard) SKIP_FOXGUARD=true; shift;;
     --install-foxguard) INSTALL_FOXGUARD=true; shift;;
-    --check-foxguard) foxguard_bin >/dev/null && exit 0; exit 3;;
-    --install-gitleaks) gitleaks_install; exit $?;;
+    --check-foxguard) CHECK_FOXGUARD=true; shift;;
+    --install-gitleaks) INSTALL_GITLEAKS=true; shift;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
-    --gitleaks-log-opts) GITLEAKS_LOG_OPTS="${2:?--gitleaks-log-opts needs a value}"; shift 2;;
-    --python-req) PYTHON_REQ="$2"; shift 2;;
-    --node-cmd) NODE_CMD="$2"; shift 2;;
+    --gitleaks-log-opts) require_value "$@" || exit 2; GITLEAKS_LOG_OPTS="$2"; shift 2;;
+    --python-req) require_value "$@" || exit 2; PYTHON_REQ="$2"; shift 2;;
+    --node-cmd) require_value "$@" || exit 2; NODE_CMD="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
-    --python-version) PY_VERSION="$2"; shift 2;;
-    --node-version) NODE_VERSION="$2"; shift 2;;
-    --gitleaks-version) GITLEAKS_VERSION="$2"; shift 2;;
-    --gitleaks-digest) GITLEAKS_DIGEST="$2"; shift 2;;
-    --python-image) PY_IMAGE_OVERRIDE="$2"; shift 2;;
-    --node-image) NODE_IMAGE_OVERRIDE="$2"; shift 2;;
-    --gitleaks-image) GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
+    --python-version) require_value "$@" || exit 2; PY_VERSION="$2"; shift 2;;
+    --node-version) require_value "$@" || exit 2; NODE_VERSION="$2"; shift 2;;
+    --gitleaks-version) require_value "$@" || exit 2; GITLEAKS_VERSION="$2"; shift 2;;
+    --gitleaks-digest) require_value "$@" || exit 2; GITLEAKS_DIGEST="$2"; shift 2;;
+    --python-image) require_value "$@" || exit 2; PY_IMAGE_OVERRIDE="$2"; shift 2;;
+    --node-image) require_value "$@" || exit 2; NODE_IMAGE_OVERRIDE="$2"; shift 2;;
+    --gitleaks-image) require_value "$@" || exit 2; GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# After the options, so -h/--help and a bad argument answer the same in CI as
+# anywhere, and before any verb, so install and check stay local-only.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  exit 1
+fi
+if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; exit 3; fi
+if [[ "$INSTALL_GITLEAKS" == "true" ]]; then gitleaks_install; exit $?; fi
 
 if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
   foxguard_install

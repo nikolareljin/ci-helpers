@@ -2,13 +2,19 @@
 # SCRIPT: build_rpm_artifacts.sh
 # DESCRIPTION: Build RPM packages and emit artifacts in the parent directory.
 # USAGE: ./build_rpm_artifacts.sh [--repo PATH] [--spec PATH] [--prebuild COMMAND] [--artifact-dir PATH]
-# EXAMPLE: ./build_rpm_artifacts.sh --repo .
 # PARAMETERS:
 #   --repo <path>        Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --spec <path>        Spec file path (default: packaging/rpm/<app>.spec).
 #   --prebuild <command> Command to run before build.
 #   --artifact-dir <path> Output directory for built RPMs (default: ..).
 #   -h, --help           Show help.
+# EXIT_CODES:
+#   0  RPMs built and copied to --artifact-dir (also -h/--help).
+#   1  Spec file not found, or a step failed.
+#   2  Unknown argument, or an option without its value.
+#   N  A failing --prebuild command or rpmbuild exits with its own code.
+# EXAMPLE:
+#   scripts/build_rpm_artifacts.sh --repo . --artifact-dir dist
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -27,10 +33,10 @@ artifact_dir=".."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) repo_dir="$2"; shift 2;;
-    --spec) spec_path="$2"; shift 2;;
-    --prebuild) prebuild_cmd="$2"; shift 2;;
-    --artifact-dir) artifact_dir="$2"; shift 2;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2;;
+    --spec) require_value "$@" || exit 2; spec_path="$2"; shift 2;;
+    --prebuild) require_value "$@" || exit 2; prebuild_cmd="$2"; shift 2;;
+    --artifact-dir) require_value "$@" || exit 2; artifact_dir="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac
@@ -45,7 +51,7 @@ if [[ -z "$spec_path" ]]; then
   if [[ -n "${APP_NAME:-}" ]]; then
     spec_path="$repo_dir/packaging/rpm/${APP_NAME}.spec"
   else
-    spec_path="$(find "$repo_dir/packaging/rpm" -maxdepth 1 -type f -name '*.spec' 2>/dev/null | head -n 1 || true)"
+    spec_path="$(find "$repo_dir/packaging/rpm" -maxdepth 1 -type f -name '*.spec' 2>/dev/null | sed -n 1p || true)"
   fi
 fi
 

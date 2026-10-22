@@ -180,7 +180,8 @@ _svc_running() {
 _svc_port_owner() {
   local port="$1" owner
   if owner="$(port_in_use_by "$port" 2>/dev/null)" && [[ -n "$owner" ]]; then
-    printf '%s\n' "$owner" | head -n 1
+    # First line without head: an early-exiting reader can SIGPIPE printf (141 under pipefail).
+    printf '%s\n' "${owner%%$'\n'*}"
     return 0
   fi
   # No lsof/ss/netstat (or no permission to see the owner): a connect still
@@ -369,6 +370,8 @@ _svc_any_running() {
 
 # Usage: svc_wait_ready; poll SVC_HEALTH_URL until it answers or
 # SVC_READY_TIMEOUT runs out. On timeout prints the last 40 log lines, returns 1.
+# Returns: 0 ready, or no SVC_HEALTH_URL; 1 timeout, all processes exited, or curl/compose missing; 2 bad configuration.
+# Output: stderr log lines and, on failure, the last 40 log lines.
 svc_wait_ready() {
   _svc_backend || return
   local limit start
@@ -401,6 +404,8 @@ svc_wait_ready() {
 }
 
 # Usage: svc_start [--build]; start the services, wait for health, print URLs.
+# Returns: 0 started and ready; 1 failure (docker, curl, start or readiness); 2 bad argument or configuration.
+# Output: stdout the SVC_URLS lines; stderr log lines.
 svc_start() {
   _svc_backend || return
   local build=0 a
@@ -491,6 +496,8 @@ _svc_proc_start_all() {
 }
 
 # Usage: svc_stop; stop the services. Nothing running is not an error.
+# Returns: 0 stopped or nothing running; 1 a process did not stop or docker failed; 2 bad configuration.
+# Output: stderr log lines; compose output.
 svc_stop() {
   _svc_backend || return
   local limit
@@ -538,6 +545,8 @@ svc_stop() {
 }
 
 # Usage: svc_restart [--build]; svc_stop then svc_start.
+# Returns: as svc_stop when it fails, else as svc_start.
+# Output: as svc_stop and svc_start.
 svc_restart() {
   svc_stop || return
   svc_start "$@"
@@ -545,6 +554,8 @@ svc_restart() {
 
 # Usage: svc_status; what runs, which ports listen, whether health answers.
 # Returns 0 when everything is up (and healthy), 1 otherwise.
+# Returns: 0 everything up and healthy; 1 anything down, or docker unavailable; 2 bad configuration.
+# Output: stdout one status line per service, port and health URL; stderr errors.
 svc_status() {
   _svc_backend || return
   _svc_check_ports_config || return
@@ -590,6 +601,8 @@ svc_status() {
 
 # Usage: svc_logs [name]; follow the logs of one service, or all of them.
 # SVC_LOGS_FOLLOW=0 prints the last 100 lines and returns instead.
+# Returns: 0 done (or no logs yet); 1 compose unavailable; 2 bad configuration or unknown name; else the log tool's code.
+# Output: stdout the logs; stderr log lines.
 svc_logs() {
   _svc_backend || return
   local want="${1:-}" follow="${SVC_LOGS_FOLLOW:-1}"

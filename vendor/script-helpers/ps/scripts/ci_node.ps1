@@ -1,6 +1,6 @@
 # SCRIPT: ci_node.ps1
 # DESCRIPTION: Run Node.js CI steps (install, lint, test, build) on Windows.
-# USAGE: ps\scripts\ci_node.ps1 [-Workdir <path>] [-NoInstall] [-SkipLint] [-SkipTest] [-SkipBuild]
+# USAGE: pwsh -File ps\scripts\ci_node.ps1 [-Workdir <path>] [-NoInstall] [-SkipLint] [-SkipTest] [-SkipBuild]
 # PARAMETERS:
 #   -Workdir <path>          Working directory for npm commands (default: current dir).
 #   -NoInstall               Skip npm install step.
@@ -14,7 +14,10 @@
 #   -UseDocker               Run inside Docker Desktop instead of natively.
 #   -Image <img>             Docker image override (requires -UseDocker).
 #   -Help                    Show this help message.
-# EXAMPLE: .\ci_node.ps1 -TestCmd "npx","jest","--runInBand"
+# EXIT_CODES:
+#   0  Requested Node.js checks passed.
+#   1  A check failed or a required command is unavailable.
+# EXAMPLE: pwsh -File ps\scripts\ci_node.ps1 -TestCmd "npx","jest","--runInBand"
 # ----------------------------------------------------
 param(
     [string]   $Workdir    = '.',
@@ -31,7 +34,7 @@ param(
     [switch]   $Help
 )
 
-if ($env:CI -eq 'true') { Write-Error "This script is for local use only."; exit 1 }
+if ($env:CI -eq 'true' -and -not $Help) { Write-Error "This script is for local use only."; exit 1 }
 
 $ScriptDir = $PSScriptRoot
 $env:SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) { $env:SCRIPT_HELPERS_DIR } else { Split-Path (Split-Path $ScriptDir -Parent) -Parent }
@@ -63,7 +66,7 @@ function _Run {
     }
 }
 
-log_info "Node CI — workdir: $absWorkdir"
+log_info "Node CI - workdir: $absWorkdir"
 if (-not $NoInstall) { log_info "Install: $($InstallCmd -join ' ')";  _Run $InstallCmd }
 if (-not $SkipLint)  { log_info "Lint:    $($LintCmd -join ' ')";     _Run $LintCmd    }
 if (-not $SkipTest)  { log_info "Test:    $($TestCmd -join ' ')";      _Run $TestCmd    }

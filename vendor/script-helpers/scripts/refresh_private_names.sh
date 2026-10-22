@@ -26,10 +26,13 @@
 #   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE  A file of the same, one per line, comments allowed.
 #                                       Default: ~/.config/script-helpers/private-names-unambiguous
 # EXIT_CODES:
-#   0  written (or, with --check, unchanged)
-#   1  --check found the list out of date
-#   2  bad arguments, or the account has no private repositories
-#   3  gh is missing or not authenticated
+#   0  written (or, with --check, unchanged; or printed with --stdout)
+#   1  --check found the list out of date or missing, or the write would drop
+#      names or codes (rerun with --force)
+#   2  bad arguments, the account has no private repositories, or no temporary
+#      file could be created beside --out
+#   3  gh is missing, not authenticated, or a listing failed part-way
+# EXAMPLE: scripts/refresh_private_names.sh --owner my-org --check
 # ----------------------------------------------------
 #
 # check_private_names.sh refuses text that names a private repository, and it
@@ -57,6 +60,8 @@
 # naming it. If you have no such scheme it stays `-`, and the gate simply says
 # which name it found.
 # ----------------------------------------------------
+# No -e: every step checks its own status, so a failure maps to exit 2 or 3
+# and never leaves a half-written cache behind.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,19 +104,22 @@ if [[ -f "$NEVER_AMBIGUOUS_FILE" ]]; then
 $(cat "$NEVER_AMBIGUOUS_FILE")"
 fi
 
+# need_value <opt> [value]: exit 2 (bad arguments) when the option has no value.
+need_value() { [[ $# -ge 2 && -n "$2" ]] || { log_error "$1 needs a value"; exit 2; }; }
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --owner) OWNERS="${OWNERS}${OWNERS:+,}${2:?--owner needs a name}"; shift 2 ;;
-    --out) OUT="${2:?--out needs a path}"; shift 2 ;;
+    --owner) need_value "$@"; OWNERS="${OWNERS}${OWNERS:+,}$2"; shift 2 ;;
+    --out) need_value "$@"; OUT="$2"; shift 2 ;;
     --stdout) TO_STDOUT=true; shift ;;
     --check) CHECK=true; shift ;;
     --force) FORCE=true; shift ;;
-    --codes) CODES_FILE="${2:?--codes needs a path}"; shift 2 ;;
-    --limit) GH_LIMIT="${2:?--limit needs a number}"; shift 2 ;;
-    --ttl) TTL_OVERRIDE="${2:?--ttl needs a number of days}"; shift 2 ;;
-    --cache-dir) CACHE_DIR="${2:?--cache-dir needs a path}"; shift 2 ;;
+    --codes) need_value "$@"; CODES_FILE="$2"; shift 2 ;;
+    --limit) need_value "$@"; GH_LIMIT="$2"; shift 2 ;;
+    --ttl) need_value "$@"; TTL_OVERRIDE="$2"; shift 2 ;;
+    --cache-dir) need_value "$@"; CACHE_DIR="$2"; shift 2 ;;
     --no-graphql) USE_GRAPHQL=false; shift ;;
-    -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# iOS device / simulator utilities — a general toolkit for inspecting iOS
+# iOS device / simulator utilities -- a general toolkit for inspecting iOS
 # devices and simulators and installing builds, the iOS counterpart to the
 # `adb` module.
 #
@@ -11,6 +11,8 @@
 # --- discovery -------------------------------------------------------------
 
 # Usage: ios_available; returns 0 only on macOS with Xcode's xcrun on PATH.
+# Returns: 0 on macOS with xcrun; 1 otherwise.
+# Output: none.
 ios_available() {
   [[ "${OSTYPE:-}" == darwin* ]] || return 1
   command -v xcrun >/dev/null 2>&1
@@ -18,6 +20,8 @@ ios_available() {
 
 # Usage: ios_list_devices; prints attached physical iOS devices, one per line
 # ("<name> (<udid>)"). Prints nothing when none are attached.
+# Returns: 0 on success (also when none attached); 1 when not macOS/Xcode or xctrace fails.
+# Output: stdout one device per line; stderr nothing.
 ios_list_devices() {
   ios_available || return 1
   # xctrace enumerates real + simulated devices; keep only physical iPhone/iPad
@@ -43,6 +47,8 @@ ios_list_devices() {
 }
 
 # Usage: ios_list_simulators; prints available simulators ("<name> (<udid>) (<state>)").
+# Returns: 0 on success; 1 when not macOS/Xcode or simctl fails.
+# Output: stdout one simulator per line; stderr nothing.
 ios_list_simulators() {
   ios_available || return 1
   local out
@@ -52,6 +58,8 @@ ios_list_simulators() {
 }
 
 # Usage: ios_booted_simulators; prints the udid of each currently booted simulator.
+# Returns: 0 on success; 1 when not macOS/Xcode or simctl fails.
+# Output: stdout one udid per line; stderr nothing.
 ios_booted_simulators() {
   ios_available || return 1
   local out
@@ -63,6 +71,9 @@ ios_booted_simulators() {
 # --- simulator control -----------------------------------------------------
 
 # Usage: ios_boot_simulator <udid|name>; boots a simulator (no-op if already booted).
+# Waits up to IOS_BOOT_TIMEOUT seconds for the Booted state.
+# Returns: 0 booted; 1 not macOS, no argument, boot failed or timed out; 2 IOS_BOOT_TIMEOUT not a whole number.
+# Output: stdout simctl output; stderr error messages.
 ios_boot_simulator() {
   ios_available || return 1
   local id="${1:-}"
@@ -125,6 +136,8 @@ ios_boot_simulator() {
 }
 
 # Usage: ios_shutdown_simulators; shuts down all booted simulators.
+# Returns: 1 when not macOS/Xcode; else the exit code of `xcrun simctl shutdown all`.
+# Output: whatever simctl prints.
 ios_shutdown_simulators() {
   ios_available || return 1
   xcrun simctl shutdown all
@@ -134,6 +147,8 @@ ios_shutdown_simulators() {
 
 # Usage: ios_install <udid> <path.app|path.ipa>; installs a build onto a booted
 # simulator (.app) or an attached device (.ipa, via devicectl when available).
+# Returns: 0 installed; 1 not macOS, missing argument, wrong artifact type or no devicectl; else the installer's exit code.
+# Output: stdout installer output; stderr error messages.
 ios_install() {
   ios_available || return 1
   local id="${1:-}" artifact="${2:-}"
@@ -162,6 +177,8 @@ ios_install() {
 }
 
 # Usage: ios_launch <udid> <bundle_id>; launches an installed app on a simulator.
+# Returns: 1 when not macOS or an argument is missing; else the exit code of `xcrun simctl launch`.
+# Output: stdout simctl output (bundle id and pid).
 ios_launch() {
   ios_available || return 1
   local id="${1:-}" bundle_id="${2:-}"
@@ -173,6 +190,8 @@ ios_launch() {
 
 # Usage: ios_build_release <flutter_project_dir> [export_options_plist]; builds
 # a signed IPA when a plist is provided, or an unsigned iOS app otherwise.
+# Returns: 0 built; 1 not macOS, flutter missing or plist not found; else flutter's exit code.
+# Output: stdout/stderr flutter output; stderr error messages.
 ios_build_release() {
   ios_available || { echo "ios_build_release: requires macOS with Xcode" >&2; return 1; }
   command -v flutter >/dev/null 2>&1 || { echo "ios_build_release: flutter not on PATH" >&2; return 1; }
@@ -188,11 +207,6 @@ ios_build_release() {
 
 # --- resolution ------------------------------------------------------------
 
-# Usage: ios_resolve_device [preferred]; prints the simulator udid to act on.
-# Uses <preferred> when it is booted, else IOS_DEVICE, else the only booted
-# simulator. Returns 1 with a listing on stderr when the choice is ambiguous --
-# the iOS counterpart of flutter_resolve_device, and ambiguity is a question for
-# the caller rather than something to guess at.
 # Usage: _ios__booted_udid_for <name|udid>; prints the UDID of the matching
 # booted simulator, or nothing. Internal: ios_resolve_device needs a name-to-UDID
 # step because a name is not something simctl install or launch accepts.
@@ -202,16 +216,23 @@ _ios__booted_udid_for() {
   out=$(xcrun simctl list devices booted 2>/dev/null) || return 1
   printf '%s\n' "$out" \
     | awk -v want="$want" '
-        match($0, /\([0-9A-Fa-f-]{8,}\)/) {
+        !found && match($0, /\([0-9A-Fa-f-]{8,}\)/) {
           udid = substr($0, RSTART + 1, RLENGTH - 2)
           name = substr($0, 1, RSTART - 1)
           sub(/^[[:space:]]+/, "", name)
           sub(/[[:space:]]+$/, "", name)
-          if (want == name || want == udid) { print udid; exit }
+          if (want == name || want == udid) { print udid; found = 1 }
         }
       '
 }
 
+# Usage: ios_resolve_device [preferred]; prints the simulator udid to act on.
+# Uses <preferred> when it is booted, else IOS_DEVICE, else the only booted
+# simulator. Returns 1 with a listing on stderr when the choice is ambiguous --
+# the iOS counterpart of flutter_resolve_device, and ambiguity is a question for
+# the caller rather than something to guess at.
+# Returns: 0 udid printed; 1 not macOS, preferred not booted, none or several booted.
+# Output: stdout the udid; stderr the reason and candidate listing.
 ios_resolve_device() {
   ios_available || return 1
   local preferred="${1:-${IOS_DEVICE:-}}" udid _sh_line
@@ -255,6 +276,8 @@ ios_resolve_device() {
 # iPhone or iPad. The same none/one/many discipline as ios_resolve_device, but
 # for real hardware: an .ipa installs through devicectl onto a device and can
 # never be installed on a simulator, so the two need separate resolvers.
+# Returns: 0 udid printed; 1 not macOS, preferred not attached, none or several attached.
+# Output: stdout the udid; stderr the reason and candidate listing.
 ios_resolve_physical_device() {
   ios_available || return 1
   local preferred="${1:-${IOS_DEVICE:-}}" line name udid
@@ -294,6 +317,8 @@ ios_resolve_physical_device() {
 # Usage: ios_bundle_id <path.app>; prints the CFBundleIdentifier of a built app.
 # ios_launch needs a bundle id rather than a path, and reading it from the
 # artifact is the only source that reflects the flavor actually built.
+# Returns: 0 printed; 1 not an .app, no Info.plist or no CFBundleIdentifier.
+# Output: stdout the bundle id; stderr error messages.
 ios_bundle_id() {
   local app="${1:-}" plist id=""
   [[ -n "$app" && -d "$app" ]] || { echo "ios_bundle_id: not an .app directory: ${app:-<none>}" >&2; return 1; }
@@ -313,6 +338,8 @@ ios_bundle_id() {
 # Usage: ios_artifact [dir=.] [mode=simulator]; prints the newest build output.
 # mode is simulator (.app for the simulator), device (.app for a real device) or
 # release/ipa (.ipa). The iOS counterpart of android_artifact.
+# Returns: 0 path printed; 1 nothing found; 2 unknown mode.
+# Output: stdout the artifact path; stderr error for unknown mode.
 ios_artifact() {
   local dir="${1:-.}" mode="${2:-simulator}" found
   local -a globs=()
@@ -325,7 +352,7 @@ ios_artifact() {
   # `ls -t` rather than find, because newest-first is the point. These are build
   # outputs under a path the caller already controls.
   # shellcheck disable=SC2012
-  found="$(ls -1td "${globs[@]}" 2>/dev/null | head -n1)"
+  found="$(ls -1td "${globs[@]}" 2>/dev/null | sed -n 1p)"
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"
 }

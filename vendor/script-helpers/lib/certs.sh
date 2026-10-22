@@ -2,6 +2,8 @@
 # Certificates and trust store helpers
 
 # Usage: create_self_signed_certs <cert_dir> <domain>; creates key/cert if missing.
+# Returns: the exit code of the last chmod on the key file; earlier mkdir/openssl failures are not checked.
+# Output: stdout/stderr whatever openssl and sudo print.
 create_self_signed_certs() {
   local cert_dir="$1" domain="$2"
   local cert_file="$cert_dir/$domain.crt" key_file="$cert_dir/$domain.key" openssl_config_file="$cert_dir/openssl.cnf"
@@ -20,6 +22,8 @@ create_self_signed_certs() {
 }
 
 # Usage: add_cert_to_trust_store <cert_file> [friendly_name]; installs into trust store.
+# Returns: 0 installed; 1 cert file missing, or no supported trust tool for this OS; otherwise the exit code of the last install command (update-ca-certificates, update-ca-trust, trust, security).
+# Output: stdout [Info]/[Error!]/[Warning!] messages and, on Windows, the PowerShell command to run.
 add_cert_to_trust_store() {
   local cert_file="$1" friendly_name="${2:-script-helpers}"
   if [[ -z "$cert_file" || ! -f "$cert_file" ]]; then

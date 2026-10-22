@@ -109,8 +109,13 @@
 #   (one repository), or GIT_SSH_COMMAND="ssh -o ServerAliveInterval=20" git push
 #   (one push). HTTPS remotes are not affected. The hook and --status say so.
 # EXIT_CODES:
-#   0 done; 1 failed (or a --doctor probe failed); 2 refused (no owners, no
-#   Python 3, no write access, bad arguments); 3 settings.json is not valid JSON
+#   0  done
+#   1  failed (or a --doctor probe failed)
+#   2  refused: no owners, no Python 3, no write access, bad arguments
+#   3  a settings/hooks JSON file is not valid JSON; with --install-gitleaks or
+#      --install-foxguard: no release binary for this platform, or curl/wget or
+#      a SHA-256 tool is missing
+# EXAMPLE: bash scripts/setup-hooks.sh --status
 # ----------------------------------------------------
 # After running, hooks are active for all subsequent git operations in this repo.
 set -euo pipefail
@@ -135,7 +140,7 @@ while [[ $# -gt 0 ]]; do
     --doctor) DOCTOR=true ;;
     --install-gitleaks) GITLEAKS=true ;;
     --install-foxguard) FOXGUARD=true ;;
-    -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "[setup-hooks] unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -414,7 +419,7 @@ prereqs() {
   fi
   list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   if [[ -s "$list" ]]; then
-    stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$list" | head -1)"
+    stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$list" | sed -n 1p)"
     age="$(file_age_days "$stamp")"
     echo "  names     ok ($list, generated ${stamp:-at an unknown date}${age:+, $age days ago})"
   else
@@ -426,7 +431,7 @@ prereqs() {
   # Not a refusal: without a keepalive a push whose pre-push checks run long is
   # cut off by GitHub (exit 141) after they pass.
   if command -v ssh >/dev/null 2>&1; then
-    if [[ "$(ssh -G github.com 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')" =~ ^[1-9] ]]; then
+    if [[ "$(ssh -G github.com 2>/dev/null | awk '!f && $1 == "serveraliveinterval" { print $2; f = 1 }')" =~ ^[1-9] ]]; then
       echo "  ssh       ok (keepalive set for github.com)"
     else
       echo "  ssh       WARN: no keepalive for github.com; a push with long pre-push checks can be cut off"
@@ -588,7 +593,7 @@ ONFAILURE_MIN="2.1.295"
 claude_supports_onfailure() {
   local v
   command -v claude >/dev/null 2>&1 && [[ -n "$PY" ]] || return 1
-  v="$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  v="$(claude --version 2>/dev/null | sed -n 1p | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p)"
   [[ -n "$v" ]] || return 1
   "$PY" -I -c 'import sys
 a = [int(x) for x in sys.argv[1].split(".")]; b = [int(x) for x in sys.argv[2].split(".")]
@@ -599,13 +604,13 @@ sys.exit(0 if a >= b else 1)' "$v" "$ONFAILURE_MIN"
 claude_onfailure() {
   [[ -n "$PY" && -f "$1" ]] || return 0
   "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null \
-    | sed -n 's/^onFailure=//p' | head -1 || true
+    | sed -n 's/^onFailure=//p' | sed -n 1p || true
 }
 
 # claude_entry <settings>: the hook command in that file, or nothing.
 claude_entry() {
   [[ -n "$PY" && -f "$1" ]] || return 0
-  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | head -1 || true
+  "$PY" -I "$(native_path "$src_root/$MERGE_REL")" status "$(native_path "$1")" 2>/dev/null | sed -n 1p || true
 }
 
 # claude_hook_path <entry>: the script an entry's command runs. The forms
@@ -860,7 +865,7 @@ probe() {
   else
     printf '  FAIL  %-44s %s in %s ms\n' "$label" "$why" "$((t1 - t0))"
     # The hook's first lines say why. Never the probe text: it may be a private name.
-    [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | head -4 | sed 's/^/          hook: /'
+    [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | sed -n 1,4p | sed 's/^/          hook: /'
   fi
   rm -rf "$dir"
   [[ -z "$why" ]]
@@ -1008,7 +1013,7 @@ resolve_hooks_dir() {
   fi
 }
 
-hooks_dir="$(resolve_hooks_dir)"   # relative — portable across clones
+hooks_dir="$(resolve_hooks_dir)"   # relative - portable across clones
 common_dir="$(git rev-parse --git-common-dir)"
 case "$common_dir" in /*|[A-Za-z]:[\\/]*) ;; *) common_dir="$repo_root/$common_dir" ;; esac
 cur_local="$(git config --local --get core.hooksPath 2>/dev/null || true)"

@@ -26,14 +26,16 @@
 #   1  the download failed, or it does not match the pinned SHA-256
 #   3  a required tool is missing, or the platform has no checkable source
 
-if [[ -z "${CI_DEFAULT_OLLAMA_VERSION:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
 # Usage: ollama_install_asset; prints the release asset name for this machine
 # (ollama-linux-amd64.tar.zst, ollama-linux-arm64.tar.zst, ollama-darwin.tgz).
 # Returns 3 on a platform with no archive this module installs.
+# Returns: 0 printed; 3 unsupported platform.
+# Output: stdout the asset name.
 ollama_install_asset() {
   case "$(uname -s)" in
     Linux)
@@ -57,6 +59,8 @@ ollama_install_asset() {
 
 # Usage: ollama_install_expected_sha256 <asset>; prints the pinned SHA-256 of
 # that release asset. Returns 3 for an asset with no pin.
+# Returns: 0 printed; 3 no pin for that asset.
+# Output: stdout the pinned hash (may be empty when the pin variable is unset).
 ollama_install_expected_sha256() {
   case "${1:-}" in
     ollama-linux-amd64.tar.zst) printf '%s\n' "$CI_DEFAULT_OLLAMA_SHA256_LINUX_AMD64" ;;
@@ -71,6 +75,8 @@ ollama_install_expected_sha256() {
 # Usage: ollama_install_sha256 <file>; prints its SHA-256, with shasum,
 # sha256sum or openssl (a minimal Linux may have only sha256sum). Returns 3
 # when none is there.
+# Returns: 0 printed; 3 no hashing tool.
+# Output: stdout the hex digest.
 ollama_install_sha256() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
@@ -92,13 +98,15 @@ ollama_install_sha256() {
 # version is 0.40.0" when the two differ. So it is asked with OLLAMA_HOST at a
 # port nothing listens on, and a "client version" line wins over any other.
 # shellcheck disable=SC2120  # callers in other files pass a binary
+# Returns: 0 printed; 1 no binary or no version found.
+# Output: stdout X.Y.Z; stderr nothing.
 ollama_installed_version() {
   local bin="${1:-ollama}" out client
   command -v "$bin" >/dev/null 2>&1 || return 1
   out="$(OLLAMA_HOST=127.0.0.1:9 "$bin" --version 2>&1)" || true
-  client="$(printf '%s\n' "$out" | sed -n 's/.*client version is \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)" || true
+  client="$(printf '%s\n' "$out" | sed -n 's/.*client version is \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n 1p)" || true
   if [[ -z "$client" ]]; then
-    client="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" || true
+    client="$(printf '%s\n' "$out" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p)" || true
   fi
   [[ -n "$client" ]] || return 1
   printf '%s\n' "$client"
@@ -150,6 +158,8 @@ _ollama_install_report_after() {
 #   archive is still checked against the pinned SHA-256.
 # Returns as the module says. A mismatch deletes the download and unpacks
 # nothing.
+# Returns: 0 installed or already current; 1 download, checksum, unpack, install or package-manager failure; 3 bad option, missing tool or unsupported platform.
+# Output: stderr log lines; download and package-manager output.
 ollama_install() {
   local prefix="/usr/local" prefix_given=0 force=0 asset want got have tmpdir url sudo=""
   local base="${OLLAMA_RELEASE_BASE_URL:-https://github.com/ollama/ollama/releases/download}"

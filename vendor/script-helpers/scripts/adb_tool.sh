@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SCRIPT: adb_tool.sh
-# DESCRIPTION: Reusable CLI over the adb module — inspect, install to, copy
+# DESCRIPTION: Reusable CLI over the adb module: inspect, install to, copy
 #   files to/from, and debug Android devices. Multi-device safe (each command
 #   takes a <serial>; list them with the `list` command). Thin wrapper so the
 #   same helpers are usable from the shell, not just sourced into other scripts.
@@ -18,11 +18,16 @@
 #   clear-logcat <serial>            Clear the device logcat buffer
 #   uninstall <serial> <package>     Uninstall an app package
 #   -h, --help                       Show this help
-# EXAMPLE: scripts/adb_tool.sh list
-# EXIT_CODES: 0 on success; 2 on unknown command; otherwise the exit status of
-#   the underlying adb_* helper (e.g. 1 when adb is missing, or adb's own code
-#   from install/push/pull) is propagated.
+# EXIT_CODES:
+#   0  Success (also -h/--help, and install-all with no ready devices).
+#   1  adb is not on PATH, a device query failed, or a required <serial> is missing.
+#   2  Unknown command, or missing/invalid arguments (e.g. APK not found).
+#   N  Any other code is adb's own exit status, passed through.
+# EXAMPLE:
+#   scripts/adb_tool.sh list
+#   scripts/adb_tool.sh install R58M12ABCDE app-release.apk
 # CREATOR: Nik Reljin
+# ----------------------------------------------------
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

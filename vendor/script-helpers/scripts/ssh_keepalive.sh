@@ -5,8 +5,20 @@
 # PARAMETERS:
 #   <remote-url>  The URL git passes to pre-push as its second argument.
 #   <prefix>      The tag for the lines, e.g. "[pre-push]".
+# EXIT_CODES:
+#   Sourced: no output, no exit. ssh_keepalive_note always returns 0 and
+#   prints its note on stderr; ssh_host_of prints the host or nothing, return 0.
+#   Executed: 0 for -h/--help; 2 for anything else (it must be sourced).
 # EXAMPLE: ssh_keepalive_note "git@github.com:owner/repo.git" "[pre-push]"
 # ----------------------------------------------------
+# Run directly instead of sourced: -h/--help prints this header; anything else
+# is a usage error, because the functions only make sense inside a hook.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "ssh_keepalive.sh: source this file from a hook; see --help" >&2; exit 2 ;;
+  esac
+fi
 # Why: git opens the push's connection before pre-push runs and keeps it open,
 # idle, until the hooks pass. Over SSH the server closes an idle connection
 # (GitHub after a few minutes), and the push exits 141 with "Connection to
@@ -49,7 +61,7 @@ ssh_keepalive_set() {
   local v
   [[ -z "${GIT_SSH:-}" ]] || return 0
   [[ "${GIT_SSH_COMMAND:-} $(git config --get core.sshCommand 2>/dev/null || true)" == *[Ss]erver[Aa]live[Ii]nterval* ]] && return 0
-  v="$(ssh -G -- "$1" 2>/dev/null | awk '$1 == "serveraliveinterval" { print $2; exit }')"
+  v="$(ssh -G -- "$1" 2>/dev/null | awk '!f && $1 == "serveraliveinterval" { print $2; f = 1 }')"
   [[ -n "$v" && "$v" != 0 ]]
 }
 

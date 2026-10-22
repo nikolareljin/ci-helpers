@@ -1,4 +1,4 @@
-# Screen capture — PowerShell companion to lib/screencap.sh.
+# Screen capture - PowerShell companion to lib/screencap.sh.
 #
 # Screenshots and screen video off a phone, tablet, emulator or simulator, for
 # README media, store listings and bug reports.
@@ -22,6 +22,9 @@ function _Screencap_HasIos {
     return [bool](Get-Command xcrun -ErrorAction SilentlyContinue)
 }
 
+# Usage: screencap_available
+# Returns: $true when an Android device is ready or an iOS simulator is booted, else $false.
+# Output: none.
 function screencap_available {
     if ((Get-Command adb_available -ErrorAction SilentlyContinue) -and (adb_available)) {
         if (@(adb_ready_serials).Count -gt 0) { return $true }
@@ -56,7 +59,7 @@ function _Screencap_Resolve {
             if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error 'screencap: no ready Android device and no booted iOS simulator' }
             return $null
         } else {
-            if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error 'screencap: both Android and iOS targets are present — pass -Platform' }
+            if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error 'screencap: both Android and iOS targets are present - pass -Platform' }
             return $null
         }
     }
@@ -69,7 +72,7 @@ function _Screencap_Resolve {
                     return $null
                 }
                 if ($serials.Count -gt 1) {
-                    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "screencap: $($serials.Count) Android devices ready — pass -Device" }
+                    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "screencap: $($serials.Count) Android devices ready - pass -Device" }
                     $serials | ForEach-Object { Write-Error "  $_" }
                     return $null
                 }
@@ -81,7 +84,7 @@ function _Screencap_Resolve {
                     return $null
                 }
                 if ($sims.Count -gt 1) {
-                    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "screencap: $($sims.Count) simulators booted — pass -Device" }
+                    if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "screencap: $($sims.Count) simulators booted - pass -Device" }
                     $sims | ForEach-Object { Write-Error "  $_" }
                     return $null
                 }
@@ -109,6 +112,9 @@ function _Screencap_DefaultOut {
 
 # Capture a single PNG. With no arguments, targets the only connected device and
 # writes to docs/screenshots/. Returns the path written.
+# Usage: screencap_shot [-Device <id>] [-Platform android|ios] [-Out <png>]   (default: docs/screenshots/<stamp>-<device>.png)
+# Returns: the path written; $null when no single target resolves or the capture is empty.
+# Output: stderr [INFO] the path, [ERROR] why it failed.
 function screencap_shot {
     param([string]$Device, [string]$Platform, [string]$Out)
 
@@ -151,6 +157,9 @@ function screencap_shot {
 # Capture screen video. Android clips longer than 180 seconds are recorded in
 # chunks and concatenated, which needs ffmpeg; without ffmpeg a longer request is
 # refused rather than silently truncated. Returns the path written.
+# Usage: screencap_record [-Device <id>] [-Platform android|ios] [-Out <mp4>] [-Seconds <n>] [-Size <WxH>] [-Bitrate <bps>] [-Gif]
+# Returns: the path written; $null on bad Seconds, no target, or a failed recording.
+# Output: host adb's output; stderr [INFO]/[WARN]/[ERROR].
 function screencap_record {
     param(
         [string]$Device,
@@ -197,7 +206,7 @@ function _Screencap_RecordAndroid {
 
     if ($Seconds -le $script:ScreencapAndroidMaxSeconds) {
         if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "screencap: recording ${Seconds}s on $Serial" }
-        & adb -s $Serial shell screenrecord --time-limit $Seconds @flags $remote
+        & adb -s $Serial shell screenrecord --time-limit $Seconds @flags $remote | Out-Host
         $rc = $LASTEXITCODE
         if ($rc -eq 0) { & adb -s $Serial pull $remote $Out 2>$null | Out-Null; $rc = $LASTEXITCODE }
         & adb -s $Serial shell rm -f $remote 2>$null | Out-Null
@@ -224,7 +233,7 @@ function _Screencap_RecordAndroid {
     $left = $Seconds; $index = 0; $ok = $true
     while ($left -gt 0) {
         $chunk = [Math]::Min($left, $script:ScreencapAndroidMaxSeconds)
-        & adb -s $Serial shell screenrecord --time-limit $chunk @flags $remote
+        & adb -s $Serial shell screenrecord --time-limit $chunk @flags $remote | Out-Host
         if ($LASTEXITCODE -ne 0) { $ok = $false; break }
         $part = Join-Path $tmpdir "part-$index.mp4"
         & adb -s $Serial pull $remote $part 2>$null | Out-Null
@@ -267,6 +276,9 @@ function _Screencap_RecordIos {
 
 # Extract a still frame from a recording, for a README image taken from a demo
 # clip. Defaults to 1 second in, because frame zero is often blank.
+# Usage: screencap_frame -Video <path> -Out <png> [-At <seconds>]   (default 1)
+# Returns: Out on success; $null when the video or ffmpeg is missing or extraction fails.
+# Output: stderr [INFO]/[ERROR].
 function screencap_frame {
     param(
         [Parameter(Mandatory)][string]$Video,
@@ -294,6 +306,9 @@ function screencap_frame {
 
 # Convert a recording to a GIF suitable for a README. Two-pass with a generated
 # palette, because a single-pass GIF from video is visibly dithered.
+# Usage: screencap_gif -Video <path> -Out <gif> [-Fps <n>] [-Width <px>]   (defaults: 12, 480)
+# Returns: Out on success; $null when the video or ffmpeg is missing or conversion fails.
+# Output: stderr [INFO]/[ERROR].
 function screencap_gif {
     param(
         [Parameter(Mandatory)][string]$Video,
@@ -330,6 +345,9 @@ function screencap_gif {
 
 # Stop an in-flight recording started outside screencap_record's own timed wait.
 # Safe to call when nothing is recording.
+# Usage: screencap_record_stop [-Device <serial>]   (default: every ready device)
+# Returns: $true.
+# Output: none.
 function screencap_record_stop {
     param([string]$Device)
     if ($Device) {

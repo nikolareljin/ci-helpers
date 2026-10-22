@@ -7,10 +7,14 @@
 #   --dir     Project directory, relative to the repository root (default: .).
 #   --quick       Skip install; run tests against existing node_modules.
 #   --workspace   Run tests only for a specific npm workspace.
+#   -h, --help  Show this help and exit.
 # EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  A check failed, or bad arguments.
 #   3  Nothing could be checked: package.json declares no test script. preflight reports it as SKIP.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_node.sh --quick
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -35,6 +39,7 @@ WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --dir)
       if [[ $# -lt 2 ]]; then

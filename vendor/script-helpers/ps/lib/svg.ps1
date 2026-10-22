@@ -1,4 +1,4 @@
-# SVG rasterization helpers — PowerShell companion to lib/svg.sh.
+# SVG rasterization helpers - PowerShell companion to lib/svg.sh.
 #
 # Convert vector art (logos, icons) to PNG for app assets / launcher icons.
 # Prefers Inkscape (best fidelity), falls back to ImageMagick (`magick`, then
@@ -18,6 +18,9 @@ Print the available SVG rasterizer.
 .DESCRIPTION
 Returns 'inkscape', 'magick' or 'convert', or $null when none is installed.
 #>
+# Usage: svg_rasterizer
+# Returns: 'inkscape', 'magick' or 'convert'; $null when none is installed.
+# Output: none.
 function svg_rasterizer {
     if (Get-Command inkscape -ErrorAction SilentlyContinue) { return 'inkscape' }
     if (Get-Command magick   -ErrorAction SilentlyContinue) { return 'magick' }
@@ -47,6 +50,9 @@ render itself fails, and 0 on success.
 .EXAMPLE
 svg_rasterize logo.svg logo.png 512
 #>
+# Usage: svg_rasterize <in.svg> <out.png> [size]   (default 1024)
+# Returns: 0 written; 1 render failed; 2 bad arguments or missing input; 3 no rasterizer.
+# Output: stderr [INFO] on success, [ERROR] on failure.
 function svg_rasterize {
     param(
         [Parameter(Position = 0)][string]$InputSvg,
@@ -90,7 +96,7 @@ function svg_rasterize {
         default {
             # -extent on a centered gravity guarantees a square canvas.
             & $tool -background none $InputSvg -resize "${sizeNum}x${sizeNum}" `
-                    -gravity center -extent "${sizeNum}x${sizeNum}" $OutputPng
+                    -gravity center -extent "${sizeNum}x${sizeNum}" $OutputPng | Out-Host
         }
     }
 
@@ -114,6 +120,9 @@ failed size and returns 1 if any render failed, 2 for bad arguments.
 .EXAMPLE
 svg_rasterize_sizes logo.svg ./icons ic_launcher 48 72 96 144 192
 #>
+# Usage: svg_rasterize_sizes <in.svg> <out_dir> <basename> <size> [size...]
+# Returns: 0 all written; 1 any size failed (the others are still written); 2 bad arguments.
+# Output: as svg_rasterize, once per size.
 function svg_rasterize_sizes {
     param(
         [Parameter(Position = 0)][string]$InputSvg,

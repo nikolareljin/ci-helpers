@@ -1,4 +1,4 @@
-# Hosts file helpers — PowerShell companion to lib/hosts.sh.
+# Hosts file helpers - PowerShell companion to lib/hosts.sh.
 # Windows hosts file: C:\Windows\System32\drivers\etc\hosts
 # Admin elevation is required to modify it.
 
@@ -12,6 +12,11 @@ $_SHLIB_HOSTS_FILE = "$env:SystemRoot\System32\drivers\etc\hosts"
 # own message because Windows PowerShell 5.1 has no ErrorMessage= on the
 # attribute.
 
+# Usage: add_hosts_entry -Domain <hostname> [-Ip <address>]   (default: 127.0.0.1)
+# Appends "<ip><TAB><domain>" to the Windows hosts file unless an active entry names the domain.
+# Returns: nothing.
+# Output: stdout success line, or stderr [INFO] when already present. Throws when not elevated
+#   or when Domain or Ip fail validation.
 function add_hosts_entry {
     param(
         [Parameter(Mandatory = $true)]
@@ -45,6 +50,10 @@ function add_hosts_entry {
     if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Added hosts entry: $entry" }
 }
 
+# Usage: remove_hosts_entry -Domain <hostname>
+# Removes active hosts lines that name the domain; comments are kept.
+# Returns: nothing.
+# Output: stdout success line. Throws when not elevated or Domain fails validation.
 function remove_hosts_entry {
     # Mandatory and non-blank: an empty domain makes the pattern below
     # "(^|\s)(\s|$)", which matches every aligned hosts line, and this runs

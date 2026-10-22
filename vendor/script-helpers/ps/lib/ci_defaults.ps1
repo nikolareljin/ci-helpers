@@ -1,4 +1,4 @@
-# CI defaults — PowerShell companion to lib/ci_defaults.sh.
+# CI defaults - PowerShell companion to lib/ci_defaults.sh.
 # Centralised Docker image version pins used by ci_*.ps1 scripts.
 #
 # NOTE: These pins use current stable versions and intentionally diverge from

@@ -17,9 +17,11 @@
 #             asked about on a terminal; without one it is an error naming the owner.
 #   --venv D  Virtualenv (default ~/.cache/nr-docs-venv/<repo>).
 #   -h        Show this help message.
-# EXIT CODES:
-#   0 ok; 1 build or check failed, or a taken port with nobody to ask;
-#   2 bad arguments or no site here; 3 no usable python3.
+# EXIT_CODES:
+#   0  Done.
+#   1  Build or check failed, a clean target refused, or a taken port with nobody to ask.
+#   2  Bad arguments, no site here, or no built site to verify.
+#   3  No usable python3 for the virtualenv.
 # EXAMPLE: scripts/script-helpers/scripts/docs_site.sh preview --port 8080
 # ----------------------------------------------------
 #

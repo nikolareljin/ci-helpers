@@ -5,6 +5,8 @@
 #
 # OSTYPE is dereferenced defensively: a caller running under `set -u` that has
 # unset it would abort here rather than be told "unknown".
+# Returns: 0.
+# Output: stdout linux|mac|windows|unknown.
 get_os() {
   case "${OSTYPE:-}" in
     # linux* rather than linux-gnu*: bash reports linux-musl on Alpine and
@@ -19,24 +21,37 @@ get_os() {
 }
 
 # Alias used in some projects
+# Usage: getos; same as get_os.
+# Returns: 0.
+# Output: stdout linux|mac|windows|unknown.
 getos() { get_os; }
 
 # Usage: is_macos; returns success when running on macOS.
+# Returns: 0 on macOS; 1 otherwise.
+# Output: none.
 is_macos() { [[ "$(get_os)" == "mac" ]]; }
 
 # Usage: is_linux; returns success when running on Linux.
+# Returns: 0 on Linux; 1 otherwise.
+# Output: none.
 is_linux() { [[ "$(get_os)" == "linux" ]]; }
 
 # Usage: is_wsl; returns success when running under WSL.
+# Returns: 0 under WSL; 1 otherwise.
+# Output: none.
 is_wsl() {
   grep -qi "microsoft" /proc/version 2>/dev/null || [[ -n "${WSL_DISTRO_NAME:-}" ]]
 }
 
 # Usage: bash_major; prints the running bash major version (3, 5, ...).
+# Returns: 0.
+# Output: stdout the major version number.
 bash_major() { echo "${BASH_VERSINFO[0]:-0}"; }
 
 # Usage: bash_at_least <major> [minor]; success when the running bash is at
 # least that version.
+# Returns: 0 when at least <major>.<minor>; 1 otherwise.
+# Output: none.
 bash_at_least() {
   # Defaulted so a caller under `set -u` gets a false rather than an abort.
   local want_major="${1:-0}" want_minor="${2:-0}"
@@ -52,6 +67,8 @@ bash_at_least() {
 # those taking an associative array from the caller. Everything else in this
 # library is written to run unchanged on 3.2, so this must not become a general
 # guard: an error the caller cannot act on is worse than no error at all.
+# Returns: 0 on bash 4 or newer; 1 on older bash.
+# Output: stderr an error naming <feature> on older bash.
 require_bash4() {
   local feature="${1:-this feature}"
   bash_at_least 4 && return 0
@@ -68,6 +85,10 @@ require_bash4() {
 }
 
 # Run with sudo optionally based on a boolean flag argument
+# Usage: run_with_optional_sudo <true|false> <command> [args...]
+# Uses sudo only when the flag is "true" and sudo exists.
+# Returns: the exit code of the command.
+# Output: whatever the command prints.
 run_with_optional_sudo() {
   local use_sudo="$1"; shift
   if [[ "$use_sudo" == "true" ]] && command -v sudo >/dev/null 2>&1; then

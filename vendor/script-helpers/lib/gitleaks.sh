@@ -11,13 +11,16 @@
 # Return codes: 0 success; 1 the operation failed (download, checksum, unpack);
 # 3 not installed, a required tool is missing, or the platform has no binary.
 
-if [[ -z "${CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64:-}" ]]; then
-  # shellcheck source=/dev/null
-  source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
-fi
+# Always sourced: ci_defaults only fills variables that are unset or empty, so a
+# caller's version or checksum overrides are kept and the rest stay pinned.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 
+# Usage: gitleaks_asset
 # gitleaks_asset; the release archive for this machine, e.g.
 # gitleaks_8.30.1_linux_x64.tar.gz, or ..._windows_x64.zip under Git Bash.
+# Returns: 0 known platform; 3 no release binary for this OS or CPU.
+# Output: stdout the archive name.
 gitleaks_asset() {
   local os arch ext=tar.gz v="${CI_DEFAULT_GITLEAKS_VERSION#v}"
   case "$(uname -s)" in
@@ -35,7 +38,10 @@ gitleaks_asset() {
   printf 'gitleaks_%s_%s_%s.%s\n' "$v" "$os" "$arch" "$ext"
 }
 
+# Usage: gitleaks_expected_sha256 <asset>
 # gitleaks_expected_sha256 <asset>; the pinned SHA-256 of that archive.
+# Returns: 0 known asset; 3 unknown asset.
+# Output: stdout the pinned SHA-256.
 gitleaks_expected_sha256() {
   case "$1" in
     *_linux_x64.tar.gz)    printf '%s\n' "$CI_DEFAULT_GITLEAKS_SHA256_LINUX_X64" ;;
@@ -47,7 +53,10 @@ gitleaks_expected_sha256() {
   esac
 }
 
+# Usage: gitleaks_cache_path
 # gitleaks_cache_path; where gitleaks_install puts the binary.
+# Returns: always 0.
+# Output: stdout the cache path of the binary.
 gitleaks_cache_path() {
   local name=gitleaks
   case "$(gitleaks_asset 2>/dev/null)" in *.zip) name=gitleaks.exe ;; esac
@@ -55,8 +64,11 @@ gitleaks_cache_path() {
     "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_GITLEAKS_VERSION" "$name"
 }
 
+# Usage: gitleaks_bin
 # gitleaks_bin; one on PATH, else the pinned binary in the cache. Returns 3 when
 # there is neither.
+# Returns: 0 found; 3 not on PATH and not in the cache.
+# Output: stdout the binary path.
 gitleaks_bin() {
   local cached
   if command -v gitleaks >/dev/null 2>&1; then
@@ -67,8 +79,11 @@ gitleaks_bin() {
   return 3
 }
 
+# Usage: gitleaks_install
 # gitleaks_install; download, verify and unpack the pinned release for this
 # machine into gitleaks_cache_path.
+# Returns: 0 installed; 1 mkdir, mktemp, download, checksum, unpack or move failed; 3 no binary for this platform, or curl/wget or a SHA-256 tool is missing.
+# Output: stdout nothing; stderr progress and errors.
 gitleaks_install() {
   local asset want got dest dir tmp url
   asset="$(gitleaks_asset)" || { log_error "gitleaks: no release binary for $(uname -s) $(uname -m)"; return 3; }

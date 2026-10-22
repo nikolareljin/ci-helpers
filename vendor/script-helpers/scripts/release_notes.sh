@@ -12,6 +12,13 @@
 #                       directory. Prefer this: notes reach actions/gh through
 #                       body_path, never through an interpolated string.
 #   -h, --help          Show this help message.
+# EXIT_CODES:
+#   0  notes written (stdout or --output)
+#   1  no CHANGELOG section and the commits cannot be listed: not a git
+#      repository, a shallow clone, or git log failed
+#   2  bad arguments: missing or malformed --version, unknown option, or
+#      --repo is not a directory
+# EXAMPLE: scripts/release_notes.sh --version 1.4.0 --output release-body.md
 # ----------------------------------------------------
 #
 # Why this exists: three ci-helpers workflows each inlined the same notes
@@ -40,7 +47,7 @@ source "$ROOT_DIR/helpers.sh"
 shlib_import logging changelog
 
 usage() {
-  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'
 }
 
 # A lone `--version` at the end used to reach `shift 2` with one argument left,

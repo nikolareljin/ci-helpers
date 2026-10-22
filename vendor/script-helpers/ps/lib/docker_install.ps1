@@ -1,11 +1,11 @@
-# Docker installation helpers — PowerShell companion to lib/docker_install.sh.
+# Docker installation helpers - PowerShell companion to lib/docker_install.sh.
 #
 # Companion to docker.ps1: that module assumes Docker exists and helps you drive
 # it. This one gets it onto the machine, so a bootstrap script can go from a bare
 # host to a working `docker compose` without sending the operator off to read
 # install docs.
 #
-# Windows is the primary target — Docker Desktop is the mechanism there, not a
+# Windows is the primary target - Docker Desktop is the mechanism there, not a
 # convenience, since Windows does not run the Linux container engine natively.
 # The Linux and macOS branches work under PowerShell 7 for parity; on those
 # platforms the Bash module is usually the better entry point.
@@ -16,16 +16,25 @@
 
 # --- detection -------------------------------------------------------------
 
+# Usage: docker_cli_installed
+# Returns: $true when docker is on PATH, else $false.
+# Output: none.
 function docker_cli_installed {
     return [bool](Get-Command docker -ErrorAction SilentlyContinue)
 }
 
+# Usage: docker_daemon_running
+# Returns: $true when `docker info` succeeds, else $false.
+# Output: none.
 function docker_daemon_running {
     if (-not (docker_cli_installed)) { return $false }
     docker info 2>&1 | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
+# Usage: docker_compose_v2_available
+# Returns: $true when `docker compose version` succeeds, else $false.
+# Output: none.
 function docker_compose_v2_available {
     if (-not (docker_cli_installed)) { return $false }
     docker compose version 2>&1 | Out-Null
@@ -33,11 +42,17 @@ function docker_compose_v2_available {
 }
 
 # Docker is usable end to end. This is the condition most projects care about.
+# Usage: docker_ready
+# Returns: $true when CLI, daemon and compose v2 all work, else $false.
+# Output: none.
 function docker_ready {
     return ((docker_cli_installed) -and (docker_daemon_running) -and (docker_compose_v2_available))
 }
 
 # Prints one of: ready | no-cli | no-daemon | no-compose
+# Usage: docker_install_status
+# Returns: 'ready', 'no-cli', 'no-daemon' or 'no-compose'.
+# Output: none.
 function docker_install_status {
     if (-not (docker_cli_installed))        { return 'no-cli' }
     if (-not (docker_daemon_running))       { return 'no-daemon' }
@@ -46,6 +61,9 @@ function docker_install_status {
 }
 
 # Logs what is present, with versions. Returns $true only when fully ready.
+# Usage: docker_report_state
+# Returns: $true when fully ready, else $false.
+# Output: stderr [INFO]/[WARN] one line per component with its version.
 function docker_report_state {
     if (-not (docker_cli_installed)) {
         log_warn "Docker CLI: not found"
@@ -84,7 +102,7 @@ function _Shlib_Docker_Run {
         Write-Host "  [dry-run] $Exe $($Arguments -join ' ')"
         return 0
     }
-    & $Exe @Arguments
+    & $Exe @Arguments | Out-Host
     return $LASTEXITCODE
 }
 
@@ -104,11 +122,13 @@ function _Shlib_Docker_Confirm {
 
 # Usage: wait_for_docker_daemon [-TimeoutSec 120]
 # Polls `docker info` until it answers. Returns $true on success.
+# Returns: $true when the daemon answers (always under -DryRun), $false on timeout.
+# Output: stderr [INFO] progress every 15 seconds.
 function wait_for_docker_daemon {
     param([int]$TimeoutSec = 120)
     if ($script:_ShlibDockerDryRun) { return $true }
     $waited = 0
-    log_info "Waiting for the Docker daemon (up to ${TimeoutSec}s)…"
+    log_info "Waiting for the Docker daemon (up to ${TimeoutSec}s)..."
     while ($waited -lt $TimeoutSec) {
         if (docker_daemon_running) {
             log_info "Docker daemon is up after ${waited}s."
@@ -116,7 +136,7 @@ function wait_for_docker_daemon {
         }
         Start-Sleep -Seconds 3
         $waited += 3
-        if ($waited % 15 -eq 0) { log_info "  …still waiting (${waited}s)" }
+        if ($waited % 15 -eq 0) { log_info "  ...still waiting (${waited}s)" }
     }
     return $false
 }
@@ -139,7 +159,7 @@ function _Shlib_Docker_InstallWindowsFallback {
         log_info "Installing via Chocolatey."
         $rc = _Shlib_Docker_Run 'choco' 'install' 'docker-desktop' '-y'
         if ($rc -eq 0) { return $true }
-        log_warn "Chocolatey install failed — falling back to the official installer."
+        log_warn "Chocolatey install failed - falling back to the official installer."
     }
 
     log_info "Downloading the official Docker Desktop installer."
@@ -189,7 +209,7 @@ function _Shlib_Docker_InstallWindows {
         if ($rc -eq 0) {
             $ok = $true
         } else {
-            log_warn "winget install failed (exit $rc) — falling back."
+            log_warn "winget install failed (exit $rc) - falling back."
             $ok = _Shlib_Docker_InstallWindowsFallback
         }
     } else {
@@ -207,7 +227,7 @@ function _Shlib_Docker_InstallWindows {
                 Start-Process -FilePath $desktop | Out-Null
             }
         } else {
-            log_warn "Docker Desktop not found at the default path — launch it from the Start menu."
+            log_warn "Docker Desktop not found at the default path - launch it from the Start menu."
         }
         log_info "A reboot may be needed to finish enabling WSL2 or Hyper-V."
     }
@@ -222,7 +242,7 @@ function _Shlib_Docker_InstallMac {
         # name first so this also works on older Homebrew installations.
         $rc = _Shlib_Docker_Run 'brew' 'install' '--cask' 'docker-desktop'
         if ($rc -ne 0) {
-            log_warn "Cask 'docker-desktop' unavailable — trying legacy cask 'docker'."
+            log_warn "Cask 'docker-desktop' unavailable - trying legacy cask 'docker'."
             $rc = _Shlib_Docker_Run 'brew' 'install' '--cask' 'docker'
         }
         if ($rc -ne 0) { return $false }
@@ -238,13 +258,15 @@ function _Shlib_Docker_InstallMac {
 function _Shlib_Docker_InstallLinux {
     param([switch]$NoStart)
     log_error "Installing Docker Engine on Linux from PowerShell is not supported."
-    log_error "Use the Bash module — it handles apt/dnf/yum/zypper/pacman and the docker group:"
+    log_error "Use the Bash module - it handles apt/dnf/yum/zypper/pacman and the docker group:"
     log_error "  source helpers.sh && shlib_import logging os docker_install && install_docker"
     return $false
 }
 
 # Usage: docker_start_daemon
 # Starts Docker Desktop on Windows/macOS, or the systemd service on Linux.
+# Returns: $true when a start was issued; $false when Docker Desktop or systemctl is missing, or the OS is unknown.
+# Output: stderr [WARN] on failure; host the dry-run line under -DryRun.
 function docker_start_daemon {
     switch (get_os) {
         'windows' {
@@ -263,7 +285,7 @@ function docker_start_daemon {
                 _Shlib_Docker_Run 'sudo' 'systemctl' 'enable' '--now' 'docker' | Out-Null
                 return $true
             }
-            log_warn "systemctl not found — start the Docker daemon manually."
+            log_warn "systemctl not found - start the Docker daemon manually."
             return $false
         }
         default { return $false }
@@ -295,7 +317,7 @@ Print what would run; change nothing.
 Install but do not launch Docker Desktop / start the daemon.
 
 .PARAMETER TimeoutSec
-Seconds to wait for the daemon. Default 120 — Docker Desktop is slow to start.
+Seconds to wait for the daemon. Default 120 - Docker Desktop is slow to start.
 
 .EXAMPLE
 install_docker -Yes
@@ -303,6 +325,9 @@ install_docker -Yes
 .EXAMPLE
 install_docker -DryRun
 #>
+# Usage: install_docker [-Yes] [-DryRun] [-NoStart] [-NoGroup] [-TimeoutSec <s>]
+# Returns: 0 ready; 1 failed or declined; 2 unsupported platform; 3 installed but the daemon is not reachable.
+# Output: stderr [INFO]/[WARN]/[ERROR] progress; host the installers' output and dry-run lines.
 function install_docker {
     param(
         [Alias('y')][switch]$Yes,
@@ -317,7 +342,7 @@ function install_docker {
 
     $os = get_os
     $wsl = if (is_wsl) { ' (WSL)' } else { '' }
-    log_info "Docker installer — platform: ${os}${wsl}"
+    log_info "Docker installer - platform: ${os}${wsl}"
 
     if (docker_ready) {
         docker_report_state | Out-Null
@@ -329,14 +354,14 @@ function install_docker {
     # installing anything. A closed Docker Desktop is the common case, and
     # reinstalling is the wrong fix for it.
     if ((docker_cli_installed) -and -not (docker_daemon_running) -and -not $NoStart) {
-        log_warn "Docker CLI found but the daemon is unreachable — trying to start it."
+        log_warn "Docker CLI found but the daemon is unreachable - trying to start it."
         docker_start_daemon | Out-Null
         if ((wait_for_docker_daemon -TimeoutSec $TimeoutSec) -and (docker_ready)) {
             docker_report_state | Out-Null
-            log_info "Docker is working now — no installation needed."
+            log_info "Docker is working now - no installation needed."
             return 0
         }
-        log_warn "Still unreachable — proceeding with installation."
+        log_warn "Still unreachable - proceeding with installation."
     }
 
     switch ($os) {
@@ -352,7 +377,7 @@ function install_docker {
 
     log_warn "This modifies the system: it installs software and may require a reboot."
     if (-not (_Shlib_Docker_Confirm "Continue?")) {
-        log_info "Aborted — nothing changed."
+        log_info "Aborted - nothing changed."
         return 1
     }
 
@@ -368,7 +393,7 @@ function install_docker {
     }
 
     if ($script:_ShlibDockerDryRun) {
-        log_info "Dry run complete — nothing was changed."
+        log_info "Dry run complete - nothing was changed."
         return 0
     }
     if ($NoStart) {
@@ -398,6 +423,9 @@ install_docker. Returns install_docker's exit code.
 .EXAMPLE
 if ((ensure_docker -Yes) -ne 0) { throw "Docker required" }
 #>
+# Usage: ensure_docker [-Yes] [-DryRun] [-NoStart] [-NoGroup] [-TimeoutSec <s>]
+# Returns: 0 when Docker is already usable, else install_docker's code.
+# Output: as install_docker.
 function ensure_docker {
     param(
         [Alias('y')][switch]$Yes,
@@ -407,7 +435,7 @@ function ensure_docker {
         [int]$TimeoutSec = 120
     )
     if (docker_ready) {
-        log_debug "Docker already usable — nothing to do."
+        log_debug "Docker already usable - nothing to do."
         return 0
     }
     return (install_docker -Yes:$Yes -DryRun:$DryRun -NoStart:$NoStart -NoGroup:$NoGroup -TimeoutSec $TimeoutSec)

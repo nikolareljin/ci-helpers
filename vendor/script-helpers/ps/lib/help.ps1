@@ -1,4 +1,4 @@
-# Help/documentation helpers — PowerShell companion to lib/help.sh.
+# Help/documentation helpers - PowerShell companion to lib/help.sh.
 # Parses structured header comments from scripts and renders help output.
 #
 # Header format (same as Bash module):
@@ -9,6 +9,11 @@
 #   #   -Foo  Does foo
 #   # EXAMPLE: script.ps1 -Foo bar
 
+# Usage: get_script_metadata -ScriptFile <path>
+# Parses the SCRIPT/DESCRIPTION/USAGE/PARAMETERS/EXIT_CODES/EXAMPLE header of a script.
+# Returns: a hashtable (name, description, usage, parameters, example, exit_codes, author,
+#   created, version, date, creator); all fields empty when the file is missing.
+# Output: none.
 function get_script_metadata {
     param([string]$ScriptFile)
     $meta = @{
@@ -112,10 +117,22 @@ function _Help_Render {
     show_usage $ScriptFile
 }
 
+# Usage: display_help [-ScriptFile <path>]   (default: the script that loaded helpers.ps1)
+# Returns: nothing.
+# Output: stdout name, usage, description, parameters, example, then the common options.
 function display_help { param([string]$ScriptFile = $env:SHLIB_CALLER_SCRIPT); _Help_Render 'concise' $ScriptFile }
+# Usage: print_help [-ScriptFile <path>]
+# Returns: nothing.
+# Output: stdout the full header (with author, created, version), then the common options.
 function print_help   { param([string]$ScriptFile = $env:SHLIB_CALLER_SCRIPT); _Help_Render 'full'    $ScriptFile }
+# Usage: show_help [-ScriptFile <path>]
+# Returns: nothing.
+# Output: stdout usage, description, parameters, example, exit codes, version, common options.
 function show_help    { param([string]$ScriptFile = $env:SHLIB_CALLER_SCRIPT); _Help_Render 'minimal' $ScriptFile }
 
+# Usage: show_usage [-ScriptFile <path>]
+# Returns: nothing.
+# Output: stdout the generic usage line and the common options (-Help, -Verbose, -Debug).
 function show_usage {
     param([string]$ScriptFile = '')
     $name = if ($ScriptFile) { [System.IO.Path]::GetFileName($ScriptFile) } else { 'script.ps1' }
@@ -134,6 +151,12 @@ Environment Variables:
 "@
 }
 
+# Usage: parse_common_args -Args <string[]>
+# Handles -Help/-h/--help (show_help, then exit 0), -Verbose/-v/--verbose ($env:VERBOSE='true')
+# and -Debug/-d/--debug ($env:DEBUG='true'). Other arguments are ignored.
+# Returns: nothing.
+# Output: on help, stdout the help text. Exits the calling script with 0 on help: by design,
+#   as lib/help.sh does; call it only from a script's top level.
 function parse_common_args {
     param([string[]]$Args)
     foreach ($arg in $Args) {

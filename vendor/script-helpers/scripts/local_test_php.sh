@@ -6,9 +6,16 @@
 # PARAMETERS:
 #   --quick   Skip composer install; lint and test against existing vendor/.
 #   --dir     Subdirectory containing composer.json (default: .).
+#   -h, --help  Show this help and exit.
 # ENVIRONMENT:
 #   SKIP_PHP_TESTS=1   Run style checks only; skip the (DB-backed) test suite.
 #                      Useful for a pre-push without a local database.
+# EXIT_CODES:
+#   0  Every check that ran passed (style only with SKIP_PHP_TESTS=1).
+#   1  Bad arguments, a missing directory, composer.json, php, composer or test runner.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   SKIP_PHP_TESTS=1 bash scripts/local_test_php.sh --quick
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -17,6 +24,7 @@ TEST_DIR="."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --dir)
       if [[ $# -lt 2 ]]; then
@@ -68,14 +76,14 @@ if [[ "$QUICK" == "false" ]]; then
   composer install --no-interaction --prefer-dist
 fi
 
-# Style check (Laravel Pint) when available — fast and deterministic.
+# Style check (Laravel Pint) when available - fast and deterministic.
 if [[ -x vendor/bin/pint ]]; then
   echo "[local-test-php] vendor/bin/pint --test"
   vendor/bin/pint --test
 fi
 
 if [[ "${SKIP_PHP_TESTS:-}" == "1" ]]; then
-  echo "[local-test-php] SKIP_PHP_TESTS=1 — style only; skipping test suite."
+  echo "[local-test-php] SKIP_PHP_TESTS=1 - style only; skipping test suite."
   echo "[local-test-php] Done."
   exit 0
 fi

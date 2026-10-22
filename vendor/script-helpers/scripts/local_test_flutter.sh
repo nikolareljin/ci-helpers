@@ -6,6 +6,13 @@
 # PARAMETERS:
 #   --quick   Skip dependency install and flutter analyze; run tests only.
 #   --dir     Project directory containing pubspec.yaml (default: .).
+#   -h, --help  Show this help and exit.
+# EXIT_CODES:
+#   0  Every step passed.
+#   1  Bad arguments, directory or pubspec.yaml missing, or flutter not on PATH.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_flutter.sh --dir app
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -14,6 +21,7 @@ FLUTTER_DIR="."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --dir)
       if [[ $# -lt 2 ]]; then

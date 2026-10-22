@@ -24,6 +24,16 @@
 #   --fail-on-findings <true|false>       Whether findings should fail the script (default: true).
 #   --cleanup <true|false>                Whether Docker resources should be cleaned up after execution (default: true).
 #   -h, --help                            Show this help message.
+# EXIT_CODES:
+#   0  All checks passed, or findings reported only with --fail-on-findings false
+#      (also -h/--help).
+#   1  PHPCS, PHPStan or PHPUnit findings (with --fail-on-findings true), the
+#      database did not become ready, or docker compose not found.
+#   2  Unknown argument, an option without its value, a bad true/false or --db-wait-seconds value, compose
+#      file or bundle source not found, or a bad --bundle-src-env name.
+#   N  A failing composer, lint or standalone command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_pimcore_bundle_check.sh --compose-file test/docker-compose.yml --phpstan-command "vendor/bin/phpstan analyse"
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -59,26 +69,26 @@ cleanup="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --compose-file) compose_file="$2"; shift 2 ;;
-    --bundle-src) bundle_src="$2"; shift 2 ;;
-    --bundle-src-env) bundle_src_env="$2"; shift 2 ;;
-    --php-service) php_service="$2"; shift 2 ;;
-    --db-service) db_service="$2"; shift 2 ;;
-    --db-user) db_user="$2"; shift 2 ;;
-    --db-password) db_password="$2"; shift 2 ;;
-    --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
-    --out-dir) out_dir="$2"; shift 2 ;;
-    --composer-command) composer_command="$2"; shift 2 ;;
-    --php-lint-command) php_lint_command="$2"; shift 2 ;;
-    --phpcs-standalone-command) phpcs_standalone_command="$2"; shift 2 ;;
-    --phpunit-standalone-command) phpunit_standalone_command="$2"; shift 2 ;;
-    --phpunit-working-directory) phpunit_working_directory="$2"; shift 2 ;;
-    --phpcs-command) phpcs_command="$2"; shift 2 ;;
-    --phpstan-command) phpstan_command="$2"; shift 2 ;;
-    --phpunit-command) phpunit_command="$2"; shift 2 ;;
-    --phpunit-coverage-command) phpunit_coverage_command="$2"; shift 2 ;;
-    --fail-on-findings) fail_on_findings="$2"; shift 2 ;;
-    --cleanup) cleanup="$2"; shift 2 ;;
+    --compose-file) require_value "$@" || exit 2; compose_file="$2"; shift 2 ;;
+    --bundle-src) require_value "$@" || exit 2; bundle_src="$2"; shift 2 ;;
+    --bundle-src-env) require_value "$@" || exit 2; bundle_src_env="$2"; shift 2 ;;
+    --php-service) require_value "$@" || exit 2; php_service="$2"; shift 2 ;;
+    --db-service) require_value "$@" || exit 2; db_service="$2"; shift 2 ;;
+    --db-user) require_value "$@" || exit 2; db_user="$2"; shift 2 ;;
+    --db-password) require_value "$@" || exit 2; db_password="$2"; shift 2 ;;
+    --db-wait-seconds) require_value "$@" || exit 2; db_wait_seconds="$2"; shift 2 ;;
+    --out-dir) require_value "$@" || exit 2; out_dir="$2"; shift 2 ;;
+    --composer-command) require_value "$@" || exit 2; composer_command="$2"; shift 2 ;;
+    --php-lint-command) require_value "$@" || exit 2; php_lint_command="$2"; shift 2 ;;
+    --phpcs-standalone-command) require_value "$@" || exit 2; phpcs_standalone_command="$2"; shift 2 ;;
+    --phpunit-standalone-command) require_value "$@" || exit 2; phpunit_standalone_command="$2"; shift 2 ;;
+    --phpunit-working-directory) require_value "$@" || exit 2; phpunit_working_directory="$2"; shift 2 ;;
+    --phpcs-command) require_value "$@" || exit 2; phpcs_command="$2"; shift 2 ;;
+    --phpstan-command) require_value "$@" || exit 2; phpstan_command="$2"; shift 2 ;;
+    --phpunit-command) require_value "$@" || exit 2; phpunit_command="$2"; shift 2 ;;
+    --phpunit-coverage-command) require_value "$@" || exit 2; phpunit_coverage_command="$2"; shift 2 ;;
+    --fail-on-findings) require_value "$@" || exit 2; fail_on_findings="$2"; shift 2 ;;
+    --cleanup) require_value "$@" || exit 2; cleanup="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac
@@ -198,7 +208,9 @@ if [[ -n "$phpcs_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpcs.xml" "${out_dir}/phpcs.xml" 2>/dev/null || true
     log_error "PHPCS: violations found. Report saved to ${out_dir}/phpcs.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    # if/fi, not `&& exit 1`: as the last command run, a false test made
+    # the whole script exit 1 in report-only mode.
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 
@@ -208,7 +220,7 @@ if [[ -n "$phpstan_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpstan.xml" "${out_dir}/phpstan.xml" 2>/dev/null || true
     log_error "PHPStan: issues found. Report saved to ${out_dir}/phpstan.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 
@@ -218,7 +230,7 @@ if [[ -n "$phpunit_command" ]]; then
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpunit.xml" "${out_dir}/phpunit.xml" 2>/dev/null || true
     log_error "PHPUnit: test failures. Report saved to ${out_dir}/phpunit.xml"
-    [[ "$fail_on_findings" == "true" ]] && exit 1
+    if [[ "$fail_on_findings" == "true" ]]; then exit 1; fi
   fi
 fi
 

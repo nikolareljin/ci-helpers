@@ -6,6 +6,8 @@
 # HOSTS_FILE overrides the target, which is what makes the "already present"
 # test above verifiable: it used to be wrong on macOS and nothing could tell,
 # because the only way to exercise it was to edit the real /etc/hosts as root.
+# Returns: 0 added or already present; 1 the write failed; 2 missing argument, invalid hostname or invalid IP.
+# Output: stdout [Success]/[Info]/[Error!] messages.
 add_to_etc_hosts() {
   # Defaulted so a caller under `set -u` gets the error below rather than an
   # abort on the expansion itself.

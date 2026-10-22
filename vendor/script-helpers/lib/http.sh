@@ -7,6 +7,8 @@
 # Usage: http_probe_json URL PATH [TIMEOUT_SECONDS]; prints the response body.
 # Returns 1 when nothing answers, the status is not 2xx, or the body is empty.
 # One request with a short deadline: the service is serving or it is not.
+# Returns: 0 a 2xx response with a non-empty body; 1 missing argument, bad TIMEOUT, no answer, non-2xx status or empty body.
+# Output: stdout the response body on success; stderr an error for bad arguments.
 http_probe_json() {
   local url="${1:-}" path="${2:-}" timeout="${3:-5}"
   [[ -n "$url" && -n "$path" ]] || { log_error "http_probe_json: URL and PATH required"; return 1; }
@@ -30,6 +32,8 @@ http_probe_json() {
 # answers every path with 200 and HTML, and that is not a key being accepted.
 # The key reaches curl on stdin as a config line (`-K -`), never in argv,
 # where every other user on the machine could read it with ps.
+# Returns: 0 key accepted (200 with a JSON content type); 2 the service refused it (401/403); 1 bad arguments, no answer, or any other response.
+# Output: stdout nothing; stderr an error for bad arguments.
 http_check_key() {
   local url="${1:-}" path="${2:-}" header="${3:-}" key="${4:-}"
   [[ -n "$url" && -n "$path" && -n "$header" && -n "$key" ]] || { log_error "http_check_key: URL, PATH, HEADER and KEY required"; return 1; }

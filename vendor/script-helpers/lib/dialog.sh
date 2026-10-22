@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Dialog helpers: sizing and input utilities.
 
+# Usage: dialog_init
 # Initialize dialog dimensions based on terminal size.
+# Returns: always 0. Sets and exports DIALOG_WIDTH and DIALOG_HEIGHT (70% of the terminal, at least 60x20).
+# Output: nothing.
 dialog_init() {
   local cols lines
   cols=$(tput cols 2>/dev/null || echo 120)
@@ -13,7 +16,10 @@ dialog_init() {
   export DIALOG_WIDTH DIALOG_HEIGHT
 }
 
+# Usage: check_if_dialog_installed
 # Ensure `dialog` CLI exists.
+# Returns: 0 dialog is installed (and dialog_init ran); 1 it is not.
+# Output: stderr an [Error!] line when missing.
 check_if_dialog_installed() {
   if ! command -v dialog >/dev/null 2>&1; then
     # On stderr: several callers print their answer on stdout.
@@ -45,6 +51,8 @@ _dialog_tty() {
 # terminal, /dev/tty still exists and looks readable and writable, but opening
 # it fails. Nothing is created: a missing path, a directory or a FIFO is not a
 # terminal.
+# Returns: 0 the terminal device opens; 1 it does not.
+# Output: nothing.
 dialog_has_tty() {
   local tty
   tty="$(_dialog_tty)"
@@ -56,6 +64,8 @@ dialog_has_tty() {
 # Usage: has_interactive_dialog_session; true if a person can see a dialog:
 # one of the standard streams is a terminal, or the terminal device opens.
 # False under cron, systemd or CI, where nothing should ask.
+# Returns: 0 a terminal is available; 1 not.
+# Output: nothing.
 has_interactive_dialog_session() {
   [[ -t 0 || -t 1 || -t 2 ]] || dialog_has_tty
 }
@@ -93,7 +103,8 @@ _dialog_call_ok() {
 # dialog prints it, and exits 0, for a box given no arguments. It must not be
 # taken for an answer.
 _dialog_is_help_text() {
-  [[ "${1:-}" == *"Usage: dialog"* ]] && head -n 1 <<<"${1:-}" | grep -q 'version'
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  [[ "${1:-}" == *"Usage: dialog"* ]] && grep -q 'version' <<< "$(head -n 1 <<<"${1:-}")"
 }
 
 # Usage: dialog_run <dialog args...>; runs dialog for a box with no answer to
@@ -101,6 +112,8 @@ _dialog_is_help_text() {
 # there is one, so it shows even if the caller captured stdout. Keys are read
 # from the terminal too, so this is not for a gauge (it reads stdin).
 # Returns dialog's own status. With no terminal device it is plain dialog.
+# Returns: dialog's own code (0 OK/Yes, 1 Cancel/No, 255 Esc or error); 255 for an option dialog does not know.
+# Output: the box on the terminal device; stderr an error for an unknown option.
 dialog_run() {
   local tty
   _dialog_call_ok "$@" || return $?
@@ -121,6 +134,8 @@ dialog_run() {
 # (measured with dialog 1.3: under `$(...)` nothing on the terminal and 1,502
 # bytes of screen in the variable).
 # Returns dialog's own status. With no terminal device it is plain dialog.
+# Returns: dialog's own code; 255 for an unknown option.
+# Output: the gauge on the terminal device (stdout when there is none).
 dialog_gauge() {
   local tty
   _dialog_call_ok "$@" || return $?
@@ -138,6 +153,8 @@ dialog_gauge() {
 # Returns dialog's own status (1 cancel, 255 escape or error) and then prints
 # nothing. What dialog says about a bad call goes to the terminal with the
 # screen, not to the caller's stderr.
+# Returns: dialog's own code (0 OK, 1 Cancel, 255 Esc or error); 255 for an unknown option or when dialog printed its help text.
+# Output: stdout the answer on 0, nothing otherwise; the box on the terminal device; stderr errors.
 dialog_capture() {
   local tty answer status=0
   _dialog_call_ok "$@" || return $?
@@ -162,6 +179,8 @@ dialog_capture() {
 # an input box and prints it on stdout.
 # Returns 1 and prints nothing if the person cancels or leaves the box empty.
 # Messages go to stderr: stdout is only the value.
+# Returns: 0 a non-empty value was entered; 1 dialog missing, cancelled or empty.
+# Output: stdout the value; stderr errors.
 get_value() {
   local title="${1:-}" message="${2:-}" default_value="${3:-}" value
   dialog_init
@@ -191,7 +210,10 @@ if ! declare -f require_bash4 >/dev/null 2>&1; then
   fi
 fi
 
+# Usage: select_multiple_distros
 # Selection helpers used by iso-forge. Expect an associative array DISTROS to be defined by the caller.
+# Returns: 0 selection made; 1 bash older than 4, dialog missing, or nothing selected.
+# Output: stdout the selected keys (space separated); stderr errors.
 select_multiple_distros() {
   require_bash4 "select_multiple_distros (DISTROS associative array)" || return 1
   dialog_init; check_if_dialog_installed || return 1
@@ -207,6 +229,8 @@ select_multiple_distros() {
 }
 
 # Usage: select_distro; expects DISTROS associative array and echoes selection.
+# Returns: 0 selection made; 1 bash older than 4, dialog missing, or nothing selected.
+# Output: stdout the selected key; stderr errors.
 select_distro() {
   require_bash4 "select_distro (DISTROS associative array)" || return 1
   dialog_init; check_if_dialog_installed || return 1
@@ -286,7 +310,8 @@ _dialog__fetch_content_length() {
 # Download a URL with a dialog gauge showing percent, size, speed, and ETA.
 # Usage: dialog_download_file "URL" [output_path] [tool]
 #  - tool: one of auto|curl|wget (default: auto)
-# Returns: 0 on success, non-zero on failure.
+# Returns: 0 downloaded; 1 dialog missing, no URL, no curl/wget, unknown tool, directory not creatable, gauge cancelled, or the final move failed; otherwise the exit code of curl or wget.
+# Output: the gauge and any error box on the terminal device; stdout an [Error!] line for setup errors.
 dialog_download_file() {
   dialog_init; check_if_dialog_installed || return 1
 
@@ -460,6 +485,8 @@ dialog_download_file() {
 # no terminal on stdin or stdout means no prompts at all -- a systemd unit or a
 # CI job must fail naming what it wanted rather than wait forever on a read;
 # SHLIB_UI_PLAIN=1 means plain prompts even when `dialog` is installed.
+# Returns: 0 printed; 1 SHLIB_UI is set to something other than dialog, plain or none.
+# Output: stdout dialog, plain or none; stderr an error.
 ui_mode() {
   local forced="${SHLIB_UI:-}"
   if [[ -n "$forced" ]]; then
@@ -487,6 +514,8 @@ ui_mode() {
 
 # Usage: ui_menu TITLE TEXT DEFAULT key1 label1 [key2 label2 ...]
 # Prints the chosen key. In `none` mode prints nothing and returns 1.
+# Returns: 0 a key was chosen; 1 no UI (mode none), cancelled, EOF, invalid answer, or bad SHLIB_UI.
+# Output: stdout the chosen key; stderr the plain-mode menu and errors.
 ui_menu() {
   local title="$1" text="$2" default="$3"; shift 3
   local mode; mode="$(ui_mode)" || return 1
@@ -520,6 +549,8 @@ ui_menu() {
 }
 
 # Usage: ui_input TITLE TEXT [DEFAULT]; prints the answer, or DEFAULT when empty.
+# Returns: 0 a value (or the default) was read; 1 no UI, cancelled, EOF, or bad SHLIB_UI.
+# Output: stdout the value (default when empty); stderr the plain-mode prompt.
 ui_input() {
   local title="$1" text="$2" default="${3:-}"
   local mode; mode="$(ui_mode)" || return 1
@@ -540,6 +571,8 @@ ui_input() {
 }
 
 # Usage: ui_secret TITLE TEXT; prints the answer, never echoed while typed.
+# Returns: 0 read; 1 no UI, cancelled, EOF, or bad SHLIB_UI.
+# Output: stdout the secret (no echo while typing); stderr the prompt.
 ui_secret() {
   local title="$1" text="$2"
   local mode; mode="$(ui_mode)" || return 1
@@ -565,6 +598,8 @@ ui_secret() {
 }
 
 # Usage: ui_yesno TITLE TEXT; 0 = yes, 1 = no, or no person to ask.
+# Returns: 0 yes; 1 no, cancelled, EOF, no UI, or bad SHLIB_UI; 255 dialog Esc or error.
+# Output: the question on the terminal (stderr in plain mode).
 ui_yesno() {
   local title="$1" text="$2"
   local mode; mode="$(ui_mode)" || return 1
@@ -586,6 +621,8 @@ ui_yesno() {
 
 # Usage: ui_note TITLE TEXT...; a message the person should see, in whatever
 # renderer. Never fails.
+# Returns: always 0.
+# Output: a message box in dialog mode; otherwise stderr an [INFO] line.
 ui_note() {
   local title="$1"; shift
   local mode; mode="$(ui_mode 2>/dev/null || echo none)"

@@ -7,10 +7,14 @@
 #   --dir     Project directory, relative to the repository root (default: .).
 #   --quick     Skip vet; run tests only.
 #   --module    Path to a specific module directory (default: all go.mod roots).
+#   -h, --help  Show this help and exit.
 # EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  A check failed, or bad arguments.
 #   3  Nothing could be checked: no module has Go packages. preflight reports it as SKIP.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_go.sh --quick
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -28,6 +32,7 @@ MODULE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --dir)
       if [[ $# -lt 2 ]]; then
