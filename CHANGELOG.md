@@ -22,7 +22,9 @@
   code, is the only job given `WINDOWS_CERTIFICATE*` and `AZURE_*`, signs,
   verifies (azure: a valid, timestamped signature on every installer) and
   uploads `tauri-windows-artifacts`. A missing or bad azure credential now
-  fails in `sign-windows`, after the build, instead of before it. The
+  fails in `sign-windows`, after the build, instead of before it. A file in
+  the unsigned artifact other than `.exe` or `.msi` fails `sign-windows`,
+  since it would be published unsigned. The
   release job waits for `sign-windows` and runs when it is skipped (`none`,
   `tauri_updater`); `winget-submit` runs only after a successful release.
 - pfx mode refuses, with a reason, when the certificate or password is

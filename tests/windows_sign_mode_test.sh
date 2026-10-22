@@ -83,9 +83,20 @@ python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" \
   "$root/.github/workflows/tauri-release.yml" "$tmp/release.ps1" <<'PY'
 import sys, yaml
 open(sys.argv[2], "w").write(yaml.safe_load(open(sys.argv[1]))["runs"]["steps"][0]["run"])
-job = yaml.safe_load(open(sys.argv[3]))["jobs"]["build-windows"]
-open(sys.argv[4], "w").write(job["steps"][0]["run"])
+jobs = yaml.safe_load(open(sys.argv[3]))["jobs"]
+open(sys.argv[4], "w").write(jobs["build-windows"]["steps"][0]["run"])
+only = [s for s in jobs["sign-windows"]["steps"] if s.get("name") == "Only installers to sign"]
+open(sys.argv[2] + ".only.ps1", "w").write(only[0]["run"] if only else "exit 0")
 PY
+# sign-windows refuses a file it would publish unsigned.
+mkdir -p "$tmp/inst/nsis dir"
+: > "$tmp/inst/App.msi"; : > "$tmp/inst/nsis dir/App setup.EXE"
+DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1 || { echo "FAIL: sign-windows refused installers only"; exit 1; }
+: > "$tmp/inst/nsis dir/payload.dll"
+if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
+  echo "FAIL: sign-windows would publish payload.dll unsigned"; exit 1
+fi
+echo "ok: sign-windows refuses a file it would not sign"
 fail=0
 need_secrets="sign_mode pfx needs certificate_base64 and certificate_password"
 check() { # want_rc mode cert password want_text

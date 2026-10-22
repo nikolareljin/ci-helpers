@@ -203,6 +203,9 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
    jobs:
      release:
        uses: nikolareljin/ci-helpers/.github/workflows/tauri-release.yml@production
+       # The release job creates the GitHub Release and uploads to it.
+       permissions:
+         contents: write
        with:
          windows_sign_mode: pfx
          # Private CA or self-signed: the runner does not trust the root.
@@ -217,8 +220,8 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
    MSI and setup EXE from the release and run the verify commands above.
 
 Keep `windows_pfx_verify_trust: false` for a private CA or self-signed
-certificate (remove it only for a root the runner trusts): the runner does not trust your root, so
-`signtool verify /pa` would fail. The signer and timestamp are still checked.
+certificate, and remove it only for a root the runner trusts: otherwise
+`signtool verify /pa` fails. The signer and timestamp are still checked.
 
 Where signing runs: in `tauri-release`'s `sign-windows` job, not in the
 build job. The build runs the app's npm and cargo scripts, and anything they
