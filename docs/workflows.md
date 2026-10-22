@@ -28,8 +28,8 @@ Execution order:
 7) Extra
 
 `install_command` runs first so a caller can override `lint_command` without
-losing its dependencies. Before it existed, several presets installed inside
-their lint default, and overriding that default silently dropped the install.
+losing its dependencies. An install inside a lint default is dropped as soon
+as a caller overrides that default.
 
 Inputs:
 
@@ -76,21 +76,21 @@ replaces.
 
 The working directory is in the key because a caller may invoke this workflow
 from several jobs at once — backend and frontend, or one job per module. Those
-jobs share `github.workflow` and `github.ref`, so keying on those alone put
-them in a single group and `cancel-in-progress` made whichever started second
-destroy the first. The victim reported `cancelled` after 0 seconds with no
-steps, which reads as an infrastructure hiccup rather than lost coverage.
+jobs share `github.workflow` and `github.ref`. Keyed on those alone they
+would share one group, and `cancel-in-progress` would cancel whichever started
+first. The cancelled job reports `cancelled` after 0 seconds with no steps,
+which reads as an infrastructure hiccup rather than lost coverage.
 
 The runner and the toolchain versions (`node_version`, `java_version`,
 `dotnet_version`, `python_version`, `go_version`, `flutter_version` with
 `flutter_channel`, `php_version`, `rust_toolchain`, `godot_version`) are in the default key for
 the same reason: a matrix over versions or runners reaches this workflow with a
-single working directory, and its legs cancelled each other too.
+single working directory, and its legs would cancel each other too.
 
 - `concurrency_key` (string, default `""`) — replaces the working directory,
   runner and toolchain versions in that key. Set it when two concurrent calls
   still share all of those, such as matrix legs over something else. Leave it
-  empty otherwise. A caller that sets it keeps exactly the group it had.
+  empty otherwise. A caller that sets it gets exactly that group.
 
 Example (Flutter mobile CI):
 
@@ -150,7 +150,15 @@ Execution order:
 
 Inputs:
 
-- All CI inputs (same as `ci.yml`)
+- The `ci.yml` inputs, with the same defaults, except the database and
+  environment inputs (`db_image`, `db_env`, `db_ports`, `db_health_cmd`,
+  `db_wait_seconds`, `extra_env`), which it does not take: `runner`,
+  `working_directory`, `concurrency_key`, `fetch_depth`, `submodules`, `cache`,
+  `node_version`, `java_version`, `dotnet_version`, `python_version`,
+  `go_version`, `flutter_version`, `flutter_channel`, `php_version`,
+  `rust_toolchain`, `rust_components`, `godot_version`, `godot_use_dotnet`,
+  `install_command`, `lint_command`, `test_command`, `build_command`,
+  `docker_command`, `e2e_command`, `extra_command`
 - `check_release_tag` (boolean, default `false`)
 - `release_branch` (string, default `""`)
 - `timeout_minutes` (number, default `20`) — job timeout.
@@ -473,10 +481,9 @@ Workflow: `.github/workflows/codeql-scan.yml`
 
 Purpose: Static analysis with CodeQL.
 
-There was none here before. The `codeql-action` references in `trivy-scan.yml`
-and `security-weekly.yml` are `upload-sarif` only, used to get *other* tools'
-reports into the Security tab -- nothing analysed code, and of the language
-presets only Go had a static analyser (gosec).
+This is the one workflow here that runs CodeQL. `trivy-scan.yml` and
+`security-weekly.yml` use `codeql-action` only for `upload-sarif`, to put other
+tools' reports into the Security tab.
 
 Inputs:
 
@@ -504,6 +511,10 @@ Inputs:
 - `upload` (boolean, default `true`) -- file results in the Security tab. Turn
   it off to run the analysis without filing alerts.
 - `fetch_depth` (number, default `0`), `timeout_minutes` (number, default `45`)
+
+Outputs:
+- `results` - total results across every report. Tells "no findings" apart from "nothing analysed" together with `rules`.
+- `rules` - number of rules the analysis ran.
 
 **The caller must grant three permissions, whether or not it uploads**, for the
 reason described under `trivy-scan.yml`: the check is against what the called
@@ -545,21 +556,20 @@ Inputs:
 - `fail_on_findings` (boolean, default `false`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `gitleaks-report`)
+- `gitleaks_version` (string, default `v8.30.1`) - release tag to download. Pin it for reproducible scans.
 
 Notes:
 
-- `scan_path`, `config_path` and `report_format` are all honoured. (An older
-  note here said they were not: it described `gitleaks-action`, which this
-  workflow has not used for some time. It now runs a pinned `gitleaks` binary,
-  verified against the checksums file published with the same release.)
+- `scan_path`, `config_path` and `report_format` are all honoured. The scan
+  runs a pinned `gitleaks` binary, verified against the checksums file
+  published with the same release.
 - **In a git work tree the scan reads the repository's history**, so naming a
   subdirectory in `scan_path` does not narrow it -- every commit is still
   scanned. Outside a work tree the files under `scan_path` are scanned instead.
 - A scan that examines nothing fails rather than reporting no findings. Two
   cases: a work tree whose history cannot be read, and a `scan_path` with
-  nothing in it. Before this, pointing the scan at a generated directory -- an
-  unpacked archive, a build output -- produced a clean report from a scan that
-  had not run.
+  nothing in it. A scan pointed at a generated directory that is empty -- an
+  unpacked archive, a build output -- fails instead of reporting clean.
 
 Example:
 
@@ -752,7 +762,7 @@ Inputs:
 - `tap_repo` (string, default `""`) -- tap as `owner/repo`; or pass the `tap_repo` secret
 - `tap_branch` (string, default `"main"`)
 - `tap_dir` (string, default `"Formula"`; `.` for the tap root)
-- `commit_message` (string, default `"Update <name> formula"`)
+- `commit_message` (string, default `""`, which commits `Update <name> formula`)
 - `runner` (string, default `ubuntu-latest`)
 
 Secrets:
@@ -789,13 +799,18 @@ Workflow: `.github/workflows/rust-release-tarballs.yml`
 
 Purpose: Build a Rust binary for macOS arm64, macOS x86_64 and Linux x86_64
 
-The build runs with `contents: read`; a separate `upload-release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `upload-release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`.
 (on `ubuntu-22.04`: needs glibc 2.34, so Ubuntu 22.04, Debian 12 and newer;
 not Ubuntu 20.04), attach the tarballs to
 the release, generate a Homebrew formula and publish it through
 [homebrew-tap-publish.yml](#homebrew-tap-publishyml).
 
-Required inputs: `bin_name`, `desc`, `homepage`. Tap inputs and secrets as in
+Required inputs: `bin_name`, `desc`, `homepage`. Optional:
+`formula_class` (default derived from `bin_name`), `license` (default `MIT`),
+`release_tag` (default: the pushed tag; set it for a backfill run from
+`workflow_dispatch`), `rust_toolchain` (default `stable`),
+`macos_deployment_target` (default `10.13`, for the x86_64 build).
+Tap inputs and secrets as in
 `homebrew-tap-publish.yml` (`tap_repo`, `tap_branch`, `tap_dir`;
 `tap_deploy_key` or `tap_token`).
 
@@ -805,7 +820,7 @@ Workflow: `.github/workflows/fpc-release.yml`
 
 Purpose: Build a Free Pascal (FPC) binary natively on Linux (x86_64), macOS (ARM64 + x86_64),
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`.
 and Windows (x86_64); package each into a release archive; optionally produce Linux packages
 (DEB, RPM, AppImage) and a macOS DMG; and optionally upload release archives to a GitHub
 release (controlled by `upload_to_release`). SHA256 checksum files are uploaded as CI
@@ -904,7 +919,7 @@ Workflow: `.github/workflows/deb-build.yml`
 
 Purpose: Build Debian packages, upload artifacts, and optionally attach the `.deb` to a GitHub release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -997,7 +1012,12 @@ Inputs (selected):
 - `lint_drupal_command` (string, default `vendor/bin/phpcs --standard=Drupal --extensions=php`, only runs when Drupal is detected)
 - `lint_laravel_command` (string, default `vendor/bin/pint --test`; without `--test` pint rewrites files and always succeeds)
 - `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
-- `wp_root` (string, default `wp-cli-site`)
+- `wp_root` (string, default `wp-cli-site`) - where the scan installs a throwaway WordPress site
+- `wp_site_url` (string, default `http://localhost:8080`), `wp_site_title` (string, default `CI Site`)
+- `wp_admin_user` (string, default `admin`), `wp_admin_password` (string, default `admin`), `wp_admin_email` (string, default `admin@example.com`) - credentials for that throwaway site only
+- `wp_posts_count` (number, default `10`) - demo posts generated before the scan
+- `lint_pimcore_command` (string, default `vendor/bin/phpcs --standard=PSR12 --extensions=php src/`, only runs when Pimcore is detected)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1047,14 +1067,15 @@ Two things about those lines, both measured rather than stylistic:
 - Both run through `pipx`, which is preinstalled on GitHub-hosted runners. On a
   self-hosted runner without it the stage fails with `pipx: command not found`,
   which is loud and correct. `pip install` is the thing to avoid: installing
-  either tool into the project's environment moved `packaging` 21.0 to 26.3 and
-  `requests` 2.28.0 to 2.34.2 on a fixture, and these stages run before the lint
+  either tool into the project's environment can upgrade the project's own
+  dependencies (`packaging`, `requests`), and these stages run before the lint
   and the tests.
 - The audit line ends in an `else` that fails. A working directory with neither
   `requirements.txt` nor `pyproject.toml` would otherwise give a green audit
   stage that audited nothing.
 - `unit_command` (string, default `python -m pip install pytest && python -m pytest`)
 - `django_command` (string, default `if [ -f manage.py ]; then python manage.py test; fi`, only runs when Django is detected)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1077,6 +1098,8 @@ Inputs:
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
 - `test_command` (string, default `go mod download && go test ./...`)
 - `gosec_args` (string, default `./...`)
+- `fetch_depth` (number, default `0`)
+- `vulncheck_packages` (string, default `./...`) - the package pattern for `govulncheck`. Not the same as `gosec_args`.
 
 Example:
 
@@ -1102,6 +1125,7 @@ Inputs:
   a warning in test code passes `cargo clippy -- -D warnings` and fails with it.
 - `test_command` (string, default `cargo fetch && cargo test`)
 - `audit_command` (string, default `cargo audit`)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1123,6 +1147,7 @@ Inputs:
 - `java_version` (string, default `17`)
 - `lint_command` (string, default `""`; `mvn -B -DskipTests checkstyle:check` fails on a project with no ruleset)
 - `test_command` (string, default `mvn -B test`)
+- `fetch_depth` (number, default `0`)
 - `dependency_check_command` (string, default `""`). dependency-check 9.0 onward
   needs an NVD API key; without one the data update fails and takes the build
   with it. A repository with a key passes the secret `nvd_api_key` and sets:
@@ -1154,9 +1179,10 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `dotnet_version` (string, default `8.0.x`)
 - `project` (string, default `""`) — project or solution to restore, build, test and format. Required whenever the directory does not hold exactly one project or solution; validated, and may not begin with `-`.
-- `lint_command` (string, default `dotnet format "<project>" --verify-no-changes`) — the SDK built-in. The previous default installed the standalone `dotnet-format` tool and passed it `--verify-no-changes`, a flag only the built-in accepts, so it read the flag as a file name and exited 1 on every project.
+- `lint_command` (string, default `dotnet format --verify-no-changes`) - the SDK built-in; with `project` set and this left at the default, the project is passed to it. Use the built-in, not the standalone `dotnet-format` tool: the tool reads `--verify-no-changes` as a file name and exits 1.
 - `test_command` (string, default `dotnet restore && dotnet test`) — with `project` set and this left at the default, the project is passed to restore and test. `""` disables the stage.
 - `vuln_command` (string, default runs `dotnet list package --vulnerable --include-transitive` and fails when it lists vulnerable packages, since that command exits 0 either way)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1164,6 +1190,32 @@ Example:
 jobs:
   csharp_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/csharp-scan.yml@production
+```
+
+## validate-dotnet-project.yml
+
+Workflow: `.github/workflows/validate-dotnet-project.yml`
+
+Purpose: Refuse a `project` value that `dotnet` would misread. `csharp.yml` and
+`csharp-scan.yml` call it before they build; call it yourself only when you
+pass a project path to your own `dotnet` steps.
+
+It fails on a value that starts with `-` (read as an option), has a leading or
+trailing space, or holds a character other than letters, digits, `.`, `_`,
+`/`, `-` and space. An empty value passes.
+
+Inputs:
+- `project` (string, default `""`)
+- `runner` (string, default `ubuntu-latest`) - not taken from the caller's runner, since the job is one check
+
+Example:
+
+```yaml
+jobs:
+  validate:
+    uses: nikolareljin/ci-helpers/.github/workflows/validate-dotnet-project.yml@production
+    with:
+      project: src/App/App.csproj
 ```
 
 ## node-scan.yml
@@ -1181,6 +1233,7 @@ Inputs:
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `""`)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1205,6 +1258,7 @@ Inputs:
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `npm run build`)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1229,6 +1283,7 @@ Inputs:
 - `test_command` (string, default `npm test`)
 - `audit_command` (string, default `npm audit --audit-level=high`)
 - `build_command` (string, default `npm run build`)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1236,6 +1291,35 @@ Example:
 jobs:
   vue_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/vue-scan.yml@production
+```
+
+## pnpm-scan.yml
+
+Workflow: `.github/workflows/pnpm-scan.yml`
+
+Purpose: Run pnpm lint/test/build and `pnpm audit`. Installs with
+`pnpm install --frozen-lockfile`.
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `.`)
+- `fetch_depth` (number, default `0`)
+- `node_version` (string, default `22`)
+- `pnpm_version` (string, default `latest`)
+- `lint_command` (string, default `pnpm run --if-present lint`)
+- `test_command` (string, default `pnpm run test`)
+- `build_command` (string, default `pnpm run build`)
+- `audit_filters` (string, default `""`) - space-separated workspace filters, each audited on its own. Empty runs one audit of the whole workspace.
+- `audit_level` (string, default `high`)
+
+Example:
+
+```yaml
+jobs:
+  pnpm_scan:
+    uses: nikolareljin/ci-helpers/.github/workflows/pnpm-scan.yml@production
+    with:
+      audit_filters: "@acme/web @acme/api"
 ```
 
 ## docker-scan.yml
@@ -1246,12 +1330,15 @@ Purpose: Build a Docker image and scan with Trivy and Snyk.
 
 Note: Snyk requires a `SNYK_TOKEN` secret.
 
-Inputs (selected):
+Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `image_name` (string, default `ci-image:latest`)
 - `dockerfile` (string, default `Dockerfile`)
 - `context` (string, default `"."`)
+- `fetch_depth` (number, default `0`)
+- `trivy_ignore_unfixed` (string, default `true`) - skip findings with no fixed version.
+- `snyk_severity_threshold` (string, default `high`)
 - `trivy_severity` (string, default `CRITICAL,HIGH`)
 - `fail_on_findings` (boolean, default `true`)
 - `run_snyk` (boolean, default `false`). Snyk needs an account and an API token
@@ -1275,6 +1362,9 @@ Inputs (selected):
 
   Trivy runs on every call, needs no credential, and covers the same CVE ground
   for container images.
+
+Secrets:
+- `snyk_token` - required only when `run_snyk` is `true`.
 
 Example:
 
@@ -1304,6 +1394,7 @@ Inputs (selected):
 - `composer_command`, `phpcs_command`, `phpstan_command`, `phpunit_command`, `phpunit_coverage_command`
 - `fail_on_findings` (boolean, default `true`), `cleanup` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`), `artifact_name` (string, default `bundle-check-results`)
+- `out_dir` (string, default `test/tmp`) - where results are written.
 
 Example:
 
@@ -1330,7 +1421,32 @@ stack, installs dependencies, and runs lint, static analysis and tests inside
 it. Call `pimcore.yml` instead unless you are driving one specific version and
 want no matrix.
 
-Inputs: as `pimcore.yml`, minus `php_versions` — it takes one `php_version`.
+Inputs: as `pimcore.yml`, minus `php_versions` (it takes one `php_version`),
+plus four that run outside the compose stack. In full:
+
+- `runner` (string, default `ubuntu-latest`)
+- `compose_file` (string, default `test/docker-compose.yml`)
+- `bundle_src` (string, default `.`)
+- `bundle_src_env` (string, default `BUNDLE_SRC`) - the variable the compose file reads the bundle path from
+- `php_service` (string, default `php`)
+- `db_service` (string, default `db`)
+- `db_wait_seconds` (string, default `20`)
+- `out_dir` (string, default `test/tmp`)
+- `php_version` (string, default `""`)
+- `php_version_env` (string, default `PHP_VERSION`) - the variable the version is exported as; empty exports nothing
+- `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
+- `php_lint_command` (string, default `""`) - runs on the runner, before the stack starts
+- `phpcs_standalone_command` (string, default `""`) - runs on the runner
+- `phpunit_standalone_command` (string, default `""`) - runs on the runner
+- `phpunit_working_directory` (string, default `.`) - where the standalone PHPUnit runs
+- `phpcs_command` (string, default `vendor/bin/phpcs --standard=PSR12 --extensions=php src/`) - runs inside the stack
+- `phpstan_command` (string, default `""`)
+- `phpunit_command` (string, default `vendor/bin/phpunit --testdox`)
+- `phpunit_coverage_command` (string, default `""`)
+- `fail_on_findings` (boolean, default `true`)
+- `cleanup` (boolean, default `true`)
+- `upload_artifact` (boolean, default `false`)
+- `artifact_name` (string, default `bundle-check-results`)
 
 ## auto-tag.yml
 
@@ -1381,6 +1497,10 @@ Inputs:
 - `default_branch` (string, default `""`, uses repo default)
 - `update_production_tag` (boolean, default `false`) — when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
+
+Outputs:
+- `version` - the version tagged; empty when the push was not a `release/*` merge. Gate follow-up jobs on `needs.<job>.outputs.version`.
+- `is_prerelease` - `"true"` when that version carries a pre-release suffix.
 
 **`production` moves only for a final `X.Y.Z`.** A merged `release/X.Y.Z-rcN` is tagged so the candidate can be exercised by a pilot consumer, and `production` stays where it is regardless of `update_production_tag`. There is no input for this — a candidate that moved `production` would be live the moment it merged, which is the opposite of cutting one. Promote a candidate by cutting `release/X.Y.Z` (with `CHANGELOG`, `VERSION` and any other reference to the version updated to drop the `-rcN`); merging that tags `X.Y.Z` and moves `production`.
 
@@ -1587,7 +1707,7 @@ Workflow: `.github/workflows/release-build.yml`
 
 Purpose: Build release artifacts in any language and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
@@ -1653,7 +1773,7 @@ Workflow: `.github/workflows/rust-release.yml`
 
 Purpose: Build multi-target Rust release binaries and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `bin_name` (string, required)
@@ -1667,6 +1787,8 @@ Inputs (selected):
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
+- `working_directory` (string, default `.`)
+- `fetch_depth` (number, default `0`)
 
 Example:
 
@@ -1690,10 +1812,12 @@ Workflow: `.github/workflows/go-release.yml`
 
 Purpose: Build multi-target Go binaries and publish a GitHub Release.
 
-The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write` as before. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
+The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
 - `bin_name` (string, required)
+- `working_directory` (string, default `.`)
+- `fetch_depth` (number, default `0`)
 - `main_path` (string, default `"."`)
 - `artifact_dir` (string, default `artifacts`)
 - `go_version` (string, default `1.25`)
@@ -1703,6 +1827,8 @@ Inputs (selected):
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)
 - `binary_base_url` (string, default `""`)
+- `cgo_enabled` (boolean, default `false`) - a cgo binary links against the build machine's libc, so it stays off unless a build needs it.
+- `cgo_packages` (string, default `""`) - apt packages for the headers a cgo build needs. Ignored when `cgo_enabled` is `false`.
 
 Example:
 
@@ -1801,6 +1927,59 @@ jobs:
       ssh_known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 ```
 
+## wp-build.yml
+
+Workflow: `.github/workflows/wp-build.yml`
+
+Purpose: Build the zip a WordPress plugin ships.
+
+It installs production Composer dependencies, runs the front-end build when
+there is a `package.json`, copies the plugin without what only develops it, and
+zips it as `<slug>-<version>.zip`. Excludes come from `.distignore`; without
+one a default list is applied and printed. The build lives in script-helpers'
+[`ci_wp_build.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_wp_buildsh),
+so `scripts/ci_wp_build.sh --workdir .` builds the same package locally.
+
+It builds and uploads only. It creates no release and needs no
+`contents: write`; attaching the zip is the caller's step (see the
+[WordPress preset](presets.md#wordpress)).
+
+Inputs:
+- `runner` (string, default `ubuntu-latest`)
+- `working_directory` (string, default `.`)
+- `fetch_depth` (number, default `0`)
+- `submodules` (string, default `false`)
+- `php_version` (string, default `8.3`)
+- `node_version` (string, default `22`)
+- `slug` (string, default `""`) - the plugin directory in the zip, and the name WordPress installs it as. Empty uses the working directory's name.
+- `version` (string, default `""`) - empty reads the `Version:` header of the plugin file
+- `out_dir` (string, default `build`)
+- `composer_command` (string, default `composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction`) - empty skips it
+- `asset_command` (string, default `npm ci && npm run build`) - runs only when there is a `package.json`
+- `exclude_from` (string, default `""`) - a file of rsync-style excludes. Empty uses `.distignore`.
+- `zip` (boolean, default `true`)
+- `verify_command` (string, default `""`) - your own check of the staged tree, run with `PACKAGE_DIR` and `PACKAGE_ZIP` set
+- `upload_artifact` (boolean, default `true`)
+- `artifact_name` (string, default `wp-plugin-package`) - holds the zip, or the staged tree when `zip` is `false`
+- `retention_days` (number, default `7`)
+- `timeout_minutes` (number, default `20`)
+
+Outputs:
+- `package_dir` - the staged tree that ships
+- `package_zip` - the archive; empty when `zip` is `false`
+- `version` - the version the package was built as
+
+Example:
+
+```yaml
+jobs:
+  build:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-build.yml@production
+    with:
+      slug: my-plugin
+      verify_command: 'test ! -d "$PACKAGE_DIR/node_modules"'
+```
+
 ## wp-phpunit.yml
 
 Workflow: `.github/workflows/wp-phpunit.yml`
@@ -1868,7 +2047,8 @@ Workflow: `.github/workflows/wp-plugin-check.yml`
 
 Purpose: Run WordPress plugin-check via Docker, with optional PHPUnit/lint.
 
-Note: Requires Docker on the runner and a compose file that mounts the plugin.
+Note: Requires Docker on the runner. Without `wp_version` or `versions`, it
+also requires the compose file named by `compose_file`, which mounts the plugin.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -1905,9 +2085,7 @@ Inputs:
 - `artifact_name` (string, default `plugin-check-results`)
 
 Set `wp_version` (or `versions`) and the workflow generates the WordPress
-stack itself, so a plugin repository carries no compose file. Three plugins in
-this fleet each wrote one, and they differed only in the image tag, the mount
-path and the name of a port variable. `compose_file` still wins when set, for a
+stack itself, so a plugin repository carries no compose file. `compose_file` still wins when set, for a
 repository that needs services this does not describe.
 
 The generated stack pins `mariadb`, `wordpress:cli` and the default
@@ -1922,8 +2100,7 @@ versions: '[{"wp":"6.2","php":"8.0"},{"wp":"7.1","php":"8.4"}]'
 
 `php` is optional per entry. Each leg is named from its pair, so a failure says
 `check wp6.2-php8.0` rather than a rendered struct. Empty `versions` runs a
-single leg from `wp_version` and `php_version`, which is what a caller that
-never sets it already gets.
+single leg from `wp_version` and `php_version`.
 
 `wp plugin check` reports every file it is given, and with `plugin_src: .` that
 is the whole repository rather than the plugin. The two exclusion defaults name
@@ -1957,11 +2134,10 @@ Workflow: `.github/workflows/tauri-scan.yml`
 
 Purpose: Fast Tauri lint + check gate (no full build). Runs on `ubuntu-24.04`.
 
-The previous default said 22.04 was "required for Tauri v2 WebKit2GTK ABI
-compatibility — ubuntu-24.04 breaks it". That had it backwards: **v1** linked
-`webkit2gtk-4.0`, which 24.04 removed; **v2** links `4.1`, which is what these
-workflows' own apt step installs and what 24.04 ships. A v2 app was verified
-compiling on 24.04 before this default moved.
+Tauri **v2** links `webkit2gtk-4.1`, which 24.04 ships and the apt step
+installs. Tauri **v1** needs `webkit2gtk-4.0`, which 24.04 does not have, so a
+v1 app sets `runner: ubuntu-22.04` and an `apt_packages` list with
+`libwebkit2gtk-4.0-dev`.
 
 Inputs:
 - `runner` (string, default `ubuntu-24.04`)
@@ -1997,8 +2173,19 @@ Purpose: Standalone Tauri CI preset — installs Tauri system deps, runs tests
 and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
 Runs on `ubuntu-24.04` by default; override with `runner`.
 
-Inputs: same as `tauri-scan.yml` except `rust_components` defaults to `""` (no components), plus:
-- `runner` (string, default `ubuntu-24.04`) — stated here too, because it is the one worth overriding
+Inputs: like `tauri-scan.yml`, but with no `check_command`, no lint and no
+components by default, and with test and build steps:
+- `runner` (string, default `ubuntu-24.04`) - the one worth overriding
+- `working_directory` (string, default `.`) - the Cargo workspace root
+- `fetch_depth` (number, default `0`)
+- `rust_toolchain` (string, default `stable`)
+- `rust_components` (string, default `""`)
+- `apt_packages` (string, default: full Tauri v2 WebKit2GTK deps)
+- `node_version` (string, default `""`) - empty skips Node setup
+- `frontend_dir` (string, default `""`) - empty skips the frontend steps
+- `frontend_install_command` (string, default `npm ci`)
+- `frontend_build_command` (string, default `""`) - empty skips the build
+- `lint_command` (string, default `""`) - empty skips lint
 - `test_command` (string, default `cargo test --verbose`)
 - `build_command` (string, default `cargo build --verbose`)
 
@@ -2053,7 +2240,7 @@ Inputs (selected):
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `runner` | `ubuntu-24.04` | Linux runner for `build-linux`. New in 0.24.0 — it was hardcoded, the one Tauri workflow a consumer could not override |
+| `runner` | `ubuntu-24.04` | Linux runner for `build-linux`. |
 | `version` | `""` | Patches `tauri.conf.json` + `Cargo.toml` |
 | `rust_toolchain` | `stable` | Rust toolchain |
 | `node_version` | `""` | Optional Node.js version |
@@ -2075,6 +2262,11 @@ Inputs (selected):
 | `winget_installer_url` | `""` | Direct `.exe` URL |
 | `winget_installer_arch` | `x64` | Architecture tag |
 | `winget_installer_type` | `nullsoft` | `nullsoft`, `msi`, `wix` |
+| `winget_fork_owner` | `""` | Owner of the `microsoft/winget-pkgs` fork |
+| `release_name` | `""` | Release title; empty is `Release <tag>` |
+| `apt_packages` | WebKitGTK, GTK and build tools | Linux system packages |
+| `artifact_retention_days` | `3` | Retention of artifacts passed between jobs |
+| `fetch_depth` | `0` | |
 
 Secrets:
 
@@ -2086,7 +2278,7 @@ Secrets:
 | `APPLE_TEAM_ID` | `sign_macos: true` |
 | `APPLE_ID` | `notarize_macos: true` |
 | `APPLE_APP_PASSWORD` | `notarize_macos: true` |
-| `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD` — the name most consumers already hold; pass either, not both (#97) |
+| `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD`, the name most consumers already hold; pass either, not both |
 | `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
 | `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` (base64 `.pfx`) |
@@ -2189,6 +2381,7 @@ Inputs:
 | `scan_after_build` | no | `true` | Run Trivy scan after push |
 | `trivy_severity` | no | `CRITICAL,HIGH` | Severities that trigger scan output |
 | `fail_on_scan_findings` | no | `false` | Fail the workflow on Trivy findings |
+| `fetch_depth` | no | `0` | Checkout depth |
 
 Secrets:
 - `registry_token` (required) — registry password / token (e.g. `secrets.GITHUB_TOKEN` for GHCR)
@@ -2232,6 +2425,8 @@ Inputs:
 | `publish_latest` | `true` | Forwarded as `publish_latest` to dispatched workflows |
 | `tag_prefix` | `""` | Prefix prepended to the version when creating the tag (e.g. `v`) |
 | `skip_if_tagged` | `true` | Skip tagging when the tag already exists |
+| `runner` | `ubuntu-latest` | |
+| `fetch_depth` | `0` | |
 
 Outputs:
 - `version` — extracted version string (no prefix)

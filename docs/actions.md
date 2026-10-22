@@ -33,7 +33,9 @@ Example:
     version_b: "1.4.0"
 
 - name: Use result
-  run: echo "Result: ${{ steps.semver.outputs.result }}"
+  env:
+    RESULT: ${{ steps.semver.outputs.result }}
+  run: echo "result=$RESULT"
 ```
 
 ## check-release-tag
@@ -63,45 +65,14 @@ Example:
     fetch_tags: true
 
 - name: Use version
-  run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+  env:
+    VERSION: ${{ steps.release_guard.outputs.version }}
+  run: echo "version=$VERSION"
 ```
 
 Notes:
 
 - The guard expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`.
-
-## release-notes
-
-Path: `.github/actions/release-notes`
-
-Purpose: Generate release notes from git history with optional binary links.
-
-Inputs:
-
-- `repo_dir` (default `GITHUB_WORKSPACE`)
-- `since_tag` (default `""`, uses latest tag when omitted)
-- `release_tag` (default `GITHUB_REF_NAME`)
-- `binary_links` (default `""`, `label|filename` per line)
-- `binary_base_url` (default `""`, uses repo releases/download/<tag>)
-
-Outputs:
-
-- `notes` (generated markdown)
-
-Example:
-
-```yaml
-- name: Generate release notes
-  id: notes
-  uses: nikolareljin/ci-helpers/.github/actions/release-notes@production
-  with:
-    binary_links: |
-      Linux|myapp-linux
-      macOS|myapp-mac
-
-- name: Use notes
-  run: echo "${{ steps.notes.outputs.notes }}"
-```
 
 ## trivy-scan
 
@@ -118,6 +89,8 @@ Inputs:
 - `ignore_unfixed` (default `"true"`)
 - `vuln_type` (default `os,library`)
 - `fail_on_findings` (default `"false"`)
+- `scanners` (default `vuln`) - comma-separated Trivy scanners, e.g. `vuln,secret,misconfig`
+- `skip_dirs` (default `""`) - comma-separated directories passed to `--skip-dirs`
 - `upload_sarif` (default `"true"`)
 
 Example:
@@ -365,8 +338,9 @@ Inputs (selected):
 - `out_dir` (default `test/tmp`)
 - `php_version` (default `""`) — drives the optional standalone steps, and is exported for the Compose stack
 - `php_version_env` (default `PHP_VERSION`) — variable `php_version` is exported as; `""` exports nothing
-- `composer_command`, `phpcs_command`, `phpstan_command`, `phpunit_command`, `phpunit_coverage_command`
-- `fail_on_findings`, `cleanup`
+- `composer_command`, `phpcs_command`, `phpstan_command`, `phpunit_command`, `phpunit_coverage_command` (run inside the `php` service)
+- `php_lint_command`, `phpcs_standalone_command`, `phpunit_standalone_command` (default `""`, run on the runner without Docker), `phpunit_working_directory` (default `"."`)
+- `fail_on_findings` (default `"true"`), `cleanup` (default `"true"`)
 
 Example:
 
@@ -406,18 +380,28 @@ Purpose: Run WordPress plugin-check in Docker and optional standalone PHPUnit.
 
 Note: Requires Docker on the runner and a compose file that mounts the plugin.
 
-Inputs (selected):
+For a whole job, with a generated stack and a version matrix, use the
+[`wp-plugin-check.yml`](workflows.md#wp-plugin-checkyml) workflow instead.
+
+Inputs:
 
 - `compose_file` (default `test/docker-compose.yml`)
 - `plugin_slug` (required)
 - `plugin_src` (default `"."`)
-- `plugin_src_env` (default `PLUGIN_SRC`)
+- `plugin_src_env` (default `PLUGIN_SRC`) - the variable the compose file mounts the plugin from
+- `wpcli_service` (default `wpcli`), `db_service` (default `db`), `wordpress_service` (default `wordpress`) - compose service names
+- `host_port` (default `"8080"`) - host port of the WordPress service
+- `db_wait_seconds` (default `"30"`)
+- `multisite` (default `"true"`), `activate_network` (default `"true"`)
+- `admin_user` (default `admin`), `admin_password` (default `admin`), `admin_email` (default `admin@example.com`), `site_title` (default `WP Test Site`)
+- `meta_check_script` (default `""`) - a `wp eval-file` script for your own checks
 - `out_dir` (default `test/tmp`)
 - `php_version` (optional for lint/PHPUnit)
 - `php_lint_command` (optional, errors only)
 - `phpcs_warning_command` (optional, non-blocking)
-- `phpunit_command` (optional, standalone)
+- `phpunit_command` (optional, standalone), `phpunit_working_directory` (default `"."`)
 - `fail_on_findings` (default `"false"`)
+- `cleanup` (default `"true"`) - run `docker compose down` afterwards
 
 Example:
 

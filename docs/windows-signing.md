@@ -71,8 +71,7 @@ cannot use it.
    [DigiCert KeyLocker][dc-kl], [SSL.com eSigner][ssl-es],
    [Certum SimplySign][certum-ss], [GlobalSign Digital Signing Service][gs-dss].
    Sectigo issues to a token or your own HSM ([Sectigo code signing][sectigo]).
-   ci-helpers has no mode for these yet; one could be added later. For public
-   trust now, use `azure`.
+   ci-helpers has no mode for these. For public trust, use `azure`.
 
 ### Where to buy
 

@@ -49,9 +49,41 @@ distinct `concurrency_key` (every preset passes it through).
 
 The four presets that run their own job key their own group, and include the
 database in it: two legs differing only in `db_image` would otherwise share a
-group and the second would cancel the first. That is not hypothetical -- it
-happened to `laravel.yml`'s own self-test legs before the key carried
-`db_image`.
+group and the second would cancel the first.
+
+## Shared inputs
+
+These inputs mean the same thing on every preset that declares them. A preset
+section below lists only what it adds or what it defaults differently.
+
+Pass-through inputs, forwarded to the job as-is:
+
+| Input | Type | Engine default | What it does |
+|---|---|---|---|
+| `runner` | string | `ubuntu-latest` | The `runs-on` label. |
+| `working_directory` | string | `.` | Directory every command runs in. |
+| `concurrency_key` | string | `""` | Overrides the computed concurrency group. |
+| `fetch_depth` | number | `0` | Checkout depth. `0` is full history. |
+| `submodules` | string | `false` | `false`, `true` or `recursive`. |
+| `cache` | boolean | `true` | Dependency caching, detected from lockfiles. |
+| `timeout_minutes` | number | `20` | Job timeout. |
+
+Command inputs, run in this order when non-empty:
+
+| Input | Runs |
+|---|---|
+| `install_command` | First, so lint and test do not each install. |
+| `lint_command` | Linters and formatters. |
+| `test_command` | Unit tests. |
+| `build_command` | The build. |
+| `docker_command` | A Docker build, after the build. |
+| `e2e_command` | End-to-end tests, after Docker. |
+| `extra_command` | Anything else, last. |
+
+Toolchain inputs (`node_version`, `java_version`, `python_version`,
+`go_version`, `php_version`, `rust_toolchain`, `rust_components`,
+`dotnet_version`) select the version `ci.yml` installs. Their full description
+is under [`ci.yml`](workflows.md#ciyml).
 
 ## Shell
 
@@ -147,8 +179,7 @@ That is deliberate: a React project needs nothing in CI that a Node project
 does not, and this preset exists so a call site can say what the repository
 *is* rather than what it runs. Keep the two in step — if one gains an input or
 a default, the other should too. `node-refuses-what-it-must` in `self-test-web.yml`
-fails the build if they drift, which nothing checked while `react.yml` had no
-consumer and had never run.
+fails the build if they drift.
 
 Example:
 
@@ -191,6 +222,27 @@ Defaults:
 - `node_version`: `""` (empty — set to e.g. `"22"` to install Node.js; also set `build_command` to run npm/yarn steps)
 - `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
+
+`php.yml` is the only preset that forwards `ci.yml`'s database and environment
+inputs: `db_image`, `db_env`, `db_ports`, `db_health_cmd`, `db_wait_seconds`
+(default `60`) and `extra_env`, all empty by default. They work as described
+under [`ci.yml`](workflows.md#ciyml). For example, MySQL for the tests:
+
+```yaml
+jobs:
+  php:
+    uses: nikolareljin/ci-helpers/.github/workflows/php.yml@production
+    with:
+      db_image: "mysql:8.0"
+      db_env: |
+        MYSQL_ROOT_PASSWORD=root
+        MYSQL_DATABASE=app_test
+      db_ports: "3306:3306"
+      db_health_cmd: "mysqladmin ping -h 127.0.0.1 -proot"
+      extra_env: |
+        DB_HOST=127.0.0.1
+        DB_PORT=3306
+```
 
 Example:
 
@@ -280,6 +332,181 @@ FROM php:${PHP_VERSION}-cli
 Set `php_version_env: ""` to export nothing, if your stack pins its PHP version
 some other way.
 
+## Laravel
+
+Workflow: `.github/workflows/laravel.yml`
+
+Runs a Laravel application's lint, front-end build and tests. The tests go
+through script-helpers'
+[`ci_laravel.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_laravelsh),
+which writes `.env`, generates `APP_KEY`, starts the database in Docker, runs
+the migrations and then the tests. The same command runs on a laptop.
+
+Order: `lint_command`, `build_command`, then `install_command`,
+`migrate_command` and `test_command` inside the script.
+
+Defaults:
+
+- `php_version`: `8.4`
+- `node_version`: `22` (empty skips Node setup)
+- `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/pint --test`
+- `build_command`: `npm ci --include=optional && npm run build`
+- `install_command`: `""` (the lint step already installs)
+- `migrate_command`: `php artisan config:clear && php artisan migrate --force`
+- `test_command`: `php artisan test`
+- `db_image`: `mysql:8.0`, pinned by digest. Empty runs on SQLite with no container.
+- `db_database`: `laravel_test`, `db_username`: `laravel`, `db_password`: `secret`
+- `db_root_password`: `root`, `db_port`: `3306`, `db_wait_seconds`: `60`
+
+The database credentials exist only inside the throwaway container. No secrets
+are needed.
+
+Example:
+
+```yaml
+jobs:
+  laravel:
+    uses: nikolareljin/ci-helpers/.github/workflows/laravel.yml@production
+    with:
+      php_version: "8.3"
+```
+
+For Postgres, pass a Postgres image; the script reads the engine from the image
+name:
+
+```yaml
+    with:
+      db_image: "postgres:16"
+      db_port: "5432"
+```
+
+## Django
+
+Workflow: `.github/workflows/django.yml`
+
+Runs a Django project's lint and tests through script-helpers'
+[`ci_django.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_djangosh).
+The script starts the database in Docker, runs the migrations, fails on model
+changes that have no migration, then runs the tests.
+
+Order: `lint_command`, then `install_command`, `migrate_command`,
+`makemigrations_command` and `test_command` inside the script.
+
+Defaults:
+
+- `python_version`: `3.12`
+- `lint_command`: `""`
+- `install_command`: `""`, which installs `requirements.txt` when it exists
+- `migrate_command`: `python manage.py migrate --noinput`
+- `makemigrations_command`: `python manage.py makemigrations --check --dry-run --noinput` (empty skips the drift check)
+- `test_command`: `python manage.py test --noinput`
+- `settings_module`: `""` - `DJANGO_SETTINGS_MODULE` for every step
+- `db_image`: `postgres:16`, pinned by digest. Empty runs on SQLite.
+- `db_name`: `django`, `db_user`: `django`, `db_password`: `django`
+- `db_root_password`: `root` (MySQL images only), `db_port`: `""` (the engine's port), `db_wait_seconds`: `60`
+
+Example:
+
+```yaml
+jobs:
+  django:
+    uses: nikolareljin/ci-helpers/.github/workflows/django.yml@production
+    with:
+      python_version: "3.12"
+      settings_module: mysite.settings_ci
+      lint_command: "python -m pip install ruff && ruff check ."
+```
+
+## WordPress
+
+Workflows: `.github/workflows/wp-phpunit.yml`,
+`.github/workflows/wp-plugin-check.yml`, `.github/workflows/wp-build.yml`
+
+Three workflows cover a WordPress plugin. Use any of them alone.
+
+| Workflow | Runs | script-helpers |
+|---|---|---|
+| [`wp-phpunit.yml`](workflows.md#wp-phpunityml) | The plugin's PHPUnit tests against the WordPress test library and a MySQL container | [`ci_wp_phpunit.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_wp_phpunitsh) |
+| [`wp-plugin-check.yml`](workflows.md#wp-plugin-checkyml) | WordPress Plugin Check (`wp plugin check`) in a Docker stack, optionally over a WordPress/PHP matrix | [`ci_wp_plugin_check.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_wp_plugin_checksh) |
+| [`wp-build.yml`](workflows.md#wp-buildyml) | The release zip: production Composer dependencies, built assets, `.distignore` applied | [`ci_wp_build.sh`](https://nikolareljin.github.io/script-helpers/commands/#scriptsci_wp_buildsh) |
+
+Each one runs the script-helpers script, so the same command runs on a laptop.
+[`php-scan.yml`](workflows.md#php-scanyml) also detects WordPress and adds a
+`WordPress` PHPCS standard run and a WP-CLI scan. The
+[`wp-plugin-check`](actions.md#wp-plugin-check) composite action runs Plugin
+Check as a step in your own job.
+
+What the plugin needs:
+
+- `phpunit/phpunit` and `yoast/phpunit-polyfills` as dev dependencies, and a
+  `tests/bootstrap.php` that loads the test library from `WP_TESTS_DIR`. The
+  workflow provides the library; the plugin carries no `bin/install-wp-tests.sh`.
+- A `Version:` header in the main plugin file, unless you pass `version`.
+  `wp-build.yml` names the zip from it.
+- For `wp-plugin-check.yml`, `wp_version` or `versions`, so the workflow
+  generates the WordPress stack. Without either, it uses the compose file named
+  by `compose_file` (default `test/docker-compose.yml`), which the plugin then
+  carries.
+- Optionally a `.distignore`. Without one, `wp-build.yml` applies a default
+  exclude list and prints it.
+
+Services: every database and WordPress container is started by the workflow
+and removed afterwards (with `wp-plugin-check.yml`, unless `cleanup` is
+`false`). The runner needs Docker, which `ubuntu-latest` has.
+No secrets are needed. Attaching the zip to a release is the caller's step and
+the only one that needs `contents: write`.
+
+Example, with all three:
+
+```yaml
+name: WordPress
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["*"]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-phpunit.yml@production
+    with:
+      php_version: "8.3"
+      wp_version: "latest"
+
+  plugin-check:
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@production
+    with:
+      plugin_slug: my-plugin
+      versions: '[{"wp":"6.8","php":"8.1"},{"wp":"6.8","php":"8.3"}]'
+      fail_on_findings: true
+
+  build:
+    needs: [tests, plugin-check]
+    uses: nikolareljin/ci-helpers/.github/workflows/wp-build.yml@production
+    with:
+      slug: my-plugin
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp-plugin-package
+          path: dist
+      - name: Attach the zip to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+```
+
 ## Go
 
 Workflow: `.github/workflows/go.yml`
@@ -337,6 +564,8 @@ and a skipped job reads like a pass.
 
 ### The pull request gate
 
+Workflow: `.github/workflows/go-pr-gate.yml`
+
 `go.yml` calls the CI engine. For a pull request gate, call `go-pr-gate.yml`,
 which supplies the same defaults to `pr-gate.yml`:
 
@@ -373,12 +602,10 @@ Defaults:
 - `test_command`: `mvn -B test`
 - `build_command`: `mvn -B package`
 
-Lint is opt-in. The default used to be
-`mvn -B -DskipTests checkstyle:check`, which resolves the checkstyle plugin
-whether or not the project configures it and then applies Sun's rules: on a
-conventional two-file project that is **12 violations** and a red build on
-correct code. A check that fires on correct input gets switched off, so it is
-worse than one that is absent.
+Lint is opt-in. `mvn -B -DskipTests checkstyle:check` is not a safe default:
+it resolves the checkstyle plugin whether or not the project configures it and
+then applies Sun's rules. On a conventional two-file project that is
+**12 violations** and a red build on correct code.
 
 A project with a ruleset asks for it:
 
@@ -430,11 +657,9 @@ Defaults:
 - `build_command`: `./gradlew build`
 - `timeout_minutes`: `20` (passed through to `ci.yml`)
 
-The defaults are the tasks a Kotlin/JVM project has. They used to be
-`./gradlew lint` and `./gradlew assembleDebug`, which come from the **Android**
-Gradle plugin — on a plain Kotlin/JVM project Gradle answers `Task 'lint' not
-found in root project`, so the preset could never have worked for one. Every
-call site overrode all three commands, which is why nothing ever met that.
+The defaults are the tasks a Kotlin/JVM project has. `./gradlew lint` and
+`./gradlew assembleDebug` come from the **Android** Gradle plugin; on a plain
+Kotlin/JVM project Gradle answers `Task 'lint' not found in root project`.
 
 An Android app passes its own:
 
@@ -653,7 +878,9 @@ nothing billed.
 
 It is a variable rather than an input so that arming it is a deliberate act in the
 repository's settings, visible to anyone with access, rather than a line in a
-workflow file that a merge can introduce.
+workflow file that a merge can introduce. The `enabled` input exists for one
+case: a caller passes `${{ vars.UNITY_CI }}` through it explicitly. Empty reads
+the same variable here.
 
 ```yaml
 jobs:
@@ -690,6 +917,9 @@ reports it as a missing file rather than a missing secret.
 - `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
 - `timeout_minutes`: `60`, not `20` — a cold `Library` import can take most of it
 - `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate
+- `lfs`: `true` - check out Git LFS objects; a missing object fails deep inside the import otherwise
+- `artifact_name`: `unity-test-results`
+- `enabled`: `""`, which reads `vars.UNITY_CI`
 
 ### What is and is not tested here
 
@@ -725,8 +955,8 @@ dependency audit and says nothing about a known advisory in a module you import.
 `govulncheck` is that audit, and it reports only advisories reachable from your
 code, so importing a vulnerable module without calling into it is not flagged.
 
-It is **off by default**. Turning it on fleet-wide would fail repositories that
-changed nothing, on the day an advisory is published.
+It is **off by default**. On by default, it would fail a repository that
+changed nothing on the day an advisory is published.
 
 `v1.7.0` rather than the newest: `x/vuln` v1.8.0 declares `go 1.26.0`, and
 `actions/setup-go` sets `GOTOOLCHAIN=local`, so installing it fails with
@@ -736,8 +966,8 @@ before trusting a local check. Raise this input only together with
 `go_version`.
 
 `govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
-means the gate changes behaviour without a commit here, and a new advisory class
-turns every consumer red on a day nobody shipped.
+would change the gate's behaviour without a change here, and a new advisory
+class would turn every consumer red on a day nobody released anything.
 
 govulncheck exits **3** when it finds something, not 1. The step relies on
 non-zero rather than a specific code.
@@ -927,6 +1157,8 @@ Defaults:
 - `deploy`: `true` — set `false` to build without publishing
 - `timeout_minutes`: `20`
 
+Output: `page_url`, the published address. Empty when `deploy` is `false`.
+
 The build fails if `pages_path` is missing, or contains no files by the time
 the site is uploaded — a tree of empty directories is not a site — whether a generator ran and produced nothing, or a deploy-only call
 points at a directory that is not there. That check is why `build_command` does
@@ -1049,7 +1281,10 @@ Minimum grants, both measured against a real run rather than inferred:
 | `pages-deploy.yml` | `pages: write` + `id-token: write` | succeeds |
 
 `pages-build.yml` takes every input `pages.yml` does except `deploy` and
-`concurrency_key`, plus two of its own:
+`concurrency_key` (`runner`, `working_directory`, `fetch_depth`,
+`python_version`, `node_version`, `requirements_file`, `install_command`,
+`build_command`, `pages_path`, `require_entry_file`, `artifact_retention_days`,
+`timeout_minutes`), plus two of its own:
 
 - `upload`: `true` — upload the built site as the `github-pages` artifact for a
   later deploy job. Set `false` on runs that only check the site builds, so no
@@ -1119,13 +1354,11 @@ GitHub Pages. Requires `pages: write` and `id-token: write` in the caller.
 Defaults:
 
 - `runner`: `ubuntu-latest`
-- `concurrency_key`: `""` — overrides `github.ref` in the concurrency group, for callers publishing several sites from one ref (#133)
+- `concurrency_key`: `""` - overrides `github.ref` in the concurrency group, for callers publishing several sites from one ref
 
-Migrating a caller (#133): the workflow's own concurrency group is now
-`ci-helpers-pnpm-pages-<key>`, so a caller no longer collides with it.
-**Remove** any caller-level `concurrency:` block that was added to work around
-the old collision; keep one only if you want the caller's *own* runs
-serialised, and give it a name that is not `pages-<ref>`. Two callers
+The workflow keys its own concurrency group as `ci-helpers-pnpm-pages-<key>`,
+so a caller needs no `concurrency:` block for it. Add one only to serialise
+the caller's *own* runs, and give it a name that is not `pages-<ref>`. Two callers
 publishing different sites from one ref pass distinct `concurrency_key`
 values and stop queueing behind each other.
 
@@ -1258,9 +1491,9 @@ Defaults:
 Notes:
 
 - The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
-  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
-  replaced could not run as written on either line -- measured on 2026-09-28,
-  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  while `--frozen-lockfile` is Yarn 1 syntax, so a command using both
+  runs on neither line: Yarn 1.22 answers
+  `error Command "dlx" not found.` `npx` ships with Node,
   prefers a binary already in `node_modules/.bin`, and fetches only when there
   is none.
 
@@ -1297,9 +1530,9 @@ Defaults:
 Notes:
 
 - The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
-  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so the default this
-  replaced could not run as written on either line -- measured on 2026-09-28,
-  Yarn 1.22 answers `error Command "dlx" not found.` `npx` ships with Node,
+  while `--frozen-lockfile` is Yarn 1 syntax, so a command using both
+  runs on neither line: Yarn 1.22 answers
+  `error Command "dlx" not found.` `npx` ships with Node,
   prefers a binary already in `node_modules/.bin`, and fetches only when there
   is none.
 

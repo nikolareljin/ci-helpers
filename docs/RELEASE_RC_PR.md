@@ -110,21 +110,17 @@ The PR targets the repository's default branch. To target a different branch, pa
 
 ---
 
-## Historical failure analysis
+## Troubleshooting
 
-Every release branch from `0.6.3` through `0.9.3` had this workflow fail.
-Two compounding bugs, fixed in `0.10.0`:
+Two failures stop this workflow from opening a PR:
 
-1. **Unnecessary `repos.get()` API call** — the original workflow called
-   `github.rest.repos.get()` solely to read `default_branch`.  Under
-   `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`, `actions/github-script` returned
-   `401` for this call.  Fixed by reading `default_branch` from the event
-   payload instead.
-
-2. **Repo-level PR gate was disabled** — after fixing the 401, the actual
-   `pulls.create()` call returned `403 GitHub Actions is not permitted to
-   create or approve pull requests`.  Fixed by enabling **Option A** above
-   (or providing `GH_PAT`).
+1. **`401` reading the repository.** The workflow reads `default_branch` from
+   the event payload and makes no `repos.get()` call, because
+   `actions/github-script` under `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`
+   gets `401` for that call. A copy that calls `repos.get()` fails this way.
+2. **`403 GitHub Actions is not permitted to create or approve pull requests`.**
+   The repository setting that lets Actions open PRs is off. Enable **Option A**
+   above, or provide `GH_PAT`.
 
 ---
 

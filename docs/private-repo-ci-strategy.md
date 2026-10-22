@@ -28,7 +28,7 @@ Run every applicable `ci_*.sh` command explicitly in multi-stack repositories;
 the hook does not discover nested projects or combine multiple stacks.
 
 Every `ci_*.sh` runner in `script-helpers` refuses to run when `CI=true`. They
-are deliberately local tools; the library was built for this model.
+are deliberately local tools; the library is built for this model.
 
 ## How much CI to keep
 
@@ -89,36 +89,32 @@ catches the author's own mistakes; Layers 1 and 2 exist to catch everyone else's
   A serialized three-way matrix costs the sum of its legs in wall-clock and the
   weighted sum in minutes.
 
-### What the reusable workflows now enforce
+### What the reusable workflows enforce
 
-As of 0.19.0 the cost controls live in the workflows rather than only in this
-document:
+The cost controls live in the workflows, not only in this document:
 
 | Workflow | `timeout_minutes` default | `concurrency` |
 |---|---|---|
 | `ci.yml` | 20 | cancel-in-progress |
 | `pr-gate.yml` | 20 | cancel-in-progress |
 | `release-build.yml` | 30 | — |
-| every preset (13, plus `laravel.yml` via `php.yml`) | 20 (passed through to `ci.yml`) | via `ci.yml` |
+| every preset | 20 (passed through to `ci.yml`, or applied to the preset's own job) | via `ci.yml`, or the preset's own group |
 | `flutter-release.yml` | 60 | — |
 
-Before this, `timeout-minutes` appeared **nowhere** across the reusable
-workflows: a hung job billed until GitHub's six-hour cap. Every value is an
-optional input with a default. Callers whose jobs fit that default need no
-change; longer jobs must pass a higher `timeout_minutes`.
+Without a timeout, a hung job bills until GitHub's six-hour cap. Every value
+above is an optional input with a default. Callers whose jobs fit that default
+pass nothing; longer jobs pass a higher `timeout_minutes`.
 
-Until 0.30.0 only two presets forwarded it, so a caller reaching the engine
-through any of the other eleven could not raise the timeout at all without
-editing this library. The table above said otherwise, which is the drift that
-`scripts/check_engine_inputs.py` now makes impossible: an input in its
-pass-through set must be declared and forwarded by every workflow on the way to
-the engine, or the commit is refused.
+Every preset forwards `timeout_minutes`, default 20, so a caller can raise it
+through any preset. `scripts/check_engine_inputs.py` enforces this: an input in
+its pass-through set must be declared and forwarded by every workflow on the way
+to the engine, or the commit is refused.
 
-**20 minutes is measured, not guessed.** The fleet's largest Go consumer runs
+**20 minutes is measured, not guessed.** A large Go consumer runs
 512 test functions and its engine job completes in 40 seconds, cold. Across
-twelve sampled consumers the slowest successful run was 7 minutes and the median
-under 2. Raising the default would weaken a billing cap that nothing is pressing
-against; a repository that genuinely needs longer now has an input that reaches
+twelve sampled consumers the slowest successful run takes 7 minutes and the
+median under 2. Raising the default would weaken a billing cap that nothing is pressing
+against; a repository that genuinely needs longer has an input that reaches
 the engine.
 
 ---
@@ -302,11 +298,10 @@ with:
 
 ## Finding the double-trigger
 
-A survey of consuming repositories found nine running 2× CI per push — a
-`pull_request` trigger in `ci.yml` **and** a `pr-gate.yml` on the same branches.
-The affected stacks were Node, Go, Python, Rust, Java and Flutter, so this is not
-a property of any one toolchain; it is what happens when `ci.yml` is copied from
-a template that has both triggers.
+A repository runs CI twice per push when it has a `pull_request` trigger in
+`ci.yml` **and** a `pr-gate.yml` on the same branches. This is not a property
+of any one toolchain; it is what happens when `ci.yml` is copied from a
+template that has both triggers.
 
 Check a repo with:
 

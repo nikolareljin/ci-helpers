@@ -57,6 +57,26 @@
 - `macos-sign` and `windows-sign` document `export_env` as opt-in: off by
   default, when to turn it on, and that it exposes the secrets to every later
   step of the job.
+- WordPress, Laravel and Django are documented: a WordPress page in
+  `docs/presets.md` covering `wp-phpunit.yml`, `wp-plugin-check.yml` and
+  `wp-build.yml` with one caller example, and new sections for `wp-build.yml`,
+  `laravel.yml`, `django.yml`, `pnpm-scan.yml` and `validate-dotnet-project.yml`.
+- Every input, secret and output of every reusable workflow and action is now
+  documented. Fixed wrong docs: `pr-gate.yml` does not take the database
+  inputs, `tauri.yml` has no `check_command` and no lint by default,
+  `pimcore-bundle-check.yml` has four standalone inputs, `csharp-scan.yml` and
+  `homebrew-tap-publish.yml` defaults, and the README counts.
+- Removed the `release-notes` action from the docs; it no longer exists. The
+  release workflows generate notes through `generate_release_notes`.
+- Examples calling `semver-compare` and `check-release-tag` were not valid YAML
+  (`run: echo "Result: ..."`). They now pass the output through `env:`.
+- New gate `scripts/check_docs_coverage.py`, run by the pre-commit hook and the
+  `docs-cover-the-tree` self-test: every workflow and action has a section,
+  every input is named with its real type and default, README counts match the
+  tree, and every example uses inputs and secrets that exist.
+- Published pages describe current behaviour only; release history stays in
+  this file. New gate `scripts/check_docs_tense.py` refuses the clearest
+  history phrases on `README.md` and `docs/*.md`.
 
 ### Changed
 

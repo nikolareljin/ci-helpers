@@ -21,6 +21,14 @@ python3 "$repo_root/scripts/check_workflow_yaml.py"
 # one, which is how timeout_minutes ended up honoured by 2 of 13 presets.
 python3 "$repo_root/scripts/check_engine_inputs.py"
 
+# Every reusable workflow, input and action is documented with its real
+# default, and every example calls inputs that exist. wp-build.yml, laravel.yml
+# and django.yml shipped with no docs section, which nothing checked.
+python3 "$repo_root/scripts/check_docs_coverage.py" --quiet
+
+# Published pages say what the product does now. History goes in CHANGELOG.md.
+python3 "$repo_root/scripts/check_docs_tense.py" --quiet
+
 # Release notes are cut from one CHANGELOG section. A second `## Unreleased`
 # above an existing one drops everything under the lower heading, silently,
 # while the file still appears to contain it -- which happened on 2026-09-21
