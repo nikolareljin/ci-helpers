@@ -474,7 +474,7 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/wp-plugin-check.yml@production
     with:
       plugin_slug: my-plugin
-      versions: '[{"wp":"6.8","php":"8.1"},{"php":"8.3"}]'
+      versions: '[{"wp":"6.8","php":"8.1"},{"wp":"6.8","php":"8.3"}]'
       fail_on_findings: true
 
   build:

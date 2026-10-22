@@ -14,6 +14,7 @@ line. Fails when:
   * an input, secret or output of a workflow is not named, in backticks, in
     its section (preset sections may rely on the shared inputs listed under
     `## Shared inputs` in docs/presets.md)
+  * a presets section lists `- `name`: `X`` and X is not the declared default
   * a section documents a workflow input as `- `name` (type, default `X`)` and
     the type or X is not what the workflow declares, or the input does not exist
   * a composite action has no `## <name>` section in docs/actions.md, or such
@@ -45,6 +46,8 @@ SHARED_HEADING = "## Shared inputs"
 OWN_PARA_RE = re.compile(r"^Workflows?: (?:.+\n?)+", re.M)
 PATH_RE = re.compile(r"`\.github/workflows/([a-z0-9-]+\.yml)`")
 HEAD_RE = re.compile(r"^## ([a-z0-9-]+\.yml)\b")
+# The presets page lists defaults as "- `name`: `value`".
+DEFAULT_LINE_RE = re.compile(r"^- `([a-z0-9_]+)`: `([^`]*)`", re.M)
 INPUT_LINE_RE = re.compile(
     r"^- `([a-z0-9_]+)` \((string|number|boolean)(?:, (required|default `([^`]*)`))?\)",
     re.M,
@@ -169,6 +172,15 @@ def check_workflows(root: pathlib.Path, problems: list[str]) -> tuple[list[str],
             if token in body or (in_presets and kind == "input" and token in shared):
                 continue
             problems.append(f"{path.name}: {kind} `{name}` is not documented")
+        for name, default in DEFAULT_LINE_RE.findall(body):
+            if name not in inputs:
+                continue  # a sibling workflow's input, or an output
+            actual = render_default((inputs[name] or {}).get("default"))
+            # An image pinned by digest is written by its tag.
+            if unquote(default) not in (unquote(actual), actual.split("@sha256:")[0]):
+                problems.append(
+                    f"{path.name}: `{name}` listed with default `{default}`, declared `{actual}`"
+                )
         for name, _type, required, default in INPUT_LINE_RE.findall(body):
             if name not in inputs:
                 # A secret or output listed in the same style is fine.

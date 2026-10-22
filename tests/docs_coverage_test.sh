@@ -63,6 +63,9 @@ expect "undocumented input" "wp-build.yml: input \`verify_command\` is not docum
 fresh; edit docs/workflows.md "- \`retention_days\` (number, default \`7\`)" "- \`retention_days\` (number, default \`30\`)"
 expect "wrong default" "\`retention_days\` documented default \`30\`, declared \`7\`"
 
+fresh; edit docs/presets.md "- \`migrate_command\`: \`php artisan config:clear" "- \`migrate_command\`: \`php artisan migrate"
+expect "wrong preset default" "laravel.yml: \`migrate_command\` listed with default"
+
 fresh; edit docs/workflows.md "- \`zip\` (boolean, default \`true\`)" "- \`zip\` (string, default \`true\`)"
 expect "wrong type" "\`zip\` documented as string, declared boolean"
 
