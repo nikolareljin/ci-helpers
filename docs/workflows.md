@@ -2026,12 +2026,24 @@ Key design notes:
 - macOS builds a **universal binary** (`aarch64 + x86_64`); both rustup targets
   must be added — `universal-apple-darwin` is a Tauri synthetic target, not a
   native rustup triple.
-- Windows signing supports three modes: `none`, `tauri_updater` (free ED25519),
-  `pfx` (OV/EV Authenticode), `azure` (Azure Trusted Signing).
+- Windows signing modes: `none` (default), `tauri_updater` (free ED25519),
+  `pfx` (Authenticode with a `.pfx`) and `azure` (Azure Artifact Signing).
+  Any other value fails the first step of the Windows job.
+  [Windows signing](windows-signing.md) covers certificates and setup.
+- pfx and azure sign in a `sign-windows` job, not in `build-windows`. The
+  build runs the app's own npm and cargo scripts, which can change files,
+  `PATH` or `GITHUB_ENV` for the rest of that job; a signing step there would
+  hand them the certificate. `build-windows` uploads the unsigned installers
+  as `tauri-windows-unsigned`; `sign-windows` downloads them, checks out only
+  the ci-helpers actions at this workflow's commit, signs, verifies, and
+  uploads `tauri-windows-artifacts`, which the release job publishes. It
+  checks out and runs no app code, and is the only job given
+  `WINDOWS_CERTIFICATE*` or `AZURE_*`. A missing or bad certificate therefore
+  fails after the build, in `sign-windows`.
 - Uses the `macos-sign` and `windows-sign` composite actions from this repo.
 - Signing secrets reach only the step that signs: the Apple certificate,
-  passwords and the updater key are env on the build step, the Azure values
-  go straight to `azure/trusted-signing-action`. Both actions run with
+  passwords and the updater key are env on the build step (Tauri needs them
+  during the build), the PFX and Azure values go to `sign-windows` only. Both actions run with
   `export_env: "false"`, so nothing secret is in `GITHUB_ENV`.
 - A published installer is never replaced, on the release or on `dist_repo`:
   one already there with the same sha256 passes (a rerun of the `release` job),
@@ -2053,6 +2065,8 @@ Inputs (selected):
 | `sign_macos` | `true` | Gate macOS codesigning |
 | `notarize_macos` | `true` | Gate notarization + staple |
 | `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
+| `windows_timestamp_server` | `""` | RFC 3161 URL for `pfx`; empty uses `http://timestamp.digicert.com` |
+| `windows_pfx_verify_trust` | `true` | `pfx`: require `signtool verify /pa`; `false` for a private CA or self-signed certificate |
 | `upload_release` | `true` | Upload to GitHub Releases |
 | `release_tag` | `""` | Defaults to `GITHUB_REF_NAME` |
 | `dist_repo` | `""` | Cross-repo artifact push |
@@ -2075,7 +2089,7 @@ Secrets:
 | `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD` — the name most consumers already hold; pass either, not both (#97) |
 | `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
-| `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` |
+| `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` (base64 `.pfx`) |
 | `WINDOWS_CERTIFICATE_PASSWORD` | `windows_sign_mode: pfx` |
 | `AZURE_TENANT_ID` | `windows_sign_mode: azure` |
 | `AZURE_CLIENT_ID` | `windows_sign_mode: azure` |

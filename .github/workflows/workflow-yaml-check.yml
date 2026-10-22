@@ -119,9 +119,9 @@ jobs:
         shell: bash
         run: bash tests/sign_export_env_default_test.sh
 
-      - name: windows-sign removes the PFX right after import
+      - name: windows-sign accepts pfx, refuses it without secrets and refuses unknown modes
         shell: bash
-        run: bash tests/windows_sign_pfx_removed_test.sh
+        run: bash tests/windows_sign_mode_test.sh
 
       - name: deb-build signs each published file and SHA256SUMS
         shell: bash

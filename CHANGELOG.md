@@ -1,5 +1,63 @@
 ## Unreleased
 
+### Fixed
+
+- **`windows-sign` pfx mode signs again.** Tauri v2 never read the
+  `TAURI_WINDOWS_SIGN_COMMAND` the action set, so pfx builds shipped
+  unsigned MSI/EXE files and the job passed (#286). With the new
+  `files_folder` input the action signs every `.exe` and `.msi` under it
+  with `signtool /f` (newest Windows SDK copy, `/fd SHA256`), timestamps
+  each file over RFC 3161 (`/td SHA256`, 4 attempts with backoff), runs
+  `signtool verify /pa` (`verify_trust: "false"` for a private CA), and
+  checks the signer thumbprint and timestamp. The PFX is written to
+  `RUNNER_TEMP` with an owner-only ACL and deleted when the step ends, on
+  failure too; nothing is imported into a certificate store. The password is
+  masked. pfx stays opt-in: the default mode is still `none`.
+- **`tauri-release` signs Windows installers in a new `sign-windows` job**
+  for pfx and azure. The build runs the app's own npm and cargo scripts,
+  which could change files, `PATH` or `GITHUB_ENV` for later steps of the
+  same job and so reach the signing secrets; azure signing used to run
+  there. `build-windows` now uploads `tauri-windows-unsigned` in those
+  modes; `sign-windows` checks out only the ci-helpers actions, runs no app
+  code, is the only job given `WINDOWS_CERTIFICATE*` and `AZURE_*`, signs,
+  verifies (azure: a valid, timestamped signature on every installer) and
+  uploads `tauri-windows-artifacts`. A missing or bad azure credential now
+  fails in `sign-windows`, after the build, instead of before it. A file in
+  the unsigned artifact other than `.exe` or `.msi` fails `sign-windows`,
+  since it would be published unsigned. The
+  release job waits for `sign-windows` and runs when it is skipped (`none`,
+  `tauri_updater`); `winget-submit` runs only after a successful release.
+- pfx mode refuses, with a reason, when the certificate or password is
+  empty, the PFX does not open, it has no private key, its certificate is
+  not for code signing or has expired, or `timestamp_server` is not an
+  http(s) URL. The default timestamp server is now
+  `http://timestamp.digicert.com`; `tauri-release` takes
+  `windows_timestamp_server` to override it, and
+  `windows_pfx_verify_trust: false` for a private CA certificate.
+  A symbolic link or junction under `files_folder` is refused, since it
+  would sign a file outside the folder or leave one unsigned, and
+  `signtool sign` is pinned with `/sha1` to the certificate that was
+  checked, so a PFX with more than one keyed certificate cannot sign with
+  another. Hidden files count too, in the signing and in the installers-only
+  check. The unsigned Windows artifact is kept for 1 day.
+- `windows-sign` now fails on any `sign_mode` other than `tauri_updater`,
+  `pfx` or `azure`; an unknown mode used to do nothing. The check ignores
+  case, as the mode steps always have, so `Azure` still works.
+- `tauri-release` checks `windows_sign_mode` as the first step of the
+  Windows job, so an unknown mode fails before checkout and
+  `cargo install`, not after. The certificate cleanup step is gone: nothing
+  is left in a store to clean.
+
+### Docs
+
+- New `docs/windows-signing.md`: how to get a certificate for each Windows
+  signing mode (OV/EV, the 2023 hardware-key rule, private CA, Azure
+  Artifact Signing), how to build and store the PFX, timestamping,
+  verification, renewal, and a checklist for turning pfx on.
+- `macos-sign` and `windows-sign` document `export_env` as opt-in: off by
+  default, when to turn it on, and that it exposes the secrets to every later
+  step of the job.
+
 ### Changed
 
 - `tauri`, `tauri-scan` and `tauri-release` pin `swatinem/rust-cache` to
@@ -14,6 +72,16 @@
   Upstream adds `http.sh` and functions in `dialog.sh`, `json.sh` and
   `version.sh`, and trims `hub.sh`; `version_bump.sh` imports `version`,
   whose existing functions are unchanged.
+- `github/codeql-action` v4.38.3 -> v4.39.0 (`6f2ac81f`) for `init`,
+  `analyze` and `upload-sarif` together, in `codeql-scan`,
+  `trivy-scan`, `security-weekly` and the `trivy-scan` composite action.
+  Upstream raises the minimum CodeQL bundle to 2.20.7; no workflow here
+  pins `tools:`, so the default bundle is used.
+- `actions/setup-java` v6.0.1 -> v6.1.0 (`b843ebf9`) in `ci`, `deploy`,
+  `flutter-release`, `java-scan`, `pr-gate`, `release-build` and
+  `self-test-compiled`. Upstream adds RISC-V Temurin, Maven
+  credential origins and plugin repositories, plus version-resolution
+  fixes; no input is removed or renamed.
 
 ## 2026-10-19 — v0.42.0
 

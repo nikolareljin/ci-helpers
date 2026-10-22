@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# SCRIPT: windows_sign_mode_test.sh
+# DESCRIPTION: windows-sign and tauri-release accept tauri_updater, pfx and
+#              azure (plus "none" in tauri-release), windows-sign refuses pfx
+#              when the certificate or password is empty, both refuse unknown
+#              modes, and tauri-release signs in a sign-windows job that gets
+#              the signing secrets and checks out and runs no app code.
+#              The pfx script is run against a throwaway PFX made with openssl:
+#              a good PFX passes, a wrong password, bad base64, a non-code-
+#              signing certificate and a bad timestamp URL are refused, and the
+#              password never reaches the output unmasked. Signing itself needs
+#              signtool and runs in the self-test workflow on Windows.
+# USAGE: bash tests/windows_sign_mode_test.sh
+# ----------------------------------------------------
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+python3 - "$root/.github/actions/windows-sign/action.yml" "$root/.github/workflows/tauri-release.yml" <<'PY'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+rd = yaml.safe_load(open(sys.argv[2]))
+fail = []
+first = d["runs"]["steps"][0]
+if first.get("name") != "Check sign mode" or "if" in first:
+    fail.append("first step is not an unconditional 'Check sign mode'")
+pfx = [s for s in d["runs"]["steps"] if s.get("if") == "${{ inputs.sign_mode == 'pfx' }}"]
+if len(pfx) != 1 or "sign_pfx.ps1" not in pfx[0].get("run", ""):
+    fail.append("windows-sign has no pfx step running sign_pfx.ps1")
+for name in ("certificate_base64", "certificate_password", "timestamp_server", "files_folder", "verify_trust"):
+    if name not in d["inputs"]:
+        fail.append(f"windows-sign has no input {name}")
+jobs = rd["jobs"]
+build, sign = jobs["build-windows"], jobs.get("sign-windows")
+# The build job runs the app's code, so no Authenticode secret may reach it.
+btext = yaml.safe_dump(build)
+for name in ("WINDOWS_CERTIFICATE", "AZURE_"):
+    if name in btext:
+        fail.append(f"build-windows references {name}*: signing secrets must stay out of the build job")
+if not sign:
+    fail.append("tauri-release has no sign-windows job")
+else:
+    if sign.get("needs") != "build-windows":
+        fail.append("sign-windows does not need build-windows")
+    for st in sign["steps"]:
+        uses = st.get("uses", "")
+        if uses.startswith("actions/checkout@"):
+            w = st.get("with", {})
+            if w.get("repository") != "${{ job.workflow_repository }}" or w.get("ref") != "${{ job.workflow_sha }}" \
+               or w.get("sparse-checkout") != ".github/actions":
+                fail.append("sign-windows checks out something other than the ci-helpers actions")
+        run = st.get("run", "")
+        for tool in ("cargo", "npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
+            if tool in run:
+                fail.append(f"sign-windows runs {tool.strip()}: it must run no app or build code")
+        if "working-directory" in st:
+            fail.append("sign-windows has a step with working-directory: it has no app tree")
+    stext = yaml.safe_dump(sign)
+    if "tauri-windows-unsigned" not in stext or "tauri-windows-artifacts" not in stext:
+        fail.append("sign-windows does not download tauri-windows-unsigned and upload tauri-windows-artifacts")
+    calls = [st for st in sign["steps"] if st.get("uses", "").endswith("/windows-sign")]
+    if len(calls) != 1 or not calls[0].get("with", {}).get("files_folder"):
+        fail.append("sign-windows does not run windows-sign with files_folder")
+    elif "secrets.WINDOWS_CERTIFICATE " not in calls[0]["with"].get("certificate_base64", "") + " ":
+        fail.append("sign-windows does not pass WINDOWS_CERTIFICATE to windows-sign")
+up = [st for st in build["steps"] if st.get("name") == "Upload Windows artifacts"]
+if not up or "&& 1 ||" not in str(up[0].get("with", {}).get("retention-days", "")):
+    fail.append("the unsigned Windows artifact is kept for artifact_retention_days, not 1 day")
+if "sign-windows" not in jobs["release"].get("needs", []):
+    fail.append("release does not wait for sign-windows")
+first_win = rd["jobs"]["build-windows"]["steps"][0]
+if first_win.get("name") != "Check Windows sign mode" or "if" in first_win:
+    fail.append("build-windows does not start with an unconditional 'Check Windows sign mode'")
+if fail:
+    sys.exit("FAIL: " + "; ".join(fail))
+print("ok: pfx is wired in; tauri-release signs in sign-windows, away from the build")
+PY
+
+if ! command -v pwsh >/dev/null 2>&1; then
+  if [ -n "${CI:-}" ]; then echo "FAIL: pwsh not found"; exit 1; fi
+  echo "SKIP: pwsh not found, the pwsh checks were not run"
+  exit 0
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" \
+  "$root/.github/workflows/tauri-release.yml" "$tmp/release.ps1" <<'PY'
+import sys, yaml
+open(sys.argv[2], "w").write(yaml.safe_load(open(sys.argv[1]))["runs"]["steps"][0]["run"])
+jobs = yaml.safe_load(open(sys.argv[3]))["jobs"]
+open(sys.argv[4], "w").write(jobs["build-windows"]["steps"][0]["run"])
+only = [s for s in jobs["sign-windows"]["steps"] if s.get("name") == "Only installers to sign"]
+open(sys.argv[2] + ".only.ps1", "w").write(only[0]["run"] if only else "exit 0")
+PY
+# sign-windows refuses a file it would publish unsigned.
+mkdir -p "$tmp/inst/nsis dir"
+: > "$tmp/inst/App.msi"; : > "$tmp/inst/nsis dir/App setup.EXE"
+DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1 || { echo "FAIL: sign-windows refused installers only"; exit 1; }
+: > "$tmp/inst/nsis dir/payload.dll"
+if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
+  echo "FAIL: sign-windows would publish payload.dll unsigned"; exit 1
+fi
+rm "$tmp/inst/nsis dir/payload.dll"; : > "$tmp/inst/.payload.dll"
+# A hidden file (a dot file here, the hidden attribute on Windows) counts too.
+if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
+  echo "FAIL: sign-windows would publish hidden .payload.dll unsigned"; exit 1
+fi
+echo "ok: sign-windows refuses a file it would not sign"
+fail=0
+need_secrets="sign_mode pfx needs certificate_base64 and certificate_password"
+check() { # want_rc mode cert password want_text
+  local rc=0 out
+  out="$(SIGN_MODE="$2" CERT_B64="$3" CERT_PW="$4" pwsh -NoProfile -File "$script" 2>&1)" || rc=$?
+  if [ "$rc" != "$1" ] || [[ "$out" != *"$5"* ]]; then
+    echo "FAIL: $(basename "$script") sign_mode='$2' cert='$3' pw='$4': rc $rc, want $1 and '$5'; output: $out"
+    fail=1
+  fi
+}
+for script in "$tmp/check.ps1" "$tmp/release.ps1"; do
+  check 0 tauri_updater "" "" ""
+  check 0 Azure "" "" ""
+  check 0 pfx "QUJD" "pw" ""
+  check 0 PFX "QUJD" "pw" ""
+  check 1 bogus "" "" "must be"
+  check 1 "" "" "" "must be"
+done
+# Only the action sees the secrets; tauri-release's first step has none.
+script="$tmp/check.ps1"
+check 1 pfx "" "pw" "$need_secrets"
+check 1 pfx "QUJD" "" "$need_secrets"
+check 1 pfx " " "pw" "$need_secrets"
+script="$tmp/check.ps1"
+check 1 none "" "" "must be tauri_updater, pfx or azure"
+script="$tmp/release.ps1"
+check 0 none "" "" ""
+check 0 None "" "" ""
+check 1 bogus "" "" "must be none, tauri_updater, pfx or azure"
+[ "$fail" = 0 ] || exit 1
+echo "ok: both checks accept pfx, the action refuses it without secrets, both refuse unknown modes"
+
+# sign_pfx.ps1 itself, up to the point where signtool would run.
+pw='T3st-only pw!'
+mk() { # name eku
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/$1.key" -out "$tmp/$1.crt" -days 2 \
+    -subj "/CN=windows-sign test $1" -addext "extendedKeyUsage=$2" >/dev/null 2>&1
+  openssl pkcs12 -export -inkey "$tmp/$1.key" -in "$tmp/$1.crt" -out "$tmp/$1.pfx" \
+    -passout "pass:$pw" -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256
+  base64 -w0 "$tmp/$1.pfx"
+}
+good="$(mk good codeSigning)"
+openssl pkcs12 -export -nokeys -in "$tmp/good.crt" -out "$tmp/nokey.pfx" -passout "pass:$pw" -certpbe AES-256-CBC -macalg sha256
+nokey="$(base64 -w0 "$tmp/nokey.pfx")"
+tls="$(mk tls serverAuth)"
+# A PFX with its CA certificate included: the leaf, which has the key, is used.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/ca.key" -out "$tmp/ca.crt" -days 2 \
+  -subj "/CN=windows-sign test CA" -addext "basicConstraints=critical,CA:TRUE" >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes -keyout "$tmp/leaf.key" -out "$tmp/leaf.csr" -subj "/CN=windows-sign test leaf" >/dev/null 2>&1
+printf 'extendedKeyUsage=codeSigning\n' > "$tmp/leaf.ext"
+openssl x509 -req -in "$tmp/leaf.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial -days 2 \
+  -extfile "$tmp/leaf.ext" -out "$tmp/leaf.crt" >/dev/null 2>&1
+openssl pkcs12 -export -inkey "$tmp/leaf.key" -in "$tmp/leaf.crt" -certfile "$tmp/ca.crt" -out "$tmp/chain.pfx" \
+  -passout "pass:$pw" -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256
+chain="$(base64 -w0 "$tmp/chain.pfx")"
+sign() { # want_rc b64 pw ts_url files_dir want_text
+  local rc=0 out
+  out="$(CERT_B64="$2" CERT_PW="$3" TS_URL="$4" FILES_DIR="$5" TS_ATTEMPTS="${TS_ATTEMPTS:-}" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || rc=$?
+  if [ "$rc" != "$1" ] || [[ "$out" != *"$6"* ]]; then
+    echo "FAIL: sign_pfx ts='$4' dir='$5' want rc $1 and '$6'; got rc $rc: $out"
+    fail=1
+  fi
+  # The password may appear only in the ::add-mask:: line.
+  if [ -n "$3" ] && grep -v "^::add-mask::" <<<"$out" | grep -qF -- "$3"; then
+    echo "FAIL: sign_pfx printed the password (ts='$4'): $out"
+    fail=1
+  fi
+}
+sign 0 "$good" "$pw" "" "" "PFX ok: CN=windows-sign test good"
+sign 0 "$good" "$pw" "https://timestamp.example/x" "" "PFX ok"
+sign 1 "$good" "wrong-password" "" "" "does not open with certificate_password"
+sign 1 "not base64!!" "$pw" "" "" "not valid base64"
+sign 1 "$tls" "$pw" "" "" "not for code signing"
+sign 0 "$chain" "$pw" "" "" "PFX ok: CN=windows-sign test leaf"
+sign 1 "$good" "$pw" "ftp://ts.example" "" "timestamp_server must be an http(s) URL"
+sign 1 "$good" "$pw" "http://ts.example/a b" "" "timestamp_server must be an http(s) URL"
+sign 1 "" "$pw" "" "" "$need_secrets"
+sign 1 "$good" "" "" "" "$need_secrets"
+mkdir -p "$tmp/one" "$tmp/link" "$tmp/dirlink" "$tmp/none"
+: > "$tmp/one/app.exe"; : > "$tmp/outside.exe"; : > "$tmp/link/app.exe"; : > "$tmp/dirlink/app.exe"
+ln -s "$tmp/outside.exe" "$tmp/link/other.exe"
+ln -s "$tmp/one" "$tmp/dirlink/sub"
+: > "$tmp/none/readme.txt"
+sign 1 "$good" "$pw" "" "$tmp/one" "needs a Windows runner"
+# A link would sign, or skip, a file outside the folder.
+sign 1 "$good" "$pw" "" "$tmp/link" "is a symbolic link or junction"
+sign 1 "$good" "$pw" "" "$tmp/dirlink" "is a symbolic link or junction"
+sign 1 "$good" "$pw" "" "$tmp/none" "no .exe or .msi files under"
+sign 1 "$good" "$pw" "" "$tmp/missing" "files folder not found"
+mkdir -p "$tmp/hidden"; : > "$tmp/hidden/.app.exe"
+sign 1 "$good" "$pw" "" "$tmp/hidden" "needs a Windows runner"
+# The certificate signtool uses is the one checked above, not its pick.
+# shellcheck disable=SC2016 # literal PowerShell text
+grep -q 'sign /sha1 $thumb /f $pfxPath' "$root/.github/actions/windows-sign/sign_pfx.ps1" || { echo "FAIL: signtool sign is not pinned to the checked thumbprint"; fail=1; }
+sign 1 "$nokey" "$pw" "" "" "holds no private key"
+# A wrapped base64 secret is masked line by line, like the password.
+wrapped="$(base64 -w 76 "$tmp/good.pfx")"
+out="$(CERT_B64="$wrapped" CERT_PW="$pw" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || true
+second="$(sed -n 2p <<<"$wrapped")"
+grep -qxF "::add-mask::$second" <<<"$out" || { echo "FAIL: line 2 of a wrapped certificate is not masked: $out"; fail=1; }
+TS_ATTEMPTS=0 sign 1 "$good" "$pw" "" "" "TS_ATTEMPTS must be 1 to 99"
+TS_ATTEMPTS=x sign 1 "$good" "$pw" "" "" "TS_ATTEMPTS must be 1 to 99"
+TS_ATTEMPTS=3 sign 0 "$good" "$pw" "" "" "PFX ok"
+[ "$fail" = 0 ] || exit 1
+echo "ok: sign_pfx.ps1 opens a good PFX and refuses bad ones with a reason"

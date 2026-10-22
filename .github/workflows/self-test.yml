@@ -974,6 +974,162 @@ jobs:
           [[ "$OUTCOME" == failure ]] || { echo "::error::data-safety-scan outcome '$OUTCOME', expected failure on a sensitive key"; exit 1; }
           [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
 
+  # windows-sign pfx mode, end to end, with a throwaway self-signed PFX made
+  # here: it signs and timestamps a real exe (also one in a nested folder
+  # with spaces), refuses a folder with nothing to sign, a wrong password, a
+  # timestamp server that does not answer, and an untrusted chain when
+  # verify_trust is on, and leaves no PFX file in RUNNER_TEMP and no key in
+  # the certificate store, on failure too.
+  windows-sign-pfx-signs-a-real-exe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Make a throwaway code-signing PFX and an exe to sign
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $pw = [guid]::NewGuid().ToString()
+          Write-Output "::add-mask::$pw"
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=ci-helpers windows-sign self-test" `
+            -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(2)
+          $pfx = Join-Path $env:RUNNER_TEMP "selftest.pfx"
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $pw -AsPlainText -Force) | Out-Null
+          Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
+          Remove-Item -LiteralPath $pfx
+          Add-Content -Path $env:GITHUB_ENV -Value "SELFTEST_PFX_B64=$b64"
+          Add-Content -Path $env:GITHUB_ENV -Value "SELFTEST_PFX_PW=$pw"
+          Add-Content -Path $env:GITHUB_ENV -Value "SELFTEST_THUMB=$($cert.Thumbprint)"
+          foreach ($d in "sign", "untrusted", "nots", "badpw") {
+            New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP $d) | Out-Null
+            # Not a System32 file: those are catalog-signed, and
+            # Get-AuthenticodeSignature reports the catalog signer for them,
+            # whatever is embedded. pwsh.exe carries only an embedded signature.
+            Copy-Item (Join-Path $PSHOME "pwsh.exe") (Join-Path $env:RUNNER_TEMP "$d\app.exe")
+          }
+          # A nested folder and a name with spaces, as the artifact may carry.
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "sign\nsis dir") | Out-Null
+          Copy-Item (Join-Path $PSHOME "pwsh.exe") (Join-Path $env:RUNNER_TEMP "sign\nsis dir\My App_1.0_x64-setup.exe")
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "empty") | Out-Null
+
+      - name: Sign with pfx mode
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: ${{ env.SELFTEST_PFX_PW }}
+          files_folder: ${{ runner.temp }}/sign
+          verify_trust: "false"
+
+      - name: Each exe carries this signature and a timestamp
+        shell: pwsh
+        env:
+          EXE: ${{ runner.temp }}/sign/app.exe
+          NESTED_EXE: ${{ runner.temp }}/sign/nsis dir/My App_1.0_x64-setup.exe
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $n = Get-AuthenticodeSignature -LiteralPath $env:NESTED_EXE
+          if (-not $n.SignerCertificate -or $n.SignerCertificate.Thumbprint -ne $env:SELFTEST_THUMB -or -not $n.TimeStamperCertificate) {
+            Write-Output "::error::the exe in a nested folder with spaces was not signed and timestamped"; exit 1
+          }
+          $sig = Get-AuthenticodeSignature -LiteralPath $env:EXE
+          if (-not $sig.SignerCertificate) { Write-Output "::error::app.exe is not signed"; exit 1 }
+          if ($sig.SignerCertificate.Subject -ne "CN=ci-helpers windows-sign self-test") {
+            Write-Output "::error::signer is $($sig.SignerCertificate.Subject)"; exit 1
+          }
+          if ($sig.SignerCertificate.Thumbprint -ne $env:SELFTEST_THUMB) { Write-Output "::error::wrong signer thumbprint"; exit 1 }
+          if (-not $sig.TimeStamperCertificate) { Write-Output "::error::app.exe has no timestamp"; exit 1 }
+          if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::the certificate is in the store"; exit 1 }
+          if (Get-ChildItem -Path $env:RUNNER_TEMP -Filter "sign-*.pfx" -ErrorAction SilentlyContinue) { Write-Output "::error::a PFX file is left in RUNNER_TEMP"; exit 1 }
+          Write-Output "signed by $($sig.SignerCertificate.Subject), timestamped by $($sig.TimeStamperCertificate.Subject)"
+
+      - name: verify_trust on refuses a self-signed chain
+        id: untrusted
+        continue-on-error: true
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: ${{ env.SELFTEST_PFX_PW }}
+          files_folder: ${{ runner.temp }}/untrusted
+
+      - name: A timestamp server that does not answer fails the step
+        id: nots
+        continue-on-error: true
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: ${{ env.SELFTEST_PFX_PW }}
+          timestamp_server: http://127.0.0.1:9/
+          files_folder: ${{ runner.temp }}/nots
+          verify_trust: "false"
+
+      - name: A wrong password fails the step
+        id: badpw
+        continue-on-error: true
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: not-the-password
+          files_folder: ${{ runner.temp }}/badpw
+          verify_trust: "false"
+
+      - name: A folder with nothing to sign fails the step
+        id: empty
+        continue-on-error: true
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: ${{ env.SELFTEST_PFX_PW }}
+          files_folder: ${{ runner.temp }}/empty
+          verify_trust: "false"
+
+      - name: Each refusal failed, and left no key behind
+        shell: pwsh
+        env:
+          UNTRUSTED: ${{ steps.untrusted.outcome }}
+          NOTS: ${{ steps.nots.outcome }}
+          BADPW: ${{ steps.badpw.outcome }}
+          EMPTY: ${{ steps.empty.outcome }}
+          BADPW_EXE: ${{ runner.temp }}/badpw/app.exe
+          UNTRUSTED_EXE: ${{ runner.temp }}/untrusted/app.exe
+          NOTS_EXE: ${{ runner.temp }}/nots/app.exe
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          $bad = 0
+          foreach ($n in "UNTRUSTED", "NOTS", "BADPW", "EMPTY") {
+            $o = [Environment]::GetEnvironmentVariable($n)
+            if ($o -ne "failure") { Write-Output "::error::$n outcome '$o', expected failure"; $bad = 1 }
+          }
+          # pwsh.exe arrives signed by Microsoft, so "ours" means our thumbprint.
+          function Ours($sig) { $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint -eq $env:SELFTEST_THUMB }
+          # The first two must fail at their own check, not earlier: the
+          # untrusted exe is signed and timestamped, the other only signed.
+          $u = Get-AuthenticodeSignature -LiteralPath $env:UNTRUSTED_EXE
+          if (-not (Ours $u) -or -not $u.TimeStamperCertificate) {
+            Write-Output "::error::verify_trust refused before signing and timestamping"; $bad = 1
+          }
+          $t = Get-AuthenticodeSignature -LiteralPath $env:NOTS_EXE
+          if (-not (Ours $t) -or $t.TimeStamperCertificate) {
+            Write-Output "::error::the dead timestamp server run did not stop at the timestamp"; $bad = 1
+          }
+          if (Ours (Get-AuthenticodeSignature -LiteralPath $env:BADPW_EXE)) {
+            Write-Output "::error::a wrong password still signed the exe"; $bad = 1
+          }
+          if (Test-Path "Cert:\CurrentUser\My\$($env:SELFTEST_THUMB)") { Write-Output "::error::a failed run left the certificate in the store"; $bad = 1 }
+          if (Get-ChildItem -Path $env:RUNNER_TEMP -Filter "sign-*.pfx" -ErrorAction SilentlyContinue) { Write-Output "::error::a failed run left a PFX file in RUNNER_TEMP"; $bad = 1 }
+          exit $bad
+
   gitleaks-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1493,6 +1649,7 @@ jobs:
       - codeql-scan-analyses-what-it-is-given
       - codeql-found-what-was-planted
       - codeql-refuses-what-it-must
+      - windows-sign-pfx-signs-a-real-exe
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
