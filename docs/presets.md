@@ -441,7 +441,8 @@ What the plugin needs:
 - `phpunit/phpunit` and `yoast/phpunit-polyfills` as dev dependencies, and a
   `tests/bootstrap.php` that loads the test library from `WP_TESTS_DIR`. The
   workflow provides the library; the plugin carries no `bin/install-wp-tests.sh`.
-- A `Version:` header in the main plugin file. `wp-build.yml` names the zip from it.
+- A `Version:` header in the main plugin file, unless you pass `version`.
+  `wp-build.yml` names the zip from it.
 - Optionally a `.distignore`. Without one, `wp-build.yml` applies a default
   exclude list and prints it.
 
