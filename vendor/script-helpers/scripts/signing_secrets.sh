@@ -3,11 +3,13 @@
 # DESCRIPTION: Set the package-signing secrets and variables (the names in
 #              ci-helpers docs/packaging.md) on a list of GitHub repositories,
 #              or check which repositories miss which name. Values go to gh on
-#              stdin, never on a command line, and are never printed.
-# USAGE: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple> [--group ...] [options] [--check|--dry-run]
+#              stdin, never on a command line, and are never printed. The
+#              windows group sets the names of ci-helpers docs/windows-signing.md.
+# USAGE: ./signing_secrets.sh --repos <owner/a,owner/b> --group <gpg|apple|windows> [--group ...] [options] [--check|--dry-run]
 # PARAMETERS:
 #   --repos <list>            Comma-separated owner/name list (required).
-#   --group <gpg|apple>       Names to set or check; repeat for both (required).
+#   --group <gpg|apple|windows>
+#                             Names to set or check; repeat for more (required).
 #   --gpg-key <fingerprint>   gpg: key to export (40 hex characters).
 #                             Passphrase: GPG_PASSPHRASE env, else prompted.
 #   --ppa <owner/name=ppa:id/name>
@@ -26,6 +28,17 @@
 #                             certificate expires within 30 days.
 #   --skip-p12-check          apple: store the .p12 without opening it
 #                             (where openssl is not installed).
+#   --windows-pfx <file>      windows: Authenticode code-signing .pfx.
+#                             Password: --windows-password-file, else
+#                             WINDOWS_CERTIFICATE_PASSWORD env, else prompted.
+#                             The .pfx must open with its password and hold
+#                             a private key and its certificate with the
+#                             code-signing EKU (1.3.6.1.5.5.7.3.3), in date
+#                             (openssl). Warns within 30 days of expiry.
+#   --windows-password-file <file>
+#                             windows: read the .pfx password from this file;
+#                             a trailing LF or CRLF is dropped.
+#   --skip-pfx-check          windows: store the .pfx without opening it.
 #   --check                   Report missing names per repository; exit 1 if any.
 #   --dry-run                 Print the names that would be set; set nothing.
 #   -h, --help                Show help.
@@ -37,12 +50,14 @@
 #      keyring, a passphrase that does not unlock it, an --apple-identity
 #      that does not end in the --apple-team, a .p12 that does not open with
 #      APPLE_CERTIFICATE_PASSWORD, lacks the --apple-identity certificate or
-#      its private key, or holds it expired, or an empty value; nothing was
-#      set.
+#      its private key, or holds it expired, a .pfx that does not open
+#      with its password, has no private key with an in-date code-signing
+#      certificate, or an empty value; nothing was set.
 #   130, 143  Interrupted (INT, TERM); the scratch directory is removed.
 # EXAMPLE:
 #   ./signing_secrets.sh --repos me/tool --group gpg --gpg-key <FPR> --ppa me/tool=ppa:me/tool
 #   ./signing_secrets.sh --repos me/a,me/b --group gpg --group apple --check
+#   ./signing_secrets.sh --repos me/app --group windows --windows-pfx sign.pfx --windows-password-file pw.txt
 # ----------------------------------------------------
 set -euo pipefail
 # Lists are split on spaces unquoted; never let a "*" in an argument glob.
@@ -60,6 +75,7 @@ GPG_SECRETS="GPG_PRIVATE_KEY GPG_PASSPHRASE"
 GPG_VARS="GPG_KEY_ID"
 APPLE_SECRETS="APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_ID APPLE_APP_PASSWORD"
 APPLE_VARS="APPLE_SIGNING_ENABLED"
+WINDOWS_SECRETS="WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD"
 
 repos_csv=""
 groups=""
@@ -72,10 +88,13 @@ apple_team=""
 apple_id=""
 mode="set"
 skip_p12_check=0
+windows_pfx=""
+windows_pw_file=""
+skip_pfx_check=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repos|--group|--gpg-key|--ppa|--launchpad-ssh-key|--apple-p12|--apple-identity|--apple-team|--apple-id)
+    --repos|--group|--gpg-key|--ppa|--launchpad-ssh-key|--apple-p12|--apple-identity|--apple-team|--apple-id|--windows-pfx|--windows-password-file)
       if [[ $# -lt 2 ]] || [[ "$2" == --* ]]; then
         log_error "$1 needs a value"
         exit 2
@@ -93,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --apple-team) apple_team="${2:-}"; shift 2;;
     --apple-id) apple_id="${2:-}"; shift 2;;
     --skip-p12-check) skip_p12_check=1; shift;;
+    --windows-pfx) windows_pfx="${2:-}"; shift 2;;
+    --windows-password-file) windows_pw_file="${2:-}"; shift 2;;
+    --skip-pfx-check) skip_pfx_check=1; shift;;
     --check) mode="check"; shift;;
     --dry-run) mode="dry-run"; shift;;
     -h|--help) usage; exit 0;;
@@ -109,8 +131,8 @@ if [[ -z "$repos_csv" ]] || [[ -z "${groups// /}" ]]; then
 fi
 for g in $groups; do
   case "$g" in
-    gpg|apple) ;;
-    *) log_error "--group must be gpg or apple, got '$g'"; exit 2;;
+    gpg|apple|windows) ;;
+    *) log_error "--group must be gpg, apple or windows, got '$g'"; exit 2;;
   esac
 done
 repos=""
@@ -135,6 +157,10 @@ if ! has_group gpg && [[ -n "${gpg_key}${ppa_map}${lp_ssh_key}" ]]; then
 fi
 if ! has_group apple && { [[ -n "${apple_p12}${apple_identity}${apple_team}${apple_id}" ]] || [[ "$skip_p12_check" -eq 1 ]]; }; then
   log_error "--apple-* options and --skip-p12-check need --group apple"
+  exit 2
+fi
+if ! has_group windows && { [[ -n "${windows_pfx}${windows_pw_file}" ]] || [[ "$skip_pfx_check" -eq 1 ]]; }; then
+  log_error "--windows-* options and --skip-pfx-check need --group windows"
   exit 2
 fi
 for m in $ppa_map; do
@@ -166,6 +192,9 @@ expected_names() {
   if has_group apple; then
     for n in $APPLE_SECRETS; do echo "secret $n"; done
     for n in $APPLE_VARS; do echo "variable $n"; done
+  fi
+  if has_group windows; then
+    for n in $WINDOWS_SECRETS; do echo "secret $n"; done
   fi
   return 0
 }
@@ -235,85 +264,108 @@ ask() { # var-name prompt
   printf '%s' "$val" > "$work/$1"
 }
 
-# Open the .p12 with APPLE_CERTIFICATE_PASSWORD before it is stored. The
-# password reaches openssl as a file, not argv. OpenSSL 3 needs -legacy for
-# RC2/3DES files; LibreSSL has no -legacy and reads them without it.
-check_p12() {
-  local pw="$work/APPLE_CERTIFICATE_PASSWORD" err="$work/p12.err" legacy=""
-  if [[ "$(cat "$pw"; echo x)" == *$'\n'* ]]; then
-    log_error "APPLE_CERTIFICATE_PASSWORD contains a newline; openssl cannot read it"
+# Open a PKCS#12 file with its password before it is stored. The password
+# reaches openssl as a file, not argv. OpenSSL 3 needs -legacy for RC2/3DES
+# files; LibreSSL has no -legacy and reads them without it.
+# pkcs12_open <file> <password name> <option>: writes each certificate to
+# $p12_certs/N.pem, sets n_certs, and key_pubs to the public half of each
+# private key, one per line. Exits 2 on any failure.
+p12_in="" p12_pw="" p12_legacy="" p12_certs="" n_certs=0 key_pubs=""
+p12() { openssl pkcs12 -in "$p12_in" -passin "file:$p12_pw" ${p12_legacy:+"$p12_legacy"} "$@"; }
+pkcs12_open() {
+  local opt="$3" pwname="$2" err="$work/p12.err"
+  p12_in="$1" p12_pw="$work/$2" p12_legacy=""
+  if [[ "$(cat "$p12_pw"; echo x)" == *$'\n'* ]]; then
+    log_error "$pwname contains a newline; openssl cannot read it"
     exit 2
   fi
   # openssl reads at most 1023 bytes of a password file and drops the rest.
-  if [[ "$(wc -c < "$pw" | tr -d ' ')" -gt 1023 ]]; then
-    log_error "APPLE_CERTIFICATE_PASSWORD is longer than the 1023 bytes openssl reads; pass --skip-p12-check"
+  if [[ "$(wc -c < "$p12_pw" | tr -d ' ')" -gt 1023 ]]; then
+    log_error "$pwname is longer than the 1023 bytes openssl reads; pass --skip-${opt##*-}-check"
     exit 2
   fi
-  p12() { openssl pkcs12 -in "$apple_p12" -passin "file:$pw" ${legacy:+"$legacy"} "$@"; }
   if ! p12 -noout 2>"$err"; then
     if grep -qi 'mac verify' "$err"; then
-      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      log_error "$opt does not open: wrong $pwname"
       exit 2
     fi
     if ! grep -qi 'unsupported' "$err"; then
-      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
       exit 2
     fi
-    legacy="-legacy"
+    p12_legacy="-legacy"
     if ! p12 -noout 2>"$err"; then
       if grep -qi 'mac verify' "$err"; then
-        log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+        log_error "$opt does not open: wrong $pwname"
       else
-        log_error "--apple-p12 uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
+        log_error "$opt uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
       fi
       exit 2
     fi
   fi
-  # A .p12 without a MAC opens with any password, so a failure below is
+  # A file without a MAC opens with any password, so a failure below is
   # reported as one, not as a missing key.
   p12_fail() {
     if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
-      log_error "--apple-p12 does not open: wrong APPLE_CERTIFICATE_PASSWORD"
+      log_error "$opt does not open: wrong $pwname"
     else
-      log_error "openssl cannot read --apple-p12: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
     fi
     exit 2
   }
   # Certificates are public; each goes to its own file to be read below.
-  local certs="$work/p12certs" i=0 n_certs cn pub key_pubs found="" expired="" named=0 end
-  mkdir "$certs"
-  n_certs="$(p12 -nokeys 2>"$err" | awk -v d="$certs" '
+  p12_certs="$work/certs.$pwname"
+  mkdir "$p12_certs"
+  n_certs="$(p12 -nokeys 2>"$err" | awk -v d="$p12_certs" '
     /-----BEGIN CERTIFICATE-----/ { n++; f = d "/" n ".pem" }
     f { print > f }
     /-----END CERTIFICATE-----/ { close(f); f = "" }
     END { print n + 0 }')" || p12_fail
-  [[ "${n_certs:-0}" -ge 1 ]] || { log_error "--apple-p12 holds no certificate"; exit 2; }
-  # The public half of each private key, one per line. Each key reaches
-  # openssl pkey through a pipe, never a file.
+  [[ "${n_certs:-0}" -ge 1 ]] || { log_error "$opt holds no certificate"; exit 2; }
+  # Each key reaches openssl pkey through a pipe, never a file.
   key_pubs="$(p12 -nocerts -nodes 2>"$err" | awk -v cmd="openssl pkey -pubout 2>/dev/null | tr -d '\\n'; echo" '
     /-----BEGIN .*PRIVATE KEY-----/ { k = 1 }
     k { print | cmd }
     /-----END .*PRIVATE KEY-----/ { close(cmd); k = 0 }')" || p12_fail
-  [[ -n "${key_pubs//$'\n'/}" ]] || { log_error "--apple-p12 holds no private key"; exit 2; }
+  [[ -n "${key_pubs//$'\n'/}" ]] || { log_error "$opt holds no private key"; exit 2; }
+  return 0
+}
+
+# True when certificate file $1 is for one of the private keys in key_pubs.
+cert_has_key() {
+  local pub
+  pub="$(openssl x509 -in "$1" -noout -pubkey 2>/dev/null | tr -d '\n')"
+  [[ -n "$pub" ]] && grep -qxF -- "$pub" <<< "$key_pubs"
+}
+
+# Warn when certificate file $2 expires within 30 days; $1 names it.
+warn_expiry() {
+  local end
+  if ! openssl x509 -in "$2" -noout -checkend 2592000 >/dev/null 2>&1; then
+    end="$(openssl x509 -in "$2" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+    log_warn "$1 expires on $end; renew it"
+  fi
+}
+
+check_p12() {
+  local i=0 cn found="" expired="" named=0
+  pkcs12_open "$apple_p12" APPLE_CERTIFICATE_PASSWORD --apple-p12
   # codesign looks the certificate up by --apple-identity and signs with its
   # key, so that certificate must be in the file with its key, and in date.
   # A renewed certificate may sit next to the expired one, in any order.
   while [[ "$i" -lt "$n_certs" ]]; do
     i=$((i+1))
     # Unescaped: OpenSSL 3 prints a backslash in the name as "\\" otherwise.
-    cn="$(openssl x509 -in "$certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,-esc_ctrl,utf8 2>/dev/null \
+    cn="$(openssl x509 -in "$p12_certs/$i.pem" -noout -subject -nameopt multiline,-esc_msb,-esc_ctrl,utf8 2>/dev/null \
       | sed -n 's/^ *commonName *= //p')"
     [[ "$cn" == "$apple_identity" ]] || continue
     named=1
-    pub="$(openssl x509 -in "$certs/$i.pem" -noout -pubkey 2>/dev/null | tr -d '\n')"
-    if [[ -z "$pub" ]] || ! grep -qxF -- "$pub" <<< "$key_pubs"; then
-      continue
-    fi
-    if openssl x509 -in "$certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
-      found="$certs/$i.pem"
+    cert_has_key "$p12_certs/$i.pem" || continue
+    if openssl x509 -in "$p12_certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
+      found="$p12_certs/$i.pem"
       break
     fi
-    expired="$certs/$i.pem"
+    expired="$p12_certs/$i.pem"
   done
   if [[ -z "$found" ]]; then
     if [[ -n "$expired" ]]; then
@@ -325,10 +377,40 @@ check_p12() {
     fi
     exit 2
   fi
-  if ! openssl x509 -in "$found" -noout -checkend 2592000 >/dev/null 2>&1; then
-    end="$(openssl x509 -in "$found" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
-    log_warn "--apple-p12: the certificate '$apple_identity' expires on $end; renew it"
+  warn_expiry "--apple-p12: the certificate '$apple_identity'" "$found"
+  return 0
+}
+
+# signtool signs with the key's certificate, so the .pfx must hold a
+# certificate for one of its keys, with the code-signing EKU, in date.
+# The EKU is read from -text: LibreSSL has no "x509 -ext".
+check_pfx() {
+  local i=0 found="" expired="" keyed=0 eku
+  pkcs12_open "$windows_pfx" WINDOWS_CERTIFICATE_PASSWORD --windows-pfx
+  while [[ "$i" -lt "$n_certs" ]]; do
+    i=$((i+1))
+    cert_has_key "$p12_certs/$i.pem" || continue
+    keyed=1
+    eku="$(openssl x509 -in "$p12_certs/$i.pem" -noout -text 2>/dev/null \
+      | awk '/X509v3 Extended Key Usage/ { e = 1; next } e { print; e = 0 }')"
+    [[ "$eku" == *"Code Signing"* ]] || continue
+    if openssl x509 -in "$p12_certs/$i.pem" -noout -checkend 0 >/dev/null 2>&1; then
+      found="$p12_certs/$i.pem"
+      break
+    fi
+    expired="$p12_certs/$i.pem"
+  done
+  if [[ -z "$found" ]]; then
+    if [[ -n "$expired" ]]; then
+      log_error "--windows-pfx: the code-signing certificate expired on $(openssl x509 -in "$expired" -noout -enddate 2>/dev/null | sed 's/^notAfter=//')"
+    elif [[ "$keyed" -eq 1 ]]; then
+      log_error "--windows-pfx: the certificate of its private key has no code-signing (1.3.6.1.5.5.7.3.3) extended key usage"
+    else
+      log_error "--windows-pfx: no code-signing (1.3.6.1.5.5.7.3.3) certificate matches the private key"
+    fi
+    exit 2
   fi
+  warn_expiry "--windows-pfx: the code-signing certificate" "$found"
   return 0
 }
 
@@ -388,6 +470,31 @@ if has_group apple; then
   printf '%s' "true" > "$work/APPLE_SIGNING_ENABLED"
 fi
 
+if has_group windows; then
+  [[ -s "$windows_pfx" && -r "$windows_pfx" ]] || { log_error "--windows-pfx is missing, empty or unreadable"; exit 2; }
+  # tr, not base64 -w0: BSD base64 has no -w.
+  base64 < "$windows_pfx" | tr -d '\n' > "$work/WINDOWS_CERTIFICATE"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_pfx_check" -eq 0 ]] && ! command -v openssl >/dev/null 2>&1; then
+    log_error "openssl is not installed; it checks the .pfx password. Install it, or pass --skip-pfx-check"
+    exit 2
+  fi
+  if [[ -n "$windows_pw_file" ]]; then
+    [[ -s "$windows_pw_file" && -r "$windows_pw_file" ]] || { log_error "--windows-password-file is missing, empty or unreadable"; exit 2; }
+    # One trailing line end (LF or CRLF), as an editor writes it, is not
+    # part of the password.
+    WINDOWS_CERTIFICATE_PASSWORD="$(cat "$windows_pw_file"; echo x)"
+    WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%x}"
+    if [[ "$WINDOWS_CERTIFICATE_PASSWORD" == *$'\n' ]]; then
+      WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\n'}"
+      WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\r'}"
+    fi
+  fi
+  ask WINDOWS_CERTIFICATE_PASSWORD "Password of $windows_pfx"
+  if [[ "$mode" != "dry-run" ]] && [[ "$skip_pfx_check" -eq 0 ]]; then
+    check_pfx
+  fi
+fi
+
 failed=0
 for repo in $repos; do
   for m in $ppa_map; do
@@ -409,4 +516,7 @@ for repo in $repos; do
     fi
   done <<< "$(expected_names "$repo")"
 done
+if [[ "$failed" -eq 0 ]] && has_group windows; then
+  echo "Next: set 'windows_sign_mode: pfx' in the caller workflow of tauri-release.yml; see ci-helpers docs/windows-signing.md."
+fi
 [[ "$failed" -eq 0 ]]

@@ -144,6 +144,7 @@ nav:
       - Adopt in a repository: adopt.md
       - Command reference: commands.md
       - Usage: usage.md
+      - Stacks: stacks.md
       - Git hooks: git-hooks.md
       - Security gates in the git hooks: security-gates.md
       - CI default versions: ci_defaults.md

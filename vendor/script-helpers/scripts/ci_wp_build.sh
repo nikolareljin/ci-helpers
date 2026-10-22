@@ -26,8 +26,9 @@
 #      packaging step failed.
 #   2  Bad arguments: unknown option, an option without its value, missing
 #      --workdir, a bad --slug, --version or --zip, a tool missing on PATH, an
-#      --out-dir inside the plugin, no usable Version: header, or --exclude-
-#      from not found.
+#      --out-dir that is the plugin directory or contains it, no usable
+#      Version: header, or --exclude-from not found. An --out-dir inside the
+#      plugin is allowed and left out of the package.
 #   N  A failing composer or asset command exits with its own code.
 # EXAMPLE:
 #   scripts/ci_wp_build.sh --workdir . --out-dir build

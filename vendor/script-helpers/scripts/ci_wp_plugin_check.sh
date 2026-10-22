@@ -35,7 +35,7 @@
 # EXIT_CODES:
 #   0  No plugin-check errors, or findings reported only with --fail-on-findings
 #      false (also -h/--help).
-#   1  The database did not become ready, or a setup step failed.
+#   1  The database did not become ready within --db-wait-seconds.
 #   2  Bad arguments: unknown option, an option without its value, a bad
 #      true/false, port or wait value, missing --plugin-slug, compose file or
 #      plugin source not found, a bad --plugin-src-env name, or python3 missing
@@ -43,6 +43,8 @@
 #   4  Plugin-check reported errors, or wp plugin check is unavailable, with
 #      --fail-on-findings true.
 #   5  The plugin-check or meta-check JSON could not be parsed.
+#   N  A failing --php-lint-command or --phpunit-command, or a failing
+#      docker compose or wp setup step, exits with its own code.
 # EXAMPLE:
 #   scripts/ci_wp_plugin_check.sh --plugin-slug my-plugin --compose-file test/docker-compose.yml
 # ENVIRONMENT:
