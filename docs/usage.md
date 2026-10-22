@@ -290,31 +290,15 @@ jobs:
           version_a: "1.2.3"
           version_b: "1.4.0"
       - name: Use result
-        run: echo "Result: ${{ steps.semver.outputs.result }}"
+        env:
+          RESULT: ${{ steps.semver.outputs.result }}
+        run: echo "result=$RESULT"
 ```
 
-Release notes generator:
-
-```yaml
-name: Release Notes
-on:
-  workflow_dispatch:
-
-jobs:
-  notes:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Generate release notes
-        id: notes
-        uses: nikolareljin/ci-helpers/.github/actions/release-notes@production
-        with:
-          binary_links: |
-            Linux|myapp-linux
-            macOS|myapp-mac
-      - name: Use notes
-        run: echo "${{ steps.notes.outputs.notes }}"
-```
+Release notes: there is no separate action. `release-build.yml`,
+`go-release.yml`, `rust-release.yml` and `deb-build.yml` generate them with
+script-helpers' `release_notes.sh` when `generate_release_notes` is `true`, or
+take your own text in `release_notes`.
 
 Release tag guard (PR):
 
@@ -339,7 +323,9 @@ jobs:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
       - name: Use version
-        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+        env:
+          VERSION: ${{ steps.release_guard.outputs.version }}
+        run: echo "version=$VERSION"
 ```
 
 Release tag guard (release):
@@ -365,7 +351,9 @@ jobs:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
       - name: Use version
-        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+        env:
+          VERSION: ${{ steps.release_guard.outputs.version }}
+        run: echo "version=$VERSION"
 ```
 
 Release tag gate (reusable workflow):

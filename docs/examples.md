@@ -229,7 +229,9 @@ jobs:
           release_branch: ${{ github.head_ref }}
           fetch_tags: true
       - name: Use version
-        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+        env:
+          VERSION: ${{ steps.release_guard.outputs.version }}
+        run: echo "version=$VERSION"
 ```
 
 ## Release tag guard (release)
@@ -250,7 +252,9 @@ jobs:
           release_branch: ${{ github.ref_name }}
           fetch_tags: true
       - name: Use version
-        run: echo "Release version: ${{ steps.release_guard.outputs.version }}"
+        env:
+          VERSION: ${{ steps.release_guard.outputs.version }}
+        run: echo "version=$VERSION"
 ```
 
 ## Auto-tag release

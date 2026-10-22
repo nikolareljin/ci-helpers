@@ -642,6 +642,32 @@ jobs:
         shell: bash
         run: bash tests/create_production_guard_test.sh
 
+  docs-cover-the-tree:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0 @ 2026-09-28
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML
+        shell: bash
+        run: python -m pip install --quiet pyyaml
+      - name: Every workflow, input and action is documented
+        shell: bash
+        run: python3 scripts/check_docs_coverage.py
+      - name: The gate refuses what it must
+        shell: bash
+        run: bash tests/docs_coverage_test.sh
+      - name: Published pages describe current behaviour
+        shell: bash
+        run: python3 scripts/check_docs_tense.py
+      - name: The tense gate refuses what it must
+        shell: bash
+        run: bash tests/docs_tense_test.sh
+
   workflow-coverage-is-declared:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1629,6 +1655,7 @@ jobs:
       - docker-scan-defaults-can-pass
       - docker-refuses-what-it-must
       - workflow-coverage-is-declared
+      - docs-cover-the-tree
       - engine-inputs-gate-refuses-a-dropped-forward
       - submodules-recursive-checks-out-the-tree
       - submodules-default-leaves-the-tree-absent

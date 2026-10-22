@@ -1,4 +1,4 @@
-![ci-helpers — shared GitHub Actions workflows for CI/CD. 65 reusable workflows, 22 stack presets, 9 composite actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 75 reusable workflows, 28 stack presets, 9 composite actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -14,7 +14,7 @@ Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Reusable workflows for release builds (generic, Rust, and Tauri desktop).
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
-- Composite actions for semver comparison, release tag checks, and release notes.
+- Composite actions for semver comparison and release tag checks.
 - Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519, Authenticode with a `.pfx`, or Azure Artifact Signing; see [Windows signing](docs/windows-signing.md)).
 - Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
@@ -24,7 +24,8 @@ Includes:
 - `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
 - `release-rc-pr.yml` as a reusable `workflow_call` workflow — add 10 lines to any repo to get automatic release PRs on `release/*` branch pushes.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.
-- Preset workflows for common stacks (Java, Kotlin, Rust, C#, Node, Python, PHP, Go, React, Docker, Playwright, Cypress).
+- Preset workflows for common stacks (Shell, Java, Kotlin, Rust, C#, Node, React, Python, PHP, Laravel, Django, Pimcore, Go, Godot, Unity, Docker, Playwright, Cypress, GitHub Pages).
+- WordPress plugins: `wp-phpunit.yml` (PHPUnit against the WordPress test suite), `wp-plugin-check.yml` (Plugin Check over a WordPress/PHP matrix) and `wp-build.yml` (the release zip). See [WordPress](docs/presets.md#wordpress).
 - pnpm presets: `pnpm.yml` (monorepo CI with optional JUnit test result upload), `pnpm-playwright.yml` (Playwright E2E), `pnpm-cypress.yml` (Cypress component/E2E).
 - Optional E2E runs (Playwright/Cypress) via `e2e_command`.
 
@@ -99,6 +100,16 @@ jobs:
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
+- `.github/workflows/wp-phpunit.yml`: WordPress plugin PHPUnit against the WordPress test library
+- `.github/workflows/wp-build.yml`: WordPress plugin release zip (production dependencies, assets, `.distignore`)
+- `.github/workflows/laravel.yml`, `.github/workflows/django.yml`: Laravel and Django presets with a database in Docker
+- `.github/workflows/pimcore.yml`, `.github/workflows/pimcore-bundle-check.yml`: Pimcore bundle checks in your compose stack
+- `.github/workflows/codeql-scan.yml`: reusable CodeQL scan
+- `.github/workflows/pnpm-scan.yml`: reusable pnpm scan workflow (lint/test/build/audit)
+- `.github/workflows/go-pr-gate.yml`: `pr-gate.yml` with the Go preset's defaults
+- `.github/workflows/pages.yml`, `.github/workflows/pages-build.yml`, `.github/workflows/pages-deploy.yml`, `.github/workflows/pnpm-pages.yml`: GitHub Pages, in one job or split into build and deploy
+- `.github/workflows/shell.yml`, `.github/workflows/godot.yml`, `.github/workflows/unity.yml`: Shell, Godot and Unity presets
+- `.github/workflows/validate-dotnet-project.yml`: refuses a .NET `project` path that `dotnet` would misread
 - `.github/workflows/auto-tag.yml`: reusable tag-only workflow for release branches (least privilege — no `actions: write`)
 - `.github/workflows/auto-tag-release.yml`: reusable auto-tag workflow for release branches (adds an optional dispatch job; requires `actions: write`)
 - `.github/workflows/update-production.yml`: reusable **manual** workflow to move a floating ref (`production`) onto a tag you pick, including a release candidate
@@ -119,11 +130,13 @@ jobs:
 - `.github/workflows/rust-release-tarballs.yml`: reusable Rust macOS/Linux tarball release + Homebrew formula workflow
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
-- `.github/actions/release-notes`: composite action for release note generation
 - `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
+- `.github/actions/pimcore-bundle-check`: composite action for Pimcore bundle checks
+- `.github/actions/data-safety-scan`: composite action for JSON data-safety scans
+- `.github/actions/macos-sign`, `.github/actions/windows-sign`: composite actions for macOS and Windows signing
 - `.github/workflows/docs-site.yml`: **repo-local, not reusable** — publishes this repository's own docs through its own `pages.yml` preset
 - `.github/workflows/docs-site-pr.yml`: **repo-local, not reusable** — validates the docs site on pull requests, granting no write scope
 - `mkdocs.yml`, `requirements-docs.txt`, `scripts/docs_site.sh`: the documentation site build (see `scripts/docs_site.sh --help`)
@@ -357,7 +370,9 @@ Semver compare:
     version_b: "1.3.0"
 
 - name: Use result
-  run: echo "Result: ${{ steps.semver.outputs.result }}"  # lt, eq, or gt
+  env:
+    RESULT: ${{ steps.semver.outputs.result }}
+  run: echo "result=$RESULT"  # lt, eq, or gt
 ```
 
 Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`):
@@ -385,8 +400,8 @@ exception: they pin `ubuntu-24.04`, because their apt list
 GTK3-era and is the thing 26.04 will actually change — so that rollover is a
 deliberate edit here, not a drift. Every one of them takes a `runner` input.
 
-22.04 is not required by anything in this repository. It was needed only by
-Tauri v1, which linked `webkit2gtk-4.0`. A v1 app that must build here has to
+22.04 is not required by anything in this repository. Only Tauri v1 needs it,
+because v1 links `webkit2gtk-4.0`. A v1 app that must build here has to
 override **both** inputs, because the default apt list is v2's and `runner`
 alone leaves it in place: `runner: ubuntu-22.04`, and an `apt_packages` value
 that **starts from the workflow's full default list** and replaces only the
@@ -395,7 +410,7 @@ WebKit and appindicator entries — `libwebkit2gtk-4.1-dev` →
 `libappindicator3-dev` — keeping `libssl-dev`, `librsvg2-dev`,
 `libgtk-3-dev`, `build-essential`, `curl`, `wget`, `file` (and `rpm` for
 `tauri-release.yml`). `apt_packages` replaces the whole list; a three-package
-value builds nothing. And it should be migrating: 22.04 is the last image that
+value builds nothing. A v1 app should migrate: 22.04 is the last image that
 can build it at all.
 
 ## Release tagging in external repos
@@ -512,7 +527,7 @@ unrelated pull requests red; a check that did not run prints as `SKIP` and the
 closing line then does not say "current" (offline, neither the ref nor the file
 contents are compared). `security-weekly.yml`'s drift job makes the ref
 comparison weekly -- SHAs only, not file contents -- against the *recorded ref*, so with an
-explicit tag pinned it catches a tree that no longer matches its own pin and
+explicit tag pinned it catches a tree that does not match its own pin and
 says nothing about whether a newer upstream release exists. Nothing automated
 answers that while the ref is pinned; re-vendoring is a decision.
 

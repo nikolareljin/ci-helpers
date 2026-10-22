@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
   <title id="t">ci-helpers</title>
-  <desc id="d">Shared GitHub Actions workflows and Bash helpers for CI/CD. 65 reusable workflows, 22 stack presets, 9 composite actions. Consumers pin the floating production tag.</desc>
+  <desc id="d">Shared GitHub Actions workflows and Bash helpers for CI/CD. 75 reusable workflows, 28 stack presets, 9 composite actions. Consumers pin the floating production tag.</desc>
   <!--
     Hero banner for the README and the documentation site.
 
