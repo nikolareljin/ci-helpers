@@ -1485,8 +1485,8 @@ Defaults:
 Notes:
 
 - The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
-  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so a `yarn dlx`
-  command with that flag runs on neither line: Yarn 1.22 answers
+  while `--frozen-lockfile` is Yarn 1 syntax, so a command using both
+  runs on neither line: Yarn 1.22 answers
   `error Command "dlx" not found.` `npx` ships with Node,
   prefers a binary already in `node_modules/.bin`, and fetches only when there
   is none.
@@ -1524,8 +1524,8 @@ Defaults:
 Notes:
 
 - The tools run through `npx`, not `yarn dlx`. `dlx` exists only in Yarn Berry,
-  while the `--frozen-lockfile` beside it is Yarn 1 syntax, so a `yarn dlx`
-  command with that flag runs on neither line: Yarn 1.22 answers
+  while `--frozen-lockfile` is Yarn 1 syntax, so a command using both
+  runs on neither line: Yarn 1.22 answers
   `error Command "dlx" not found.` `npx` ships with Node,
   prefers a binary already in `node_modules/.bin`, and fetches only when there
   is none.
