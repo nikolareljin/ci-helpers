@@ -1,4 +1,4 @@
-# Gradle build helpers — PowerShell companion to lib/gradle.sh.
+# Gradle build helpers - PowerShell companion to lib/gradle.sh.
 #
 # Function names mirror the Bash module so one set of docs covers both.
 #
@@ -10,14 +10,20 @@ function _Gradle_WrapperName {
     return 'gradlew'
 }
 
+# Usage: gradle_available [-Dir <dir>]
+# Returns: $true when Dir has a wrapper or gradle is on PATH, else $false.
+# Output: none.
 function gradle_available {
     param([string]$Dir = '.')
     if (Test-Path (Join-Path $Dir (_Gradle_WrapperName))) { return $true }
     return [bool](Get-Command gradle -ErrorAction SilentlyContinue)
 }
 
-# Prints the Gradle command to use for $Dir — the project's wrapper when present,
+# Prints the Gradle command to use for $Dir - the project's wrapper when present,
 # otherwise a system gradle. Returns $null when neither is available.
+# Usage: gradle_wrapper [-Dir <dir>]
+# Returns: the wrapper path, else the system gradle path; $null when neither.
+# Output: stderr [ERROR] when neither is found; throws when Dir does not exist.
 function gradle_wrapper {
     param([string]$Dir = '.')
     $wrapper = Join-Path (Resolve-Path $Dir).Path (_Gradle_WrapperName)
@@ -32,6 +38,10 @@ function gradle_wrapper {
 
 # Run Gradle tasks in $Dir. --no-daemon, because a daemon left running between
 # local checks is a surprise memory cost on a laptop.
+# Usage: gradle_run -Dir <dir> <task...>
+# Runs the tasks with --no-daemon.
+# Returns: $true when Gradle exits 0, else $false (also on bad arguments or no Gradle).
+# Output: host Gradle's output; stderr [INFO] the tasks, [ERROR] on bad arguments.
 function gradle_run {
     param(
         [string]$Dir,
@@ -50,17 +60,29 @@ function gradle_run {
     if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "gradle: $($Tasks -join ' ') (in $Dir)" }
     Push-Location $Dir
     try {
-        & $cmd --no-daemon @Tasks
+        & $cmd --no-daemon @Tasks | Out-Host
         return ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location
     }
 }
 
+# Usage: gradle_lint [-Dir <dir>]
+# Returns: as gradle_run.
+# Output: as gradle_run.
 function gradle_lint     { param([string]$Dir = '.') gradle_run $Dir 'lint' }
+# Usage: gradle_test [-Dir <dir>]
+# Returns: as gradle_run.
+# Output: as gradle_run.
 function gradle_test     { param([string]$Dir = '.') gradle_run $Dir 'test' }
+# Usage: gradle_clean [-Dir <dir>]
+# Returns: as gradle_run.
+# Output: as gradle_run.
 function gradle_clean    { param([string]$Dir = '.') gradle_run $Dir 'clean' }
 
+# Usage: gradle_assemble [-Dir <dir>] [-Variant <name>]   (default: Debug)
+# Returns: as gradle_run.
+# Output: as gradle_run.
 function gradle_assemble {
     param([string]$Dir = '.', [string]$Variant = 'Debug')
     gradle_run $Dir "assemble$Variant"

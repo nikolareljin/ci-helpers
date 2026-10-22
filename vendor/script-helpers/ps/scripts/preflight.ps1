@@ -1,22 +1,22 @@
-# preflight.ps1 — run every check CI would have run, locally, before pushing.
-# PowerShell companion to scripts/preflight.sh. Same detection rules, same
-# flags, same exit codes, so `./dev preflight` behaves identically in either shell.
-#
-#   pwsh ps/scripts/preflight.ps1 [-Quick] [-Stack <name>] [-Docker]
-#                                 [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
-#
-# -SecurityOnly runs only the secret / dependency scan (`./dev scan`); no stack
-# is needed for it.
-#
-# Exit codes:
+# SCRIPT: preflight.ps1
+# DESCRIPTION: Run locally every project check CI would run before pushing.
+# USAGE: pwsh -File ps\scripts\preflight.ps1 [-Quick] [-Stack <name>] [-Docker] [-SkipSecurity | -SecurityOnly] [-List] [-Dir <path>]
+# PARAMETERS:
+#   -Quick         Skip dependency audits.
+#   -Stack <name>  Check one or more declared stacks.
+#   -Docker        Run supported checks in Docker.
+#   -SkipSecurity  Skip security checks.
+#   -SecurityOnly  Run only security checks.
+#   -List          Print detected stacks without running them.
+#   -Dir <path>    Project directory (default: repository root or current directory).
+#   -Help          Show this help message.
+# EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  At least one check failed.
-#   2  Bad arguments, or an unknown -Stack.
-#   3  No stack could be detected in this directory.
-#
-# A repo may pin exactly what runs with a `.preflight` file at its root: one
-# "<stack> <dir>" per line, # comments allowed. When present it replaces
-# autodetection.
+#   2  Invalid arguments or unknown stack.
+#   3  No stack was detected.
+# EXAMPLE: pwsh -File ps\scripts\preflight.ps1 -Quick
+# ----------------------------------------------------
 
 param(
     [switch]$Quick,
@@ -25,14 +25,17 @@ param(
     [switch]$SkipSecurity,
     [switch]$SecurityOnly,
     [switch]$List,
-    [string]$Dir
+    [string]$Dir,
+    [switch]$Help
 )
+# -Help: print the header above and stop, before anything runs.
+if ($Help) { foreach ($l in Get-Content -LiteralPath $PSCommandPath) { if ($l -match '^#\s*-{4,}') { break }; $l -replace '^# ?', '' }; exit 0 }
 
 Set-StrictMode -Version Latest
 
 if ($env:CI -eq 'true') {
     Write-Error 'This script is intended for local use only.'
-    Write-Error 'In CI, run the checks directly — preflight exists to replace CI, not to run inside it.'
+    Write-Error 'In CI, run the checks directly - preflight exists to replace CI, not to run inside it.'
     exit 1
 }
 
@@ -207,12 +210,13 @@ function Invoke-Step {
     }
 }
 
-# A skip is not a pass — it is reported separately so an absent toolchain cannot
+# A skip is not a pass - it is reported separately so an absent toolchain cannot
 # look green.
 function Add-Skip {
     param([string]$Label, [string]$Reason)
-    $Results.Add("SKIP  $Label — $Reason")
-    log_warn "preflight: skipping $Label — $Reason"
+    # Same separator as scripts/preflight.sh, built from its code point so this file stays ASCII.
+    $Results.Add("SKIP  $Label $([char]0x2014) $Reason")
+    log_warn "preflight: skipping $Label $([char]0x2014) $Reason"
 }
 
 function Get-Label {
@@ -251,7 +255,7 @@ function Check-Gradle {
 }
 
 function Check-Simple {
-    param([string]$Stack, [string]$Dir, [string]$Tool, [string]$ScriptName)
+    param([string]$Stack, [string]$Dir, [string]$Tool, [string]$ScriptName, [string[]]$Extra = @())
     $name = Get-Label $Stack $Dir
     if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) { Add-Skip $name "$Tool is not installed"; return }
     $script = Join-Path $SCRIPT_HELPERS_DIR "scripts/$ScriptName"
@@ -261,6 +265,7 @@ function Check-Simple {
     # root, so a cd alone ran it on the wrong tree (preflight.sh's in_dir says so).
     $target = (Resolve-Path (Join-Path $ProjectDir $Dir)).Path
     $a = @($script, '--dir', $target); if ($Quick) { $a += '--quick' }
+    $a += $Extra
     $label = "$name lint + test"
     log_info "preflight: $label"
     # Exit 3: the runner could not check (nothing to test, or a tool is missing)
@@ -280,6 +285,37 @@ function Check-Simple {
         $script:Failed = $true
         log_error "preflight: $label FAILED"
     }
+}
+
+# Same preconditions as preflight.sh check_rust: local_test_rust.sh compiles
+# with rustup's RUST_TOOLCHAIN (default stable), not PATH's cargo. A missing
+# rustup or toolchain is a SKIP; PREFLIGHT_RUST_ANY_CARGO=true uses PATH's cargo.
+function Check-Rust {
+    param([string]$Dir)
+    $name = Get-Label 'rust' $Dir
+    $toolchain = if ($env:RUST_TOOLCHAIN) { $env:RUST_TOOLCHAIN } else { 'stable' }
+    if ($env:PREFLIGHT_RUST_ANY_CARGO -eq 'true') {
+        Check-Simple 'rust' $Dir 'cargo' 'local_test_rust.sh' @('--any-cargo')
+        return
+    }
+    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Add-Skip $name "rustup is not installed; CI compiles with rustup's $toolchain. Install it from https://rustup.rs, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+        return
+    }
+    # Stderr notices must not hide the path (5.1 turns them into errors).
+    $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $rustupCargo = ''
+    $global:LASTEXITCODE = 0
+    try {
+        $out = @(& rustup which --toolchain $toolchain cargo 2>$null) | Select-Object -First 1
+        if ($LASTEXITCODE -eq 0 -and $null -ne $out) { $rustupCargo = "$out".Trim() }
+    } catch { $rustupCargo = '' }
+    if (-not $rustupCargo -or -not (Test-Path -LiteralPath $rustupCargo -PathType Leaf)) {
+        Add-Skip $name "rustup has no cargo for '$toolchain'; run: rustup toolchain install $toolchain, or set PREFLIGHT_RUST_ANY_CARGO=true to check against PATH's cargo"
+        return
+    }
+    Check-Simple 'rust' $Dir 'rustup' 'local_test_rust.sh'
 }
 
 # One ci_security.sh run as a step. Exit 3 with a reason in PREFLIGHT_SKIP_FILE
@@ -321,7 +357,7 @@ function Check-Security {
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
         # In the summary too: without it, "PASS  security scan" read as if secrets
         # had been scanned.
-        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed — install it, or use -Docker'
+        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed - install it, or use -Docker'
         $haveGitleaks = $false
     }
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
@@ -373,7 +409,7 @@ foreach ($p in $pairs) {
         'node'    { Check-Simple 'node'   $p.Dir 'npm'     'local_test_node.sh' }
         'python'  { Check-Simple 'python' $p.Dir 'python3' 'local_test_python.sh' }
         'go'      { Check-Simple 'go'     $p.Dir 'go'      'local_test_go.sh' }
-        'rust'    { Check-Simple 'rust'   $p.Dir 'cargo'   'local_test_rust.sh' }
+        'rust'    { Check-Rust $p.Dir }
         'php'     { Check-Simple 'php'    $p.Dir 'php'     'local_test_php.sh' }
     }
 }

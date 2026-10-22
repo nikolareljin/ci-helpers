@@ -25,6 +25,15 @@
 #   --db-wait-seconds <n>   How long to wait for it to answer (default: 60).
 #   --env NAME=VALUE     Extra environment for every step. Repeatable.
 #   -h, --help           Show this help message.
+# EXIT_CODES:
+#   0  Install and tests passed (also -h/--help).
+#   1  CI=true (local use only), unknown argument, a bad --env, an unknown
+#      database engine, the database did not start, or docker (Docker mode) or
+#      python (--no-docker) not found.
+#   2  An option without its value.
+#   N  The failing install or test command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_python.sh --requirements requirements-dev.txt
 # ----------------------------------------------------
 #
 # No database is started unless --db-image says so, because most Python projects
@@ -40,11 +49,6 @@
 # scripts/ci_django.sh remains the runner for a Django project: it also creates
 # the database, applies migrations and knows what manage.py is.
 set -euo pipefail
-
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -75,25 +79,26 @@ EXTRA_ENV=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) WORKDIR="$2"; shift 2;;
+    --workdir) require_value "$@" || exit 2; WORKDIR="$2"; shift 2;;
     --no-install) NO_INSTALL=true; shift;;
-    --requirements) REQ_FILE="$2"; shift 2;;
-    --constraints) CONSTRAINTS_FILE="$2"; shift 2;;
-    --extra-install) EXTRA_INSTALL="$2"; shift 2;;
-    --test-cmd) TEST_CMD="$2"; shift 2;;
-    --pip-cmd) PIP_CMD="$2"; shift 2;;
-    --version) IMAGE_TAG="$2"; shift 2;;
-    --image) IMAGE_OVERRIDE="$2"; shift 2;;
+    --requirements) require_value "$@" || exit 2; REQ_FILE="$2"; shift 2;;
+    --constraints) require_value "$@" || exit 2; CONSTRAINTS_FILE="$2"; shift 2;;
+    --extra-install) require_value "$@" || exit 2; EXTRA_INSTALL="$2"; shift 2;;
+    --test-cmd) require_value "$@" || exit 2; TEST_CMD="$2"; shift 2;;
+    --pip-cmd) require_value "$@" || exit 2; PIP_CMD="$2"; shift 2;;
+    --version) require_value "$@" || exit 2; IMAGE_TAG="$2"; shift 2;;
+    --image) require_value "$@" || exit 2; IMAGE_OVERRIDE="$2"; shift 2;;
     --no-docker) USE_DOCKER=false; shift;;
-    --db-image) DB_IMAGE="$2"; shift 2;;
-    --db-engine) DB_ENGINE="$2"; shift 2;;
-    --db-name) DB_NAME="$2"; shift 2;;
-    --db-user) DB_USER="$2"; shift 2;;
-    --db-password) DB_PASSWORD="$2"; shift 2;;
-    --db-root-password) DB_ROOT_PASSWORD="$2"; shift 2;;
-    --db-port) DB_PORT="$2"; shift 2;;
-    --db-wait-seconds) DB_WAIT_SECONDS="$2"; shift 2;;
+    --db-image) require_value "$@" || exit 2; DB_IMAGE="$2"; shift 2;;
+    --db-engine) require_value "$@" || exit 2; DB_ENGINE="$2"; shift 2;;
+    --db-name) require_value "$@" || exit 2; DB_NAME="$2"; shift 2;;
+    --db-user) require_value "$@" || exit 2; DB_USER="$2"; shift 2;;
+    --db-password) require_value "$@" || exit 2; DB_PASSWORD="$2"; shift 2;;
+    --db-root-password) require_value "$@" || exit 2; DB_ROOT_PASSWORD="$2"; shift 2;;
+    --db-port) require_value "$@" || exit 2; DB_PORT="$2"; shift 2;;
+    --db-wait-seconds) require_value "$@" || exit 2; DB_WAIT_SECONDS="$2"; shift 2;;
     --env)
+      require_value "$@" || exit 2
       case "$2" in
         *=*) EXTRA_ENV+=("$2") ;;
         *) log_error "--env expects NAME=VALUE, got: $2"; exit 1 ;;
@@ -103,6 +108,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# After argument parsing, so -h/--help still works under CI=true.
+if [[ "${CI:-}" == "true" ]]; then
+  echo "This script is intended for local use only." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # The database, when one is asked for. lib/ci_stack.sh is the one copy of this;

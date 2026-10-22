@@ -2,7 +2,6 @@
 # SCRIPT: build_brew_tarball.sh
 # DESCRIPTION: Build a Homebrew tarball for a repo.
 # USAGE: ./build_brew_tarball.sh --name <name> [--repo PATH] [--version-file FILE] [--dist-dir DIR] [--exclude PATTERN]
-# EXAMPLE: ./build_brew_tarball.sh --name isoforge --repo . --exclude dist --exclude .git
 # PARAMETERS:
 #   --name <name>         Package name (required).
 #   --repo <path>         Repo path (default: GITHUB_WORKSPACE or cwd).
@@ -10,6 +9,12 @@
 #   --dist-dir <dir>      Output directory (default: repo/dist).
 #   --exclude <pattern>   Exclude path (repeatable).
 #   -h, --help            Show help.
+# EXIT_CODES:
+#   0  Tarball written to <dist-dir>/<name>-<version>.tar.gz (also -h/--help).
+#   1  rsync or tar failed.
+#   2  Unknown argument, an option without its value, --name missing, or the version file not found.
+# EXAMPLE:
+#   scripts/build_brew_tarball.sh --name isoforge --repo . --exclude dist
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -29,11 +34,11 @@ excludes=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --name) name="$2"; shift 2;;
-    --repo) repo_dir="$2"; shift 2;;
-    --version-file) version_file="$2"; shift 2;;
-    --dist-dir) dist_dir="$2"; shift 2;;
-    --exclude) excludes+=("$2"); shift 2;;
+    --name) require_value "$@" || exit 2; name="$2"; shift 2;;
+    --repo) require_value "$@" || exit 2; repo_dir="$2"; shift 2;;
+    --version-file) require_value "$@" || exit 2; version_file="$2"; shift 2;;
+    --dist-dir) require_value "$@" || exit 2; dist_dir="$2"; shift 2;;
+    --exclude) require_value "$@" || exit 2; excludes+=("$2"); shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac

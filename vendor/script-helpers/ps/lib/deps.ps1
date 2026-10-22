@@ -1,4 +1,4 @@
-# Dependency helpers — PowerShell companion to lib/deps.sh.
+# Dependency helpers - PowerShell companion to lib/deps.sh.
 # Uses winget (Windows 11 built-in) > choco > scoop for package installation.
 
 function _Deps_GetPackageManager {
@@ -8,6 +8,10 @@ function _Deps_GetPackageManager {
     return $null
 }
 
+# Usage: install_package <package> [<package>...]
+# Installs each package with winget, else choco, else scoop.
+# Returns: nothing. A failed package is warned about and the rest still run.
+# Output: the package manager's output; stderr [WARN] when no manager is found or an install fails.
 function install_package {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Packages)
     $mgr = _Deps_GetPackageManager
@@ -30,11 +34,17 @@ function install_package {
     }
 }
 
+# Usage: install_dependencies [-Packages <string[]>]   (default: curl, jq, git, wget)
+# Returns: nothing (see install_package).
+# Output: as install_package.
 function install_dependencies {
     param([string[]]$Packages = @('curl', 'jq', 'git', 'wget'))
     install_package @Packages
 }
 
+# Usage: require_command <name> [<name>...]
+# Returns: nothing when every command resolves.
+# Output: stderr [ERROR] listing the missing commands; then throws the same message.
 function require_command {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Names)
     $missing = @()

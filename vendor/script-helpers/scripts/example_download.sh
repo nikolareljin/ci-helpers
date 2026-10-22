@@ -5,6 +5,11 @@
 # PARAMETERS:
 #   URL          Optional download URL (default: https://speed.hetzner.de/10MB.bin).
 #   OUTPUT_PATH  Optional output file path (default: /tmp/example-download.bin).
+#   -h, --help   Show this help and exit.
+# EXIT_CODES:
+#   0  The file was downloaded.
+#   1  The download failed or left no file at OUTPUT_PATH.
+#   N  curl's own exit code, passed through (e.g. 2 for an argument curl rejects).
 # EXAMPLE: ./example_download.sh https://example.com/file.bin /tmp/file.bin
 # ----------------------------------------------------
 set -euo pipefail
@@ -15,7 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$SCRIPT_DIR/..}"
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import logging dialog file
+shlib_import help logging dialog file
+
+case "${1:-}" in -h|--help) print_help "${BASH_SOURCE[0]}"; exit 0 ;; esac
 
 URL="${1:-https://speed.hetzner.de/10MB.bin}"
 OUT="${2:-/tmp/example-download.bin}"

@@ -1,6 +1,9 @@
 # SCRIPT: example_logging.ps1
 # DESCRIPTION: Demonstrates the logging module of the PowerShell script-helpers library.
-# USAGE: ps\scripts\example_logging.ps1
+# USAGE: pwsh -File ps\scripts\example_logging.ps1
+# PARAMETERS: No parameters.
+# EXIT_CODES: 0 after printing the example output.
+# EXAMPLE: pwsh -File ps\scripts\example_logging.ps1
 # ----------------------------------------------------
 
 $ScriptDir = $PSScriptRoot

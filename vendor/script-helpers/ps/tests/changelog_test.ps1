@@ -9,6 +9,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..' 'lib' 'changelog.ps1')
 
 $script:failures = 0
+# The em-dash is built, not typed, so this file stays ASCII and 5.1 reads it right.
+$em = [string][char]0x2014
 function note([string]$m)  { Write-Host "[changelog_test.ps1] $m" }
 function fail([string]$m)  { Write-Host "[changelog_test.ps1][ERROR] $m"; $script:failures++ }
 
@@ -16,11 +18,11 @@ $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("changelog-ps-" + [guid]::Ne
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     $collide = Join-Path $tmp 'collide.md'
-    Set-Content -Path $collide -Value @(
+    Set-Content -Encoding UTF8 -Path $collide -Value @(
         '# Changelog', '',
-        '## 2026-09-10 — v10.2.0', '', '- ten point two.', '',
-        '## 2026-09-05 — v0.2.0-rc.1', '', '- the candidate.', '',
-        '## 2026-01-01 — v0.2.0', '', '- zero point two.'
+        ('## 2026-09-10 ' + $em + ' v10.2.0'), '', '- ten point two.', '',
+        ('## 2026-09-05 ' + $em + ' v0.2.0-rc.1'), '', '- the candidate.', '',
+        ('## 2026-01-01 ' + $em + ' v0.2.0'), '', '- zero point two.'
     )
     $body = changelog_extract -File $collide -Version '0.2.0'
     if ($body -notmatch 'zero point two') { fail "0.2.0 did not select its own section (got: $body)" }
@@ -32,15 +34,15 @@ try {
     note 'extract matches a version whole'
 
     $bare = Join-Path $tmp 'bare.md'
-    Set-Content -Path $bare -Value @('# Changelog', '', '## 0.2.0', '- bare body')
+    Set-Content -Encoding UTF8 -Path $bare -Value @('# Changelog', '', '## 0.2.0', '- bare body')
     if ((changelog_extract -File $bare -Version '0.2.0') -notmatch 'bare body') { fail 'a bare ## X.Y.Z header was not found' }
     note 'a bare version header still matches'
 
     # new_section's "already there" check used `.*0\.2\.0(\D|$)`, with no leading boundary.
     $ten = Join-Path $tmp 'ten.md'
-    Set-Content -Path $ten -Value @('# Changelog', '', '## 2026-09-10 — v10.2.0', '', '- ten.')
+    Set-Content -Encoding UTF8 -Path $ten -Value @('# Changelog', '', ('## 2026-09-10 ' + $em + ' v10.2.0'), '', '- ten.')
     changelog_new_section -File $ten -Version '0.2.0' -Date '2026-09-13' | Out-Null
-    if (-not (Select-String -Path $ten -SimpleMatch '## 2026-09-13 — v0.2.0' -Quiet)) { fail 'new_section treated 0.2.0 as present because v10.2.0 exists' }
+    if (-not (Select-String -Encoding UTF8 -Path $ten -SimpleMatch ('## 2026-09-13 ' + $em + ' v0.2.0') -Quiet)) { fail 'new_section treated 0.2.0 as present because v10.2.0 exists' }
     changelog_new_section -File $ten -Version '0.2.0' -Date '2026-09-14' | Out-Null
     if (Select-String -Path $ten -SimpleMatch 'v0.2.0' -AllMatches | Where-Object { $_.Line -match '2026-09-14' }) { fail 'new_section ran twice for the same version' }
     note 'new_section is not fooled by a version it is a substring of, and is idempotent'

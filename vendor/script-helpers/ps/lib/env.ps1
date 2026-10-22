@@ -1,5 +1,8 @@
-# Environment helpers — PowerShell companion to lib/env.sh.
+# Environment helpers - PowerShell companion to lib/env.sh.
 
+# Usage: get_project_root [-StartDir <path>]   (default: current directory)
+# Returns: the nearest directory at or above StartDir that holds .git; StartDir when none does.
+# Output: none.
 function get_project_root {
     param([string]$StartDir = $PWD.Path)
     $dir = $StartDir
@@ -12,6 +15,11 @@ function get_project_root {
     return $StartDir
 }
 
+# Usage: load_env [-EnvFile <path>]   (default: .env)
+# Sets process environment variables from KEY=VALUE lines; strips quotes and `export`,
+# expands ${VAR} and $VAR, skips comments and blank lines.
+# Returns: nothing.
+# Output: warning stream "env file not found" when the file is missing (not an error).
 function load_env {
     param([string]$EnvFile = '.env')
     if (-not (Test-Path $EnvFile)) {
@@ -31,6 +39,9 @@ function load_env {
     }
 }
 
+# Usage: require_env <NAME> [<NAME>...]
+# Returns: nothing when every variable is set and non-empty.
+# Output: none; throws "[script-helpers] Required env vars not set: <names>" otherwise.
 function require_env {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Names)
     $missing = @()
@@ -47,6 +58,10 @@ function require_env {
 # Mirror Bash resolve_env_value(key, default='', env_file='.env'):
 # Returns the process env var value when set; falls back to reading $EnvFile
 # for the key when the process env is unset/empty; finally returns $Default.
+# Usage: resolve_env_value -Name <key> [-Default <value>] [-EnvFile <path>]
+# Returns: the process variable when non-empty, else the last KEY= value in EnvFile
+#   (quotes and trailing comment stripped), else Default.
+# Output: none.
 function resolve_env_value {
     param([string]$Name, [string]$Default = '', [string]$EnvFile = '.env')
     $v = [System.Environment]::GetEnvironmentVariable($Name)
@@ -73,6 +88,9 @@ function resolve_env_value {
 
 # Expand ${VAR} and $VAR references inside a value string using the current
 # process environment. Used internally by load_env.
+# Usage: expand_env_refs -Value <string>
+# Returns: Value with ${VAR} and $VAR replaced from the process environment (unset -> empty).
+# Output: none.
 function expand_env_refs {
     param([string]$Value)
     $result = $Value

@@ -158,7 +158,7 @@ except Exception:
     print("")' "$payload_file" 2>/dev/null)"
 fi
 if [[ -z "$payload_cwd" ]]; then
-  payload_cwd="$(LC_ALL=C sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$payload_file" | head -1)"
+  payload_cwd="$(LC_ALL=C sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$payload_file" | sed -n 1p)"
 fi
 case "$payload_cwd" in
   /*|[A-Za-z]:[/\\]*)
@@ -690,7 +690,8 @@ sens_args=(--stdin --no-inline-allow)
 if [[ "$verdict" == "check-unparsed" ]]; then
   # Any command shlex cannot split lands here, most of them not publishing
   # anything. Only one that names a publishing command is scanned.
-  printf '%s' "$text" | grep -qE "$PUBLISH_RE" || exit 0
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  grep -qE "$PUBLISH_RE" <<< "$text" || exit 0
   sens_args+=(--no-machine)
 fi
 reason="$(printf '%s' "$text" | bash "$SENSITIVE" "${sens_args[@]}" 2>&1)"

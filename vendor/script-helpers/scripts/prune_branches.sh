@@ -18,7 +18,13 @@
 #                     a stale base makes a landed branch look unmerged.
 #                     Refused with --remote --apply, as is a failed fetch.
 #   -h, --help        Show this help message.
-# EXAMPLE: bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
+# EXIT_CODES:
+#   0  Report printed, or every deletable branch was deleted.
+#   1  Setup failed (not a repository, no base, failed fetch), a refused
+#      --remote --apply --no-fetch, or at least one deletion failed.
+#   2  Unknown argument, or an option without its value.
+# EXAMPLE:
+#   bash scripts/script-helpers/scripts/prune_branches.sh --remote --apply
 # ----------------------------------------------------
 #
 # `git branch --merged` is not enough on its own. It asks whether the branch
@@ -42,6 +48,7 @@
 # matching a protected name (main, master, trunk, develop, production,
 # release/*, hotfix/*), and any branch holding commits its upstream does not.
 # ----------------------------------------------------
+# No -e: every branch is classified and every deletion tried; failures are collected in $status.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +56,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging git_branches >/dev/null 2>&1 || true
+shlib_import logging help git_branches >/dev/null 2>&1 || true
 type log_info  >/dev/null 2>&1 || log_info()  { printf '[INFO] %s\n' "$*"; }
 type log_warn  >/dev/null 2>&1 || log_warn()  { printf '[WARN] %s\n' "$*" >&2; }
 type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; }
@@ -71,12 +78,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply)        APPLY=true; shift ;;
     --remote)       DO_REMOTE=true; shift ;;
-    --repo)         REPO="${2:?--repo needs a path}"; shift 2 ;;
-    --base)         BASE="${2:?--base needs a branch}"; shift 2 ;;
-    --remote-name)  REMOTE_NAME="${2:?--remote-name needs a name}"; shift 2 ;;
-    --keep)         KEEP+=("${2:?--keep needs a pattern}"); shift 2 ;;
+    --repo)         require_value "$@" || exit 2; REPO="$2"; shift 2 ;;
+    --base)         require_value "$@" || exit 2; BASE="$2"; shift 2 ;;
+    --remote-name)  require_value "$@" || exit 2; REMOTE_NAME="$2"; shift 2 ;;
+    --keep)         require_value "$@" || exit 2; KEEP+=("$2"); shift 2 ;;
     --no-fetch)     DO_FETCH=false; shift ;;
-    -h|--help)      sed -n '2,21p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)      sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *)              log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -165,7 +172,7 @@ git rev-parse --verify --quiet "$BASE_REF" >/dev/null || {
 CURRENT="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
 
 log_info "base: $BASE_REF"
-[[ "$APPLY" == "true" ]] || log_info "dry run — nothing will be deleted. Add --apply to act."
+[[ "$APPLY" == "true" ]] || log_info "dry run - nothing will be deleted. Add --apply to act."
 printf '\n%-42s %-10s %s\n' "BRANCH" "STATE" "VERDICT"
 printf -- '%s\n' "----------------------------------------------------------------------------"
 

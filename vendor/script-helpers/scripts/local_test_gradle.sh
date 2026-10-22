@@ -9,9 +9,13 @@
 #   --android  Use the Android task names (lintDebug, testDebugUnitTest,
 #              assembleDebug) instead of the plain JVM ones (lint, test, build).
 #              Autodetected from the presence of an Android plugin when omitted.
+#   -h, --help  Show this help and exit.
 # EXIT_CODES:
 #   0  All requested checks passed.
 #   1  A check failed, or no Gradle wrapper was found.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_gradle.sh --dir android --android
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -21,6 +25,7 @@ ANDROID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --android) ANDROID=true ;;
     --dir)
@@ -78,7 +83,7 @@ if [[ -z "$ANDROID" ]]; then
 fi
 
 # An Android build needs the SDK location, and neither ANDROID_HOME nor a
-# local.properties `sdk.dir` is reliably set in a plain shell — so a project that
+# local.properties `sdk.dir` is reliably set in a plain shell - so a project that
 # builds in an IDE fails here with "SDK location not found", which reads as a
 # project fault rather than an environment one. Reuse the android module's lookup
 # rather than repeating it; an already-set value wins.

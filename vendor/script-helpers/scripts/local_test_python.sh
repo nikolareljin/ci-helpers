@@ -7,11 +7,15 @@
 # PARAMETERS:
 #   --quick   Skip install; run lint and tests against the current environment.
 #   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+#   -h, --help  Show this help and exit.
 # EXIT_CODES:
 #   0  Every check that ran passed.
 #   1  A check failed, or bad arguments.
 #   3  Nothing could be checked: pytest, or a configured ruff, is not installed, or pytest
 #      collected no tests. preflight reports it as SKIP.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_python.sh --dir backend
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -28,6 +32,7 @@ TEST_DIR="."
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --dir)
       if [[ $# -lt 2 ]]; then

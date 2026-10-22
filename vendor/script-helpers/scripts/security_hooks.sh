@@ -13,7 +13,21 @@
 #                                SENSITIVE_ALLOW_UNCHECKED=1 is the same.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
 #                                binary in the cache, else foxguard on PATH).
+# EXIT_CODES:
+#   Sourced: no output, no exit. Each sec_* function returns 0 to let the
+#   commit or push continue and 1 to refuse; sec_find returns 127 when a
+#   check script is missing.
+#   Executed: 0 for -h/--help; 2 for anything else (it must be sourced).
+# EXAMPLE: source scripts/security_hooks.sh && sec_pre_push "$refs_file" origin "$url" || exit 1
 # ----------------------------------------------------
+# Run directly instead of sourced: -h/--help prints this header; anything else
+# is a usage error, because the functions only make sense inside a hook.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "security_hooks.sh: source this file from a hook; see --help" >&2; exit 2 ;;
+  esac
+fi
 #
 # Order, in pre-push: private names (block) -> credentials, then personal
 # identifiers and PII, both in check_sensitive.sh (block) -> foxguard (warn only). The caller handles the deletions-only shortcut and the
@@ -104,7 +118,7 @@ sec_maybe_refresh_private_names() {
 # other remote (a private one, say) is still news to this one. A push to a bare
 # URL has no remote refs, so everything it sends is checked.
 sec_not_remote() {
-  if [[ -n "${1:-}" ]] && git remote 2>/dev/null | LC_ALL=C grep -qxF -- "$1"; then
+  if [[ -n "${1:-}" ]] && LC_ALL=C grep -qxF -- "$1" <<< "$(git remote 2>/dev/null)"; then
     printf -- '--not --remotes=%s' "$1"
   else
     printf -- '--not'
@@ -190,8 +204,8 @@ sec_tag_messages() {
     t="$lsha"
     while [[ "$(git cat-file -t "$t" 2>/dev/null)" == tag ]]; do
       body="$(git cat-file tag "$t" 2>/dev/null)" || return 1
-      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | LC_ALL=C awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }'
-      t="$(printf '%s\n' "$body" | LC_ALL=C awk '$1 == "object" { print $2; exit }')"
+      [[ "$t" == "${rsha:-}" ]] || printf '%s\n' "$body" | LC_ALL=C awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { s = 1 } p && !s { print } /^$/ { p = 1 }'
+      t="$(printf '%s\n' "$body" | LC_ALL=C awk '!f && $1 == "object" { print $2; f = 1 }')"
       [[ -n "$t" ]] || break
     done
   done < "$1"
@@ -463,7 +477,7 @@ sec_foxguard_push() {
         done < <(printf '%s\n' "$out") ;;
       *)
         failed=$((failed + 1)); frc="$rc"
-        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | head -3) ;;
+        while IFS= read -r r; do printf '[pre-push] foxguard (%s): %s\n' "$f" "$r" >&2; done < <(printf '%s\n' "$out" | sed -n 1,3p) ;;
     esac
   done
   [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."

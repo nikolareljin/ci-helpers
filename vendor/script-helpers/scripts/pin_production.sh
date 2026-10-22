@@ -4,7 +4,7 @@
 # USAGE: scripts/pin_production.sh <tag> [--allow-rewind] [--remote <name>] [--branch <name>] [--repo <path>] [--dry-run]
 # PARAMETERS:
 #   <tag>             Release tag to point production at (e.g. 0.10.0).
-#   --allow-rewind    Permit moving production to a tag that is NOT ahead of it —
+#   --allow-rewind    Permit moving production to a tag that is NOT ahead of it -
 #                     i.e. a rollback, or a move onto a diverged history. Without
 #                     this flag such a move is refused rather than attempted.
 #   --remote <name>   Remote to read and push (default: origin).
@@ -13,6 +13,13 @@
 #                     current directory, NOT the one this script lives in).
 #   --dry-run         Report what would change and push nothing.
 #   -h, --help        Show this help message.
+# EXIT_CODES:
+#   0  Moved, already there, or a dry run.
+#   1  An error: no <tag> given, a refused branch name (main, master, HEAD),
+#      git missing, not a repository, fetch/push failed, tag not found, or the
+#      branch did not read back at the tag after the push.
+#   2  An unknown option, an option without its value, or a second <tag>.
+#   3  Refused: the tag is not ahead of the branch and --allow-rewind was not given.
 # EXAMPLE:
 #   scripts/pin_production.sh 0.10.0                   # roll forward
 #   scripts/pin_production.sh 0.9.0 --allow-rewind     # roll back, deliberately
@@ -25,7 +32,7 @@
 # the target is an ANCESTOR of production, `--ff-only` reports "Already up to
 # date" and exits 0. The script then pushed nothing of consequence and printed
 # "production now points to tag <tag>". Exit 0, success message, production
-# untouched — the operator had to notice on their own that the rollback they
+# untouched - the operator had to notice on their own that the rollback they
 # asked for had not happened.
 #
 # So: a backward or diverged move is now named (--allow-rewind) rather than
@@ -47,7 +54,7 @@ DRY_RUN=false
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -126,7 +133,7 @@ remote_url="$(git remote get-url "$REMOTE" 2>/dev/null || echo '<unknown>')"
 echo "Repository: $REPO_DIR"
 echo "Remote:     $REMOTE ($remote_url)"
 
-# The working tree is never touched — the move is a refspec push — so a dirty
+# The working tree is never touched - the move is a refspec push - so a dirty
 # tree is no longer a reason to refuse, and the caller is not left standing on
 # a checked-out production branch the way the old implementation left them.
 git fetch --tags --force "$REMOTE" >/dev/null 2>&1 || {
@@ -146,7 +153,7 @@ current="$(git ls-remote "$REMOTE" "refs/heads/$BRANCH" | awk '{print $1}')"
 
 # The ancestry tests below need that commit present locally. The branch fetch
 # above is deliberately tolerant (the branch may simply not exist yet), so a
-# fetch that failed for some other reason would leave the object missing — and
+# fetch that failed for some other reason would leave the object missing - and
 # `merge-base --is-ancestor` answers "no" to a commit it cannot see, which would
 # be reported as a divergence and answered with advice to force the move. Say
 # what actually happened instead.

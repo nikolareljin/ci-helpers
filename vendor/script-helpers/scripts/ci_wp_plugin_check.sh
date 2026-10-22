@@ -32,6 +32,19 @@
 #   --fail-on-findings <true|false>          Fail on plugin-check errors (default: false).
 #   --cleanup <true|false>                   Clean up Docker resources on exit (default: true).
 #   -h, --help                               Show this help message.
+# EXIT_CODES:
+#   0  No plugin-check errors, or findings reported only with --fail-on-findings
+#      false (also -h/--help).
+#   1  The database did not become ready, or a setup step failed.
+#   2  Bad arguments: unknown option, an option without its value, a bad
+#      true/false, port or wait value, missing --plugin-slug, compose file or
+#      plugin source not found, a bad --plugin-src-env name, or python3 missing
+#      with --fail-on-findings true.
+#   4  Plugin-check reported errors, or wp plugin check is unavailable, with
+#      --fail-on-findings true.
+#   5  The plugin-check or meta-check JSON could not be parsed.
+# EXAMPLE:
+#   scripts/ci_wp_plugin_check.sh --plugin-slug my-plugin --compose-file test/docker-compose.yml
 # ENVIRONMENT:
 #   PLUGIN_CHECK_INSTALL_ATTEMPTS  Tries to install plugin-check, 1-99 (default: 3).
 #   PLUGIN_CHECK_RETRY_DELAY       Seconds before retry n is n x this, 0-999 (default: 5).
@@ -81,34 +94,34 @@ cleanup="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --compose-file) compose_file="$2"; shift 2 ;;
-    --plugin-slug) plugin_slug="$2"; shift 2 ;;
-    --plugin-src) plugin_src="$2"; shift 2 ;;
-    --plugin-src-env) plugin_src_env="$2"; shift 2 ;;
-    --wpcli-service) wpcli_service="$2"; shift 2 ;;
-    --db-service) db_service="$2"; shift 2 ;;
-    --db-name) db_name="$2"; shift 2 ;;
-    --db-user) db_user="$2"; shift 2 ;;
-    --db-password) db_password="$2"; shift 2 ;;
-    --wordpress-service) wordpress_service="$2"; shift 2 ;;
-    --host-port) host_port="$2"; shift 2 ;;
-    --out-dir) out_dir="$2"; shift 2 ;;
-    --exclude-directories) exclude_directories="$2"; shift 2 ;;
-    --exclude-files) exclude_files="$2"; shift 2 ;;
-    --db-wait-seconds) db_wait_seconds="$2"; shift 2 ;;
-    --multisite) multisite="$2"; shift 2 ;;
-    --activate-network) activate_network="$2"; shift 2 ;;
-    --admin-user) admin_user="$2"; shift 2 ;;
-    --admin-password) admin_password="$2"; shift 2 ;;
-    --admin-email) admin_email="$2"; shift 2 ;;
-    --site-title) site_title="$2"; shift 2 ;;
-    --meta-check-script) meta_check_script="$2"; shift 2 ;;
-    --php-lint-command) php_lint_command="$2"; shift 2 ;;
-    --phpcs-warning-command) phpcs_warning_command="$2"; shift 2 ;;
-    --phpunit-command) phpunit_command="$2"; shift 2 ;;
-    --phpunit-working-directory) phpunit_working_directory="$2"; shift 2 ;;
-    --fail-on-findings) fail_on_findings="$2"; shift 2 ;;
-    --cleanup) cleanup="$2"; shift 2 ;;
+    --compose-file) require_value "$@" || exit 2; compose_file="$2"; shift 2 ;;
+    --plugin-slug) require_value "$@" || exit 2; plugin_slug="$2"; shift 2 ;;
+    --plugin-src) require_value "$@" || exit 2; plugin_src="$2"; shift 2 ;;
+    --plugin-src-env) require_value "$@" || exit 2; plugin_src_env="$2"; shift 2 ;;
+    --wpcli-service) require_value "$@" || exit 2; wpcli_service="$2"; shift 2 ;;
+    --db-service) require_value "$@" || exit 2; db_service="$2"; shift 2 ;;
+    --db-name) require_value "$@" || exit 2; db_name="$2"; shift 2 ;;
+    --db-user) require_value "$@" || exit 2; db_user="$2"; shift 2 ;;
+    --db-password) require_value "$@" || exit 2; db_password="$2"; shift 2 ;;
+    --wordpress-service) require_value "$@" || exit 2; wordpress_service="$2"; shift 2 ;;
+    --host-port) require_value "$@" || exit 2; host_port="$2"; shift 2 ;;
+    --out-dir) require_value "$@" || exit 2; out_dir="$2"; shift 2 ;;
+    --exclude-directories) require_value "$@" || exit 2; exclude_directories="$2"; shift 2 ;;
+    --exclude-files) require_value "$@" || exit 2; exclude_files="$2"; shift 2 ;;
+    --db-wait-seconds) require_value "$@" || exit 2; db_wait_seconds="$2"; shift 2 ;;
+    --multisite) require_value "$@" || exit 2; multisite="$2"; shift 2 ;;
+    --activate-network) require_value "$@" || exit 2; activate_network="$2"; shift 2 ;;
+    --admin-user) require_value "$@" || exit 2; admin_user="$2"; shift 2 ;;
+    --admin-password) require_value "$@" || exit 2; admin_password="$2"; shift 2 ;;
+    --admin-email) require_value "$@" || exit 2; admin_email="$2"; shift 2 ;;
+    --site-title) require_value "$@" || exit 2; site_title="$2"; shift 2 ;;
+    --meta-check-script) require_value "$@" || exit 2; meta_check_script="$2"; shift 2 ;;
+    --php-lint-command) require_value "$@" || exit 2; php_lint_command="$2"; shift 2 ;;
+    --phpcs-warning-command) require_value "$@" || exit 2; phpcs_warning_command="$2"; shift 2 ;;
+    --phpunit-command) require_value "$@" || exit 2; phpunit_command="$2"; shift 2 ;;
+    --phpunit-working-directory) require_value "$@" || exit 2; phpunit_working_directory="$2"; shift 2 ;;
+    --fail-on-findings) require_value "$@" || exit 2; fail_on_findings="$2"; shift 2 ;;
+    --cleanup) require_value "$@" || exit 2; cleanup="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac

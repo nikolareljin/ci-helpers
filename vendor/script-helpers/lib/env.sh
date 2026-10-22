@@ -2,6 +2,8 @@
 # Environment and project helpers
 
 # Usage: get_project_root; prints repo root based on caller script location.
+# Returns: 0 (the exit code of dirname).
+# Output: stdout the parent directory of the outermost calling script's directory (or of the cwd when sourced interactively).
 get_project_root() {
   local source_path="" script_dir=""
 
@@ -25,6 +27,8 @@ get_project_root() {
 }
 
 # Usage: load_env [env_file]; sources environment file if present.
+# Returns: 0 (also when the file does not exist); a failing command inside the env file does not change the return code.
+# Output: stdout nothing; stderr a debug line when debug logging is on, and whatever the env file prints.
 load_env() {
   local env_file="${1:-.env}"
   if [[ -f "$env_file" ]]; then
@@ -41,6 +45,8 @@ load_env() {
 }
 
 # Usage: require_env <VAR...>; returns non-zero if any are missing.
+# Returns: 0 all set and non-empty; 1 any missing.
+# Output: stdout nothing; stderr the list of missing names.
 require_env() {
   local missing=()
   local var
@@ -53,7 +59,10 @@ require_env() {
   fi
 }
 
+# Usage: resolve_env_value <KEY> <default> [env_file=.env]
 # Read a key from environment or .env file, with default fallback
+# Returns: always 0.
+# Output: stdout the value from the environment, else the last KEY= line of env_file (quotes and trailing comment removed), else <default>.
 resolve_env_value() {
   local key="$1" default="$2" env_file="${3:-.env}"
   local value=""
@@ -127,11 +136,11 @@ _env__parse_value() {
             c = substr($0, i, 1)
             nx = substr($0, i + 1, 1)
             if (c == "\\" && (nx == "\"" || nx == "\\")) { out = out nx; i += 2; continue }
-            if (c == q) { print 1; print out; print substr($0, i + 1); exit }
+            if (c == q) { print 1; print out; print substr($0, i + 1); closed = 1; break }
             out = out c
             i++
           }
-          print 0; print out; print ""
+          if (!closed) { print 0; print out; print "" }
         }')"
       # Each read tolerates end-of-input. Command substitution strips trailing
       # newlines, so when nothing follows the closing quote -- the ordinary case
@@ -200,6 +209,8 @@ SPLIT
 }
 
 # Usage: run_superuser_setup; runs scripts/superuser.sh from project root.
+# Returns: 1 the script is missing or not executable; otherwise its exit code.
+# Output: stdout/stderr the script's output; stderr a progress line.
 run_superuser_setup() {
   local project_root su_script
   project_root=$(get_project_root)
@@ -213,6 +224,8 @@ run_superuser_setup() {
 }
 
 # Usage: init_include; sets up traps, cd to root, and loads .env.
+# Returns: 0 done; 1 cd to the project root failed. Side effect: changes the current directory of the caller and loads .env.
+# Output: stdout nothing; stderr debug lines when debug logging is on.
 init_include() {
   # Initialize traps, move to project root, and load .env
   if declare -F setup_traps >/dev/null 2>&1; then setup_traps; fi
@@ -231,6 +244,8 @@ init_include() {
 # it the same, or refused when it cannot be. Written in place, not moved,
 # so a symlinked .env keeps pointing at its target.
 # Returns 0 written; 1 a bad key or value, or the write failed.
+# Returns: 0 written; 1 missing or invalid key, unquotable value, or the write failed.
+# Output: stdout nothing; stderr an error for a bad key or value.
 env_set_value() {
   local file="${1:-}" key="${2:-}" value="${3:-}" line="" tmp=""
   [[ -n "$file" && -n "$key" ]] || { log_error "env_set_value: FILE and KEY required"; return 1; }

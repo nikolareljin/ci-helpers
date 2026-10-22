@@ -8,6 +8,14 @@
 #   --changelog <path>  CHANGELOG to read, relative to --repo (default: CHANGELOG.md).
 #   --repo <dir>        Repository to read (default: current directory).
 #   -h, --help          Show this help message.
+# EXIT_CODES:
+#   0  Not a release branch (nothing to check), or the section exists and has
+#      entries (also -h/--help).
+#   1  CHANGELOG missing, no section for the version, or the section is empty.
+#   2  Unknown argument, an option without a value, a malformed --version, or
+#      --repo not a directory.
+# EXAMPLE:
+#   scripts/check_changelog_section.sh --version 1.4.0
 # ----------------------------------------------------
 #
 # The release body comes from the CHANGELOG section for the version being
@@ -27,7 +35,7 @@ source "$ROOT_DIR/helpers.sh"
 shlib_import logging changelog
 
 usage() {
-  sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^# ---/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'
 }
 
 need_value() {

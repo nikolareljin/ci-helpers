@@ -1,9 +1,12 @@
-# Interactive prompt helpers — PowerShell companion to lib/dialog.sh.
+# Interactive prompt helpers - PowerShell companion to lib/dialog.sh.
 #
 # Windows does not have the 'dialog' ncurses utility.
 # These functions provide equivalent interactive prompts using Read-Host
 # and Write-Host, matching the Bash API surface as closely as possible.
 
+# Usage: dialog_input [-Title <t>] [-Prompt <p>] [-Default <value>]
+# Returns: the typed value, or Default when the reply is empty.
+# Output: host the title and prompt.
 function dialog_input {
     param([string]$Title = 'Input', [string]$Prompt = '', [string]$Default = '')
     Write-Host "--- $Title ---"
@@ -12,6 +15,9 @@ function dialog_input {
     return $(if ($val) { $val } else { $Default })
 }
 
+# Usage: dialog_yesno [-Title <t>] [-Message <m>]
+# Returns: $true for y/Y, else $false.
+# Output: host the title and prompt.
 function dialog_yesno {
     param([string]$Title = 'Confirm', [string]$Message = 'Proceed?')
     Write-Host "--- $Title ---"
@@ -19,6 +25,10 @@ function dialog_yesno {
     return ($resp -match '^[yY]$')
 }
 
+# Usage: dialog_menu [-Title <t>] -Items <string[]> [-Prompt <p>]
+# Asks until a valid number is entered.
+# Returns: the selected item.
+# Output: host the numbered list and prompt.
 function dialog_menu {
     param([string]$Title = 'Menu', [Parameter(Mandatory)][string[]]$Items, [string]$Prompt = 'Select')
     Write-Host "--- $Title ---"
@@ -34,6 +44,9 @@ function dialog_menu {
     return $Items[$sel]
 }
 
+# Usage: dialog_password [-Prompt <p>]
+# Returns: the typed password as plain text. Input is not echoed.
+# Output: host the prompt.
 function dialog_password {
     param([string]$Prompt = 'Password')
     $secure = Read-Host $Prompt -AsSecureString
@@ -43,6 +56,9 @@ function dialog_password {
 }
 
 # Stub: progress display using Write-Progress.
+# Usage: dialog_download_file -Url <url> -Output <path> [-Title <t>]
+# Returns: nothing.
+# Output: a progress bar; throws when the download fails.
 function dialog_download_file {
     param([string]$Url, [string]$Output, [string]$Title = 'Downloading')
     Write-Progress -Activity $Title -Status "Downloading $Url"

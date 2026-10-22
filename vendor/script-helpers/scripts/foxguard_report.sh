@@ -8,11 +8,14 @@
 #                    paths are given: the upstream branch, else origin/HEAD.
 #   --output <file>  Where to write the JSON (default: foxguard-report.json).
 #   <path>...        Scan these files instead of a range.
-# EXAMPLE: bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
 # EXIT_CODES:
-#   0 no findings; 1 findings (written to the file); 2 usage or git error, the
-#   report could not be written, or a file could not be scanned (listed under
-#   "errors"); 3 foxguard not installed and not installable here.
+#   0  No findings.
+#   1  Findings (written to the file).
+#   2  Usage or git error, the report could not be written, or a file could not
+#      be scanned (listed under "errors").
+#   3  foxguard not installed and not installable here.
+# EXAMPLE:
+#   bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -23,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --base) [[ $# -ge 2 ]] || { echo "[foxguard_report] --base needs a ref" >&2; exit 2; }; base="$2"; shift ;;
     --output) [[ $# -ge 2 ]] || { echo "[foxguard_report] --output needs a file" >&2; exit 2; }; output="$2"; shift ;;
-    -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --) shift; paths+=("$@"); break ;;
     -*) echo "[foxguard_report] unknown option: $1" >&2; exit 2 ;;
     *) paths+=("$1") ;;

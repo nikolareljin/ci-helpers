@@ -13,12 +13,16 @@
 WEBSHOT_PLAYWRIGHT_VERSION="${WEBSHOT_PLAYWRIGHT_VERSION:-1.63.0}"
 
 # Usage: webshot_venv_dir; prints the venv directory webshot uses.
+# Returns: 0.
+# Output: stdout the path (WEBSHOT_VENV, else the cache default).
 webshot_venv_dir() {
   echo "${WEBSHOT_VENV:-${XDG_CACHE_HOME:-$HOME/.cache}/nr-webshot/venv}"
 }
 
 # Usage: webshot_python; prints a Python that can import playwright, or
 # returns 3. WEBSHOT_PYTHON, when set, is the only candidate considered.
+# Returns: 0 found; 3 none can import playwright.
+# Output: stdout the python path; stderr the error.
 webshot_python() {
   local candidate
   if [[ -n "${WEBSHOT_PYTHON:-}" ]]; then
@@ -42,6 +46,8 @@ webshot_python() {
 # Usage: webshot_ensure [venv_dir]
 # Creates the venv if needed, installs the pinned playwright package and the
 # Chromium build it expects. Safe to re-run; returns quickly when ready.
+# Returns: 0 ready; 3 no Python 3.9+, python module not imported, venv, pip or browser install failed.
+# Output: stdout the venv python path; stderr log lines and installer output.
 webshot_ensure() {
   local venv_dir="${1:-$(webshot_venv_dir)}" py venv_py
   if _webshot_has_playwright "$venv_dir/bin/python" && _webshot_chromium_ready "$venv_dir/bin/python"; then
@@ -73,6 +79,8 @@ webshot_ensure() {
 # Usage: webshot_capture <spec.json> <out_dir>
 # Saves one PNG per shot plus out_dir/manifest.json. See docs/modules/webshot.md
 # for the spec format.
+# Returns: 0 captured; 1 out_dir not creatable; 2 bad arguments or missing spec; 3 no playwright; else the capture run's code.
+# Output: files in out_dir; stderr log lines.
 webshot_capture() {
   local spec="${1:-}" out="${2:-}" py
   if [[ -z "$spec" || -z "$out" ]]; then
@@ -92,6 +100,8 @@ webshot_capture() {
 #                    [--landscape] [--footer TEXT] [--wait-ms N]
 # Prints an HTML file with backgrounds. CSS @page size and margins win when
 # the document sets them. --footer adds "TEXT  page / total" at the bottom.
+# Returns: 0 written; 1 output dir not creatable; 2 bad arguments or missing input; 3 no playwright; else the render run's code.
+# Output: the PDF file; stderr log lines.
 webshot_pdf() {
   local in="${1:-}" out="${2:-}" format="Letter" landscape="0" footer="" wait_ms="500" py
   if [[ -z "$in" || -z "$out" ]]; then

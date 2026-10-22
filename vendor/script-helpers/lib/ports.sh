@@ -64,6 +64,9 @@ _ports__lsof_ok() {
 }
 
 # Usage: list_port_usage_details <port>; prints process/user details for listeners.
+# PORT_DETECTION_ALLOW_SUDO=true lets it retry the probes with sudo.
+# Returns: 0 at least one listener; 1 none, or not a valid port.
+# Output: stdout one "<name> (PID n...)" line per listener; stderr nothing.
 list_port_usage_details() {
   local port="${1:-}" line
   _ports__valid_port "$port" || return 1
@@ -115,6 +118,8 @@ list_port_usage_details() {
 # Only lines that are a bare PID are kept: BusyBox lsof ignores -t and the
 # filters and prints "PID<tab>path" for every open file, PID 1 included, and a
 # kill-port caller must never receive those.
+# Returns: 0 (also when there are no listeners); 1 not a valid port.
+# Output: stdout one PID per line, sorted and unique.
 list_port_listener_pids() {
   local port="${1:-}"; local -a pids=()
   _ports__valid_port "$port" || return 1
@@ -172,6 +177,8 @@ list_port_listener_pids() {
 }
 
 # Usage: port_in_use_by <port>; prints process details or nothing if unused.
+# Returns: 0 something listens; 1 nothing does.
+# Output: stdout the listener details.
 port_in_use_by() {
   local port="$1" _sh_line
   local -a details=()
@@ -200,6 +207,10 @@ REQUIRED_PORT_DEFAULTS=(
 )
 
 # Usage: check_required_ports_available [env_file]; populates conflict globals.
+# Checks REQUIRED_PORT_DEFAULTS, values resolved from [env_file] (default .env).
+# Sets REQUIRED_PORT_CONFLICT_MESSAGES, REQUIRED_PORT_CONFLICT_SUMMARIES, REQUIRED_PORT_CONFLICTS_JSON.
+# Returns: 0 no port in use; 1 at least one in use.
+# Output: none; results are in the globals.
 check_required_ports_available() {
   local env_file="${1:-.env}"
   REQUIRED_PORT_CONFLICT_MESSAGES=()
@@ -247,10 +258,10 @@ check_required_ports_available() {
       if [[ ${#details[@]} -gt 1 ]]; then
         local extra
         for extra in "${details[@]:1}"; do
-          REQUIRED_PORT_CONFLICT_MESSAGES+=("    • Also detected: $extra")
+          REQUIRED_PORT_CONFLICT_MESSAGES+=("    - Also detected: $extra")
         done
       fi
-      REQUIRED_PORT_CONFLICT_MESSAGES+=("    • Tip: run ./kill-port ${port} to free it, then retry.")
+      REQUIRED_PORT_CONFLICT_MESSAGES+=("    - Tip: run ./kill-port ${port} to free it, then retry.")
 
       local var_json="" detail_json="" var_name detail
       for var_name in "${vars_for_port[@]}"; do
@@ -278,6 +289,8 @@ check_required_ports_available() {
 # alone calls a port free when its server is hung or its accept queue is full,
 # because the connection is then refused. Without any of those tools, a
 # connect to 127.0.0.1 decides.
+# Returns: 0 free; 1 in use; 2 not a port.
+# Output: none.
 port_is_free() {
   _ports__valid_port "${1:-}" || return 2
   if list_port_usage_details "$((10#$1))" >/dev/null 2>&1; then return 1; fi
@@ -286,6 +299,8 @@ port_is_free() {
 
 # Usage: port_next_free <port> [tries]; prints the first free port after
 # <port>, trying [tries] (default 20). Returns 1 when none is free.
+# Returns: 0 printed; 1 none free; 2 not a port.
+# Output: stdout the free port.
 port_next_free() {
   local p tries="${2:-20}" n=0
   _ports__valid_port "${1:-}" || return 2
@@ -313,6 +328,8 @@ _ports__can_ask() {
 #
 # Returns 0 with the port on stdout; 1 taken and nobody to ask, or no answer;
 # 2 not a port. Every message is on stderr, so `p="$(port_choose ...)"` works.
+# Returns: 0 port printed; 1 taken with nobody to ask, or no answer; 2 not a port.
+# Output: stdout the port; stderr every message and prompt.
 port_choose() {
   local port="${1:-}" how="${2:-a different port}" owner suggestion answer
   if ! _ports__valid_port "$port"; then
@@ -321,7 +338,7 @@ port_choose() {
   fi
   port=$((10#$port))
   while ! port_is_free "$port"; do
-    owner="$(port_in_use_by "$port" 2>/dev/null | head -1)" || true
+    owner="$(port_in_use_by "$port" 2>/dev/null | sed -n 1p)" || true
     owner="${owner:-a process this user cannot see}"
     suggestion="$(port_next_free "$port")" || suggestion=""
     if ! _ports__can_ask; then

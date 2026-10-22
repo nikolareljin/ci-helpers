@@ -1,4 +1,4 @@
-# Exit/error trap helpers — PowerShell companion to lib/traps.sh.
+# Exit/error trap helpers - PowerShell companion to lib/traps.sh.
 #
 # NOTE: PowerShell trap semantics differ from Bash.
 # - Use $ErrorActionPreference = 'Stop' to make terminating errors the default.
@@ -10,6 +10,10 @@ $_SHLIB_EXIT_HANDLER = $null
 # does not match the engine event's actual identifier "PowerShell.Exiting".
 $_SHLIB_EXIT_SOURCE  = 'PowerShell.Exiting'
 
+# Usage: setup_exit_trap -Handler <scriptblock>
+# Runs Handler when the PowerShell engine exits; replaces an earlier handler.
+# Returns: nothing.
+# Output: none.
 function setup_exit_trap {
     param([scriptblock]$Handler)
     # Unregister by SourceIdentifier to avoid duplicate handlers.
@@ -26,14 +30,22 @@ function setup_exit_trap {
         -Action { if ($event.MessageData) { & $event.MessageData } } | Out-Null
 }
 
+# Usage: cleanup_on_exit -Cleanup <scriptblock>
+# Same as setup_exit_trap.
+# Returns: nothing.
+# Output: none.
 function cleanup_on_exit {
     param([scriptblock]$Cleanup)
     setup_exit_trap $Cleanup
 }
 
-# Enable strict terminating-error mode — mirrors Bash 'set -e'.
+# Enable strict terminating-error mode - mirrors Bash 'set -e'.
 # Writes ErrorActionPreference into the immediate caller's scope (Scope 1) so it
 # applies to that script without leaking into the wider session.
+# Usage: enable_strict_mode
+# Sets ErrorActionPreference = 'Stop' in the caller's scope and Set-StrictMode -Version Latest.
+# Returns: nothing.
+# Output: none.
 function enable_strict_mode {
     Set-Variable -Name 'ErrorActionPreference' -Value 'Stop' -Scope 1
     Set-StrictMode -Version Latest

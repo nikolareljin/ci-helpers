@@ -82,6 +82,15 @@
   `self-test-compiled`. Upstream adds RISC-V Temurin, Maven
   credential origins and plugin repositories, plus version-resolution
   fixes; no input is removed or renamed.
+- **`vendor/script-helpers` 0.55.0 -> 0.56.0**, and the 16 workflow `ref:`
+  pins with it. Upstream changes exit codes: an option without its value
+  exits 2 (was 1), `--help` under `CI=true` exits 0, and `version_bump`
+  fails when `VERSION` is not writable. Every call from a preset passes
+  each option a value (an empty string still counts) and none branches on
+  1 vs 2, so no caller changes. `scripts/version_bump.sh` passes an
+  absolute `-f`, so the new cwd-relative `-f` does not move it.
+  `check_release_version.sh` here is this repository's own script, not the
+  vendored one, and `release-tag-check` already passes `--repo`.
 
 ## 2026-10-19 — v0.42.0
 

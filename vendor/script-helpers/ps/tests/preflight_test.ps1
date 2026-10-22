@@ -107,6 +107,32 @@ try {
     if ($res.Out -match 'SKIP  dependency audits .* not run with -Quick' -and $calls -notmatch 'audit --audit-level' -and $calls -notmatch 'pip-audit') {
         note '-Quick: no audit, one SKIP line'
     } else { fail "quick: calls=$calls out=$($res.Out)" }
+
+    # 6. Rust follows preflight.sh: without rustup, a PATH cargo is not used.
+    # The real runner compiles with rustup's toolchain, so that is a SKIP
+    # naming the remedy, not a failed step.
+    $r = New-Repo 'rusty'
+    Set-Content -Path (Join-Path $r 'Cargo.toml') -Value "[package]`nname = `"r`"`nversion = `"0.1.0`""
+    Set-Content -Path (Join-Path $bin 'cargo') -Value "#!/bin/sh`nexit 0" -Encoding ascii
+    & chmod +x (Join-Path $bin 'cargo')
+    $sep = [System.IO.Path]::PathSeparator
+    $noRustup = ($savedPath -split [regex]::Escape([string]$sep) | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'rustup')) }) -join $sep
+    $keep = $savedPath; $savedPath = $noRustup
+    try {
+        $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity')
+        if ($res.Out -match 'SKIP  rust .*rustup is not installed.*PREFLIGHT_RUST_ANY_CARGO' -and $res.Out -notmatch 'FAIL') {
+            note 'rust without rustup: SKIP naming rustup, PATH cargo not used'
+        } else { fail "rust without rustup: rc=$($res.Rc) out=$($res.Out)" }
+    } finally { $savedPath = $keep }
+
+    # 7. A rustup that fails is no toolchain, even when it printed a path.
+    Set-Content -Path (Join-Path $bin 'rustup') -Value "#!/bin/sh`necho '$(Join-Path $bin 'cargo')'`nexit 1" -Encoding ascii
+    & chmod +x (Join-Path $bin 'rustup')
+    $res = Invoke-Preflight $r @('-Quick', '-SkipSecurity')
+    if ($res.Out -match "SKIP  rust .*rustup has no cargo for 'stable'" -and $res.Out -notmatch 'FAIL') {
+        note 'rust with a failing rustup: SKIP naming the toolchain'
+    } else { fail "rust with a failing rustup: rc=$($res.Rc) out=$($res.Out)" }
+    Remove-Item (Join-Path $bin 'rustup')
 }
 finally {
     Remove-Item -Recurse -Force $tmp

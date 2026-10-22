@@ -1,3 +1,16 @@
+# SCRIPT: ollama_install_check.ps1
+# DESCRIPTION: Real-machine check of ollama_install on Windows: install, verify, refuse, upgrade and staging against the pinned release.
+# USAGE: pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1 [-Keep] [-Help]
+# PARAMETERS:
+#   -Keep  Leave the throwaway directory for inspection (its path is printed).
+#   -Help  Show this help message.
+# EXIT_CODES:
+#   0  every case passed (or -Help)
+#   1  a case failed, or an unexpected error stopped the run
+#   2  this machine cannot run the check: no checkable Ollama zip for this
+#      architecture, or the release cannot be reached
+# EXAMPLE: pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1 -Keep
+# ----------------------------------------------------
 <#
 .SYNOPSIS
 Real-machine check of ollama_install on Windows: PowerShell counterpart to tests/machine/ollama_install_check.sh.
@@ -10,7 +23,8 @@ installed are not touched: every case uses -Prefix, which skips winget.
 Not part of the unit tests: it downloads the real release (over 1 GB) and runs the
 real ollama.exe.
 
-Exit codes: 0 every case passed; 1 a case failed; 2 this machine cannot run the check.
+Exit codes: 0 every case passed; 1 a case failed; 2 this machine cannot run the check
+(no checkable zip for this architecture, or the release cannot be reached).
 
 .PARAMETER Keep
 Leave the throwaway directory for inspection (its path is printed).
@@ -19,7 +33,9 @@ Leave the throwaway directory for inspection (its path is printed).
 pwsh -NoProfile -File ps/tests/machine/ollama_install_check.ps1
 #>
 [CmdletBinding()]
-param([switch]$Keep)
+param([switch]$Keep, [switch]$Help)
+# -Help: print the header above and stop, before anything runs.
+if ($Help) { foreach ($l in Get-Content -LiteralPath $PSCommandPath) { if ($l -match '^#\s*-{4,}') { break }; $l -replace '^# ?', '' }; exit 0 }
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '../../..'
 . (Join-Path $root 'ps/helpers.ps1')

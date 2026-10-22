@@ -24,9 +24,13 @@
 #                       the one being checked (the agent hook): it could add the marker.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
-#   0  nothing found
-#   1  something found (block)
-#   2  could not check: gitleaks missing or failed, or git could not read the commits
+#   0  Nothing found (also -h/--help, --refresh-public-ip, --list-identifiers).
+#   1  Something found (block).
+#   2  Could not check: bad or missing arguments, not a git repository, git could
+#      not read the commits or index, gitleaks missing or failed, or the public IP
+#      could not be fetched.
+# EXAMPLE:
+#   scripts/check_sensitive.sh --range origin/main..HEAD
 # ----------------------------------------------------
 #
 # Only ADDED text is checked: added lines of each commit (or of the index) and
@@ -56,6 +60,7 @@
 #     .sensitive-allow is ignored, so cloned content cannot allow itself.
 #   - SENSITIVE_ALLOW="value,value" for one run.
 # ----------------------------------------------------
+# No -e: every check runs and reports; grep's exit 1 (no match) is the passing case.
 set -uo pipefail
 export LC_ALL=C   # byte semantics for grep/awk; see the NUL note below
 
@@ -75,7 +80,12 @@ PUSH_REMOTE=""
 LIST_IDS=false
 INLINE_ALLOW=true
 
-usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
+
+# Not ${2:?}: that exits 1, which this gate uses for "found".
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || { echo "$TAG $1 needs a value" >&2; exit 2; }
+}
 
 set_mode() {
   if [[ -n "$MODE" && "$MODE" != "$1" ]]; then
@@ -87,16 +97,18 @@ set_mode() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --push-refs) set_mode push; PUSH_REFS="${2:?--push-refs needs a file}"; shift 2 ;;
-    --range) set_mode range; RANGE="${2:?--range needs revisions}"; shift 2 ;;
+    --push-refs) set_mode push; need_value "$@"; PUSH_REFS="$2"; shift 2 ;;
+    --range) set_mode range; need_value "$@"; RANGE="$2"; shift 2 ;;
     --staged) set_mode staged; shift ;;
-    --file) set_mode file; FILES+=("${2:?--file needs a path}"); shift 2 ;;
+    --file) set_mode file; need_value "$@"; FILES+=("$2"); shift 2 ;;
     --stdin) set_mode stdin; shift ;;
-    --remote) PUSH_REMOTE="${2-}"; shift 2 ;;
-    --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
+    # May be empty, but must be there: a bare trailing --remote made `shift 2`
+    # fail without -e, and the loop spun forever on the same argument.
+    --remote) [[ $# -ge 2 ]] || { echo "$TAG --remote needs a value" >&2; exit 2; }; PUSH_REMOTE="$2"; shift 2 ;;
+    --repo) need_value "$@"; REPO="$2"; shift 2 ;;
     --no-gitleaks) USE_GITLEAKS=false; shift ;;
     --no-machine) USE_MACHINE=false; shift ;;
-    --terms) TERMS_FROM_ARG=true; TERMS_FILE="${2:?--terms needs a path}"; shift 2 ;;
+    --terms) TERMS_FROM_ARG=true; need_value "$@"; TERMS_FILE="$2"; shift 2 ;;
     --refresh-public-ip) REFRESH_IP=true; shift ;;
     --list-identifiers) LIST_IDS=true; shift ;;
     --no-inline-allow) INLINE_ALLOW=false; shift ;;
@@ -383,7 +395,8 @@ case "$MODE" in
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
         # already on another remote (a private one) is still new to this one.
-        if [[ -n "$PUSH_REMOTE" ]] && git -C "$TOP" remote 2>/dev/null | grep -qxF -- "$PUSH_REMOTE"; then
+        # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+        if [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
           add_revs "$lsha --not --remotes=$PUSH_REMOTE"
         else
           add_revs "$lsha"

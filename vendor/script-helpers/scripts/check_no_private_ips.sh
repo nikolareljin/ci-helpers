@@ -7,6 +7,13 @@
 #   --path <dir>    Scan a directory instead of tracked files. For exercising
 #                   the check against a known-bad fixture.
 #   -h, --help      Show this help message.
+# EXIT_CODES:
+#   0  No private-range address found (also -h/--help).
+#   1  A private-range address was found in a tracked file.
+#   2  Could not check: unknown argument, an option without a value, no such
+#      directory, not a git repository, or grep failed.
+# EXAMPLE:
+#   scripts/check_no_private_ips.sh --repo .
 # ----------------------------------------------------
 #
 # Wireless adb makes a device's LAN address part of everyday development, and
@@ -25,8 +32,9 @@
 #
 # Ranges are RFC 1918: 10/8, 172.16/12, 192.168/16. Loopback and the RFC 5737
 # documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) are
-# deliberately allowed — they are what a tracked example should use.
+# deliberately allowed: they are what a tracked example should use.
 # ----------------------------------------------------
+# No -e: grep's exit 1 means "no match" and is handled below, not fatal.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,9 +50,12 @@ REPO=""
 SCAN_PATH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
-    --path) SCAN_PATH="${2:?--path needs a directory}"; shift 2 ;;
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    # An explicit check, not ${2:?}: that exits 1, which here means "found".
+    --repo|--path)
+      [[ $# -ge 2 && -n "$2" ]] || { log_error "$1 needs a value"; exit 2; }
+      if [[ "$1" == --repo ]]; then REPO="$2"; else SCAN_PATH="$2"; fi
+      shift 2 ;;
+    -h|--help) sed -n '2,/^# ---/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -64,7 +75,7 @@ PATTERN='(^|[^0-9.])(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}
 #
 # The dangerous version of this script is the one that suppresses its own
 # errors: run outside a git repo, or pointed at a directory that does not
-# exist, it finds no matches and reports success — and a green security gate is
+# exist, it finds no matches and reports success, and a green security gate is
 # read as evidence that the tree is clean. Every path below that cannot scan
 # exits non-zero and says why.
 #
@@ -95,7 +106,7 @@ else
 
   # `git grep`, not `git ls-files | xargs grep`. It searches tracked files
   # natively and, unlike xargs, does not hand grep a submodule directory and get
-  # "Is a directory" back — noise that the old `2>/dev/null` swallowed, which is
+  # "Is a directory" back, noise that the old `2>/dev/null` swallowed, which is
   # the same habit that lets a gate stop working without anyone noticing.
   hits="$(git grep -nIE "$PATTERN" -- .)" || status=$?
   if (( status > 1 )); then

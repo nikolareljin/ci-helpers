@@ -2,6 +2,10 @@
 # SCRIPT: example_package_publish.sh
 # DESCRIPTION: Demonstrate package_publish helpers in a safe, non-network way.
 # USAGE: ./example_package_publish.sh
+# PARAMETERS: No parameters.
+# EXIT_CODES:
+#   0  The demo ran (or help shown with -h/--help).
+#   1  pkg_find_changes_file found no .changes file.
 # EXAMPLE: ./example_package_publish.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -10,7 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${SCRIPT_DIR}/..}"
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging package_publish
+shlib_import help logging package_publish
+
+case "${1:-}" in -h|--help) print_help "${BASH_SOURCE[0]}"; exit 0 ;; esac
 
 tmp_dir="$(mktemp -d)"
 cleanup() { rm -rf "$tmp_dir"; }

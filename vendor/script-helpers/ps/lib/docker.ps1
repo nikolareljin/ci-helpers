@@ -1,5 +1,8 @@
-# Docker/Docker Compose helpers — PowerShell companion to lib/docker.sh.
+# Docker/Docker Compose helpers - PowerShell companion to lib/docker.sh.
 
+# Usage: get_docker_compose_cmd
+# Returns: 'docker compose' or 'docker-compose'.
+# Output: stderr [ERROR] and throws when docker or compose is missing.
 function get_docker_compose_cmd {
     if (-not (Get-Command 'docker' -ErrorAction SilentlyContinue)) {
         throw "Docker CLI not found. Install Docker Desktop and ensure it is on PATH."
@@ -11,6 +14,9 @@ function get_docker_compose_cmd {
     throw "Docker Compose not available"
 }
 
+# Usage: docker_compose <compose args...>
+# Returns: compose's output lines; $LASTEXITCODE is compose's exit code.
+# Output: stderr [DEBUG] the command line; throws as get_docker_compose_cmd.
 function docker_compose {
     param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
     $cmd   = get_docker_compose_cmd
@@ -23,9 +29,20 @@ function docker_compose {
     }
 }
 
+# Usage: run_docker_compose <compose args...>
+# Same as docker_compose.
+# Returns: as docker_compose.
+# Output: as docker_compose.
 function run_docker_compose        { param([Parameter(ValueFromRemainingArguments)][string[]]$A); docker_compose @A }
+# Usage: run_docker_compose_command <compose args...>
+# Same as docker_compose.
+# Returns: as docker_compose.
+# Output: as docker_compose.
 function run_docker_compose_command { param([Parameter(ValueFromRemainingArguments)][string[]]$A); docker_compose @A }
 
+# Usage: check_docker
+# Returns: $true when the CLI exists and `docker info` succeeds, else $false.
+# Output: stderr [ERROR] with the reason on failure.
 function check_docker {
     if (-not (Get-Command 'docker' -ErrorAction SilentlyContinue)) {
         if (Get-Command log_error -ErrorAction SilentlyContinue) { log_error "Docker CLI not found. Install Docker Desktop and ensure it is on PATH." }
@@ -40,6 +57,9 @@ function check_docker {
     return $true
 }
 
+# Usage: service_is_running -ServiceName <name> [-ComposeFile <file>]
+# Returns: $true when compose lists the service as running, else $false.
+# Output: none; throws as get_docker_compose_cmd.
 function service_is_running {
     param([string]$ServiceName, [string]$ComposeFile = '')
     $args = @('ps', '--services', '--filter', 'status=running')
@@ -48,6 +68,9 @@ function service_is_running {
     return ($running -split '\r?\n') -contains $ServiceName
 }
 
+# Usage: wait_for_service -ServiceName <name> [-TimeoutSec <s>] [-ComposeFile <file>]   (default 60)
+# Returns: $true once running, $false on timeout.
+# Output: stderr [ERROR] on timeout.
 function wait_for_service {
     param([string]$ServiceName, [int]$TimeoutSec = 60, [string]$ComposeFile = '')
     $deadline = (Get-Date).AddSeconds($TimeoutSec)

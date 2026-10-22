@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Dependency installation helpers. May use sudo and network. Use cautiously.
 
+# Usage: install_dependencies [package...]
 # Generic multi-distro installer. Accepts a list of packages, or installs a common set.
+# Returns: 1 no supported package manager; otherwise the exit code of the package manager install command.
+# Output: stdout/stderr whatever the package manager prints; stdout an [Error!] message when none is found.
 install_dependencies() {
   local pkgs=("$@")
   if [[ ${#pkgs[@]} -eq 0 ]]; then
@@ -23,7 +26,10 @@ install_dependencies() {
   fi
 }
 
+# Usage: install_dependencies_ai_runner
 # Installer profile for the AI tooling consumers (R-643 and its runner)
+# Returns: 1 a dependency cannot be installed on Windows, or ollama_install failed; otherwise the exit code of the last command run (failures of earlier install steps are not checked).
+# Output: stdout [Info]/[Warning!]/[Error!] progress; stdout/stderr whatever the installers print.
 install_dependencies_ai_runner() {
   local os; os=$(get_os)
   local deps=(dialog curl jq python3 python3-pip nodejs)

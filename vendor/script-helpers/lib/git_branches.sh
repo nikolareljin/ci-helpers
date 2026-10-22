@@ -19,6 +19,7 @@
 # commit added after the merge makes the branch un-deletable again by
 # construction rather than by a separate rule someone has to remember.
 
+# Usage: git_branches_default_branch [remote=origin]
 # Resolve the branch other work is merged into.
 #
 # Order matters: the remote's own HEAD is authoritative and survives a repo
@@ -28,6 +29,8 @@
 # Returns 1 and prints nothing when no base can be determined. Callers must
 # treat that as "refuse to act", never as "assume main" -- guessing the base
 # wrong is how this module would delete unmerged work.
+# Returns: 0 found; 1 no remote HEAD and none of main, master, trunk, develop exists.
+# Output: stdout the branch name.
 git_branches_default_branch() {
   local remote="${1:-origin}" ref name
 
@@ -47,6 +50,7 @@ git_branches_default_branch() {
   return 1
 }
 
+# Usage: git_branches_merge_state <base> <branch>
 # Classify a branch against a base. Prints exactly one word:
 #
 #   merged     the tip is an ancestor of base -- an ordinary merge
@@ -62,6 +66,8 @@ git_branches_default_branch() {
 #
 # Returns 2 on bad arguments. Prints to stdout and nothing else, so it can be
 # used in a command substitution without a subshell swallowing a diagnostic.
+# Returns: 0 a state was printed; 2 missing argument.
+# Output: stdout one of merged, squashed, unmerged, unrelated, unknown.
 git_branches_merge_state() {
   local base="${1:-}" branch="${2:-}"
   [[ -n "$base" && -n "$branch" ]] || return 2
@@ -119,7 +125,8 @@ git_branches_merge_state() {
   cherry="$(git cherry "$base" "$synth" 2>/dev/null)" || { printf 'unknown\n'; return 0; }
   [[ -n "$cherry" ]] || { printf 'unknown\n'; return 0; }
 
-  if ! printf '%s\n' "$cherry" | grep -q '^-'; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if ! grep -q '^-' <<< "$cherry"; then
     printf 'unmerged\n'; return 0
   fi
 
@@ -235,11 +242,14 @@ _git_branches__normalised_patch() {
   '
 }
 
+# Usage: git_branches_has_unpushed <branch>
 # True when the branch has commits its upstream does not.
 #
 # A branch with no upstream returns 1, not 0: never having been pushed is not
 # the same as having unpushed work, and the merge state is what decides whether
 # such a branch is disposable.
+# Returns: 0 the branch has commits its upstream lacks; 1 none, or no upstream; 2 missing argument.
+# Output: nothing.
 git_branches_has_unpushed() {
   local branch="${1:-}" upstream
   [[ -n "$branch" ]] || return 2
@@ -251,26 +261,32 @@ git_branches_has_unpushed() {
   [[ -n "$(git rev-list --max-count=1 "${upstream}..${branch}" 2>/dev/null)" ]]
 }
 
+# Usage: git_branches_worktree_of <branch>
 # Print the worktree a branch is checked out in, or nothing.
 #
 # git refuses to delete such a branch anyway, but it refuses with an error in
 # the middle of a run. Knowing beforehand turns that into a skipped row with a
 # reason.
+# Returns: 0 (also when no worktree has it checked out); 2 missing argument.
+# Output: stdout the worktree path, or nothing.
 git_branches_worktree_of() {
   local branch="${1:-}"
   [[ -n "$branch" ]] || return 2
   git worktree list --porcelain 2>/dev/null | awk -v want="refs/heads/${branch}" '
     /^worktree /  { wt = substr($0, 10) }
-    /^branch /    { if (substr($0, 8) == want) { print wt; exit } }
+    !found && /^branch / { if (substr($0, 8) == want) { print wt; found = 1 } }
   '
 }
 
+# Usage: git_branches_is_protected <branch> [extra-pattern...]
 # True when a branch is protected and must never be deleted.
 #
 # The defaults are the long-lived names plus release/* and hotfix/*, which in
 # this fleet carry the tags a release is cut from -- deleting one loses the
 # branch a published tag points into. Extra patterns are passed as further
 # arguments and matched with the same shell globbing.
+# Returns: 0 protected; 1 not; 2 missing argument.
+# Output: nothing.
 git_branches_is_protected() {
   local branch="${1:-}"; shift || true
   [[ -n "$branch" ]] || return 2

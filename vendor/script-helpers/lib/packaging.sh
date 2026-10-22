@@ -19,6 +19,8 @@ _pkg_log_error() {
 
 # Usage: pkg_load_metadata <file>
 # Loads key/value metadata from a packaging env file.
+# Returns: 0 loaded (a failing line in the file is not reported); 1 file missing. Exports every assigned variable.
+# Output: stderr error when missing.
 pkg_load_metadata() {
   local file="${1:-packaging/packaging.env}"
   if [[ ! -f "$file" ]]; then
@@ -33,6 +35,8 @@ pkg_load_metadata() {
 
 # Usage: pkg_require_vars <VAR...>
 # Ensures required variables are present (non-empty).
+# Returns: 0 all set; 1 any empty.
+# Output: stderr the list of missing names.
 pkg_require_vars() {
   local missing=() var
   for var in "$@"; do
@@ -48,6 +52,8 @@ pkg_require_vars() {
 
 # Usage: pkg_trim <value>
 # Trims leading/trailing whitespace from a string.
+# Returns: 0.
+# Output: stdout the trimmed value.
 pkg_trim() {
   local value="$1"
   echo "$value" | xargs
@@ -55,6 +61,8 @@ pkg_trim() {
 
 # Usage: pkg_join_list <list> <separator>
 # Joins a | delimited list with the given separator.
+# Returns: 0.
+# Output: stdout the joined list.
 pkg_join_list() {
   local list="$1" separator="$2" item out="" items
   local IFS='|'
@@ -72,6 +80,8 @@ pkg_join_list() {
 
 # Usage: pkg_quote_list <list>
 # Quotes each item from a | delimited list for shell arrays.
+# Returns: 0.
+# Output: stdout the quoted items, space separated.
 pkg_quote_list() {
   local list="$1" item out="" items
   local IFS='|'
@@ -86,6 +96,8 @@ pkg_quote_list() {
 
 # Usage: pkg_render_lines <prefix> <list>
 # Renders lines with prefix for each item in a | delimited list.
+# Returns: 0.
+# Output: stdout one "<prefix><item>" line per item.
 pkg_render_lines() {
   local prefix="$1" list="$2" item out="" items
   local IFS='|'
@@ -100,6 +112,8 @@ pkg_render_lines() {
 
 # Usage: pkg_classify_name <name>
 # Converts a dashed/underscored name into CamelCase for Brew formula names.
+# Returns: 0.
+# Output: stdout the CamelCase name.
 pkg_classify_name() {
   local name="$1"
   echo "$name" | awk -F'[-_]+' '{for (i=1; i<=NF; i++) {printf toupper(substr($i,1,1)) tolower(substr($i,2))} printf "\n"}'
@@ -107,6 +121,8 @@ pkg_classify_name() {
 
 # Usage: pkg_guess_version <repo_dir>
 # Attempts to infer version from VERSION file or git tags.
+# Returns: 0.
+# Output: stdout the VERSION file content or the latest tag (no trailing newline), else "0.1.0" and a newline.
 pkg_guess_version() {
   local repo_dir="${1:-.}"
   local version_file="$repo_dir/VERSION"

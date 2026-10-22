@@ -2,6 +2,8 @@
 # Clipboard helpers
 
 # Usage: copy_to_clipboard <text>; returns non-zero if no clipboard tool found.
+# Returns: 0 copied (the exit code of xclip/pbcopy is not checked); 1 no clipboard tool.
+# Output: stdout an [Info] or [Error!] message.
 copy_to_clipboard() {
   local text="$1"
   if command -v xclip &>/dev/null; then

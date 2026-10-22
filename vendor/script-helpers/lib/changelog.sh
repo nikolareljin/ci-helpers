@@ -6,10 +6,12 @@
 # tag being released. Any other header shape and the release notes silently fall
 # back to an auto-generated commit list. The canonical form is
 #
-#     ## 2026-07-28 — v0.19.0
+#     ## 2026-07-28 - v0.19.0
 #
 # `YYYY-MM-DD`, a space, an em-dash, a space, then the version with an optional
-# `v` prefix. `changelog_check_header` is what stops that from rotting.
+# `v` prefix. The separator the code expects is U+2014 (em-dash); comments here
+# write it as "-". A real hyphen is reported as the wrong dash.
+# `changelog_check_header` is what stops that from rotting.
 #
 # Exit codes: 2 = bad arguments, 1 = the file does not conform / the section is
 # missing.
@@ -21,6 +23,8 @@ _CHANGELOG_HEADER_RE='^##[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]+(�
 # Usage: changelog_check_header <file>; verify the newest release header
 # conforms. Prints the offending line and an explanation on failure. An
 # `## [Unreleased]` section at the top is allowed and skipped over.
+# Returns: 0 header conforms; 1 no release section, wrong dash, or wrong shape; 2 missing argument or file not found.
+# Output: stdout the version of the newest release on success; stderr the offending line and the expected form on failure.
 changelog_check_header() {
   local file="${1:-}" line first=""
   [[ -n "$file" ]] || { log_error "changelog_check_header: need <file>"; return 2; }
@@ -59,6 +63,8 @@ changelog_check_header() {
 # Usage: changelog_extract <file> <version>; prints the body of the section for
 # <version>, without its header, for use as release notes. The `v` prefix is
 # optional on both sides. Returns 1 when there is no such section.
+# Returns: 0 section found; 1 no section for <version>; 2 missing argument or file not found.
+# Output: stdout the section body without its header, trimmed of leading and trailing blank lines; stderr errors.
 changelog_extract() {
   local file="${1:-}" version="${2:-}" section
   [[ -n "$file" && -n "$version" ]] || { log_error "changelog_extract: need <file> <version>"; return 2; }
@@ -82,11 +88,13 @@ changelog_extract() {
 # changelog_new_section writes a header over four empty `###` headings; checked
 # only for existence, that template passed the release gate and was published as
 # the release body: four headings and nothing under them.
+# Returns: 0 at least one non-blank, non-heading line; 1 none.
+# Output: nothing.
 changelog_has_entries() {
   printf '%s\n' "${1:-}" | awk '
     /^[[:space:]]*$/ { next }
     /^[[:space:]]*#+[[:space:]]/ || /^[[:space:]]*#+[[:space:]]*$/ { next }
-    { found = 1; exit }
+    { found = 1 }
     END { exit found ? 0 : 1 }
   '
 }
@@ -99,12 +107,12 @@ changelog_has_entries() {
 # and a grep one, and changelog_new_section had a third.
 #
 # The version has to match as a whole. This was `index(line, want) > 0`, a plain
-# substring test, so asking for 0.2.0 matched a `## 2026-09-10 — v10.2.0` header
+# substring test, so asking for 0.2.0 matched a `## 2026-09-10 - v10.2.0` header
 # -- "10.2.0" contains "0.2.0" -- and the release notes for one version were
 # silently the body of another. So the character before the version must not be
 # a digit or a dot, and the character after it must not be anything a version
 # can continue with: a digit, a letter, `.`, `-` or `+`. The last three matter
-# because `0.2.0` must not select `v0.2.0-rc.1`. `YYYY-MM-DD — vX.Y.Z`,
+# because `0.2.0` must not select `v0.2.0-rc.1`. `YYYY-MM-DD - vX.Y.Z`,
 # `[X.Y.Z] - YYYY-MM-DD` and a bare version all still match.
 _changelog__section() {
   local file="$1" bare="${2#v}" escaped
@@ -120,10 +128,10 @@ _changelog__section() {
   # not every awk and grep accept; GNU grep also matched it mid-line.
   #
   # Only the FIRST version in a header is the section's version. A header such as
-  # `## 2026-09-01 — v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section, and
+  # `## 2026-09-01 - v1.0.0 (supersedes 0.9.0)` is the 1.0.0 section, and
   # matching anywhere in the line returned it as the notes for 0.9.0. A version
   # is two or more dot-separated numbers (`## [1.2] - date` is a section too),
-  # and a dotted date (`## 2026.09.01 — v1.1.9`) is skipped over rather than
+  # and a dotted date (`## 2026.09.01 - v1.1.9`) is skipped over rather than
   # taken as the version -- unless it is the only candidate in the header.
   #
   # A `##` line inside a fenced code block is content, not a header: a section
@@ -213,6 +221,8 @@ _changelog__section() {
 #
 # With no --section, writes the four Keep-a-Changelog headings ci-helpers'
 # release notes render well: Added, Changed, Fixed, Security.
+# Returns: 0 section added, or one for <version> already exists; 1 mktemp failed, the rewrite was empty, or the file could not be written; 2 bad arguments or a non-semver version.
+# Output: stdout nothing; stderr progress via log_info and errors.
 changelog_new_section() {
   local file="" version="" date="" tmp inserted=0 line bare
   local -a sections=()
@@ -264,7 +274,7 @@ changelog_new_section() {
 
   if [[ ! -s "$tmp" ]]; then
     rm -f "$tmp"
-    log_error "changelog_new_section: rewriting $file produced an empty file — refusing to replace it"
+    log_error "changelog_new_section: rewriting $file produced an empty file - refusing to replace it"
     return 1
   fi
   # Not `cat && rm || return 1`: that reports failure when the write succeeded
@@ -275,7 +285,7 @@ changelog_new_section() {
     return 1
   fi
   rm -f "$tmp"
-  log_info "changelog: added section $date — v$bare to $file"
+  log_info "changelog: added section $date - v$bare to $file"
 }
 
 # Usage: _changelog__emit_section <date> <version> <section...>; print one

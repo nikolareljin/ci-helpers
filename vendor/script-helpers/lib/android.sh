@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Android build / SDK / emulator utilities — the build-side counterpart to the
+# Android build / SDK / emulator utilities -- the build-side counterpart to the
 # `adb` module, which owns everything that happens on an already-running device.
 #
 # Split of responsibility:
-#   adb.sh       devices that exist  — install, logcat, push/pull, properties
-#   android.sh   getting there       — SDK, Gradle build, AVDs, emulators, signing
-#   gradle.sh    the build tool      — wrapper resolution, task invocation
+#   adb.sh       devices that exist  -- install, logcat, push/pull, properties
+#   android.sh   getting there       -- SDK, Gradle build, AVDs, emulators, signing
+#   gradle.sh    the build tool      -- wrapper resolution, task invocation
 #
 # Depends on the `gradle` and `adb` modules. Both are loaded below if the caller
 # did not ask for them, using the loader's own `_SHLIB_LIB_DIR`, so
@@ -17,9 +17,12 @@
 _android__require_module() {
   local module="$1" probe="$2"
   declare -f "$probe" >/dev/null 2>&1 && return 0
-  [[ -n "${_SHLIB_LIB_DIR:-}" && -f "${_SHLIB_LIB_DIR}/${module}.sh" ]] || return 1
+  # Fall back to this file's directory so a direct `source lib/<module>.sh`
+  # under `set -e` loads its dependencies instead of aborting the caller.
+  local dir="${_SHLIB_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+  [[ -f "${dir}/${module}.sh" ]] || return 1
   # shellcheck source=/dev/null
-  source "${_SHLIB_LIB_DIR}/${module}.sh"
+  source "${dir}/${module}.sh"
 }
 
 _android__require_module gradle gradle_run
@@ -30,6 +33,8 @@ _android__require_module adb adb_ready_serials
 # Usage: android_sdk_root; prints the Android SDK root, honouring
 # ANDROID_SDK_ROOT then ANDROID_HOME then the two conventional install paths.
 # Returns 3 with no output when none of them exists.
+# Returns: 0 found; 3 none of ANDROID_SDK_ROOT, ANDROID_HOME, ~/Android/Sdk, ~/Library/Android/sdk exists.
+# Output: stdout the SDK path.
 android_sdk_root() {
   local candidate
   for candidate in \
@@ -46,11 +51,15 @@ android_sdk_root() {
 }
 
 # Usage: android_available; returns 0 when an Android SDK root is resolvable.
+# Returns: 0 an SDK was found; 3 not.
+# Output: nothing.
 android_available() { android_sdk_root >/dev/null 2>&1; }
 
 # Usage: android_generate_keystore <output.jks>; create a new Android signing
 # keystore. keytool prompts for all identity and password values interactively.
 # Returns 2 for bad arguments or an existing target, 3 when keytool is absent.
+# Returns: 1 the parent directory could not be created; 2 wrong arguments or the output exists; 3 keytool missing; otherwise keytool's exit code.
+# Output: keytool's interactive prompts on the terminal; stderr errors.
 android_generate_keystore() {
   local output="${1:-}" parent
   [[ -n "$output" && $# -eq 1 ]] || {
@@ -74,6 +83,8 @@ android_generate_keystore() {
 # Usage: android_sdk_tool <name>; prints the path to an SDK tool (sdkmanager,
 # avdmanager, emulator, apksigner, zipalign, adb), searching the SDK's several
 # layouts and then PATH. Returns 3 when it cannot be found.
+# Returns: 0 found; 2 missing name; 3 not in the SDK and not on PATH.
+# Output: stdout the tool path.
 android_sdk_tool() {
   local name="${1:-}" root candidate
   [[ -n "$name" ]] || { log_error "android_sdk_tool: need <name>"; return 2; }
@@ -103,9 +114,11 @@ android_sdk_tool() {
 
 # Usage: android_ensure_sdk [api=34] [build_tools=34.0.0]; accept licenses and
 # install platform-tools, the platform for <api> and the given build-tools.
-# Idempotent — sdkmanager skips anything already present. Returns 3 when
+# Idempotent -- sdkmanager skips anything already present. Returns 3 when
 # sdkmanager is not installed, since bootstrapping the bootstrapper is a
 # deliberate human step, not something a build script should do silently.
+# Returns: 3 sdkmanager not found; otherwise sdkmanager's exit code.
+# Output: stdout/stderr sdkmanager's output; stderr progress.
 android_ensure_sdk() {
   local api="${1:-34}" build_tools="${2:-34.0.0}" sdkmanager
   sdkmanager="$(android_sdk_tool sdkmanager)" || {
@@ -125,13 +138,15 @@ android_ensure_sdk() {
 #
 # The export is the point. The Android Gradle plugin resolves the SDK from those
 # variables or from a local.properties `sdk.dir`, and neither is reliably set in
-# a plain shell — so a build that works in an IDE fails from a script with
+# a plain shell -- so a build that works in an IDE fails from a script with
 # "SDK location not found", which reads as a project fault rather than an
 # environment one. This module can already locate the SDK; passing that on is the
 # difference between the shared verb working from a clean clone and not.
 #
 # An existing value is respected, so a caller targeting a second SDK is not
 # overridden.
+# Returns: same as gradle_run (2 bad arguments, 3 no Gradle, else Gradle's code).
+# Output: same as gradle_run.
 android_gradlew() {
   local root
   if root="$(android_sdk_root 2>/dev/null)"; then
@@ -145,8 +160,10 @@ android_gradlew() {
 }
 
 # Usage: android_build [dir=.] [debug|release] [apk|aab]; assemble an APK or
-# bundle an AAB. This is the one spelling of the debug/release toggle — the
+# bundle an AAB. This is the one spelling of the debug/release toggle -- the
 # fleet had four. Returns 2 on an unknown variant or format.
+# Returns: release] [apk
+# Output: aab]|2 bad variant or format; otherwise as android_gradlew.|same as gradle_run.
 android_build() {
   local dir="${1:-.}" variant="${2:-debug}" format="${3:-apk}" task
   case "$variant" in
@@ -167,6 +184,8 @@ android_build() {
 # Usage: android_artifact [dir=.] [debug|release] [apk|aab]; prints the path to
 # the most recently built artifact for that variant. Returns 1 when none exists,
 # so a caller can tell "not built yet" from "built and here it is".
+# Returns: aab]
+# Output: 0 found; 1 no artifact.|stdout the newest matching artifact path.
 android_artifact() {
   local dir="${1:-.}" variant="${2:-debug}" format="${3:-apk}" found
   local -a globs=()
@@ -178,7 +197,7 @@ android_artifact() {
   # `ls -t` rather than find, because newest-first is the point. These are build
   # outputs under a path the caller already controls.
   # shellcheck disable=SC2012
-  found="$(ls -1t "${globs[@]}" 2>/dev/null | head -n1)"
+  found="$(ls -1t "${globs[@]}" 2>/dev/null | sed -n 1p)"
   [[ -n "$found" ]] || return 1
   printf '%s\n' "$found"
 }
@@ -187,8 +206,10 @@ android_artifact() {
 # Reads it from the built artifact with aapt/aapt2 when one is available, since
 # that is the only source that accounts for applicationIdSuffix and flavors.
 # Falls back to parsing `applicationId` out of the Gradle build file. Returns 1
-# when neither works — a caller that needs a package name should say so rather
+# when neither works -- a caller that needs a package name should say so rather
 # than guessing one.
+# Returns: 0 found; 1 not found in the artifact or the build files.
+# Output: stdout the application id.
 android_package_name() {
   local dir="${1:-.}" artifact="${2:-}" aapt out pkg=""
   if [[ -n "$artifact" && -f "$artifact" ]]; then
@@ -212,7 +233,7 @@ android_package_name() {
   # preferred above.
   pkg="$(grep -rhoE 'applicationId[[:space:]]*=?[[:space:]]*"[^"]+"' \
           "$dir" --include='build.gradle' --include='build.gradle.kts' 2>/dev/null \
-        | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')"
+        | sed -n 1p | sed -E 's/.*"([^"]+)".*/\1/')"
   [[ -n "$pkg" ]] || return 1
   printf '%s\n' "$pkg"
 }
@@ -229,10 +250,12 @@ android_package_name() {
 #
 # Passwords may also come from ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
 # ANDROID_KEY_PASSWORD. With --allow-unsigned, a missing keystore is a warning
-# and success rather than a failure — the debug-signed fallback that lets a
+# and success rather than a failure -- the debug-signed fallback that lets a
 # local build proceed without release credentials.
 #
 # Returns 2 on bad arguments, 3 when no signer tool is available.
+# Returns: --base64-env VAR] [--storepass p] [--alias a] [--keypass p] [--allow-unsigned]
+# Output: 0 signed, or no keystore with --allow-unsigned; 1 mktemp failed; 2 bad arguments, artifact missing, bad base64, no keystore, or no alias; 3 neither apksigner nor jarsigner; otherwise the signer's exit code.|stdout/stderr the signer's output; stderr progress and errors.
 android_sign() {
   local artifact="" keystore="" b64var="" storepass="${ANDROID_KEYSTORE_PASSWORD:-}"
   local alias="${ANDROID_KEY_ALIAS:-}" keypass="${ANDROID_KEY_PASSWORD:-}"
@@ -279,7 +302,7 @@ android_sign() {
   if [[ -z "$keystore" || ! -f "$keystore" ]]; then
     [[ -n "$tmp_keystore" ]] && rm -f "$tmp_keystore"
     if [[ "$allow_unsigned" -eq 1 ]]; then
-      log_warn "android_sign: no keystore — leaving $artifact as built (debug-signed)."
+      log_warn "android_sign: no keystore - leaving $artifact as built (debug-signed)."
       return 0
     fi
     log_error "android_sign: no keystore. Pass --keystore, or --base64-env, or --allow-unsigned."
@@ -336,6 +359,8 @@ android_sign() {
 # --- emulators -------------------------------------------------------------
 
 # Usage: android_avd_list; prints the name of each defined AVD, one per line.
+# Returns: 3 avdmanager not found; otherwise the exit code of the awk filter (0).
+# Output: stdout one AVD name per line.
 android_avd_list() {
   local avdmanager
   avdmanager="$(android_sdk_tool avdmanager)" || return 3
@@ -343,13 +368,16 @@ android_avd_list() {
 }
 
 # Usage: android_avd_create <name> [api=34] [abi=x86_64]; create an AVD if it
-# does not already exist. Requires the matching system image to be installed —
+# does not already exist. Requires the matching system image to be installed --
 # run android_ensure_sdk first, and install `system-images;android-<api>;google_apis;<abi>`.
+# Returns: 0 created or already present; 2 missing name; 3 avdmanager not found; otherwise avdmanager's exit code.
+# Output: stdout/stderr avdmanager's output; stderr progress.
 android_avd_create() {
   local name="${1:-}" api="${2:-34}" abi="${3:-x86_64}" avdmanager
   [[ -n "$name" ]] || { log_error "android_avd_create: need <name>"; return 2; }
   avdmanager="$(android_sdk_tool avdmanager)" || return 3
-  if android_avd_list 2>/dev/null | grep -qx "$name"; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -qx "$name" <<< "$(android_avd_list 2>/dev/null)"; then
     log_info "android: AVD '$name' already exists"
     return 0
   fi
@@ -363,6 +391,8 @@ android_avd_create() {
 # Usage: android_emulator_start <avd> [--no-window] [--wait <seconds>]; start an
 # emulator in the background and wait for it to report boot completion. Prints
 # the serial of the booted emulator. Returns 1 if it does not boot in time.
+# Returns: 0 booted; 1 not booted in time; 2 bad arguments; 3 emulator not found.
+# Output: stdout the emulator serial; stderr progress and errors. Leaves the emulator running in the background.
 android_emulator_start() {
   local avd="" no_window=0 wait_for=180 emulator serial waited=0
   while [[ $# -gt 0 ]]; do
@@ -403,6 +433,8 @@ android_emulator_start() {
 
 # Usage: android_emulator_stop [serial]; stop one emulator, or every running
 # emulator when no serial is given.
+# Returns: 0 stopped all running emulators (or none ran); 3 adb missing; with a serial, the exit code of adb emu kill.
+# Output: stderr progress.
 android_emulator_stop() {
   local serial="${1:-}" s stopped=0
   adb_available 2>/dev/null || return 3

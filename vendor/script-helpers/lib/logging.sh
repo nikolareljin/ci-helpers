@@ -34,6 +34,8 @@ _shlib__color_code_from_name() {
 
 # Print the text in color; supports both named colors and raw ANSI codes.
 # Usage: print_color <color|ansi> <text> [text2] [color2]
+# Returns: 0.
+# Output: stdout the colored text (one or two lines).
 print_color() {
   local color="$1" text="$2" text2="${3:-}" color2="${4:-}"
   local start_color end_color
@@ -63,25 +65,43 @@ print_color() {
 }
 
 # Usage: print_info <message...>; info output helper.
+# Returns: 0.
+# Output: stdout "[Info]: <message>".
 print_info()    { print_color "$WHITE"   "[Info]: $*"; }
 # Usage: print_error <message...>; error output helper (audible bell).
+# Returns: 0.
+# Output: stdout "[Error!]: <message>" and a bell (stdout, not stderr).
 print_error()   { print_color "$RED"     "[Error!]: $*"; echo -e "\a"; }
 # Usage: print_success <message...>; success output helper.
+# Returns: 0.
+# Output: stdout "Success [OK]: <message>".
 print_success() { print_color "$GREEN"   "Success [OK]: $*"; }
 # Usage: print_warning <message...>; warning output helper (audible bell).
+# Returns: 0.
+# Output: stdout "[Warning!]: <message>" and a bell.
 print_warning() { print_color "$YELLOW"  "[Warning!]: $*"; echo -e "\a"; }
 # Usage: print_line; prints a horizontal divider.
+# Returns: 0.
+# Output: stdout the divider.
 print_line()    { echo "----------------------------------------"; }
 
 # Bracketed, coloured, stderr-only levels: [INFO], [WARN], [ERROR], [DEBUG].
 # Kept for callers written against that older shape.
 # Usage: log_info <message...>; stderr info log.
+# Returns: 0.
+# Output: stderr "[INFO] <message>".
 log_info()  { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
 # Usage: log_warn <message...>; stderr warning log.
+# Returns: 0.
+# Output: stderr "[WARN] <message>".
 log_warn()  { echo -e "${BOLD_YELLOW:-$YELLOW}[WARN]${NC} $*" >&2; }
 # Usage: log_error <message...>; stderr error log.
+# Returns: 0.
+# Output: stderr "[ERROR] <message>".
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 # Usage: log_debug <message...>; stderr debug log when DEBUG=true.
+# Returns: 0.
+# Output: stderr "[DEBUG] <message>" when DEBUG=true; else nothing.
 log_debug() {
   if [[ "${DEBUG:-}" == "true" ]]; then
     echo -e "${BLUE}[DEBUG]${NC} $*" >&2
@@ -90,6 +110,9 @@ log_debug() {
 }
 
 # Compatibility wrapper for iso-forge's `print` function
+# Usage: print <color> <message...>; prints the message in color, then "....".
+# Returns: 0.
+# Output: stdout the colored message and "....".
 print() {
   local color="$1"; shift
   local message="$*"
@@ -100,10 +123,18 @@ print() {
 
 # Additional compatibility helpers used by some scripts
 # Usage: print_red <message...>; color helper.
+# Returns: 0.
+# Output: stdout the colored text.
 print_red()    { print_color "$RED"    "$*"; }
 # Usage: print_green <message...>; color helper.
+# Returns: 0.
+# Output: stdout the colored text.
 print_green()  { print_color "$GREEN"  "$*"; }
 # Usage: print_yellow <message...>; color helper.
+# Returns: 0.
+# Output: stdout the colored text.
 print_yellow() { print_color "$YELLOW" "$*"; }
 # Usage: print_blue <message...>; color helper.
+# Returns: 0.
+# Output: stdout the colored text.
 print_blue()   { print_color "$BLUE"   "$*"; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version manifests — read and write the project version wherever a project
+# Version manifests -- read and write the project version wherever a project
 # happens to keep it.
 #
 # A phone app routinely states its version in three places at once: `pubspec.yaml`
@@ -19,6 +19,8 @@
 
 # Usage: manifest_kind <file>; prints the manifest kind for a path, based on its
 # name. Returns 2 when the name is not one this module handles.
+# Returns: 0 recognized; 2 no argument or unrecognized name.
+# Output: stdout pubspec|gradle|version_file|package_json|pyproject; stderr errors.
 manifest_kind() {
   local file="${1:-}"
   [[ -n "$file" ]] || { log_error "manifest_kind: need <file>"; return 2; }
@@ -36,6 +38,8 @@ manifest_kind() {
 # manifest found, searching the directory and two levels of subdirectory (an app
 # under `mobile/` or `android/` is the common layout). Prints nothing and
 # returns 1 when none is found.
+# Returns: 0 at least one found; 1 none found; 2 not a directory.
+# Output: stdout "<kind>\t<path>" lines; stderr errors.
 manifest_detect() {
   local dir="${1:-.}" found=0 path kind submodules=""
   [[ -d "$dir" ]] || { log_error "manifest_detect: not a directory: $dir"; return 2; }
@@ -97,8 +101,10 @@ _manifest__sed_escape() {
 }
 
 # Usage: manifest_read_version <file>; prints the version recorded in a manifest.
-# For a pubspec the build number after `+` is dropped — that is a build counter,
+# For a pubspec the build number after `+` is dropped -- that is a build counter,
 # not part of the version. Returns 1 when no version is present.
+# Returns: 0 printed; 1 no version in the file; 2 no argument, file missing or unrecognized kind.
+# Output: stdout the version; stderr errors.
 manifest_read_version() {
   local file="${1:-}" kind version=""
   [[ -n "$file" ]] || { log_error "manifest_read_version: need <file>"; return 2; }
@@ -107,20 +113,20 @@ manifest_read_version() {
 
   case "$kind" in
     pubspec)
-      version="$(sed -n 's/^version:[[:space:]]*\([0-9][^[:space:]]*\).*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/^version:[[:space:]]*\([0-9][^[:space:]]*\).*/\1/p' "$file" | sed -n 1p)"
       version="${version%%+*}"
       ;;
     gradle)
-      version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     version_file)
       version="$(head -n1 "$file" | tr -d '[:space:]')"
       ;;
     package_json)
-      version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     pyproject)
-      version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1)"
+      version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
   esac
 
@@ -134,15 +140,17 @@ manifest_read_version() {
 #
 # The Play Store requires a strictly increasing integer, and this mapping keeps
 # it monotonic for any version whose minor and patch stay below 100. Returns 2
-# on a non-semver input rather than emitting a wrong number — a wrong
+# on a non-semver input rather than emitting a wrong number -- a wrong
 # versionCode is rejected by the Play Store only after the upload.
+# Returns: 0 printed; 2 not a semver version.
+# Output: stdout the integer; stderr a warning when minor or patch >= 100, errors.
 manifest_android_version_code() {
   local version="${1:-}" offset="${2:-0}" major minor patch
   [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]] \
     || { log_error "manifest_android_version_code: not a semver version: '${version:-<empty>}'"; return 2; }
   major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"
   if [[ "$minor" -ge 100 || "$patch" -ge 100 ]]; then
-    log_warn "manifest_android_version_code: minor/patch >= 100 in $version — the code is no longer monotonic"
+    log_warn "manifest_android_version_code: minor/patch >= 100 in $version - the code is no longer monotonic"
   fi
   printf '%d\n' $(( major * 10000 + minor * 100 + patch + offset ))
 }
@@ -163,6 +171,8 @@ manifest_android_version_code() {
 #
 # Writes via a temp file and moves it into place, so an interrupted write cannot
 # leave a half-rewritten build file behind.
+# Returns: 0 written; 1 temp file or write failed, or an empty result; 2 bad arguments, missing file, bad version or --build.
+# Output: stderr info, warning and error lines; stdout nothing.
 manifest_write_version() {
   local file="" version="" build="" kind tmp code
   while [[ $# -gt 0 ]]; do
@@ -202,7 +212,7 @@ manifest_write_version() {
       if [[ -n "$build" ]]; then
         version="${version%%+*}"
       elif [[ "$version" != *+* ]]; then
-        build="$(sed -n 's/^version:[[:space:]]*[0-9][^+[:space:]]*+\([0-9]*\).*/\1/p' "$file" | head -n1)"
+        build="$(sed -n 's/^version:[[:space:]]*[0-9][^+[:space:]]*+\([0-9]*\).*/\1/p' "$file" | sed -n 1p)"
       fi
       if [[ -n "$build" ]]; then
         esc="$(_manifest__sed_escape "${version}+${build}")"
@@ -233,7 +243,7 @@ manifest_write_version() {
 
   if [[ ! -s "$tmp" ]]; then
     rm -f "$tmp"
-    log_error "manifest_write_version: rewriting $file produced an empty file — refusing to replace it"
+    log_error "manifest_write_version: rewriting $file produced an empty file - refusing to replace it"
     return 1
   fi
   # Not `cat && rm || return 1`: that reports failure when the write succeeded
@@ -273,7 +283,9 @@ manifest_write_version() {
 # Usage: manifest_sync_version <dir> <version> [--build <n>]; write <version>
 # into every manifest under <dir>. This is the "one release, one number"
 # operation. Returns non-zero if any manifest could not be written, after
-# attempting all of them — a partial sync is reported, not hidden.
+# attempting all of them -- a partial sync is reported, not hidden.
+# Returns: 0 all written (also when none found); 1 any manifest failed; 2 bad arguments or not a directory.
+# Output: stderr info and error lines.
 manifest_sync_version() {
   local dir="" version="" build="" rc=0 kind path
   while [[ $# -gt 0 ]]; do
@@ -286,6 +298,9 @@ manifest_sync_version() {
     esac
   done
   [[ -n "$dir" && -n "$version" ]] || { log_error "manifest_sync_version: need <dir> <version>"; return 2; }
+  # Checked here: manifest_detect runs in a process substitution below, so its
+  # "not a directory" status would be lost and the sync would report success.
+  [[ -d "$dir" ]] || { log_error "manifest_sync_version: not a directory: $dir"; return 2; }
 
   local found=0
   while IFS=$'\t' read -r kind path; do
@@ -300,9 +315,8 @@ manifest_sync_version() {
 
   # The process substitution hides manifest_detect's status, so "nothing was
   # found" is counted here. Still success -- a tree with no manifest has nothing
-  # to disagree with -- but said, not silent. (A <dir> that is not a directory
-  # is reported by manifest_detect itself.)
-  if [[ "$found" -eq 0 && -d "$dir" ]]; then
+  # to disagree with -- but said, not silent.
+  if [[ "$found" -eq 0 ]]; then
     log_info "manifest_sync_version: no version manifest found under $dir; nothing written"
   fi
 

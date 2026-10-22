@@ -5,7 +5,7 @@
 # PARAMETERS:
 #   --tree              Scan tracked files (the default when nothing else is given).
 #   --commits <range>   Scan commit messages in a range, e.g. origin/main..HEAD.
-#   --file <path>       Scan a file — a pull request or issue body written out before posting.
+#   --file <path>       Scan a file: a pull request or issue body written out before posting.
 #   --stdin             Scan standard input.
 #   --list <path>       Name list to use. Overrides PRIVATE_NAMES_FILE and the cache.
 #   --names <a,b>       Comma-separated names, instead of a list file. For tests.
@@ -17,9 +17,15 @@
 #                       publicly, where nobody will re-read it afterwards.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
-#   0  no private name found
-#   1  a private name was found
-#   2  could not check (no list, an empty list, not a repository)
+#   0  No private name found (also -h/--help, and --only-public in a repository
+#      that is not public).
+#   1  A private name was found.
+#   2  Could not check: unknown argument, an option without a value, no list or an
+#      empty list, not a repository, unreadable file or commit range, or a failed
+#      search.
+# EXAMPLE:
+#   scripts/check_private_names.sh --commits origin/main..HEAD
+#   git log -1 --format=%B | scripts/check_private_names.sh --stdin
 # ----------------------------------------------------
 #
 # A public repository must never contain the name of a private one -- not in its
@@ -85,6 +91,7 @@
 # The list is data, generated elsewhere and never committed to a public
 # repository. See --help output above for where it is read from.
 # ----------------------------------------------------
+# No -e: grep and awk exit 1 for "no match", which is the passing case here.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -120,19 +127,24 @@ COMMITS=""
 FILE=""
 MODE=""
 
+# Not ${2:?}: that exits 1, which this gate uses for "found".
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || { log_error "$1 needs a value"; exit 2; }
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tree) MODE="tree"; shift ;;
-    --commits) MODE="commits"; COMMITS="${2:?--commits needs a range}"; shift 2 ;;
-    --file) MODE="file"; FILE="${2:?--file needs a path}"; shift 2 ;;
+    --commits) MODE="commits"; need_value "$@"; COMMITS="$2"; shift 2 ;;
+    --file) MODE="file"; need_value "$@"; FILE="$2"; shift 2 ;;
     --stdin) MODE="stdin"; shift ;;
-    --list) LIST="${2:?--list needs a path}"; shift 2 ;;
-    --names) NAMES="${2:?--names needs a comma-separated list}"; shift 2 ;;
-    --repo) REPO="${2:?--repo needs a path}"; shift 2 ;;
+    --list) need_value "$@"; LIST="$2"; shift 2 ;;
+    --names) need_value "$@"; NAMES="$2"; shift 2 ;;
+    --repo) need_value "$@"; REPO="$2"; shift 2 ;;
     --only-public) ONLY_PUBLIC=true; shift ;;
     --strict-ambiguous) STRICT_AMBIGUOUS=true; shift ;;
-    --for-repo) FOR_REPO="${2:?--for-repo needs a name}"; shift 2 ;;
-    -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --for-repo) need_value "$@"; FOR_REPO="$2"; shift 2 ;;
+    -h|--help) sed -n '2,/^# ---/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     *) log_error "Unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -188,7 +200,7 @@ list_age_days() {
   # Read the generation date out of the file, never the mtime: a copy, a restore
   # or a backup tool rewrites mtime and would make a year-old list look fresh.
   local stamp
-  stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$1" | head -1)"
+  stamp="$(sed -n 's/^# generated: \([0-9-]*\).*/\1/p' "$1" | sed -n 1p)"
   [[ -z "$stamp" ]] && return 1
   local made now
   made="$(date_to_epoch "$stamp")" || return 1
@@ -719,7 +731,7 @@ if [[ "$found" -eq 1 ]]; then
   if [[ -n "${LIST:-}" && -f "${LIST:-}" ]]; then
     log_error "Checked against $(tilde "$LIST")$(
       awk -F'\t' '!/^#/ && $1=="private" {c++} END {printf " -- %d private names", c+0}' "$LIST")$(
-      sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | head -1)."
+      sed -n 's/^# generated: \([0-9-]*\).*/, generated \1/p' "$LIST" | sed -n 1p)."
   fi
   exit 1
 fi

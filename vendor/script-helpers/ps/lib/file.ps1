@@ -1,13 +1,25 @@
-# File and directory helpers — PowerShell companion to lib/file.sh.
+# File and directory helpers - PowerShell companion to lib/file.sh.
 
+# Usage: command_exists -Name <command>
+# Returns: $true when the command resolves (cmdlet, function, alias or executable), else $false.
+# Output: none.
 function command_exists {
     param([string]$Name)
     return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
 }
 
+# Usage: file_exists -Path <path>
+# Returns: $true when Path is a file, else $false.
+# Output: none.
 function file_exists     { param([string]$Path); return (Test-Path $Path -PathType Leaf) }
+# Usage: directory_exists -Path <path>
+# Returns: $true when Path is a directory, else $false.
+# Output: none.
 function directory_exists { param([string]$Path); return (Test-Path $Path -PathType Container) }
 
+# Usage: create_directory -Path <path>
+# Returns: $true when the directory exists or was created, $false when creation failed.
+# Output: host "Directory <path> created." or "... already exists."; error stream on failure.
 function create_directory {
     param([string]$Path)
     if (Test-Path $Path -PathType Container) {
@@ -24,6 +36,9 @@ function create_directory {
     }
 }
 
+# Usage: download_file -Url <url> [-Output <path>]   (default: the URL's file name)
+# Returns: $true on success, $false on failure.
+# Output: host the "Downloading" line; error stream on failure.
 function download_file {
     param(
         [Parameter(Mandatory)][string]$Url,
@@ -46,6 +61,10 @@ function download_file {
     }
 }
 
+# Usage: verify_checksum -FilePath <path> -ExpectedHash <hex> [-Algorithm SHA256]
+# Returns: $true when the hash matches (case-insensitive), else $false.
+# Output: host "Checksum OK" or "[Error!]: Checksum MISMATCH"; error stream when the file
+#   is missing or cannot be hashed.
 function verify_checksum {
     param(
         [string]$FilePath,
@@ -63,11 +82,11 @@ function verify_checksum {
         return $false
     }
     if ($actual -eq $ExpectedHash.Trim().ToUpper()) {
-        if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Checksum OK: $FilePath" }
+        if (Get-Command print_success -ErrorAction SilentlyContinue) { print_success "Checksum OK: $FilePath" | Out-Host }
         else { Write-Host "Checksum OK: $FilePath" }
         return $true
     } else {
-        if (Get-Command print_error -ErrorAction SilentlyContinue) { print_error "Checksum MISMATCH for $FilePath" }
+        if (Get-Command print_error -ErrorAction SilentlyContinue) { print_error "Checksum MISMATCH for $FilePath" | Out-Host }
         else { Write-Error "Checksum MISMATCH for $FilePath" }
         return $false
     }

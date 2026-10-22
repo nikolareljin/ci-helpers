@@ -132,6 +132,9 @@ PY
 # Install the Ollama CLI: the pinned release, checked against its SHA-256
 # (ollama_install in lib/ollama_install.sh; Homebrew on macOS). Returns what
 # ollama_install returns, 1 for any failure here.
+# Usage: ollama_install_cli [--prefix DIR] [--force]
+# Returns: 0 installed or current; 1 any failure.
+# Output: stderr ollama_install's log lines.
 ollama_install_cli() {
   # shellcheck source=/dev/null
   source "$(dirname "${BASH_SOURCE[0]}")/ollama_install.sh"
@@ -148,6 +151,9 @@ ollama_install_cli() {
 # so the path is the ONLY thing printed there. Progress, warnings, git and the
 # generator's own output all go to stderr: on stdout they became part of the
 # "path" and every later step failed on a file that does not exist.
+# Usage: ollama_prepare_models_index [target_dir] [repo_url]
+# Returns: 0 index ready; 1 clone, update or generation failed.
+# Output: stdout the JSON path only; stderr progress, git and generator output.
 ollama_prepare_models_index() {
   local repo_dir="${1:-ollama-get-models}"
   _ollama_prepare_models_index_work "$@" >&2 || return 1
@@ -253,6 +259,9 @@ _ollama_prepare_models_index_work() {
 }
 
 # Return path to models JSON for a repo directory (does not generate)
+# Usage: ollama_models_json_path <repo_dir>
+# Returns: 0.
+# Output: stdout <repo_dir>/code/ollama_models.json.
 ollama_models_json_path() {
   local repo_dir="${1:-ollama-get-models}"
   echo "$repo_dir/code/ollama_models.json"
@@ -330,6 +339,9 @@ _ollama_index_id() {
 }
 
 # List model names from JSON index
+# Usage: ollama_list_models <models.json>
+# Returns: 0 listed (also when empty, or stdout closed by a pipe); 1 file missing, jq failed, or write failed.
+# Output: stdout one model name per line; stderr errors.
 ollama_list_models() {
   local json_file="$1"
   if [[ ! -f "$json_file" ]]; then
@@ -356,6 +368,9 @@ ollama_list_models() {
   return 1
 }
 
+# Usage: ollama_model_menu_cache_path <models.json>; prints the menu cache path beside it.
+# Returns: 0.
+# Output: stdout <dir>/<name>.model-menu.cache.tsv.
 ollama_model_menu_cache_path() {
   local json_file="$1"
   local base_dir base_name
@@ -365,6 +380,9 @@ ollama_model_menu_cache_path() {
   printf '%s/%s.model-menu.cache.tsv\n' "$base_dir" "$base_name"
 }
 
+# Usage: ollama_model_menu_cache_is_fresh <cache_file> [max_age_seconds=1800]
+# Returns: 0 exists, readable, non-empty and young enough; 1 otherwise.
+# Output: none.
 ollama_model_menu_cache_is_fresh() {
   local cache_file="$1"
   local max_age_seconds="${2:-1800}"
@@ -390,6 +408,9 @@ ollama_model_menu_cache_is_fresh() {
   [[ $age -le $max_age_seconds ]]
 }
 
+# Usage: ollama_prepare_model_menu_cache <models.json> [cache_file]; builds the TSV menu cache.
+# Returns: 0 written; 1 JSON missing, directory, temp file, generation or move failed.
+# Output: stdout the cache path; stderr errors.
 ollama_prepare_model_menu_cache() {
   local json_file="$1"
   local cache_file="${2:-}"
@@ -483,6 +504,9 @@ ollama_prepare_model_menu_cache() {
 
 # Use dialog to select a model; preselect current_model if provided.
 # Prints selected model name to stdout.
+# Usage: ollama_dialog_select_model <models.json> [current_model]
+# Returns: 0 selected; 1 JSON missing, dialog missing, empty menu, or cancelled.
+# Output: stdout the model name; stderr errors; the dialog on the terminal.
 ollama_dialog_select_model() {
   local json_file="$1"; local current_model="${2:-}"
   if [[ ! -f "$json_file" ]]; then
@@ -589,6 +613,9 @@ ollama_dialog_select_model() {
 }
 
 # Use dialog to select size for a given model. If none available, returns 'latest'.
+# Usage: ollama_dialog_select_size <models.json> <model> [current_size]
+# Returns: 0 selected (or "latest" when none listed); 1 JSON missing, unreadable or dialog missing; 2 cancelled or back; else dialog's code.
+# Output: stdout the size; stderr errors and warnings.
 ollama_dialog_select_size() {
   local json_file="$1"; local model="$2"; local current_size="${3:-}"
   if [[ ! -f "$json_file" ]]; then
@@ -662,6 +689,9 @@ ollama_dialog_select_size() {
 # Build Ollama model reference. Omits tag when size is empty/latest, and when
 # the name carries a tag already (an index may list hf.co/org/model:Q4_K_M):
 # a second tag is not a reference.
+# Usage: ollama_model_ref <name> [size=latest]
+# Returns: 0.
+# Output: stdout the reference.
 ollama_model_ref() {
   local model_name="$1"
   local model_size="${2:-latest}"
@@ -673,11 +703,17 @@ ollama_model_ref() {
 }
 
 # Backward-compatible alias used by older scripts.
+# Usage: ollama_model_ref_safe <name> [size]; same as ollama_model_ref.
+# Returns: 0.
+# Output: stdout the reference.
 ollama_model_ref_safe() {
   ollama_model_ref "$@"
 }
 
 # Resolve runtime mode from env/override: local|docker.
+# Usage: ollama_runtime_type <env_file> [override]
+# Returns: 0.
+# Output: stdout local|docker; stderr a warning for an invalid value.
 ollama_runtime_type() {
   local env_file="$1"
   local runtime_override="${2:-}"
@@ -699,21 +735,33 @@ ollama_runtime_type() {
   echo "$runtime"
 }
 
+# Usage: ollama_runtime_scheme <env_file>; ollama_scheme from env, default http.
+# Returns: resolve_env_value's code (0).
+# Output: stdout the value.
 ollama_runtime_scheme() {
   local env_file="$1"
   resolve_env_value "ollama_scheme" "http" "$env_file"
 }
 
+# Usage: ollama_runtime_host <env_file>; ollama_host from env, default localhost.
+# Returns: resolve_env_value's code (0).
+# Output: stdout the value.
 ollama_runtime_host() {
   local env_file="$1"
   resolve_env_value "ollama_host" "localhost" "$env_file"
 }
 
+# Usage: ollama_runtime_port <env_file>; ollama_port from env, default 11434.
+# Returns: resolve_env_value's code (0).
+# Output: stdout the value.
 ollama_runtime_port() {
   local env_file="$1"
   resolve_env_value "ollama_port" "11434" "$env_file"
 }
 
+# Usage: ollama_runtime_build_base_url <env_file>; scheme://host:port from env.
+# Returns: 0.
+# Output: stdout the URL, no trailing slash.
 ollama_runtime_build_base_url() {
   local env_file="$1"
   local scheme host port base
@@ -736,6 +784,9 @@ ollama_runtime_build_base_url() {
   echo "${base%/}"
 }
 
+# Usage: ollama_runtime_sync_env_url <env_file>; builds the base URL and saves it as ollama_url.
+# Returns: 0 (a failed save only warns).
+# Output: stdout the URL; stderr warnings.
 ollama_runtime_sync_env_url() {
   local env_file="$1"
   local base_url
@@ -752,6 +803,9 @@ ollama_runtime_sync_env_url() {
   echo "$base_url"
 }
 
+# Usage: ollama_runtime_api_base_url <env_file>; from ollama_host, else ollama_url, else legacy website.
+# Returns: 0.
+# Output: stdout the URL (default http://localhost:11434).
 ollama_runtime_api_base_url() {
   local env_file="$1"
   local base_url
@@ -781,21 +835,33 @@ ollama_runtime_api_base_url() {
   echo "$base_url"
 }
 
+# Usage: ollama_runtime_generate_endpoint <env_file>
+# Returns: 0.
+# Output: stdout <base>/api/generate.
 ollama_runtime_generate_endpoint() {
   local env_file="$1"
   echo "$(ollama_runtime_api_base_url "$env_file")/api/generate"
 }
 
+# Usage: ollama_runtime_container_name <env_file>; default ai-runner-ollama.
+# Returns: resolve_env_value's code (0).
+# Output: stdout the name.
 ollama_runtime_container_name() {
   local env_file="$1"
   resolve_env_value "ollama_docker_container" "ai-runner-ollama" "$env_file"
 }
 
+# Usage: ollama_runtime_image <env_file>; default ollama/ollama:latest.
+# Returns: resolve_env_value's code (0).
+# Output: stdout the image.
 ollama_runtime_image() {
   local env_file="$1"
   resolve_env_value "ollama_docker_image" "ollama/ollama:latest" "$env_file"
 }
 
+# Usage: ollama_runtime_data_dir <env_file>; creates and prints ollama_data_dir as an absolute path.
+# Returns: 0 printed; 1 could not be created.
+# Output: stdout the path; stderr errors.
 ollama_runtime_data_dir() {
   local env_file="$1"
   local data_dir
@@ -808,12 +874,15 @@ ollama_runtime_data_dir() {
   fi
 
   if ! create_directory "$data_dir" >/dev/null; then
-    print_error "Failed to create Ollama data directory: ${data_dir}"
+    print_error "Failed to create Ollama data directory: ${data_dir}" >&2
     return 1
   fi
   (cd "$data_dir" && pwd)
 }
 
+# Usage: ollama_runtime_local_models_dir <env_file>; creates and prints the local models dir.
+# Returns: 0 printed; 1 could not be created.
+# Output: stdout the path; stderr errors.
 ollama_runtime_local_models_dir() {
   local env_file="$1"
   local shared_store local_models_dir data_dir project_root
@@ -832,12 +901,15 @@ ollama_runtime_local_models_dir() {
     local_models_dir="$project_root/$local_models_dir"
   fi
   if ! create_directory "$local_models_dir" >/dev/null; then
-    print_error "Failed to create Ollama models directory: ${local_models_dir}"
+    print_error "Failed to create Ollama models directory: ${local_models_dir}" >&2
     return 1
   fi
   (cd "$local_models_dir" && pwd)
 }
 
+# Usage: ollama_runtime_local_env_assignment <env_file>
+# Returns: 0 printed; 1 models dir failed.
+# Output: stdout OLLAMA_MODELS=<dir>.
 ollama_runtime_local_env_assignment() {
   local env_file="$1"
   local local_models_dir
@@ -845,6 +917,9 @@ ollama_runtime_local_env_assignment() {
   printf 'OLLAMA_MODELS=%s\n' "$local_models_dir"
 }
 
+# Usage: ollama_runtime_local_cmd <env_file> <ollama args...>; runs ollama with OLLAMA_MODELS set.
+# Returns: 1 models dir failed; else ollama's exit code.
+# Output: ollama's output.
 ollama_runtime_local_cmd() {
   local env_file="$1"
   shift
@@ -853,6 +928,9 @@ ollama_runtime_local_cmd() {
   env "$local_env" ollama "$@"
 }
 
+# Usage: ollama_runtime_host_port <base_url>
+# Returns: 0.
+# Output: stdout the port in the URL, else 11434.
 ollama_runtime_host_port() {
   local base_url="$1"
   if [[ "$base_url" =~ :([0-9]+)$ ]]; then
@@ -862,6 +940,9 @@ ollama_runtime_host_port() {
   fi
 }
 
+# Usage: ollama_runtime_ensure_docker_container <env_file>; starts or creates the container.
+# Returns: 0 running; 1 docker missing or unreachable, data dir failed, start or create failed.
+# Output: stdout print_info/print_error lines.
 ollama_runtime_ensure_docker_container() {
   local env_file="$1"
   local container image data_dir base_url host_port
@@ -878,15 +959,18 @@ ollama_runtime_ensure_docker_container() {
 
   container="$(ollama_runtime_container_name "$env_file")"
   image="$(ollama_runtime_image "$env_file")"
-  data_dir="$(ollama_runtime_data_dir "$env_file")"
+  # Checked: an unset data_dir would reach `docker run -v :/root/.ollama`.
+  data_dir="$(ollama_runtime_data_dir "$env_file")" || return 1
   base_url="$(ollama_runtime_api_base_url "$env_file")"
   host_port="$(ollama_runtime_host_port "$base_url")"
 
-  if docker ps --filter "name=^/${container}$" --filter "status=running" -q | grep -q .; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q . <<< "$(docker ps --filter "name=^/${container}$" --filter "status=running" -q)"; then
     return 0
   fi
 
-  if docker ps -a --filter "name=^/${container}$" -q | grep -q .; then
+  # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
+  if grep -q . <<< "$(docker ps -a --filter "name=^/${container}$" -q)"; then
     print_info "Starting Docker Ollama container: ${container}"
     if ! docker start "$container" >/dev/null; then
       print_error "Failed to start Docker Ollama container: ${container}"
@@ -909,6 +993,9 @@ ollama_runtime_ensure_docker_container() {
   return 0
 }
 
+# Usage: ollama_runtime_ensure_ready <local|docker> <env_file>
+# Returns: 0 for local; else ollama_runtime_ensure_docker_container's code.
+# Output: as ollama_runtime_ensure_docker_container.
 ollama_runtime_ensure_ready() {
   local runtime="$1"
   local env_file="$2"
@@ -1097,6 +1184,9 @@ PY4
   return "$rc"
 }
 
+# Usage: ollama_runtime_pull_model <local|docker> <env_file> <model> [size=latest]
+# Returns: 0 pulled; 1 bad reference, container or CLI missing, models dir failed; else the pull's code.
+# Output: stdout print_info/print_error lines; the pull progress (dialog or terminal).
 ollama_runtime_pull_model() {
   local runtime="$1"
   local env_file="$2"
@@ -1127,6 +1217,9 @@ ollama_runtime_pull_model() {
   _ollama_dialog_pull_command "Downloading Model" "$model_ref" env "$local_env" ollama pull "$model_ref"
 }
 
+# Usage: ollama_runtime_supports_export <local|docker> <env_file>
+# Returns: 0 `ollama export` exists; 1 not, or the runtime is unavailable.
+# Output: stdout print_* lines from the container check only.
 ollama_runtime_supports_export() {
   local runtime="$1"
   local env_file="$2"
@@ -1158,6 +1251,9 @@ ollama_runtime_supports_export() {
   return 1
 }
 
+# Usage: ollama_runtime_export_model <local|docker> <env_file> <model_ref> <output_path>
+# Returns: 0 exported; 1 bad reference, directory, container or export failed (the partial file is removed).
+# Output: the export file; stdout print_* lines.
 ollama_runtime_export_model() {
   local runtime="$1"
   local env_file="$2"
@@ -1190,6 +1286,9 @@ ollama_runtime_export_model() {
   return 0
 }
 
+# Usage: ollama_runtime_run_model <local|docker> <env_file> <model> [size=latest]; starts `ollama run` in the background.
+# Returns: 0 started, docker runtime, or no CLI (warned); 1 bad reference or models dir failed.
+# Output: stdout print_* lines.
 ollama_runtime_run_model() {
   local runtime="$1"
   local env_file="$2"
@@ -1214,6 +1313,9 @@ ollama_runtime_run_model() {
   OLLAMA_MODELS="$models_dir" nohup ollama run "$model_ref" >/dev/null 2>&1 &
 }
 
+# Usage: ollama_runtime_ps <local|docker> <env_file>
+# Returns: 0.
+# Output: stdout the container status or `ollama ps`.
 ollama_runtime_ps() {
   local runtime="$1"
   local env_file="$2"
@@ -1232,6 +1334,9 @@ ollama_runtime_ps() {
 }
 
 # Pull a model: ollama pull "name:size"
+# Usage: ollama_pull_model <model> [size=latest]
+# Returns: 1 ollama missing or bad reference; else ollama pull's code.
+# Output: stdout print_* lines and pull progress.
 ollama_pull_model() {
   local model="$1"; local size="${2:-latest}"
   local model_ref
@@ -1246,6 +1351,9 @@ ollama_pull_model() {
 }
 
 # Run a model in background: ollama run name:size &
+# Usage: ollama_run_model <model> [size=latest]
+# Returns: 0 started; 1 ollama missing or bad reference.
+# Output: stdout print_* lines.
 ollama_run_model() {
   local model="$1"; local size="${2:-latest}"
   local model_ref
@@ -1278,6 +1386,9 @@ _ollama_env_key_ok() {
 # turned backslashes into escapes), a newline is refused (it would add a line
 # to a file that load_env sources), and a replaced file keeps its mode (a 0600
 # .env holding a token came back 0644) and, when it is a symlink, stays one.
+# Usage: ollama_update_env [env_file=.env] <key> <value>
+# Returns: 0 written; 1 bad key or value, or write failed (file unchanged).
+# Output: stderr errors.
 ollama_update_env() {
   local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
   if [[ -z "$key" ]]; then
@@ -1336,6 +1447,9 @@ ollama_update_env() {
 #   $1 - repo_dir (default: ollama-get-models)
 #   $2 - env_file to update (optional)
 # Side effects: updates env_file with model/size if provided.
+# Usage: ollama_install_model_flow [repo_dir] [env_file]
+# Returns: 0 pulled; 1 index, selection, .env write or pull failed; else the pull's or dialog's code.
+# Output: stdout pull progress; stderr errors; dialogs on the terminal.
 ollama_install_model_flow() {
   local repo_dir="${1:-ollama-get-models}" env_file="${2:-}"
   local json_file model size size_rc
@@ -1365,8 +1479,10 @@ ollama_install_model_flow() {
   done
 
   if [[ -n "$env_file" ]]; then
-    ollama_update_env "$env_file" model "$model"
-    ollama_update_env "$env_file" size "$size"
+    # A failed write stops the flow: pulling a model the .env does not name
+    # would leave the project pointing at the old one.
+    ollama_update_env "$env_file" model "$model" || return $?
+    ollama_update_env "$env_file" size "$size" || return $?
   fi
 
   ollama_pull_model "$model" "$size"

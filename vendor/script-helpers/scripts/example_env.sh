@@ -3,6 +3,10 @@
 # DESCRIPTION: Example script that demonstrates environment helpers and validation.
 # USAGE: ./example_env.sh
 # PARAMETERS: No required parameters.
+#   -h, --help   Show this help and exit.
+# EXIT_CODES:
+#   0  The demo ran.
+#   1  HOME or PATH is unset.
 # EXAMPLE: EXAMPLE_FOO=myvalue ./example_env.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -13,7 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$SCRIPT_DIR/..}"
 # shellcheck source=/dev/null
 source "$SCRIPT_HELPERS_DIR/helpers.sh"
-shlib_import logging env
+shlib_import help logging env
+
+case "${1:-}" in -h|--help) print_help "${BASH_SOURCE[0]}"; exit 0 ;; esac
 
 print_info "Project root: $(get_project_root)"
 

@@ -1,3 +1,18 @@
+# SCRIPT: install_ollama.ps1
+# DESCRIPTION: Install or upgrade Ollama from a checked native PowerShell source.
+# USAGE: pwsh -File ps\scripts\install_ollama.ps1 [-Prefix <path>] [-Force] [-Check]
+# PARAMETERS:
+#   -Prefix <path>  Install the checked archive into this directory.
+#   -Force          Reinstall even when the pinned version is present.
+#   -Check          Report installed and pinned versions without changing the machine.
+#   -Help           Show this help message.
+# EXIT_CODES:
+#   0  Installed, upgraded, or already current.
+#   1  Download, checksum, or install failure; -Check says installation is
+#      needed; or a parameter is unknown.
+#   3  No checkable archive is available for the platform.
+# EXAMPLE: pwsh -File ps\scripts\install_ollama.ps1 -Check
+# ----------------------------------------------------
 <#
 .SYNOPSIS
 Install or upgrade Ollama on Windows from a checked source: PowerShell counterpart to scripts/install_ollama.sh.
@@ -8,7 +23,7 @@ else the pinned release zip, checked against its SHA-256 and unpacked per user.
 
 Exit codes: 0 installed, upgraded or nothing to do (with -Check: nothing to do);
 1 the download failed or does not match the pin (with -Check: it would install or
-upgrade); 2 bad usage; 3 no checkable source for this platform.
+upgrade, or an unknown parameter); 3 no checkable source for this platform.
 
 .PARAMETER Prefix
 Install the release zip into this directory; winget is not used.
@@ -29,8 +44,11 @@ Say what is installed and what is pinned, and what would happen. Changes nothing
 param(
     [string]$Prefix = '',
     [switch]$Force,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$Help
 )
+# -Help: print the header above and stop, before anything runs.
+if ($Help) { foreach ($l in Get-Content -LiteralPath $PSCommandPath) { if ($l -match '^#\s*-{4,}') { break }; $l -replace '^# ?', '' }; exit 0 }
 $ErrorActionPreference = 'Stop'
 . (Join-Path (Join-Path $PSScriptRoot '..') 'helpers.ps1')
 Import-ScriptHelpers ci_defaults ollama_install

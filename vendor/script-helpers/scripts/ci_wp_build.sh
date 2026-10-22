@@ -20,6 +20,17 @@
 #   --docker-user <user>          User for those images, as uid:gid (default: the invoking user).
 #   --zip <true|false>            Also produce <out-dir>/<slug>-<version>.zip (default: true).
 #   -h, --help                    Show this help message.
+# EXIT_CODES:
+#   0  Tree (and zip) built (also -h/--help).
+#   1  Symlinks that cannot be packaged, no PHP file at the staged root, or a
+#      packaging step failed.
+#   2  Bad arguments: unknown option, an option without its value, missing
+#      --workdir, a bad --slug, --version or --zip, a tool missing on PATH, an
+#      --out-dir inside the plugin, no usable Version: header, or --exclude-
+#      from not found.
+#   N  A failing composer or asset command exits with its own code.
+# EXAMPLE:
+#   scripts/ci_wp_build.sh --workdir . --out-dir build
 # ----------------------------------------------------
 #
 # What ships is not what is in the repository. A plugin needs its production
@@ -60,17 +71,17 @@ make_zip="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workdir) workdir="$2"; shift 2 ;;
-    --slug) slug="$2"; shift 2 ;;
-    --version) version="$2"; shift 2 ;;
-    --out-dir) out_dir="$2"; shift 2 ;;
-    --composer-command) composer_command="$2"; shift 2 ;;
-    --asset-command) asset_command="$2"; shift 2 ;;
-    --exclude-from) exclude_from="$2"; shift 2 ;;
-    --php-image) php_image="$2"; shift 2 ;;
-    --node-image) node_image="$2"; shift 2 ;;
-    --docker-user) docker_user="$2"; shift 2 ;;
-    --zip) make_zip="$2"; shift 2 ;;
+    --workdir) require_value "$@" || exit 2; workdir="$2"; shift 2 ;;
+    --slug) require_value "$@" || exit 2; slug="$2"; shift 2 ;;
+    --version) require_value "$@" || exit 2; version="$2"; shift 2 ;;
+    --out-dir) require_value "$@" || exit 2; out_dir="$2"; shift 2 ;;
+    --composer-command) require_value "$@" || exit 2; composer_command="$2"; shift 2 ;;
+    --asset-command) require_value "$@" || exit 2; asset_command="$2"; shift 2 ;;
+    --exclude-from) require_value "$@" || exit 2; exclude_from="$2"; shift 2 ;;
+    --php-image) require_value "$@" || exit 2; php_image="$2"; shift 2 ;;
+    --node-image) require_value "$@" || exit 2; node_image="$2"; shift 2 ;;
+    --docker-user) require_value "$@" || exit 2; docker_user="$2"; shift 2 ;;
+    --zip) require_value "$@" || exit 2; make_zip="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) log_error "Unknown argument: $1"; usage; exit 2 ;;
   esac

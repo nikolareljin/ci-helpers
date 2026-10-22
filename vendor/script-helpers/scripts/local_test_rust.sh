@@ -8,6 +8,14 @@
 #   --quick      Skip cargo check/clippy; run tests only.
 #   --manifest   Path to Cargo.toml (default: ./Cargo.toml).
 #   --any-cargo  Use whatever cargo PATH offers, instead of rustup's.
+#   -h, --help   Show this help and exit.
+# EXIT_CODES:
+#   0  Every step passed.
+#   1  Bad arguments, a missing directory, no rustup cargo (without --any-cargo), or no cargo.
+#   N  The failing tool's own exit code, passed through (set -e).
+# EXAMPLE:
+#   bash scripts/local_test_rust.sh --quick
+# ----------------------------------------------------
 #
 # By default this runs against rustup's cargo, which is what CI installs
 # (dtolnay/rust-toolchain@stable). A distribution cargo earlier on PATH is
@@ -26,6 +34,7 @@ MANIFEST="Cargo.toml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
     --quick) QUICK=true ;;
     --any-cargo) ANY_CARGO=true ;;
     --dir)

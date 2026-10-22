@@ -49,6 +49,8 @@ fi
 # Usage: hub_ui_mode; prints dialog | plain | none.
 # HUB_UI and HUB_SETUP_PLAIN=1 are this module's names for ui_mode's SHLIB_UI
 # and SHLIB_UI_PLAIN, and win over them.
+# Returns: the exit code of ui_mode (0 on success).
+# Output: stdout the UI mode (e.g. dialog, plain, none).
 hub_ui_mode() { _hub__ui ui_mode; }
 
 # Internal: run a ui_* function with HUB_UI and HUB_SETUP_PLAIN applied.
@@ -68,12 +70,16 @@ _hub__ui_note()   { _hub__ui ui_note "Corpus hub" "$@"; }
 
 # Usage: hub_probe URL [TIMEOUT_SECONDS]; prints the /v1/service body.
 # Returns 1 when the hub does not answer.
+# Returns: 0 the hub answered /v1/service with JSON; 1 missing URL or no valid answer.
+# Output: stdout the response body; stderr an error for a missing URL.
 hub_probe() {
   [[ -n "${1:-}" ]] || { log_error "hub_probe: URL required"; return 1; }
   http_probe_json "$1" /v1/service "${2:-5}"
 }
 
 # Usage: hub_probe_field BODY KEY; prints a top-level string field, or nothing.
+# Returns: the exit code of json_get_field.
+# Output: stdout the field value.
 hub_probe_field() { json_get_field "$@"; }
 
 # Usage: hub_check_key URL KEY
@@ -83,6 +89,8 @@ hub_probe_field() { json_get_field "$@"; }
 # exist -- an empty list is still a 200). A 401 or 403 is a wrong key, and is
 # reported as one: telling someone "the hub is not serving" when they pasted
 # the wrong key sends them to restart a hub that is fine.
+# Returns: 0 accepted; 1 missing argument or no valid answer; 2 refused (401/403).
+# Output: stdout nothing; stderr an error for missing arguments.
 hub_check_key() {
   [[ -n "${1:-}" && -n "${2:-}" ]] || { log_error "hub_check_key: URL and KEY required"; return 1; }
   http_check_key "$1" "/v1/documents?limit=1" X-API-Key "$2"
@@ -92,6 +100,8 @@ hub_check_key() {
 # quoting, in place so a symlink keeps its target. KEY is upper case. A file
 # this creates (and its directory) starts with a comment and is 0600: it
 # holds an API key.
+# Returns: 0 written; 1 missing or invalid key, or the write failed.
+# Output: stdout nothing; stderr errors.
 hub_write_env() {
   local file="${1:-}" key="${2:-}"
   [[ -n "$file" && -n "$key" ]] || { log_error "hub_write_env: FILE and KEY required"; return 1; }
@@ -105,6 +115,8 @@ hub_write_env() {
 
 # Usage: hub_latest_tag CLONE_DIR; prints the newest tag, without a v prefix.
 # Fetches tags first; offline, the local tags are what there is.
+# Returns: 1 not a git clone; otherwise the exit code of the tag pipeline (0, also when there are no release tags).
+# Output: stdout the highest X.Y.Z tag without a v prefix, or nothing.
 hub_latest_tag() {
   local dir="${1:-}"
   [[ -n "$dir" && -d "$dir/.git" ]] || return 1
@@ -147,6 +159,8 @@ _hub__url_is_loopback() {
 # A clone that is already there is left alone apart from an
 # `./install-service --dry-run`, which changes nothing and shows what is
 # installed. Never compose.
+# Returns: 0 cloned and installed, or an existing clone was checked; 1 missing argument, clone/configure/install failed, or the directory is not the hub.
+# Output: stdout nothing; stderr progress and errors; the hub's own scripts may print.
 hub_bootstrap() {
   local dir="${1:-}" repo_url="${2:-}"
   [[ -n "$dir" ]] || { log_error "hub_bootstrap: CLONE_DIR required"; return 1; }
@@ -176,6 +190,8 @@ hub_bootstrap() {
 # print -- a remote hub is somebody else's to update. Always returns 0 unless
 # the arguments or HUB_UI are wrong; a declined or impossible offer is not a
 # failure.
+# Returns: 0 nothing to do, hub not answering, or remote hub; 1 missing argument; otherwise the exit code of version_offer_update. On yes the process is replaced (exec) by the hub's ./update.
+# Output: stdout/stderr the prompt and progress.
 hub_offer_update() {
   local url="${1:-}" dir="${2:-}"
   [[ -n "$url" && -n "$dir" ]] || { log_error "hub_offer_update: URL and CLONE_DIR required"; return 1; }
@@ -214,6 +230,8 @@ _hub__run_update() {
 # the variable it wanted. On success ENV_FILE carries HUB_MODE, HUB_URL,
 # HUB_API_KEY and HUB_INSTANCE_ID, and the hub has answered and accepted the
 # key. Re-runnable.
+# Returns: 0 configured and written to <env-file>; 1 missing input with no terminal, invalid mode, a failed step, or a rejected key; 2 unknown option or missing option value.
+# Output: stdout/stderr prompts (dialog or plain) and progress; stderr errors.
 hub_setup_dialog() {
   local env_file="${1:-}"; shift || true
   [[ -n "$env_file" ]] || { log_error "hub_setup_dialog: ENV_FILE required"; return 1; }

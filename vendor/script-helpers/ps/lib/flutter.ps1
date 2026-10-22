@@ -1,4 +1,4 @@
-# Flutter project helpers — PowerShell companion to lib/flutter.sh.
+# Flutter project helpers - PowerShell companion to lib/flutter.sh.
 #
 # flutter_resolve_sdk exists because Flutter is routinely installed somewhere a
 # non-interactive shell's PATH does not reach. This is that lookup, once.
@@ -11,7 +11,10 @@ function _Flutter_ExeName {
 }
 
 # Path to a usable flutter executable, or $null. Honours FLUTTER_ROOT and
-# FLUTTER_HOME. Does not modify PATH — the caller decides.
+# FLUTTER_HOME. Does not modify PATH - the caller decides.
+# Usage: flutter_resolve_sdk
+# Returns: the flutter executable path (PATH, FLUTTER_ROOT, FLUTTER_HOME, common install dirs); $null when none.
+# Output: none.
 function flutter_resolve_sdk {
     $cmd = Get-Command flutter -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -35,12 +38,18 @@ function flutter_resolve_sdk {
     return $null
 }
 
+# Usage: flutter_available
+# Returns: $true when flutter_resolve_sdk finds one, else $false.
+# Output: none.
 function flutter_available { return [bool](flutter_resolve_sdk) }
 
 # Every other function goes through here, so SDK resolution and the "not
 # installed" message live in exactly one place.
 # $CmdArgs, not $Args: `Args` is an automatic variable in PowerShell and using it
 # as a parameter name shadows it. adb.ps1 uses $Cmd for the same reason.
+# Usage: flutter_run_cmd -Dir <dir> <flutter args...>
+# Returns: $true when flutter exits 0, else $false (also on bad arguments or no flutter).
+# Output: host flutter's output; stderr [INFO] the command, [ERROR] on failure to start.
 function flutter_run_cmd {
     param(
         [string]$Dir,
@@ -60,18 +69,27 @@ function flutter_run_cmd {
     if (Get-Command log_info -ErrorAction SilentlyContinue) { log_info "flutter: $($CmdArgs -join ' ') (in $Dir)" }
     Push-Location $Dir
     try {
-        & $bin @CmdArgs
+        & $bin @CmdArgs | Out-Host
         return ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location
     }
 }
 
+# Usage: flutter_pub_get [-Dir <dir>]
+# Returns: as flutter_run_cmd.
+# Output: as flutter_run_cmd.
 function flutter_pub_get  { param([string]$Dir = '.') flutter_run_cmd $Dir 'pub' 'get' }
+# Usage: flutter_analyze [-Dir <dir>]
+# Returns: as flutter_run_cmd.
+# Output: as flutter_run_cmd.
 function flutter_analyze  { param([string]$Dir = '.') flutter_run_cmd $Dir 'analyze' }
 
 # Fails when any Dart file is unformatted. --set-exit-if-changed is what makes
 # this a check rather than a rewrite.
+# Usage: flutter_format_check [-Dir <dir>]
+# Returns: $true when no Dart file needs formatting, else $false (also without flutter).
+# Output: host dart format's output.
 function flutter_format_check {
     param([string]$Dir = '.')
     $bin = flutter_resolve_sdk
@@ -83,13 +101,16 @@ function flutter_format_check {
     if (-not (Test-Path $dart)) { $dart = 'dart' }
     Push-Location $Dir
     try {
-        & $dart format --output=none --set-exit-if-changed .
+        & $dart format --output=none --set-exit-if-changed . | Out-Host
         return ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location
     }
 }
 
+# Usage: flutter_test [-Dir <dir>] [-Coverage]
+# Returns: as flutter_run_cmd.
+# Output: as flutter_run_cmd.
 function flutter_test {
     param([string]$Dir = '.', [switch]$Coverage)
     if ($Coverage) { return flutter_run_cmd $Dir 'test' '--coverage' }
@@ -98,6 +119,9 @@ function flutter_test {
 
 # Build an artifact. Defaults to release, because a Flutter build with no mode
 # flag is a debug build and that is rarely what a caller of a build function means.
+# Usage: flutter_build -Target apk|appbundle|ios|web|linux|macos|windows [-Dir <dir>] [-Mode release|debug|profile] [-Flavor <f>]
+# Returns: as flutter_run_cmd.
+# Output: as flutter_run_cmd.
 function flutter_build {
     param(
         [Parameter(Mandatory)]
@@ -112,6 +136,9 @@ function flutter_build {
 }
 
 # One object per connected device, with Id and Name.
+# Usage: flutter_devices [-Dir <dir>]
+# Returns: one object with Id and Name per connected device; nothing without flutter.
+# Output: none.
 function flutter_devices {
     param([string]$Dir = '.')
     $bin = flutter_resolve_sdk
@@ -130,7 +157,7 @@ function flutter_devices {
             }
         }
         foreach ($line in (& $bin devices 2>$null)) {
-            $parts = $line -split '\s+•\s+'
+            $parts = $line -split '\s+\u2022\s+'
             if ($parts.Count -ge 3) {
                 $name = ($parts[0] -replace '\s*\([^()]*\)\s*$','').Trim()
                 [PSCustomObject]@{ Id = $parts[1].Trim(); Name = $name }
@@ -142,8 +169,11 @@ function flutter_devices {
 }
 
 # The device id to build against: $Preferred if connected, else FLUTTER_DEVICE,
-# else the only connected device. $null when the choice is ambiguous — an
+# else the only connected device. $null when the choice is ambiguous - an
 # ambiguous device is a question for the caller, not a guess.
+# Usage: flutter_resolve_device [-Preferred <id>] [-Dir <dir>]   (default Preferred: FLUTTER_DEVICE)
+# Returns: Preferred when connected, else the only device's id; $null when absent or ambiguous.
+# Output: stderr [ERROR] why; error stream the candidate devices when ambiguous.
 function flutter_resolve_device {
     param([string]$Preferred = $env:FLUTTER_DEVICE, [string]$Dir = '.')
     $devices = @(flutter_devices $Dir)
@@ -160,7 +190,7 @@ function flutter_resolve_device {
         return $null
     }
     if (Get-Command log_error -ErrorAction SilentlyContinue) {
-        log_error "flutter_resolve_device: $($devices.Count) devices connected — pass one explicitly:"
+        log_error "flutter_resolve_device: $($devices.Count) devices connected - pass one explicitly:"
     }
     $devices | ForEach-Object { Write-Error "  $($_.Id)`t$($_.Name)" }
     return $null

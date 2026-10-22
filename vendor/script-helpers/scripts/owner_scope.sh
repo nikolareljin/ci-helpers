@@ -5,6 +5,16 @@
 # PARAMETERS:
 #   SCRIPT_HELPERS_OWNERS  Comma-separated GitHub users/orgs. Default:
 #                          git config --global script-helpers.owners.
+#   -h, --help             Executed directly: show this help.
+# EXIT_CODES:
+#   scope_owners returns 0 (owners printed, or none set) or 2 (git config unreadable).
+#   scope_owner_of returns 0 with the owner printed, 1 for a non-github URL.
+#   scope_in_scope returns 0 in scope, 1 out of scope.
+#   scope_repo_urls returns 0, or 2 when git cannot list the remotes.
+#   Executed directly: 0 for -h/--help, 2 otherwise (the file must be sourced).
+# EXAMPLE:
+#   source scripts/owner_scope.sh
+#   scope_in_scope "$(scope_owners)" "$(git remote get-url origin)" && echo checked
 # ----------------------------------------------------
 #
 # A repository is in scope (checked) when any URL given parses to github.com
@@ -97,3 +107,12 @@ scope_repo_urls() {
   done
   return 0
 }
+
+# Executed rather than sourced: this file only defines functions, so print the
+# header and stop (0 for -h/--help, 2 otherwise).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-}" in
+    -h|--help) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; exit 0 ;;
+    *) sed -n '2,/^# ----/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//' >&2; exit 2 ;;
+  esac
+fi

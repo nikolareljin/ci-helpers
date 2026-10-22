@@ -18,6 +18,8 @@ _pkg_log_error() {
 }
 
 # Usage: pkg_require_cmds <cmd> [cmd...]
+# Returns: 0 all on PATH; 2 any missing.
+# Output: stderr one line per missing command.
 pkg_require_cmds() {
   local missing=0
   for cmd in "$@"; do
@@ -33,6 +35,9 @@ pkg_require_cmds() {
 }
 
 # Usage: pkg_run_prebuild <command>
+# Runs <command> with `bash -lc`; no-op when empty.
+# Returns: 0 when empty; else the command's exit code.
+# Output: stderr info line; the command's own output.
 pkg_run_prebuild() {
   local cmd="${1:-}"
   if [[ -n "$cmd" ]]; then
@@ -42,6 +47,9 @@ pkg_run_prebuild() {
 }
 
 # Usage: pkg_set_series <series>
+# Runs dch to set the distribution; no-op when empty.
+# Returns: 0 when empty; 2 dch missing; else dch's exit code.
+# Output: dch output; stderr errors.
 pkg_set_series() {
   local series="${1:-}"
   if [[ -n "$series" ]]; then
@@ -51,10 +59,13 @@ pkg_set_series() {
 }
 
 # Usage: pkg_build_deb_artifacts <repo_dir> <prebuild_cmd> <build_cmd>
+# Changes the caller's cwd to <repo_dir>. Runs <build_cmd>, or dpkg-buildpackage -us -uc.
+# Returns: 1 cd failed; 2 dpkg-buildpackage missing; else the prebuild or build exit code.
+# Output: build output; stderr info and errors.
 pkg_build_deb_artifacts() {
   local repo_dir="$1" prebuild_cmd="$2" build_cmd="$3"
   cd "$repo_dir" || return 1
-  pkg_run_prebuild "$prebuild_cmd"
+  pkg_run_prebuild "$prebuild_cmd" || return $?
   if [[ -n "$build_cmd" ]]; then
     _pkg_log_info "Running build: $build_cmd"
     bash -lc "$build_cmd"
@@ -65,6 +76,9 @@ pkg_build_deb_artifacts() {
 }
 
 # Usage: pkg_build_source_package <repo_dir> <prebuild_cmd> <build_cmd> <series> <key_id>
+# Changes the caller's cwd to <repo_dir>. Without <build_cmd>, signs with debuild and PPA_GPG_PASSPHRASE.
+# Returns: 0 built; 1 cd or passphrase file failed; 2 passphrase or tools missing; 130/143 interrupted; else the failing step's exit code.
+# Output: build output; stderr info and errors.
 pkg_build_source_package() {
   local repo_dir="$1" prebuild_cmd="$2" build_cmd="$3" series="$4" key_id="$5"
   if [[ -z "$build_cmd" ]] && [[ -z "${PPA_GPG_PASSPHRASE:-}" ]]; then
@@ -73,8 +87,8 @@ pkg_build_source_package() {
   fi
   pkg_require_cmds debuild gpg || return 2
   cd "$repo_dir" || return 1
-  pkg_run_prebuild "$prebuild_cmd"
-  pkg_set_series "$series"
+  pkg_run_prebuild "$prebuild_cmd" || return $?
+  pkg_set_series "$series" || return $?
   if [[ -n "$build_cmd" ]]; then
     _pkg_log_info "Running build: $build_cmd"
     bash -lc "$build_cmd"
@@ -152,6 +166,8 @@ _pkg__pass_file() {
 # are considered: a lone .changes belonging to another package is refused, not
 # uploaded. Only when debian/changelog cannot be read is a lone *.changes of
 # any name taken. More than one candidate is an error rather than a guess.
+# Returns: 0 found; 1 none, or more than one candidate.
+# Output: stdout the .changes path; stderr the reason and candidate list.
 pkg_find_changes_file() {
   local repo_dir="$1"
   local changes_file src_name="" version pattern='*.changes' count
@@ -192,6 +208,8 @@ pkg_find_changes_file() {
 }
 
 # Usage: pkg_upload_ppa <ppa_target> <changes_file>
+# Returns: 2 dput missing; else dput's exit code.
+# Output: dput output; stderr errors.
 pkg_upload_ppa() {
   local ppa_target="$1" changes_file="$2"
   pkg_require_cmds dput || return 2

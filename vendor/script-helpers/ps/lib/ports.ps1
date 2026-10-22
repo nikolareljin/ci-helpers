@@ -1,24 +1,34 @@
-# Port detection helpers — PowerShell companion to lib/ports.sh.
+# Port detection helpers - PowerShell companion to lib/ports.sh.
 # Uses Get-NetTCPConnection (available on Windows 8+/Server 2012+).
 
+# Usage: port_in_use -Port <n>
+# Returns: $true when a TCP listener is on the port, else $false. Windows only (Get-NetTCPConnection).
+# Output: none.
 function port_in_use {
     param([int]$Port)
     $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     return ($null -ne $conn)
 }
 
+# Usage: list_port_usage_details -Port <n>
+# Returns: one string "<process> (PID <id>)" per listener; nothing when the port is free.
+# Output: none.
 function list_port_usage_details {
     param([int]$Port)
     $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if (-not $conns) { return }
     foreach ($c in $conns) {
-        $pid  = $c.OwningProcess
-        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        # $procId, not $pid: $PID is read-only, and assigning it threw.
+        $procId = $c.OwningProcess
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         $name = if ($proc) { $proc.ProcessName } else { 'unknown' }
-        Write-Output "$name (PID $pid)"
+        Write-Output "$name (PID $procId)"
     }
 }
 
+# Usage: list_port_listener_pids -Port <n>
+# Returns: the unique PIDs listening on the port; nothing when the port is free.
+# Output: none.
 function list_port_listener_pids {
     param([int]$Port)
     $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
@@ -26,6 +36,9 @@ function list_port_listener_pids {
     $conns.OwningProcess | Sort-Object -Unique | Write-Output
 }
 
+# Usage: get_port_conflicts_json -Ports <int[]>
+# Returns: a compact JSON array of {port, pid, process} for each listener; '[]' when none.
+# Output: none.
 function get_port_conflicts_json {
     param([int[]]$Ports)
     $conflicts = @()
@@ -33,11 +46,11 @@ function get_port_conflicts_json {
         $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
         if ($conns) {
             foreach ($c in $conns) {
-                $pid  = $c.OwningProcess
-                $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                $procId = $c.OwningProcess
+                $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
                 $conflicts += [PSCustomObject]@{
                     port    = $port
-                    pid     = $pid
+                    pid     = $procId
                     process = if ($proc) { $proc.ProcessName } else { 'unknown' }
                 }
             }

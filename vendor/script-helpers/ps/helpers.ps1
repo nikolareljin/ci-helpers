@@ -39,6 +39,10 @@ $_SHLIB_LOADED = @{}
 
 # Import-ScriptHelpers: load one or more modules by name.
 # Logging is always loaded first (auto-imported if not explicitly requested).
+# Usage: Import-ScriptHelpers <module> [<module>...]
+# Loads ps/lib/<module>.ps1 into the global scope, logging first; a loaded module is skipped.
+# Returns: nothing.
+# Output: none; throws on an invalid or unknown module name.
 function Import-ScriptHelpers {
     param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Modules)
 
@@ -68,6 +72,10 @@ function _Shlib_SourceModule {
 
 # Import-ScriptHelpersAll: load every available module.
 # Logging is always loaded first (same invariant as Import-ScriptHelpers).
+# Usage: Import-ScriptHelpersAll
+# Loads every module in ps/lib, logging first.
+# Returns: nothing.
+# Output: none; throws when a module fails to load.
 function Import-ScriptHelpersAll {
     _Shlib_SourceModule 'logging'
     Get-ChildItem -Path $_SHLIB_LIB_DIR -Filter '*.ps1' | ForEach-Object {

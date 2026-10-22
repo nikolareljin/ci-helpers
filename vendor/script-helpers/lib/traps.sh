@@ -2,6 +2,9 @@
 # Cleanup and signal traps
 
 # Usage: cleanup; logs non-zero exit status on script exit.
+# Meant as the EXIT trap; reads $? on entry.
+# Returns: 0.
+# Output: stderr "Script failed with exit code N" when $? was non-zero.
 cleanup() {
   local exit_code=$?
   if [[ $exit_code -ne 0 ]]; then
@@ -10,6 +13,8 @@ cleanup() {
 }
 
 # Usage: setup_traps; installs EXIT/INT/TERM handlers.
+# Returns: 0. The installed INT/TERM handlers exit 130/143.
+# Output: none now; the handlers log to stderr when they fire.
 setup_traps() {
   # Guarded here too, though this cleanup only logs: from a signalled subshell it
   # would print "Script failed with exit code N" for a failure the script never had.

@@ -43,6 +43,8 @@ _rust_path_prepend() {
 # Says so when the result differs from what PATH offered, because a silent
 # switch is its own surprise. Returns non-zero, with an actionable message,
 # when rustup cannot supply that toolchain.
+# Returns: 0 PATH updated; 1 rustup missing or the toolchain has no usable cargo.
+# Output: stderr "[rust] ..." notes and errors; stdout nothing.
 rust_toolchain_ci_uses() {
   local toolchain="${1:-${RUST_TOOLCHAIN:-stable}}"
   local rustup_cargo on_path
@@ -86,6 +88,8 @@ rust_toolchain_ci_uses() {
 # Prints which cargo would be used and what rustup offers for the named
 # toolchain, without changing PATH. For a status verb, or a gate that wants to
 # say what it ran with afterwards.
+# Returns: 0 reported; 1 no cargo on PATH.
+# Output: stdout "[rust] ..." report lines; stderr "[rust] no cargo on PATH".
 rust_toolchain_report() {
   local cargo_path
   cargo_path="$(command -v cargo 2>/dev/null || true)"

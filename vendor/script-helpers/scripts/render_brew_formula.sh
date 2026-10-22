@@ -2,7 +2,6 @@
 # SCRIPT: render_brew_formula.sh
 # DESCRIPTION: Render a Homebrew formula from packaging metadata.
 # USAGE: ./render_brew_formula.sh [--repo PATH] [--config PATH] [--output PATH] [--url URL] [--sha256 SHA] [--version VERSION]
-# EXAMPLE: ./render_brew_formula.sh --repo . --output /tmp/myapp.rb --url "https://..." --sha256 "..."
 # PARAMETERS:
 #   --repo <path>     Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --config <path>   Packaging env file (default: packaging/packaging.env).
@@ -11,6 +10,12 @@
 #   --sha256 <sha>    Override Brew SHA256.
 #   --version <ver>   Override version.
 #   -h, --help        Show help.
+# EXIT_CODES:
+#   0  formula written
+#   1  packaging metadata missing, APP_NAME or BREW_SHA256 not set, or the
+#      formula could not be written
+#   2  bad arguments (unknown option, or an option without its value)
+# EXAMPLE: ./render_brew_formula.sh --repo . --output /tmp/myapp.rb --url "https://example.com/myapp-1.0.0.tar.gz" --sha256 "$(sha256sum myapp-1.0.0.tar.gz | cut -d' ' -f1)"
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -29,14 +34,17 @@ override_url=""
 override_sha=""
 override_version=""
 
+# need_value <opt> [value]: exit 2 (bad arguments) when the option has no value.
+need_value() { [[ $# -ge 2 && -n "$2" ]] || { log_error "$1 needs a value"; exit 2; }; }
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo) repo_dir="$2"; shift 2;;
-    --config) config_path="$2"; shift 2;;
-    --output) output_path="$2"; shift 2;;
-    --url) override_url="$2"; shift 2;;
-    --sha256) override_sha="$2"; shift 2;;
-    --version) override_version="$2"; shift 2;;
+    --repo) need_value "$@"; repo_dir="$2"; shift 2;;
+    --config) need_value "$@"; config_path="$2"; shift 2;;
+    --output) need_value "$@"; output_path="$2"; shift 2;;
+    --url) need_value "$@"; override_url="$2"; shift 2;;
+    --sha256) need_value "$@"; override_sha="$2"; shift 2;;
+    --version) need_value "$@"; override_version="$2"; shift 2;;
     -h|--help) usage; exit 0;;
     *) log_error "Unknown argument: $1"; usage; exit 2;;
   esac

@@ -8,6 +8,8 @@
 
 # Usage: svg_rasterizer; prints the rasterizer to use (inkscape|magick|convert)
 # or nothing (and returns non-zero) if none is installed.
+# Returns: 0 one found; 1 none installed.
+# Output: stdout the tool name.
 svg_rasterizer() {
   if command -v inkscape >/dev/null 2>&1; then
     echo "inkscape"
@@ -23,6 +25,8 @@ svg_rasterizer() {
 # Usage: svg_rasterize <in.svg> <out.png> [size]
 # Renders a square PNG of <size>x<size> px (default 1024). Returns:
 #   2 = bad args, 3 = no rasterizer available, non-zero = render failed.
+# Returns: 0 rendered; 1 render failed; 2 bad args or missing input; 3 no rasterizer.
+# Output: stderr info and error lines; stdout nothing.
 svg_rasterize() {
   local in="${1:-}" out="${2:-}" size="${3:-1024}"
   if [[ -z "$in" || -z "$out" ]]; then
@@ -68,6 +72,8 @@ svg_rasterize() {
 # Usage: svg_rasterize_sizes <in.svg> <out_dir> <basename> <size> [size...]
 # Renders one PNG per size as <out_dir>/<basename>-<size>.png. Handy for icon
 # sets. Returns non-zero if any single render fails (continues the rest).
+# Returns: 0 all rendered; 2 bad args; else the last failing svg_rasterize code.
+# Output: stderr info and error lines.
 svg_rasterize_sizes() {
   local in="${1:-}" dir="${2:-}" base="${3:-}"
   if [[ -z "$in" || -z "$dir" || -z "$base" || $# -lt 4 ]]; then

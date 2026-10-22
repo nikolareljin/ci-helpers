@@ -21,6 +21,9 @@ if (-not $env:CI_DEFAULT_OLLAMA_VERSION) {
 }
 
 # ollama_install_asset: the release zip for this machine, or $null.
+# Usage: ollama_install_asset
+# Returns: 'ollama-windows-amd64.zip' or 'ollama-windows-arm64.zip'; $null for another architecture.
+# Output: none.
 function ollama_install_asset {
     $arch = $env:PROCESSOR_ARCHITECTURE
     if ($env:_SHLIB_OLLAMA_ARCH) { $arch = $env:_SHLIB_OLLAMA_ARCH }  # test seam
@@ -32,6 +35,9 @@ function ollama_install_asset {
 }
 
 # ollama_install_expected_sha256 <asset>: the pinned SHA-256, or $null.
+# Usage: ollama_install_expected_sha256 <asset>
+# Returns: the pinned SHA-256 for the asset; $null for an unknown asset.
+# Output: none.
 function ollama_install_expected_sha256([string]$Asset) {
     switch ($Asset) {
         'ollama-windows-amd64.zip' { return $env:CI_DEFAULT_OLLAMA_SHA256_WINDOWS_AMD64 }
@@ -44,6 +50,9 @@ function ollama_install_expected_sha256([string]$Asset) {
 # `ollama --version` reports a running server's version first; the binary's own
 # is the "client version" line. It is asked with OLLAMA_HOST at a port nothing
 # listens on, and a "client version" line wins.
+# Usage: ollama_installed_version [<binary>]   (default: ollama)
+# Returns: the binary's own version X.Y.Z; $null when it is missing or prints none.
+# Output: none.
 function ollama_installed_version([string]$Binary = 'ollama') {
     if (-not (Get-Command $Binary -ErrorAction SilentlyContinue)) { return $null }
     $saved = $env:OLLAMA_HOST
@@ -61,8 +70,11 @@ function _ollama_install_at_least([string]$Have, [string]$Want) {
     try { return ([version]$Have) -ge ([version]$Want) } catch { return $false }
 }
 
-# ollama_install [-Prefix <dir>] [-Force]
+# Usage: ollama_install [-Prefix <dir>] [-Force]
 # Returns 0, 1 or 3 as above (as a value, and as $LASTEXITCODE is not touched).
+# Returns: 0 installed or already at the pinned version or newer; 1 download, checksum,
+#   unpack or copy failed; 3 no checkable source for this architecture.
+# Output: stderr [INFO]/[WARN]/[ERROR] progress; host winget's output.
 function ollama_install {
     param([string]$Prefix = '', [switch]$Force)
     $version = $env:CI_DEFAULT_OLLAMA_VERSION
@@ -80,7 +92,7 @@ function ollama_install {
         # Ollama's own installer uses.
         $verb = if ($have) { 'upgrade' } else { 'install' }
         log_info "Ollama with winget ($verb)."
-        & winget $verb --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements
+        & winget $verb --id Ollama.Ollama -e --silent --accept-package-agreements --accept-source-agreements | Out-Host
         if ($LASTEXITCODE -eq 0) {
             $now = ollama_installed_version
             if ($now -and -not (_ollama_install_at_least $now $version)) {
