@@ -62,6 +62,9 @@ else:
         fail.append("sign-windows does not run windows-sign with files_folder")
     elif "secrets.WINDOWS_CERTIFICATE " not in calls[0]["with"].get("certificate_base64", "") + " ":
         fail.append("sign-windows does not pass WINDOWS_CERTIFICATE to windows-sign")
+up = [st for st in build["steps"] if st.get("name") == "Upload Windows artifacts"]
+if not up or "&& 1 ||" not in str(up[0].get("with", {}).get("retention-days", "")):
+    fail.append("the unsigned Windows artifact is kept for artifact_retention_days, not 1 day")
 if "sign-windows" not in jobs["release"].get("needs", []):
     fail.append("release does not wait for sign-windows")
 first_win = rd["jobs"]["build-windows"]["steps"][0]
@@ -164,7 +167,19 @@ sign 1 "$good" "$pw" "ftp://ts.example" "" "timestamp_server must be an http(s) 
 sign 1 "$good" "$pw" "http://ts.example/a b" "" "timestamp_server must be an http(s) URL"
 sign 1 "" "$pw" "" "" "$need_secrets"
 sign 1 "$good" "" "" "" "$need_secrets"
-sign 1 "$good" "$pw" "" "$tmp" "needs a Windows runner"
+mkdir -p "$tmp/one" "$tmp/link" "$tmp/dirlink" "$tmp/none"
+: > "$tmp/one/app.exe"; : > "$tmp/outside.exe"; : > "$tmp/link/app.exe"; : > "$tmp/dirlink/app.exe"
+ln -s "$tmp/outside.exe" "$tmp/link/other.exe"
+ln -s "$tmp/one" "$tmp/dirlink/sub"
+: > "$tmp/none/readme.txt"
+sign 1 "$good" "$pw" "" "$tmp/one" "needs a Windows runner"
+# A link would sign, or skip, a file outside the folder.
+sign 1 "$good" "$pw" "" "$tmp/link" "is a symbolic link or junction"
+sign 1 "$good" "$pw" "" "$tmp/dirlink" "is a symbolic link or junction"
+sign 1 "$good" "$pw" "" "$tmp/none" "no .exe or .msi files under"
+sign 1 "$good" "$pw" "" "$tmp/missing" "files folder not found"
+# The certificate signtool uses is the one checked above, not its pick.
+grep -q 'sign /sha1 $thumb /f $pfxPath' "$root/.github/actions/windows-sign/sign_pfx.ps1" || { echo "FAIL: signtool sign is not pinned to the checked thumbprint"; fail=1; }
 sign 1 "$nokey" "$pw" "" "" "holds no private key"
 # A wrapped base64 secret is masked line by line, like the password.
 wrapped="$(base64 -w 76 "$tmp/good.pfx")"

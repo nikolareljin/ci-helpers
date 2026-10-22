@@ -299,7 +299,7 @@ Inputs:
 | `certificate_base64` | `pfx` | - | Base64 of the `.pfx` |
 | `certificate_password` | `pfx` | - | PFX password |
 | `timestamp_server` | no | `""` | RFC 3161 URL; empty uses `http://timestamp.digicert.com` |
-| `files_folder` | no | `""` | `pfx`: folder to sign (recursive `.exe`, `.msi`); empty only checks the PFX |
+| `files_folder` | no | `""` | `pfx`: folder to sign (recursive `.exe`, `.msi`; a symbolic link or junction in it is refused); empty only checks the PFX |
 | `verify_trust` | no | `"true"` | `pfx`: require `signtool verify /pa`; `"false"` for a private CA or self-signed certificate |
 | `azure_tenant_id` | `azure` | — | Azure tenant ID |
 | `azure_client_id` | `azure` | — | Service principal client ID |

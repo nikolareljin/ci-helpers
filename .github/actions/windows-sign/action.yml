@@ -64,7 +64,8 @@ inputs:
   files_folder:
     description: >
       pfx mode: folder whose .exe and .msi files are signed (searched
-      recursively). Empty only checks the PFX.
+      recursively; a symbolic link or junction in it is refused). Empty
+      only checks the PFX.
     required: false
     default: ""
   verify_trust:

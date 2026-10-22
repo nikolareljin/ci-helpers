@@ -572,7 +572,8 @@ jobs:
         with:
           name: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 'tauri-windows-unsigned' || 'tauri-windows-artifacts' }}
           path: out/
-          retention-days: ${{ inputs.artifact_retention_days }}
+          # Unsigned installers are only an input to sign-windows: keep 1 day.
+          retention-days: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 1 || inputs.artifact_retention_days }}
 
   # Authenticode signing, apart from the build. The build runs the app's own
   # code (npm scripts, cargo build scripts), which can rewrite files, PATH or

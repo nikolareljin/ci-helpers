@@ -2,8 +2,9 @@
 #   CERT_B64      base64 PFX (required)
 #   CERT_PW       PFX password (required)
 #   TS_URL        RFC 3161 timestamp URL (empty: the default below)
-#   FILES_DIR     folder whose .exe and .msi files are signed; empty: only
-#                 check that the PFX opens and holds a code-signing key
+#   FILES_DIR     folder whose .exe and .msi files are signed (no links in
+#                 it); empty: only check that the PFX opens and holds a
+#                 code-signing key
 #   VERIFY_TRUST  "true" (default): `signtool verify /pa` must pass
 #   TS_ATTEMPTS   timestamp attempts per file (default 4)
 # The PFX is checked from memory. For signing it is written to RUNNER_TEMP
@@ -88,8 +89,16 @@ $probe.Dispose()
 $dir = ([string]$env:FILES_DIR).Trim()
 if (-not $dir) { exit 0 }
 
-if (-not $IsWindows) { Fail "signing with a PFX needs a Windows runner (signtool)." }
 if (-not (Test-Path -LiteralPath $dir -PathType Container)) { Fail "files folder not found: $dir" }
+# A link would sign a file outside the folder, or (a linked folder is not
+# followed) leave the files under it unsigned, so any link is refused.
+$links = @(Get-ChildItem -LiteralPath $dir -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
+foreach ($l in $links) { Write-Output "::error::$($l.FullName) is a symbolic link or junction; put the file itself in the folder." }
+if ($links.Count -gt 0) { exit 1 }
+$files = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+if ($files.Count -eq 0) { Fail "no .exe or .msi files under $dir to sign." }
+
+if (-not $IsWindows) { Fail "signing with a PFX needs a Windows runner (signtool)." }
 
 # signtool ships with the Windows SDK; pick the newest x64 copy instead of a
 # hard-coded SDK version, and fall back to PATH.
@@ -109,9 +118,6 @@ if (-not $signtool) {
 if (-not $signtool) { Fail "signtool.exe not found: install the Windows SDK signing tools on the runner." }
 Write-Output "signtool: $signtool"
 
-$files = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object { $_.Extension -in '.exe', '.msi' })
-if ($files.Count -eq 0) { Fail "no .exe or .msi files under $dir to sign." }
-
 $tmpRoot = $env:RUNNER_TEMP
 if (-not $tmpRoot) { $tmpRoot = [IO.Path]::GetTempPath() }
 $pfxPath = Join-Path $tmpRoot ("sign-" + [guid]::NewGuid().ToString("N") + ".pfx")
@@ -128,9 +134,11 @@ try {
 
   foreach ($f in $files) {
     Write-Output "signing $($f.FullName)"
+    # /sha1 pins the certificate checked above: a PFX holding more than one
+    # keyed certificate would otherwise leave the choice to signtool.
     # signtool takes the PFX password only as /p. It is masked in the log; the
     # runner is single-tenant, so the process list is not exposed to others.
-    & $signtool sign /f $pfxPath /p $pw /fd SHA256 /q $f.FullName
+    & $signtool sign /sha1 $thumb /f $pfxPath /p $pw /fd SHA256 /q $f.FullName
     if ($LASTEXITCODE -ne 0) { Fail "signtool sign failed ($LASTEXITCODE) on $($f.Name)." }
 
     $stamped = $false
