@@ -37,12 +37,26 @@ echo "Until 0.30.0 only two presets forwarded it." | expect "until version" 1
 echo "It now runs a pinned binary." | expect "it now" 1
 echo "Accepted as an alias (#97)." | expect "issue reference" 1
 echo "Three plugins in this fleet each wrote one." | expect "this fleet" 1
+echo "The input was added for Go." | expect "was added" 1
+echo "Support for pnpm has been added." | expect "has been added" 1
+echo "The preset now supports pnpm." | expect "now supports" 1
+echo "Lint now defaults to on." | expect "now defaults" 1
+echo "Builds are now cached." | expect "are now" 1
+echo "New in this release: pnpm." | expect "new in this release" 1
+echo "The default changed from 18 to 20." | expect "changed from" 1
+printf '%s\n' '```' 'ok' '```' 'It now runs.' | expect "prose after a fence" 1
 
 echo "Install dependencies before the build." | expect "present-tense before" 0
 echo "Runs on pull_request and on every commit." | expect "pull request and commit" 0
 echo "A password used to decrypt the match repository." | expect "used to decrypt" 0
 echo "Pass the output to a later job with needs." | expect "plain prose" 0
 printf '%s\n' '```text' 'There was none here before.' '```' | expect "fenced code" 0
+printf '%s\n' '~~~' 'It now runs.' '~~~' | expect "tilde fence" 0
+printf '%s\n' '````md' '```' 'It now runs.' '```' '````' | expect "nested fence" 0
+echo 'Run `git log --since now` or `it now runs` here.' | expect "inline code" 0
+echo 'Headings look like `## Unreleased`.' | expect "quoted CHANGELOG heading" 0
+echo "Run it now." | expect "plain now" 0
+echo "Right now this is off." | expect "now this" 0
 
 if [ "$fail" -ne 0 ]; then exit 1; fi
 echo "docs tense gate: passes this tree and refuses each history phrase"

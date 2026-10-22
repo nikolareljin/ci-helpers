@@ -443,11 +443,16 @@ What the plugin needs:
   workflow provides the library; the plugin carries no `bin/install-wp-tests.sh`.
 - A `Version:` header in the main plugin file, unless you pass `version`.
   `wp-build.yml` names the zip from it.
+- For `wp-plugin-check.yml`, `wp_version` or `versions`, so the workflow
+  generates the WordPress stack. Without either, it uses the compose file named
+  by `compose_file` (default `test/docker-compose.yml`), which the plugin then
+  carries.
 - Optionally a `.distignore`. Without one, `wp-build.yml` applies a default
   exclude list and prints it.
 
 Services: every database and WordPress container is started by the workflow
-and removed afterwards. The runner needs Docker, which `ubuntu-latest` has.
+and removed afterwards (with `wp-plugin-check.yml`, unless `cleanup` is
+`false`). The runner needs Docker, which `ubuntu-latest` has.
 No secrets are needed. Attaching the zip to a release is the caller's step and
 the only one that needs `contents: write`.
 

@@ -59,7 +59,7 @@ def sections(text: str) -> list[tuple[str, str]]:
     out: list[tuple[str, list[str]]] = []
     fence = False
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
+        if line.lstrip().startswith(("```", "~~~")):
             fence = not fence
         if not fence and line.startswith("## "):
             out.append((line, []))

@@ -295,10 +295,12 @@ jobs:
         run: echo "result=$RESULT"
 ```
 
-Release notes: there is no separate action. `release-build.yml`,
-`go-release.yml`, `rust-release.yml` and `deb-build.yml` generate them with
-script-helpers' `release_notes.sh` when `generate_release_notes` is `true`, or
-take your own text in `release_notes`.
+Release notes come from the release workflows, through script-helpers'
+`release_notes.sh`. `release-build.yml`, `go-release.yml` and
+`rust-release.yml` generate them when `generate_release_notes` is `true`, or
+take your own text in `release_notes`. `deb-build.yml`, `fpc-release.yml`,
+`rust-release-tarballs.yml` and `tauri-release.yml` generate them whenever
+they upload to a release.
 
 Release tag guard (PR):
 

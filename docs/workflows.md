@@ -481,10 +481,9 @@ Workflow: `.github/workflows/codeql-scan.yml`
 
 Purpose: Static analysis with CodeQL.
 
-This is the one workflow here that analyses source code. `trivy-scan.yml` and
+This is the one workflow here that runs CodeQL. `trivy-scan.yml` and
 `security-weekly.yml` use `codeql-action` only for `upload-sarif`, to put other
-tools' reports into the Security tab. Of the language presets, only Go runs a
-static analyser of its own (gosec).
+tools' reports into the Security tab.
 
 Inputs:
 
@@ -2048,7 +2047,8 @@ Workflow: `.github/workflows/wp-plugin-check.yml`
 
 Purpose: Run WordPress plugin-check via Docker, with optional PHPUnit/lint.
 
-Note: Requires Docker on the runner and a compose file that mounts the plugin.
+Note: Requires Docker on the runner. Without `wp_version` or `versions`, it
+also requires the compose file named by `compose_file`, which mounts the plugin.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -2100,8 +2100,7 @@ versions: '[{"wp":"6.2","php":"8.0"},{"wp":"7.1","php":"8.4"}]'
 
 `php` is optional per entry. Each leg is named from its pair, so a failure says
 `check wp6.2-php8.0` rather than a rendered struct. Empty `versions` runs a
-single leg from `wp_version` and `php_version`, which is what a caller that
-never sets it already gets.
+single leg from `wp_version` and `php_version`.
 
 `wp plugin check` reports every file it is given, and with `plugin_src: .` that
 is the whole repository rather than the plugin. The two exclusion defaults name

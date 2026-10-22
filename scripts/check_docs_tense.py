@@ -5,7 +5,7 @@ History belongs in CHANGELOG.md. A page that says "the previous default was"
 or "new in 0.24.0" is out of date the day it is published, and it buries the
 current behaviour under an account of an older one.
 
-Checks README.md and every docs/*.md outside fenced code for the clearest
+Checks README.md and every docs/*.md outside fenced and inline code for the clearest
 history phrases. A line that must keep one (a product's own former name, say)
 is listed in ALLOW as (file, text on that line).
 
@@ -25,7 +25,7 @@ PHRASES = [
     r"\bthe previous (default|version|behaviou?r|note)\b",
     r"\bused to be\b",
     r"\bno longer\b",
-    r"\bnew in v?\d",
+    r"\bnew in (v?\d|this (release|version))",
     r"\b(since|until|before|in) v?0\.\d+(\.\d+)?\b",
     r"\bwas hardcoded\b",
     r"\bbefore this\b",
@@ -33,14 +33,22 @@ PHRASES = [
     r"\bthis fleet\b",
     r"\bhad it backwards\b",
     r"\bnothing (checked|caught|noticed)\b",
-    r"\b(was|were) (added|removed|renamed|introduced)\b",
-    r"\bit now\b",
-    r"\bis now\b",
-    r"\bnow (runs|does|uses|fails|refuses|takes)\b",
+    r"\b(was|were|has been|have been) (added|removed|renamed|introduced|replaced|dropped)\b",
+    r"\bchanged from\b",
+    r"\b(is|are) now\b",
+    # "now <verb>s": "it now runs", "the preset now supports". Plain "now", as
+    # in "run it now", is not history.
+    r"\bnow (?!(?:is|has|this|was|as|its|us|yes)\b)[a-z]+s\b",
+    r"\bnow (has|have)\b",
     r"(?<![\w/])\(#\d+\)",
     r"\bPR #?\d+\b",
 ]
 PHRASE_RE = re.compile("|".join(PHRASES), re.I)
+# A fence opens with three or more backticks or tildes and closes with a run of
+# the same character at least as long, with nothing after it.
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# Inline code quotes a literal; history words inside one are not prose.
+INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 
 # (file relative to the root, text that appears on the allowed line)
 ALLOW: list[tuple[str, str]] = [
@@ -63,14 +71,19 @@ def main() -> int:
     problems = []
     for page in pages(root):
         rel = page.relative_to(root).as_posix()
-        fence = False
+        fence = ""  # the opening marker while inside a fence
         for number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), 1):
-            if line.lstrip().startswith("```"):
-                fence = not fence
+            marker = FENCE_RE.match(line)
+            if marker:
+                run = marker.group(1)
+                if not fence:
+                    fence = run
+                elif run[0] == fence[0] and len(run) >= len(fence) and not line.strip()[len(run):]:
+                    fence = ""
                 continue
             if fence:
                 continue
-            match = PHRASE_RE.search(line)
+            match = PHRASE_RE.search(INLINE_CODE_RE.sub("``", line))
             if not match:
                 continue
             if any(rel == f and text in line for f, text in ALLOW):
