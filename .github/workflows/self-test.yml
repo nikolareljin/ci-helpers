@@ -975,7 +975,8 @@ jobs:
           [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
 
   # windows-sign pfx mode, end to end, with a throwaway self-signed PFX made
-  # here: it signs and timestamps a real exe, refuses a wrong password, a
+  # here: it signs and timestamps a real exe (also one in a nested folder
+  # with spaces), refuses a folder with nothing to sign, a wrong password, a
   # timestamp server that does not answer, and an untrusted chain when
   # verify_trust is on, and leaves no PFX file in RUNNER_TEMP and no key in
   # the certificate store, on failure too.
@@ -1011,6 +1012,10 @@ jobs:
             # whatever is embedded. pwsh.exe carries only an embedded signature.
             Copy-Item (Join-Path $PSHOME "pwsh.exe") (Join-Path $env:RUNNER_TEMP "$d\app.exe")
           }
+          # A nested folder and a name with spaces, as the artifact may carry.
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "sign\nsis dir") | Out-Null
+          Copy-Item (Join-Path $PSHOME "pwsh.exe") (Join-Path $env:RUNNER_TEMP "sign\nsis dir\My App_1.0_x64-setup.exe")
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "empty") | Out-Null
 
       - name: Sign with pfx mode
         uses: ./.github/actions/windows-sign
@@ -1021,13 +1026,18 @@ jobs:
           files_folder: ${{ runner.temp }}/sign
           verify_trust: "false"
 
-      - name: The exe carries this signature and a timestamp
+      - name: Each exe carries this signature and a timestamp
         shell: pwsh
         env:
           EXE: ${{ runner.temp }}/sign/app.exe
+          NESTED_EXE: ${{ runner.temp }}/sign/nsis dir/My App_1.0_x64-setup.exe
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
+          $n = Get-AuthenticodeSignature -LiteralPath $env:NESTED_EXE
+          if (-not $n.SignerCertificate -or $n.SignerCertificate.Thumbprint -ne $env:SELFTEST_THUMB -or -not $n.TimeStamperCertificate) {
+            Write-Output "::error::the exe in a nested folder with spaces was not signed and timestamped"; exit 1
+          }
           $sig = Get-AuthenticodeSignature -LiteralPath $env:EXE
           if (-not $sig.SignerCertificate) { Write-Output "::error::app.exe is not signed"; exit 1 }
           if ($sig.SignerCertificate.Subject -ne "CN=ci-helpers windows-sign self-test") {
@@ -1072,12 +1082,24 @@ jobs:
           files_folder: ${{ runner.temp }}/badpw
           verify_trust: "false"
 
+      - name: A folder with nothing to sign fails the step
+        id: empty
+        continue-on-error: true
+        uses: ./.github/actions/windows-sign
+        with:
+          sign_mode: pfx
+          certificate_base64: ${{ env.SELFTEST_PFX_B64 }}
+          certificate_password: ${{ env.SELFTEST_PFX_PW }}
+          files_folder: ${{ runner.temp }}/empty
+          verify_trust: "false"
+
       - name: Each refusal failed, and left no key behind
         shell: pwsh
         env:
           UNTRUSTED: ${{ steps.untrusted.outcome }}
           NOTS: ${{ steps.nots.outcome }}
           BADPW: ${{ steps.badpw.outcome }}
+          EMPTY: ${{ steps.empty.outcome }}
           BADPW_EXE: ${{ runner.temp }}/badpw/app.exe
           UNTRUSTED_EXE: ${{ runner.temp }}/untrusted/app.exe
           NOTS_EXE: ${{ runner.temp }}/nots/app.exe
@@ -1085,7 +1107,7 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
           $bad = 0
-          foreach ($n in "UNTRUSTED", "NOTS", "BADPW") {
+          foreach ($n in "UNTRUSTED", "NOTS", "BADPW", "EMPTY") {
             $o = [Environment]::GetEnvironmentVariable($n)
             if ($o -ne "failure") { Write-Output "::error::$n outcome '$o', expected failure"; $bad = 1 }
           }

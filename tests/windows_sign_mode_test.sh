@@ -128,10 +128,12 @@ mk() { # name eku
   base64 -w0 "$tmp/$1.pfx"
 }
 good="$(mk good codeSigning)"
+openssl pkcs12 -export -nokeys -in "$tmp/good.crt" -out "$tmp/nokey.pfx" -passout "pass:$pw" -certpbe AES-256-CBC -macalg sha256
+nokey="$(base64 -w0 "$tmp/nokey.pfx")"
 tls="$(mk tls serverAuth)"
 sign() { # want_rc b64 pw ts_url files_dir want_text
   local rc=0 out
-  out="$(CERT_B64="$2" CERT_PW="$3" TS_URL="$4" FILES_DIR="$5" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || rc=$?
+  out="$(CERT_B64="$2" CERT_PW="$3" TS_URL="$4" FILES_DIR="$5" TS_ATTEMPTS="${TS_ATTEMPTS:-}" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || rc=$?
   if [ "$rc" != "$1" ] || [[ "$out" != *"$6"* ]]; then
     echo "FAIL: sign_pfx ts='$4' dir='$5' want rc $1 and '$6'; got rc $rc: $out"
     fail=1
@@ -152,5 +154,14 @@ sign 1 "$good" "$pw" "http://ts.example/a b" "" "timestamp_server must be an htt
 sign 1 "" "$pw" "" "" "$need_secrets"
 sign 1 "$good" "" "" "" "$need_secrets"
 sign 1 "$good" "$pw" "" "$tmp" "needs a Windows runner"
+sign 1 "$nokey" "$pw" "" "" "holds no private key"
+# A wrapped base64 secret is masked line by line, like the password.
+wrapped="$(base64 -w 76 "$tmp/good.pfx")"
+out="$(CERT_B64="$wrapped" CERT_PW="$pw" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || true
+second="$(sed -n 2p <<<"$wrapped")"
+grep -qxF "::add-mask::$second" <<<"$out" || { echo "FAIL: line 2 of a wrapped certificate is not masked: $out"; fail=1; }
+TS_ATTEMPTS=0 sign 1 "$good" "$pw" "" "" "TS_ATTEMPTS must be 1 to 99"
+TS_ATTEMPTS=x sign 1 "$good" "$pw" "" "" "TS_ATTEMPTS must be 1 to 99"
+TS_ATTEMPTS=3 sign 0 "$good" "$pw" "" "" "PFX ok"
 [ "$fail" = 0 ] || exit 1
 echo "ok: sign_pfx.ps1 opens a good PFX and refuses bad ones with a reason"

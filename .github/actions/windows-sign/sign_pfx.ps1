@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($b64) -or [string]::IsNullOrEmpty($pw)) {
 # Mask before anything can print them. GitHub masks each line of a multi-line
 # value only when it is registered line by line.
 foreach ($line in ($pw -split "`r?`n")) { if ($line) { Write-Output "::add-mask::$line" } }
-Write-Output "::add-mask::$($b64.Trim())"
+foreach ($line in ($b64 -split "`r?`n")) { if ($line.Trim()) { Write-Output "::add-mask::$($line.Trim())" } }
 
 $tsUrl = ([string]$env:TS_URL).Trim()
 if (-not $tsUrl) { $tsUrl = $DefaultTimestampUrl }
@@ -40,7 +40,11 @@ if ($tsUrl -notmatch '^https?://[^\s"]+$') {
 }
 
 $attempts = 4
-if ($env:TS_ATTEMPTS) { $attempts = [int]$env:TS_ATTEMPTS }
+if ($env:TS_ATTEMPTS) {
+  # 0 would skip timestamping and then report it as failed.
+  if ($env:TS_ATTEMPTS -notmatch '^[1-9][0-9]?$') { Fail "TS_ATTEMPTS must be 1 to 99 (got: $($env:TS_ATTEMPTS))." }
+  $attempts = [int]$env:TS_ATTEMPTS
+}
 
 try {
   $bytes = [Convert]::FromBase64String(($b64 -replace '\s', ''))
@@ -124,6 +128,8 @@ try {
 
   foreach ($f in $files) {
     Write-Output "signing $($f.FullName)"
+    # signtool takes the PFX password only as /p. It is masked in the log; the
+    # runner is single-tenant, so the process list is not exposed to others.
     & $signtool sign /f $pfxPath /p $pw /fd SHA256 /q $f.FullName
     if ($LASTEXITCODE -ne 0) { Fail "signtool sign failed ($LASTEXITCODE) on $($f.Name)." }
 

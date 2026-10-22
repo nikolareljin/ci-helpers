@@ -205,6 +205,8 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
        uses: nikolareljin/ci-helpers/.github/workflows/tauri-release.yml@production
        with:
          windows_sign_mode: pfx
+         # Private CA or self-signed: the runner does not trust the root.
+         windows_pfx_verify_trust: false
        secrets:
          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -214,8 +216,8 @@ machine that trusts your root. `Get-AuthenticodeSignature` is described in
    `PFX ok: <subject>` and `ok: <file> signed by ...` per file. Download the
    MSI and setup EXE from the release and run the verify commands above.
 
-With a private CA or self-signed certificate, also set
-`windows_pfx_verify_trust: false`: the runner does not trust your root, so
+Keep `windows_pfx_verify_trust: false` for a private CA or self-signed
+certificate (remove it only for a root the runner trusts): the runner does not trust your root, so
 `signtool verify /pa` would fail. The signer and timestamp are still checked.
 
 Where signing runs: in `tauri-release`'s `sign-windows` job, not in the
