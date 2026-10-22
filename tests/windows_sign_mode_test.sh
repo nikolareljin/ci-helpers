@@ -150,6 +150,16 @@ good="$(mk good codeSigning)"
 openssl pkcs12 -export -nokeys -in "$tmp/good.crt" -out "$tmp/nokey.pfx" -passout "pass:$pw" -certpbe AES-256-CBC -macalg sha256
 nokey="$(base64 -w0 "$tmp/nokey.pfx")"
 tls="$(mk tls serverAuth)"
+# A PFX with its CA certificate included: the leaf, which has the key, is used.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/ca.key" -out "$tmp/ca.crt" -days 2 \
+  -subj "/CN=windows-sign test CA" -addext "basicConstraints=critical,CA:TRUE" >/dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes -keyout "$tmp/leaf.key" -out "$tmp/leaf.csr" -subj "/CN=windows-sign test leaf" >/dev/null 2>&1
+printf 'extendedKeyUsage=codeSigning\n' > "$tmp/leaf.ext"
+openssl x509 -req -in "$tmp/leaf.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial -days 2 \
+  -extfile "$tmp/leaf.ext" -out "$tmp/leaf.crt" >/dev/null 2>&1
+openssl pkcs12 -export -inkey "$tmp/leaf.key" -in "$tmp/leaf.crt" -certfile "$tmp/ca.crt" -out "$tmp/chain.pfx" \
+  -passout "pass:$pw" -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256
+chain="$(base64 -w0 "$tmp/chain.pfx")"
 sign() { # want_rc b64 pw ts_url files_dir want_text
   local rc=0 out
   out="$(CERT_B64="$2" CERT_PW="$3" TS_URL="$4" FILES_DIR="$5" TS_ATTEMPTS="${TS_ATTEMPTS:-}" pwsh -NoProfile -File "$root/.github/actions/windows-sign/sign_pfx.ps1" 2>&1)" || rc=$?
@@ -168,6 +178,7 @@ sign 0 "$good" "$pw" "https://timestamp.example/x" "" "PFX ok"
 sign 1 "$good" "wrong-password" "" "" "does not open with certificate_password"
 sign 1 "not base64!!" "$pw" "" "" "not valid base64"
 sign 1 "$tls" "$pw" "" "" "not for code signing"
+sign 0 "$chain" "$pw" "" "" "PFX ok: CN=windows-sign test leaf"
 sign 1 "$good" "$pw" "ftp://ts.example" "" "timestamp_server must be an http(s) URL"
 sign 1 "$good" "$pw" "http://ts.example/a b" "" "timestamp_server must be an http(s) URL"
 sign 1 "" "$pw" "" "" "$need_secrets"
@@ -186,6 +197,7 @@ sign 1 "$good" "$pw" "" "$tmp/missing" "files folder not found"
 mkdir -p "$tmp/hidden"; : > "$tmp/hidden/.app.exe"
 sign 1 "$good" "$pw" "" "$tmp/hidden" "needs a Windows runner"
 # The certificate signtool uses is the one checked above, not its pick.
+# shellcheck disable=SC2016 # literal PowerShell text
 grep -q 'sign /sha1 $thumb /f $pfxPath' "$root/.github/actions/windows-sign/sign_pfx.ps1" || { echo "FAIL: signtool sign is not pinned to the checked thumbprint"; fail=1; }
 sign 1 "$nokey" "$pw" "" "" "holds no private key"
 # A wrapped base64 secret is masked line by line, like the password.
