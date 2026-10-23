@@ -30,7 +30,7 @@ on:
         default: "deb-packages"
       artifact_glob:
         type: string
-        default: "../*.deb"
+        default: "dist/deb/*.deb"
       upload_to_release:
         description: >
           Upload the built .deb to the GitHub release. Set to "true" to always
@@ -139,6 +139,28 @@ jobs:
             --repo . \
             --prebuild "$PREBUILD_CMD" \
             --build "$BUILD_CMD"
+
+      # dpkg-buildpackage writes next to working_directory, and upload-artifact
+      # refuses a '..' path. Copy, so a caller glob on the original still works.
+      - name: Collect the built packages
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          ARTIFACT_GLOB: ${{ inputs.artifact_glob }}
+        run: |
+          set -euo pipefail
+          dest="${GITHUB_WORKSPACE}/dist/deb"
+          mkdir -p "$dest"
+          shopt -s nullglob
+          debs=(../*.deb)
+          if [ "${#debs[@]}" -gt 0 ]; then
+            cp -p -- "${debs[@]}" "$dest/"
+          fi
+          echo "${#debs[@]} package(s) collected into dist/deb"
+          if [ "${#debs[@]}" -eq 0 ] && [ "$ARTIFACT_GLOB" = "dist/deb/*.deb" ]; then
+            echo "::error::no .deb next to working_directory; set artifact_glob to where build_command writes them"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
