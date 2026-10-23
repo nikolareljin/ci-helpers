@@ -131,6 +131,10 @@ jobs:
         shell: bash
         run: bash tests/deb_build_publish_once_test.sh
 
+      - name: deb-build uploads with its default artifact_glob
+        shell: bash
+        run: bash tests/deb_build_artifact_path_test.sh
+
   token-exposure:
     # A checkout that keeps its token on disk hands it to every dependency the
     # caller installs; a job with no permissions block runs with the caller's

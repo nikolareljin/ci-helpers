@@ -30,7 +30,7 @@ on:
         default: "deb-packages"
       artifact_glob:
         type: string
-        default: "../*.deb"
+        default: "dist/deb/*.deb"
       upload_to_release:
         description: >
           Upload the built .deb to the GitHub release. Set to "true" to always
@@ -127,6 +127,12 @@ jobs:
             exit 1
           fi
 
+      # A reused self-hosted runner keeps .deb files from earlier runs next to
+      # the checkout, where checkout does not clean; only newer ones are collected.
+      - name: Mark the build start
+        shell: bash
+        run: touch "${RUNNER_TEMP}/deb-build-start"
+
       - name: Build package
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -139,6 +145,27 @@ jobs:
             --repo . \
             --prebuild "$PREBUILD_CMD" \
             --build "$BUILD_CMD"
+
+      # dpkg-buildpackage writes next to working_directory, and upload-artifact
+      # refuses a '..' path. Only the default glob is collected: a copy could
+      # match a caller glob such as '**/*.deb' twice, which release staging refuses.
+      - name: Collect the built packages
+        if: ${{ inputs.artifact_glob == 'dist/deb/*.deb' }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          debs=()
+          while IFS= read -r -d '' f; do debs+=("$f"); done < <(
+            find .. -maxdepth 1 -type f -name '*.deb' -newer "${RUNNER_TEMP}/deb-build-start" -print0)
+          if [ "${#debs[@]}" -eq 0 ]; then
+            echo "::error::no .deb built next to working_directory; set artifact_glob to where build_command writes them"
+            exit 1
+          fi
+          dest="${GITHUB_WORKSPACE}/dist/deb"
+          mkdir -p "$dest"
+          cp -p -- "${debs[@]}" "$dest/"
+          echo "${#debs[@]} package(s) collected into dist/deb"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07

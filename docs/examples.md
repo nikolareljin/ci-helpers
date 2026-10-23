@@ -356,5 +356,4 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/deb-build.yml@production
     with:
       working_directory: "."
-      artifact_glob: "../*.deb"
 ```

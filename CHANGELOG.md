@@ -1,3 +1,17 @@
+## Unreleased
+
+### Fixed
+
+- **`deb-build.yml` uploads with its default `artifact_glob`.** The default was
+  `../*.deb`, which `upload-artifact` refuses (`Invalid pattern '../*.deb'`),
+  so every caller that kept it failed at "Upload artifacts". A new step copies
+  the `.deb` files `dpkg-buildpackage` writes next to `working_directory` into
+  `dist/deb/`, and the default is now `dist/deb/*.deb`. Only packages newer
+  than the build start are copied, so a reused self-hosted runner does not
+  publish an earlier run's `.deb`. With that default and no new `.deb`, the
+  job fails instead of uploading nothing. A caller glob is unchanged. `tests/deb_build_artifact_path_test.sh` also refuses a `..`
+  default on any uploaded path in every workflow.
+
 ## 2026-10-22 — v0.43.1
 
 ### Changed
