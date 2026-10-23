@@ -127,6 +127,12 @@ jobs:
             exit 1
           fi
 
+      # A reused self-hosted runner keeps .deb files from earlier runs next to
+      # the checkout, where checkout does not clean; only newer ones are collected.
+      - name: Mark the build start
+        shell: bash
+        run: touch "${RUNNER_TEMP}/deb-build-start"
+
       - name: Build package
         shell: bash
         working-directory: ${{ inputs.working_directory }}
@@ -149,10 +155,11 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          debs=(../*.deb)
+          debs=()
+          while IFS= read -r -d '' f; do debs+=("$f"); done < <(
+            find .. -maxdepth 1 -type f -name '*.deb' -newer "${RUNNER_TEMP}/deb-build-start" -print0)
           if [ "${#debs[@]}" -eq 0 ]; then
-            echo "::error::no .deb next to working_directory; set artifact_glob to where build_command writes them"
+            echo "::error::no .deb built next to working_directory; set artifact_glob to where build_command writes them"
             exit 1
           fi
           dest="${GITHUB_WORKSPACE}/dist/deb"

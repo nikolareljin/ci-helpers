@@ -930,7 +930,7 @@ Inputs:
 - `build_command` (string, default `""`)
 - `extra_packages` (string, default `""`)
 - `artifact_name` (string, default `"deb-packages"`)
-- `artifact_glob` (string, default `"dist/deb/*.deb"`): with this default, the job copies the `.deb` files `dpkg-buildpackage` writes next to `working_directory` into `dist/deb/`, and fails when there are none. Set it when `build_command` writes elsewhere; nothing is copied then.
+- `artifact_glob` (string, default `"dist/deb/*.deb"`): with this default, the job copies the `.deb` files the build writes next to `working_directory` into `dist/deb/` (older files left on a reused runner are skipped), and fails when there are none. Set it when `build_command` writes elsewhere; nothing is copied then.
 - `upload_to_release` (string, default `"auto"`) — must be `"auto"`, `"true"`, or `"false"` (any other value fails with a clear error). `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
 - `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
 - `signing_key_id` (string, default `""`): GPG key fingerprint that signs the published files
