@@ -141,26 +141,24 @@ jobs:
             --build "$BUILD_CMD"
 
       # dpkg-buildpackage writes next to working_directory, and upload-artifact
-      # refuses a '..' path. Copy, so a caller glob on the original still works.
+      # refuses a '..' path. Only the default glob is collected: a copy could
+      # match a caller glob such as '**/*.deb' twice, which release staging refuses.
       - name: Collect the built packages
+        if: ${{ inputs.artifact_glob == 'dist/deb/*.deb' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
-        env:
-          ARTIFACT_GLOB: ${{ inputs.artifact_glob }}
         run: |
           set -euo pipefail
-          dest="${GITHUB_WORKSPACE}/dist/deb"
-          mkdir -p "$dest"
           shopt -s nullglob
           debs=(../*.deb)
-          if [ "${#debs[@]}" -gt 0 ]; then
-            cp -p -- "${debs[@]}" "$dest/"
-          fi
-          echo "${#debs[@]} package(s) collected into dist/deb"
-          if [ "${#debs[@]}" -eq 0 ] && [ "$ARTIFACT_GLOB" = "dist/deb/*.deb" ]; then
+          if [ "${#debs[@]}" -eq 0 ]; then
             echo "::error::no .deb next to working_directory; set artifact_glob to where build_command writes them"
             exit 1
           fi
+          dest="${GITHUB_WORKSPACE}/dist/deb"
+          mkdir -p "$dest"
+          cp -p -- "${debs[@]}" "$dest/"
+          echo "${#debs[@]} package(s) collected into dist/deb"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
