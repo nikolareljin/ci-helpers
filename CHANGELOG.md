@@ -1,4 +1,4 @@
-## Unreleased
+## 2026-10-24 — v0.44.0
 
 ### Changed for callers: Go presets run tests with -race
 
@@ -23,13 +23,17 @@
   `<working_directory>/go.mod`, its `toolchain` line when present, so a module
   on `go 1.21` gets 1.21, not 1.25. A `working_directory` without `go.mod`
   now fails at Setup Go; set `go_version` to a version to keep the old
-  behaviour. `ci.yml`, `pr-gate.yml`, `deploy.yml` and `release-build.yml`
-  accept `go_version: go.mod` too. https://github.com/nikolareljin/ci-helpers/issues/294
+  behaviour. The `go` line is a minimum, so `go-release.yml` and
+  `go-deploy.yml` build with that Go: a module on `go 1.21` ships a binary
+  built with Go 1.21. Add a `toolchain` line to `go.mod`, or set `go_version`,
+  to build with a newer Go. `ci.yml`, `pr-gate.yml`, `deploy.yml` and
+  `release-build.yml` accept `go_version: go.mod` too. https://github.com/nikolareljin/ci-helpers/issues/294
 - **`go-scan.yml` builds `govulncheck` with the module's Go, or 1.25.0 when the
   module's is older** (`govulncheck` v1.7.0 declares `go 1.25.0`). A binary
   built with an older Go than the module's fails with `package requires newer
   Go version`. Self-test legs run `vulncheck: true` on a `go 1.21` module and
   on a `go 1.26.0` module that uses `new(42)`.
+  https://github.com/nikolareljin/ci-helpers/pull/307
 
 ### Fixed
 
@@ -42,6 +46,7 @@
   publish an earlier run's `.deb`. With that default and no new `.deb`, the
   job fails instead of uploading nothing. A caller glob is unchanged. `tests/deb_build_artifact_path_test.sh` also refuses a `..`
   default on any uploaded path in every workflow.
+  https://github.com/nikolareljin/ci-helpers/pull/304
 
 ## 2026-10-22 — v0.43.1
 
