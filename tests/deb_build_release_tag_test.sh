@@ -49,4 +49,21 @@ check refs/heads/main true ""    main             "error"
 check refs/heads/main auto 0.8.0 0.9.0            "tag=0.8.0"
 check refs/heads/main true 0.8.0 ""               "tag=0.8.0"
 
+# A new tag is created where the packages came from: the built commit, which
+# ref can make differ from github.sha.
+python3 - "$root/.github/workflows/deb-build.yml" <<'PY' || fail=1
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+build = d["jobs"]["build"]
+assert build["outputs"].get("commit") == "${{ steps.built.outputs.commit }}", "build job has no commit output"
+built = [s for s in build["steps"] if s.get("id") == "built"]
+assert built and "git rev-parse HEAD" in built[0]["run"], "no step records the built commit"
+names = [s.get("uses", "") for s in build["steps"]]
+assert names.index(next(n for n in names if n.startswith("actions/checkout"))) < build["steps"].index(built[0]), "built commit recorded before checkout"
+up = [s for s in d["jobs"]["release"]["steps"] if s.get("uses", "").startswith("softprops/action-gh-release")]
+assert len(up) == 1, "want one release upload step"
+assert up[0]["with"].get("target_commitish") == "${{ needs.build.outputs.commit }}", "release upload does not pass target_commitish"
+print("ok: a new release tag is created at the built commit")
+PY
+
 exit "$fail"

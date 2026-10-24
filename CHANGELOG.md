@@ -23,8 +23,9 @@
   `release_tag`, `deb-build.yml` names the release after `ref`, so a tag push
   of 1.0.0 with `ref: 0.9.0` cannot attach 0.9.0's packages to 1.0.0;
   `auto` uploads only when `ref` is a version tag, and `true` fails for any
-  other `ref`. `tests/deb_build_release_tag_test.sh` runs the step for each
-  case, and `tests/packaging_lookup_test.sh` runs the script-helpers lookup
+  other `ref`. A tag that does not exist yet is created at the built commit,
+  not the one the workflow runs on. `tests/deb_build_release_tag_test.sh`
+  runs the step for each case, and `tests/packaging_lookup_test.sh` runs the script-helpers lookup
   of all three workflows against five caller layouts.
 
 ### Fixed

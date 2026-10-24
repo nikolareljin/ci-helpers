@@ -85,6 +85,7 @@ jobs:
       notes_id: ${{ steps.notes_up.outputs.artifact-id }}
       skip: ${{ steps.resolve.outputs.skip }}
       tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.built.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -92,6 +93,14 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+
+      # The commit this run builds, which ref may make differ from github.sha.
+      # A release whose tag does not exist yet gets its tag here, not at the
+      # commit the workflow runs on.
+      - name: Record the built commit
+        id: built
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install packaging prerequisites
         shell: bash
@@ -614,6 +623,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ needs.build.outputs.commit }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
           files: release-files/*
           overwrite_files: true
