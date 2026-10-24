@@ -42,9 +42,9 @@ on:
       # behaviour changes without a commit here, and a new advisory class can
       # turn every consumer red on a day nobody shipped anything.
       #
-      # The install builds with Go 1.25.0 (GOTOOLCHAIN=go1.25.0), whatever the
-      # module's Go. A version that needs a newer Go fails the install; raise
-      # the 1.25.0 in the govulncheck step with it.
+      # The install builds with the module's Go, or Go 1.25.0 when the
+      # module's is older. A version that needs a newer Go than 1.25.0 fails on
+      # older modules; raise `floor` in the govulncheck step with it.
       govulncheck_version:
         type: string
         default: "v1.7.0"
@@ -117,8 +117,16 @@ jobs:
             echo "::error::govulncheck_version must be vX.Y.Z, got '${INPUT_GOVULNCHECK_VERSION}'." >&2
             exit 2
           fi
-          # The module may declare an older Go than govulncheck needs (v1.7.0:
-          # go 1.25.0). auto, and even go1.25.0+auto, switch to the newest Go,
-          # which moves without a commit here; this builds with 1.25.0 exactly.
-          GOTOOLCHAIN=go1.25.0 go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
+          # Build with the module's Go, or with the oldest Go govulncheck
+          # accepts (v1.7.0: go 1.25.0) when the module's is older. A binary
+          # built with an older Go than the module's fails with "package
+          # requires newer Go version". GOTOOLCHAIN=auto would pick the newest
+          # Go, which moves without a commit here.
+          floor=go1.25.0
+          tc=local
+          if [ "$(printf '%s\n' "${floor#go}" "$(go env GOVERSION | sed 's/^go//')" | sort -V | head -n1)" != "${floor#go}" ]; then
+            tc="$floor"
+          fi
+          echo "building govulncheck with GOTOOLCHAIN=${tc} ($(go env GOVERSION) installed, floor ${floor})"
+          GOTOOLCHAIN="$tc" go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
           "$(go env GOPATH)/bin/govulncheck" "${INPUT_PACKAGES}"

@@ -14,18 +14,25 @@
   default on ubuntu, macOS and Windows against a racy fixture, which must
   fail. https://github.com/nikolareljin/ci-helpers/issues/305
 
+### Changed for callers: Go presets take Go from go.mod
+
+- **`go.yml`, `go-pr-gate.yml`, `go-scan.yml`, `go-release.yml` and
+  `go-deploy.yml` default `go_version` to `go.mod`.** They defaulted to `1.25`
+  under `GOTOOLCHAIN=local`, so a module declaring `go 1.26.0` failed with
+  `go.mod requires go >= 1.26.0`. Setup Go now reads
+  `<working_directory>/go.mod`, its `toolchain` line when present, so a module
+  on `go 1.21` gets 1.21, not 1.25. A `working_directory` without `go.mod`
+  now fails at Setup Go; set `go_version` to a version to keep the old
+  behaviour. `ci.yml`, `pr-gate.yml`, `deploy.yml` and `release-build.yml`
+  accept `go_version: go.mod` too. https://github.com/nikolareljin/ci-helpers/issues/294
+- **`go-scan.yml` builds `govulncheck` with the module's Go, or 1.25.0 when the
+  module's is older** (`govulncheck` v1.7.0 declares `go 1.25.0`). A binary
+  built with an older Go than the module's fails with `package requires newer
+  Go version`. Self-test legs run `vulncheck: true` on a `go 1.21` module and
+  on a `go 1.26.0` module that uses `new(42)`.
+
 ### Fixed
 
-- **The Go presets take Go from `go.mod`.** `go.yml`, `go-pr-gate.yml`,
-  `go-scan.yml`, `go-release.yml` and `go-deploy.yml` defaulted `go_version` to
-  `1.25` under `GOTOOLCHAIN=local`, so a module declaring `go 1.26.0` failed
-  with `go.mod requires go >= 1.26.0`. The default is now `go.mod`: Setup Go
-  reads `<working_directory>/go.mod`, its `toolchain` line when present. A
-  version still overrides it, and `ci.yml`, `pr-gate.yml`, `deploy.yml` and
-  `release-build.yml` accept `go.mod` too. `go-scan.yml` installs
-  `govulncheck` with `GOTOOLCHAIN=go1.25.0`, so a module older than its
-  `go 1.25.0` still installs it. Self-test legs assert the `go 1.21` fixture
-  gets 1.21.
 - **`deb-build.yml` uploads with its default `artifact_glob`.** The default was
   `../*.deb`, which `upload-artifact` refuses (`Invalid pattern '../*.deb'`),
   so every caller that kept it failed at "Upload artifacts". A new step copies

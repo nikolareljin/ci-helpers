@@ -513,7 +513,7 @@ Workflow: `.github/workflows/go.yml`
 
 Defaults:
 
-- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it)
+- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it, and is needed when that directory has no `go.mod`)
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: a script that runs `go mod download`, then
   `go test -race ./...` where the runner can build it (cgo on and a
@@ -944,7 +944,7 @@ Workflow: `.github/workflows/go-scan.yml`
 
 Defaults:
 
-- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it)
+- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it, and is needed when that directory has no `go.mod`)
 - `govulncheck_version`: `v1.7.0`
 - `vulncheck`: `false`
 
@@ -964,12 +964,13 @@ code, so importing a vulnerable module without calling into it is not flagged.
 It is **off by default**. On by default, it would fail a repository that
 changed nothing on the day an advisory is published.
 
-`actions/setup-go` sets `GOTOOLCHAIN=local`, so the install runs with
-`GOTOOLCHAIN=go1.25.0`: `govulncheck` v1.7.0 declares `go 1.25.0`, and a
-module on an older Go would otherwise fail with `requires go >= 1.25.0`. Go
-fetches Go 1.25.0 from the module proxy, checked against the checksum database.
-A `govulncheck_version` that needs a newer Go fails the install until that
-1.25.0 is raised with it.
+`govulncheck` is built with the module's Go, so it can load the module's
+code: a binary built with an older Go fails with `package requires newer Go
+version`. When the module's Go is older than 1.25.0, the floor `govulncheck`
+v1.7.0 declares, the install runs with `GOTOOLCHAIN=go1.25.0`, and Go fetches
+1.25.0 from the module proxy, checked against the checksum database. A
+`govulncheck_version` that needs a newer Go fails on such modules until the
+`floor` in the step is raised with it.
 
 `govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
 would change the gate's behaviour without a change here, and a new advisory

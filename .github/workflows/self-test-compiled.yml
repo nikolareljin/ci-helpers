@@ -254,9 +254,9 @@ jobs:
           on = d.get('on', d.get(True))
           print(on['workflow_call']['inputs']['govulncheck_version']['default'])
           ")"
-          # The toolchain go-scan.yml builds it with, so the two cannot drift.
-          tc="$(grep -oE 'GOTOOLCHAIN=go[0-9.]+ go install' .github/workflows/go-scan.yml | cut -d' ' -f1 | cut -d= -f2 || true)"
-          [ "$(printf '%s\n' "$tc" | grep -c .)" = 1 ] || { echo "::error::expected one GOTOOLCHAIN in go-scan.yml, got '${tc}'"; exit 1; }
+          # The floor go-scan.yml builds it with, so the two cannot drift.
+          tc="$(grep -oE '^ +floor=go[0-9.]+$' .github/workflows/go-scan.yml | cut -d= -f2 || true)"
+          [ "$(printf '%s\n' "$tc" | grep -c .)" = 1 ] || { echo "::error::expected one floor= in go-scan.yml, got '${tc}'"; exit 1; }
           echo "pinned version from go-scan.yml: $ver, built with $tc"
           GOTOOLCHAIN="$tc" go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
           cd tests/fixtures/go-vuln
@@ -578,6 +578,16 @@ jobs:
       vulncheck: true
       test_command: 'go version && go version | grep -q "go1\.21\." && echo "Go came from go.mod"'
 
+  # And on a module declaring `go 1.26.0` that uses a 1.26 feature: a
+  # govulncheck built with 1.25.0 fails on it ("package requires newer Go
+  # version"), so this passes only if the install used the module's Go.
+  go-scan-builds-govulncheck-with-a-newer-module-go:
+    uses: ./.github/workflows/go-scan.yml
+    with:
+      working_directory: tests/fixtures/go-new
+      vulncheck: true
+      test_command: 'go version && go version | grep -q "go1\.26\." && go test ./...'
+
   # Two legs from one input, each on a stack this repository generates rather
   # than one the caller wrote. The fixture plugin passes cleanly, so a failure
   # here is the workflow's, not the plugin's.
@@ -896,6 +906,7 @@ jobs:
       - go-default-test-extract
       - go-default-test-runs-with-race
       - go-scan-follows-go-mod-and-installs-govulncheck
+      - go-scan-builds-govulncheck-with-a-newer-module-go
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
       - java-defaults-can-pass
