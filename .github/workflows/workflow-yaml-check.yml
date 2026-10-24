@@ -123,6 +123,10 @@ jobs:
         shell: bash
         run: bash tests/deb_build_release_tag_test.sh
 
+      - name: release-upload refuses a bad tag or files glob
+        shell: bash
+        run: bash tests/release_upload_check_test.sh
+
       - name: ppa-deb uploads over ftp by default, sftp with the Launchpad key
         shell: bash
         run: bash tests/ppa_dput_config_test.sh

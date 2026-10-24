@@ -24,7 +24,9 @@
   workflow holding a `contents: write` job fails to start for a caller that
   grants `read`, even when that job is skipped; `rpm-build.yml` keeps
   `contents: read`. The upload never changes the release notes and creates a
-  new tag at the built commit. Item 1 of
+  new tag at the built commit, and refuses an empty tag, a files glob that
+  leaves the artifact or matches nothing
+  (`tests/release_upload_check_test.sh`). Item 1 of
   https://github.com/nikolareljin/ci-helpers/issues/297
 - **`deb-build.yml` takes `release_notes`** (default `true`). `false` uploads
   the `.deb` files and leaves the release body alone, so a release
