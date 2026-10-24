@@ -6,7 +6,8 @@
   `go test -race ./...`** where the runner can build it: cgo on (Go turns it
   off when no C compiler is found) and a platform on Go's race list. Elsewhere
   it runs plain `go test ./...` and prints a notice. Before, no default ran
-  `-race`, so a data race passed CI. Tests are slower with it (often 2-10x).
+  `-race`, so a data race passed CI. Go documents the cost as 2-20x the run
+  time and 5-10x the memory.
   A caller that sets `test_command` is unchanged; set it to
   `go mod download && go test ./...` to opt out.
   `self-test-compiled.yml` checks the three defaults match and runs the
