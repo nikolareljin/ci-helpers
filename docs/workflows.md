@@ -1094,7 +1094,7 @@ Inputs:
 - `working_directory` (string, default `"."`)
 - `go_version` (string, default `1.25`)
 - `lint_command` (string, default `test -z "$(gofmt -l .)" && go vet ./...`)
-- `test_command` (string, default `go mod download && go test ./...`)
+- `test_command` (string, default: `go mod download`, then `go test -race ./...` where cgo is on and the platform supports it, else `go test ./...`; see the Go preset in `docs/presets.md`)
 - `gosec_args` (string, default `./...`)
 - `fetch_depth` (number, default `0`)
 - `vulncheck_packages` (string, default `./...`) - the package pattern for `govulncheck`. Not the same as `gosec_args`.

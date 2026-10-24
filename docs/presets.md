@@ -515,9 +515,16 @@ Defaults:
 
 - `go_version`: `1.25`
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
-- `test_command`: `go mod download && go test ./...`
+- `test_command`: a script that runs `go mod download`, then `go test -race ./...` where the
+  runner can build it (cgo on and a platform on Go's race list), else
+  `go test ./...` with a notice. `go-pr-gate.yml` and `go-scan.yml` share
+  this default.
 - `build_command`: `go build ./...`
 - `modules`: unset, meaning one module at `working_directory`
+
+`-race` needs a C compiler, which Go looks for when it decides whether cgo is
+on. The test step is slower with it (often 2-10x) and uses more memory. Set
+`test_command: "go mod download && go test ./..."` to turn it off.
 
 Example:
 
