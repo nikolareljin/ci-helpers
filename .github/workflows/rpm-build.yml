@@ -2,6 +2,12 @@ name: ci-helpers-rpm-build
 on:
   workflow_call:
     inputs:
+      ref:
+        description: >
+          Git ref to build: a tag, branch or commit. Empty builds the ref the
+          workflow runs on. Set it to the tag to rebuild an older release.
+        type: string
+        default: ""
       runner:
         type: string
         default: ubuntu-latest
@@ -40,20 +46,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
       - name: Install RPM tooling
         shell: bash
+        env:
+          EXTRA_PACKAGES: ${{ inputs.extra_packages }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y rpm rsync
-          if [ -n "${{ inputs.extra_packages }}" ]; then
-            sudo apt-get install -y ${{ inputs.extra_packages }}
+          if [ -n "$EXTRA_PACKAGES" ]; then
+            # Word splitting is the point: a space-separated package list.
+            # shellcheck disable=SC2086
+            sudo apt-get install -y $EXTRA_PACKAGES
           fi
 
       - name: Bootstrap script-helpers
+        id: script_helpers
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -65,18 +77,32 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+          # Use script-helpers where the repository keeps it, and never create
+          # vendor/: in a Go module that directory switches go build to vendor
+          # mode, which fails with "inconsistent vendoring".
+          dir=""
+          for d in scripts/script-helpers vendor/script-helpers; do
+            if [[ -f "$d/helpers.sh" ]]; then
+              dir="$d"
+              break
+            fi
+          done
+          if [[ -z "$dir" ]]; then
+            echo "::error::script-helpers not found at scripts/script-helpers or vendor/script-helpers; add it as a submodule." >&2
             exit 1
           fi
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
 
       - name: Build RPM artifacts
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        # Inputs reach the script through env, never spliced into it, where a
+        # value such as `x; curl ...` would run as code.
+        env:
+          IN_SPEC_PATH: ${{ inputs.spec_path }}
+          IN_PREBUILD_COMMAND: ${{ inputs.prebuild_command }}
+          IN_ARTIFACT_DIR: ${{ inputs.artifact_dir }}
+          SCRIPT_HELPERS: ${{ steps.script_helpers.outputs.dir }}
         run: |
           set -euo pipefail
           # rpmbuild's _topdir must be absolute, and inputs.working_directory
@@ -85,9 +111,9 @@ jobs:
           # rather than from the input. See the 0.22.1 CHANGELOG entry for why
           # a caller cannot supply an absolute path here instead.
           repo="$(pwd)"
-          spec="${{ inputs.spec_path }}"
-          prebuild="${{ inputs.prebuild_command }}"
-          artifact_dir="${{ inputs.artifact_dir }}"
+          spec="$IN_SPEC_PATH"
+          prebuild="$IN_PREBUILD_COMMAND"
+          artifact_dir="$IN_ARTIFACT_DIR"
 
           if [[ -n "$spec" && "$spec" != /* ]]; then
             spec="$repo/$spec"
@@ -107,7 +133,7 @@ jobs:
             prebuild_args=(--prebuild "$prebuild")
           fi
 
-          bash ./vendor/script-helpers/scripts/build_rpm_artifacts.sh \
+          bash "./${SCRIPT_HELPERS}/scripts/build_rpm_artifacts.sh" \
             --repo "$repo" \
             "${spec_args[@]}" \
             "${prebuild_args[@]}" \

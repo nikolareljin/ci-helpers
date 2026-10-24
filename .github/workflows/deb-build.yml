@@ -2,6 +2,12 @@ name: ci-helpers-deb-build
 on:
   workflow_call:
     inputs:
+      ref:
+        description: >
+          Git ref to build: a tag, branch or commit. Empty builds the ref the
+          workflow runs on. Set it to the tag to rebuild an older release.
+        type: string
+        default: ""
       runner:
         type: string
         default: ubuntu-latest
@@ -83,6 +89,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
 
@@ -107,6 +114,7 @@ jobs:
           fi
 
       - name: Bootstrap script-helpers
+        id: script_helpers
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -118,14 +126,21 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+          # Use script-helpers where the repository keeps it, and never create
+          # vendor/: in a Go module that directory switches go build to vendor
+          # mode, which fails with "inconsistent vendoring".
+          dir=""
+          for d in scripts/script-helpers vendor/script-helpers; do
+            if [[ -f "$d/helpers.sh" ]]; then
+              dir="$d"
+              break
+            fi
+          done
+          if [[ -z "$dir" ]]; then
+            echo "::error::script-helpers not found at scripts/script-helpers or vendor/script-helpers; add it as a submodule." >&2
             exit 1
           fi
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
 
       # A reused self-hosted runner keeps .deb files from earlier runs next to
       # the checkout, where checkout does not clean; only newer ones are collected.
@@ -139,9 +154,10 @@ jobs:
         env:
           PREBUILD_CMD: ${{ inputs.prebuild_command }}
           BUILD_CMD: ${{ inputs.build_command }}
+          SCRIPT_HELPERS: ${{ steps.script_helpers.outputs.dir }}
         run: |
           set -euo pipefail
-          ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
+          "./${SCRIPT_HELPERS}/scripts/build_deb_artifacts.sh" \
             --repo . \
             --prebuild "$PREBUILD_CMD" \
             --build "$BUILD_CMD"

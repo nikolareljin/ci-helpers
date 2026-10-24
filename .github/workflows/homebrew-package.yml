@@ -131,6 +131,7 @@ jobs:
           bash -lc "$IN_PREBUILD_COMMAND"
 
       - name: Bootstrap script-helpers
+        id: script_helpers
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -142,14 +143,21 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+          # Use script-helpers where the repository keeps it, and never create
+          # vendor/: in a Go module that directory switches go build to vendor
+          # mode, which fails with "inconsistent vendoring".
+          dir=""
+          for d in scripts/script-helpers vendor/script-helpers; do
+            if [[ -f "$d/helpers.sh" ]]; then
+              dir="$d"
+              break
+            fi
+          done
+          if [[ -z "$dir" ]]; then
+            echo "::error::script-helpers not found at scripts/script-helpers or vendor/script-helpers; add it as a submodule." >&2
             exit 1
           fi
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Homebrew inputs
         shell: bash
@@ -163,6 +171,7 @@ jobs:
           TARBALL_URL_IN: ${{ inputs.tarball_url }}
           RELEASE_REPO_IN: ${{ inputs.release_repo }}
           NAME_IN: ${{ inputs.name }}
+          SCRIPT_HELPERS: ${{ steps.script_helpers.outputs.dir }}
         run: |
           set -euo pipefail
           repo="$IN_WORKING_DIRECTORY"
@@ -202,7 +211,7 @@ jobs:
             exit 1
           fi
           tarball_path="$dist_dir/${name}-${version}.tar.gz"
-          helper_scripts="$repo/vendor/script-helpers/scripts"
+          helper_scripts="$repo/${SCRIPT_HELPERS}/scripts"
           tarball_url="$TARBALL_URL_IN"
           upload_repo=""
           # The formula's sha256 is of the tarball built here, so a published

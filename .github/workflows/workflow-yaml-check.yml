@@ -107,9 +107,13 @@ jobs:
         shell: bash
         run: bash tests/tauri_upload_once_test.sh
 
-      - name: ppa-deb takes its inputs through env
+      - name: ppa-deb and the packaging workflows take their inputs through env
         shell: bash
         run: bash tests/no_inline_expressions_in_run_test.sh
+
+      - name: packaging workflows create no vendor/ directory
+        shell: bash
+        run: bash tests/packaging_no_vendor_dir_test.sh
 
       - name: ppa-deb uploads over ftp by default, sftp with the Launchpad key
         shell: bash
