@@ -33,6 +33,7 @@
   built with an older Go than the module's fails with `package requires newer
   Go version`. Self-test legs run `vulncheck: true` on a `go 1.21` module and
   on a `go 1.26.0` module that uses `new(42)`.
+  https://github.com/nikolareljin/ci-helpers/pull/307
 
 ### Fixed
 
@@ -45,6 +46,7 @@
   publish an earlier run's `.deb`. With that default and no new `.deb`, the
   job fails instead of uploading nothing. A caller glob is unchanged. `tests/deb_build_artifact_path_test.sh` also refuses a `..`
   default on any uploaded path in every workflow.
+  https://github.com/nikolareljin/ci-helpers/pull/304
 
 ## 2026-10-22 — v0.43.1
 
