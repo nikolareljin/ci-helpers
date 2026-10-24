@@ -17,6 +17,19 @@
 
 ### Added
 
+- **`release-upload.yml` attaches an artifact's files to a release**, and
+  `rpm-build.yml` feeds it: `upload_to_release` and `release_tag` set its new
+  `artifact_id`, `tag`, `commit` and `skip` outputs, so a caller no longer
+  writes its own upload job. The upload is its own workflow because a reusable
+  workflow holding a `contents: write` job fails to start for a caller that
+  grants `read`, even when that job is skipped; `rpm-build.yml` keeps
+  `contents: read`. The upload never changes the release notes and creates a
+  new tag at the built commit. Item 1 of
+  https://github.com/nikolareljin/ci-helpers/issues/297
+- **`deb-build.yml` takes `release_notes`** (default `true`). `false` uploads
+  the `.deb` files and leaves the release body alone, so a release
+  `go-release.yml` already published keeps its "Download Binaries" table.
+  From the comment on https://github.com/nikolareljin/ci-helpers/issues/297
 - **`deb-build.yml` and `rpm-build.yml` take `ref`**: the tag, branch or commit
   to build. Empty builds the ref the workflow runs on, as before; set it to a
   tag to rebuild an older release without dispatching on the tag. Without

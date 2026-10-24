@@ -1,0 +1,81 @@
+name: ci-helpers-release-upload
+# Attaches the files of one workflow artifact to a GitHub release. It adds files
+# and never changes the release notes, and a release tag that does not exist yet
+# is created at `commit`. It is its own workflow so the build workflows that
+# feed it (rpm-build.yml) keep contents: read: a reusable workflow that holds a
+# write job fails to start for a caller that grants read, even when that job
+# would be skipped.
+on:
+  workflow_call:
+    inputs:
+      artifact_id:
+        description: Id of the artifact holding the files (a build workflow's artifact_id output).
+        type: string
+        required: true
+      tag:
+        description: Release tag to attach the files to.
+        type: string
+        required: true
+      commit:
+        description: Commit a new tag is created at; empty uses the commit the workflow runs on.
+        type: string
+        default: ""
+      files:
+        description: Glob, relative to the downloaded artifact, of the files to attach.
+        type: string
+        default: "*"
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          # By id: a same-named artifact from another call in this run
+          # replaces this one, and a name would fetch that call's files.
+          artifact-ids: ${{ inputs.artifact_id }}
+          path: release-files
+
+      - name: Check the tag and the files
+        shell: bash
+        env:
+          IN_TAG: ${{ inputs.tag }}
+          IN_FILES: ${{ inputs.files }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IN_TAG" || "$IN_TAG" == *[[:space:]]* ]]; then
+            echo "::error::tag must be one non-empty word, got '${IN_TAG}'"
+            exit 1
+          fi
+          if [[ "$IN_FILES" == /* || "$IN_FILES" == *..* ]]; then
+            echo "::error::files must stay inside the artifact, got '${IN_FILES}'"
+            exit 1
+          fi
+          shopt -s nullglob
+          # shellcheck disable=SC2206
+          matched=(release-files/$IN_FILES)
+          files=()
+          for f in "${matched[@]}"; do [[ -f "$f" ]] && files+=("$f"); done
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::no files match '${IN_FILES}' in the artifact"
+            exit 1
+          fi
+          printf 'will attach: %s\n' "${files[@]}"
+
+      # No body or body_path: notes another job wrote stay as they are.
+      - name: Attach files to the release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
+        with:
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ inputs.commit }}
+          files: release-files/${{ inputs.files }}
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

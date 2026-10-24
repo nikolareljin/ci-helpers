@@ -644,7 +644,7 @@ Over sftp, add `upload_method: "sftp"` under `with:` and
 
 Workflow: `.github/workflows/rpm-build.yml`
 
-Purpose: Build RPM artifacts and upload them as a workflow artifact.
+Purpose: Build RPM artifacts, upload them as a workflow artifact, and optionally attach them to a GitHub release.
 
 script-helpers must be at `vendor/script-helpers` (used first when present) or `scripts/script-helpers` (a submodule). The workflow never creates `vendor/`, which would put a Go module in vendor mode.
 
@@ -659,6 +659,10 @@ Inputs:
 - `extra_packages` (string, default `""`)
 - `artifact_name` (string, default `"rpm-packages"`)
 - `artifact_glob` (string, default `"dist/*.rpm"`)
+- `upload_to_release` (string, default `"false"`): whether this run's `.rpm` files go to a release: `"true"` always, `"auto"` only on a version tag push or with `release_tag` (or a version-tag `ref`). It sets the `tag` and `skip` outputs; `release-upload.yml` does the upload, so this workflow keeps `contents: read`.
+- `release_tag` (string, default `""`): release to attach to; empty takes `ref` when set, else the tag the workflow runs on.
+
+Outputs: `artifact_id`, `tag`, `commit`, `skip` (`"true"` when `upload_to_release` says not to upload).
 
 Example:
 
@@ -671,6 +675,39 @@ jobs:
       spec_path: "packaging/myapp.spec"
       artifact_glob: "dist/*.rpm"
 ```
+
+To attach the `.rpm` files to a release, add a job with `contents: write`:
+
+```yaml
+jobs:
+  rpm:
+    uses: nikolareljin/ci-helpers/.github/workflows/rpm-build.yml@production
+    with:
+      upload_to_release: auto
+  rpm-release:
+    needs: rpm
+    if: needs.rpm.outputs.skip == 'false'
+    permissions:
+      contents: write
+    uses: nikolareljin/ci-helpers/.github/workflows/release-upload.yml@production
+    with:
+      artifact_id: ${{ needs.rpm.outputs.artifact_id }}
+      tag: ${{ needs.rpm.outputs.tag }}
+      commit: ${{ needs.rpm.outputs.commit }}
+      files: "*.rpm"
+```
+
+## release-upload.yml
+
+Workflow: `.github/workflows/release-upload.yml`
+
+Purpose: Attach the files of one workflow artifact to a GitHub release. It adds files and never changes the release notes; a tag that does not exist yet is created at `commit`. It is separate from the build workflows so they keep `contents: read`: a reusable workflow holding a write job fails to start for a caller that grants read, even when that job would be skipped.
+
+Inputs:
+- `artifact_id` (string, required): the artifact holding the files, e.g. `rpm-build.yml`'s `artifact_id` output
+- `tag` (string, required): release tag; one word
+- `commit` (string, default `""`): commit a new tag is created at; empty uses the commit the workflow runs on
+- `files` (string, default `"*"`): glob inside the artifact; may not be absolute or contain `..`
 
 ## homebrew-package.yml
 
@@ -940,6 +977,7 @@ Inputs:
 - `artifact_name` (string, default `"deb-packages"`)
 - `artifact_glob` (string, default `"dist/deb/*.deb"`): with this default, the job copies the `.deb` files the build writes next to `working_directory` into `dist/deb/` (older files left on a reused runner are skipped), and fails when there are none. Set it when `build_command` writes elsewhere; nothing is copied then.
 - `upload_to_release` (string, default `"auto"`) — must be `"auto"`, `"true"`, or `"false"` (any other value fails with a clear error). `"true"` always uploads, `"false"` never uploads, `"auto"` uploads only when the workflow is triggered by a version tag push (`refs/tags/X.Y.Z`) or when `release_tag` is provided explicitly.
+- `release_notes` (boolean, default `true`): write release notes into the release body; `false` uploads the files and leaves the body as it is, for a release another job published with its own notes.
 - `release_tag` (string, default `""`) — tag to attach the `.deb` to; defaults to the pushed tag. Set explicitly when triggering a backfill via `workflow_dispatch`.
 - `signing_key_id` (string, default `""`): GPG key fingerprint that signs the published files
 

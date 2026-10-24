@@ -58,6 +58,7 @@ groups:
       - pages-deploy.yml
       - pnpm-pages.yml
       - release-build.yml
+      - release-upload.yml
       - rust-release.yml
       - update-production.yml
 
@@ -113,7 +114,8 @@ notes:
     The build half is testable and the upload half is not: attaching the .deb to
     a release needs a release to attach it to.
   rpm-build.yml: >-
-    As deb-build.yml -- the build is reachable, the upload is not.
+    As deb-build.yml -- the build is reachable. Its release upload is
+    release-upload.yml, which needs a release to attach to.
   gitleaks-scan.yml: >-
     Driven at its defaults, and the action it calls is driven in both
     directions against a directory with a planted key. Two things stay

@@ -2,6 +2,21 @@ name: ci-helpers-rpm-build
 on:
   workflow_call:
     inputs:
+      upload_to_release:
+        description: >
+          Whether this run's .rpm files go to a GitHub release: "true" always,
+          "false" (default) never, "auto" on a version tag push or with
+          release_tag (or a version-tag ref). It sets the tag and skip outputs;
+          the upload itself is release-upload.yml, the one job that needs
+          contents: write, so a read-only caller of this workflow still runs.
+        type: string
+        default: "false"
+      release_tag:
+        description: >
+          Release to attach the .rpm files to. Empty: ref when it is set, else
+          the tag the workflow runs on.
+        type: string
+        default: ""
       ref:
         description: >
           Git ref to build: a tag, branch or commit. Empty builds the ref the
@@ -36,10 +51,29 @@ on:
         type: string
         default: "dist/*.rpm"
 
+    outputs:
+      artifact_id:
+        description: Id of the uploaded .rpm artifact, for release-upload.yml.
+        value: ${{ jobs.build.outputs.files_id }}
+      tag:
+        description: Release the .rpm files belong to (see upload_to_release).
+        value: ${{ jobs.build.outputs.tag }}
+      commit:
+        description: The commit that was built.
+        value: ${{ jobs.build.outputs.commit }}
+      skip:
+        description: '"true" when upload_to_release says not to upload this run.'
+        value: ${{ jobs.build.outputs.skip }}
+
 jobs:
   build:
     permissions:
       contents: read
+    outputs:
+      files_id: ${{ steps.files.outputs.artifact-id }}
+      skip: ${{ steps.resolve.outputs.skip }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.built.outputs.commit }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     steps:
@@ -49,6 +83,59 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+
+      # The commit this run builds, which ref may make differ from github.sha.
+      # A release whose tag does not exist yet gets its tag here.
+      - name: Record the built commit
+        id: built
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release tag
+        id: resolve
+        if: inputs.upload_to_release != 'false'
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_REF: ${{ inputs.ref }}
+          UPLOAD_MODE: ${{ inputs.upload_to_release }}
+        run: |
+          set -euo pipefail
+          case "$UPLOAD_MODE" in
+            auto|true|false) ;;
+            *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'; got '${UPLOAD_MODE}'"; exit 1 ;;
+          esac
+          # The release is named after what was built: release_tag, else ref,
+          # else the ref the workflow runs on. Taking GITHUB_REF_NAME while ref
+          # built another commit would attach 0.9.0's packages to release 1.0.0.
+          ref="${INPUT_REF#refs/tags/}"
+          tag="${INPUT_TAG:-${ref:-${GITHUB_REF_NAME}}}"
+          # Strip newlines/CR to prevent GITHUB_OUTPUT injection via unvalidated input
+          tag="${tag//$'\n'/}"
+          tag="${tag//$'\r'/}"
+          # "auto": only upload when the ref is a real tag push or release_tag was given
+          if [[ "$UPLOAD_MODE" == "auto" ]]; then
+            if [[ -z "$INPUT_TAG" && -n "$ref" ]]; then
+              # ref chose the build: upload only when it names a version tag
+              if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            elif [[ -z "$INPUT_TAG" ]]; then
+              # No explicit release_tag: require both a refs/tags/* ref AND semver name
+              if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            # Explicit release_tag: user intent is clear; skip ref-type check
+          fi
+          if [[ "$UPLOAD_MODE" == "true" && -z "$INPUT_TAG" && -n "$ref" ]] && ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+            echo "::error::ref '${ref}' is not a version tag; set release_tag to name the release." >&2
+            exit 1
+          fi
+          printf 'skip=false\n'    >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Install RPM tooling
         shell: bash
@@ -141,7 +228,9 @@ jobs:
             --artifact-dir "$artifact_dir"
 
       - name: Upload RPM artifacts
+        id: files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.artifact_glob }}
+

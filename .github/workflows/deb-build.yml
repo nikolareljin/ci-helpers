@@ -2,6 +2,13 @@ name: ci-helpers-deb-build
 on:
   workflow_call:
     inputs:
+      release_notes:
+        description: >
+          Write release notes into the release body. false uploads the files
+          and leaves the body as it is, for a release another job already
+          published with its own notes.
+        type: boolean
+        default: true
       ref:
         description: >
           Git ref to build: a tag, branch or commit. Empty builds the ref the
@@ -246,7 +253,7 @@ jobs:
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Checkout script-helpers for release notes
-        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        if: ${{ inputs.release_notes && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
@@ -256,7 +263,7 @@ jobs:
           fetch-depth: 1
       - name: Generate release notes
         id: notes
-        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        if: ${{ inputs.release_notes && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
         shell: bash
         env:
           RN_VERSION: ${{ steps.resolve.outputs.tag }}
