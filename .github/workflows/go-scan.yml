@@ -29,9 +29,9 @@ on:
       # behaviour changes without a commit here, and a new advisory class can
       # turn every consumer red on a day nobody shipped anything.
       #
-      # The install builds with Go 1.25.0 (GOTOOLCHAIN=go1.25.0+auto), so it
-      # does not depend on the module's Go. Raising this past a version that
-      # needs a newer Go switches up automatically; raise the 1.25.0 with it.
+      # The install builds with Go 1.25.0 (GOTOOLCHAIN=go1.25.0), whatever the
+      # module's Go. A version that needs a newer Go fails the install; raise
+      # the 1.25.0 in the govulncheck step with it.
       govulncheck_version:
         type: string
         default: "v1.7.0"
@@ -105,7 +105,7 @@ jobs:
             exit 2
           fi
           # The module may declare an older Go than govulncheck needs (v1.7.0:
-          # go 1.25.0). Plain auto picks the newest Go, which moves without a
-          # commit here; go1.25.0+auto builds with that release, checksummed.
-          GOTOOLCHAIN=go1.25.0+auto go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
+          # go 1.25.0). auto, and even go1.25.0+auto, switch to the newest Go,
+          # which moves without a commit here; this builds with 1.25.0 exactly.
+          GOTOOLCHAIN=go1.25.0 go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
           "$(go env GOPATH)/bin/govulncheck" "${INPUT_PACKAGES}"
