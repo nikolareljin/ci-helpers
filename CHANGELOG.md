@@ -25,7 +25,8 @@
   grants `read`, even when that job is skipped; `rpm-build.yml` keeps
   `contents: read`. The upload never changes the release notes and creates a
   new tag at the built commit, and refuses an empty tag, a files glob that
-  leaves the artifact or matches nothing
+  leaves the artifact (including through whitespace or a symlink) or matches
+  nothing, and a file name the upload would read as a pattern
   (`tests/release_upload_check_test.sh`). Item 1 of
   https://github.com/nikolareljin/ci-helpers/issues/297
 - **`deb-build.yml` takes `release_notes`** (default `true`). `false` uploads

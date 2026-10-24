@@ -707,7 +707,7 @@ Inputs:
 - `artifact_id` (string, required): the artifact holding the files, e.g. `rpm-build.yml`'s `artifact_id` output
 - `tag` (string, required): release tag; one word
 - `commit` (string, default `""`): commit a new tag is created at; empty uses the commit the workflow runs on
-- `files` (string, default `"*"`): glob inside the artifact, matching regular files and not dotfiles; may not be absolute or contain `..`. Exactly the files it matches are uploaded.
+- `files` (string, default `"*"`): one glob inside the artifact, matching regular files and not dotfiles; no whitespace, not absolute, no `..` segment. Exactly the files it matches are uploaded; a match that resolves outside the artifact (a symlink) or whose name holds a comma or glob character fails the job.
 
 ## homebrew-package.yml
 

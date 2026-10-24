@@ -55,15 +55,35 @@ jobs:
             echo "::error::tag must be one non-empty word, got '${IN_TAG}'"
             exit 1
           fi
-          if [[ "$IN_FILES" == /* || "$IN_FILES" == .. || "$IN_FILES" == ../* || "$IN_FILES" == */../* || "$IN_FILES" == */.. ]]; then
-            echo "::error::files must stay inside the artifact, got '${IN_FILES}'"
+          # One pattern, no whitespace: the glob below is unquoted, and a
+          # space would make a second pattern the segment check never saw.
+          if [[ -z "$IN_FILES" || "$IN_FILES" == *[[:space:]]* || "$IN_FILES" == /* || "$IN_FILES" == .. || "$IN_FILES" == ../* || "$IN_FILES" == */../* || "$IN_FILES" == */.. ]]; then
+            echo "::error::files must be one glob inside the artifact, got '${IN_FILES}'"
             exit 1
           fi
+          root="$(realpath release-files)"
           shopt -s nullglob
           # shellcheck disable=SC2206
           matched=(release-files/$IN_FILES)
           files=()
-          for f in "${matched[@]}"; do [[ -f "$f" ]] && files+=("$f"); done
+          for f in "${matched[@]}"; do
+            [[ -f "$f" ]] || continue
+            # What was globbed must resolve inside the artifact (a symlink
+            # pointing out of it is refused too).
+            real="$(realpath "$f")"
+            if [[ "$real" != "$root"/* ]]; then
+              echo "::error::'${f}' resolves outside the artifact"
+              exit 1
+            fi
+            # The upload re-reads each entry as a glob and splits on commas,
+            # so a name with those characters would be a different pattern.
+            case "$(basename "$f")" in
+              *[,\*\?\[\]\{\}\!]*)
+                echo "::error::'${f}' has a glob or comma character in its name; rename it"
+                exit 1 ;;
+            esac
+            files+=("$f")
+          done
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "::error::no files match '${IN_FILES}' in the artifact"
             exit 1
@@ -71,11 +91,13 @@ jobs:
           printf 'will attach: %s\n' "${files[@]}"
           # The upload takes exactly this list. Its own glob (dot: true) and
           # bash's differ on dotfiles, so passing the pattern again could
-          # upload files this step never listed.
+          # upload files this step never listed. The delimiter is random so
+          # no file name can end the value early.
+          delim="EOF_$(openssl rand -hex 16)"
           {
-            echo "files<<EOF_FILES_$$"
+            echo "files<<${delim}"
             printf '%s\n' "${files[@]}"
-            echo "EOF_FILES_$$"
+            echo "${delim}"
           } >> "$GITHUB_OUTPUT"
 
       # No body or body_path: notes another job wrote stay as they are.

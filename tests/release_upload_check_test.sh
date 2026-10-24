@@ -21,13 +21,16 @@ PY
 
 mkdir -p "$tmp/w/release-files/sub.rpm"
 touch "$tmp/w/release-files/a.rpm" "$tmp/w/release-files/b.rpm"
-mkdir -p "$tmp/w/release-files/d"
+mkdir -p "$tmp/w/release-files/d" "$tmp/w/secret" "$tmp/w2/release-files"
+touch "$tmp/w/secret/key.pem"
+ln -s "$tmp/w/secret/key.pem" "$tmp/w2/release-files/link.rpm"
+touch "$tmp/w2/release-files/a*.rpm" "$tmp/w2/release-files/x,y.rpm"
 touch "$tmp/w/release-files/d/pkg..rpm"
 fail=0
 check() {
-  local tag="$1" files="$2" want="$3" got
+  local tag="$1" files="$2" want="$3" got dir="${4:-$tmp/w}"
   : > "$tmp/gh_out"
-  if (cd "$tmp/w" && IN_TAG="$tag" IN_FILES="$files" GITHUB_OUTPUT="$tmp/gh_out" bash "$tmp/check.sh" >"$tmp/out" 2>&1); then
+  if (cd "$dir" && IN_TAG="$tag" IN_FILES="$files" GITHUB_OUTPUT="$tmp/gh_out" bash "$tmp/check.sh" >"$tmp/out" 2>&1); then
     got="ok:$(grep -c '^will attach:' "$tmp/out")"
   else
     got="refused"
@@ -47,12 +50,21 @@ check ''     '*.rpm'   refused
 check '1 0'  '*.rpm'   refused
 check 1.0.0  '../x'    refused
 check 1.0.0  '/etc/*'  refused
+# A space makes a second pattern; here it would pick up secret/key.pem.
+check 1.0.0  'a.rpm secret/*'  refused
+# Two patterns that both stay inside: refused for the space alone.
+check 1.0.0  'a.rpm b.rpm'  refused
+check 1.0.0  ''  refused
+# Inside the artifact by name, outside by target or by meaning to the upload.
+check 1.0.0  'link.rpm'  refused "$tmp/w2"
+check 1.0.0  'a[*].rpm'  refused "$tmp/w2"
+check 1.0.0  'x,y.rpm'  refused "$tmp/w2"
 # Leaves the directory yet matches files: only the path guard refuses these.
 check 1.0.0  '../release-files/*.rpm'  refused
 check 1.0.0  "/${tmp#/}/w/release-files/*.rpm"  refused
 # The upload step takes the list the check wrote, not the pattern again.
 check 1.0.0 '*.rpm' ok:2
-listed="$(sed -n '/^files<</,/^EOF_FILES/p' "$tmp/gh_out" | sed '1d;$d')"
+listed="$(sed -n '/^files<</,/^EOF_/p' "$tmp/gh_out" | sed '1d;$d')"
 if [[ "$listed" != $'release-files/a.rpm\nrelease-files/b.rpm' ]]; then
   echo "FAIL: files output is '${listed}'"; fail=1
 fi
