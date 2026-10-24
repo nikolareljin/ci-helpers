@@ -254,8 +254,11 @@ jobs:
           on = d.get('on', d.get(True))
           print(on['workflow_call']['inputs']['govulncheck_version']['default'])
           ")"
-          echo "pinned version from go-scan.yml: $ver"
-          go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
+          # The toolchain go-scan.yml builds it with, so the two cannot drift.
+          tc="$(grep -oE 'GOTOOLCHAIN=go[0-9.]+ go install' .github/workflows/go-scan.yml | cut -d' ' -f1 | cut -d= -f2 || true)"
+          [ "$(printf '%s\n' "$tc" | grep -c .)" = 1 ] || { echo "::error::expected one GOTOOLCHAIN in go-scan.yml, got '${tc}'"; exit 1; }
+          echo "pinned version from go-scan.yml: $ver, built with $tc"
+          GOTOOLCHAIN="$tc" go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
           cd tests/fixtures/go-vuln
           if "$(go env GOPATH)/bin/govulncheck" ./...; then
             echo "::error::govulncheck passed on a module with a reachable advisory"
