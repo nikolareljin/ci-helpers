@@ -3,9 +3,9 @@
 ### Changed for callers: packaging workflows no longer create vendor/
 
 - **`deb-build.yml`, `rpm-build.yml` and `homebrew-package.yml` use
-  script-helpers where the caller keeps it** (`scripts/script-helpers`, else
-  `vendor/script-helpers`) and fail with a clear error when neither has
-  `helpers.sh`. They created `vendor/script-helpers` as a symlink, and in a Go
+  script-helpers where the caller keeps it** (an existing
+  `vendor/script-helpers` first, as before, else `scripts/script-helpers`)
+  and fail with a clear error when neither has `helpers.sh`. They created `vendor/script-helpers` as a symlink, and in a Go
   module that `vendor/` switches `go build` to vendor mode, so a Go prebuild
   failed with "inconsistent vendoring". A caller whose own scripts call
   `vendor/script-helpers` without keeping it there now has to.
@@ -19,7 +19,13 @@
 
 - **`deb-build.yml` and `rpm-build.yml` take `ref`**: the tag, branch or commit
   to build. Empty builds the ref the workflow runs on, as before; set it to a
-  tag to rebuild an older release without dispatching on the tag.
+  tag to rebuild an older release without dispatching on the tag. Without
+  `release_tag`, `deb-build.yml` names the release after `ref`, so a tag push
+  of 1.0.0 with `ref: 0.9.0` cannot attach 0.9.0's packages to 1.0.0;
+  `auto` uploads only when `ref` is a version tag, and `true` fails for any
+  other `ref`. `tests/deb_build_release_tag_test.sh` runs the step for each
+  case, and `tests/packaging_lookup_test.sh` runs the script-helpers lookup
+  of all three workflows against five caller layouts.
 
 ### Fixed
 

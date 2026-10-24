@@ -115,6 +115,14 @@ jobs:
         shell: bash
         run: bash tests/packaging_no_vendor_dir_test.sh
 
+      - name: packaging workflows find script-helpers in every caller layout
+        shell: bash
+        run: bash tests/packaging_lookup_test.sh
+
+      - name: deb-build names the release after what it built
+        shell: bash
+        run: bash tests/deb_build_release_tag_test.sh
+
       - name: ppa-deb uploads over ftp by default, sftp with the Launchpad key
         shell: bash
         run: bash tests/ppa_dput_config_test.sh

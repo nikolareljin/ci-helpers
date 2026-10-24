@@ -126,18 +126,19 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          # Use script-helpers where the repository keeps it, and never create
+          # Use script-helpers where the repository keeps it (an existing
+          # vendor/script-helpers first, as before), and never create
           # vendor/: in a Go module that directory switches go build to vendor
           # mode, which fails with "inconsistent vendoring".
           dir=""
-          for d in scripts/script-helpers vendor/script-helpers; do
+          for d in vendor/script-helpers scripts/script-helpers; do
             if [[ -f "$d/helpers.sh" ]]; then
               dir="$d"
               break
             fi
           done
           if [[ -z "$dir" ]]; then
-            echo "::error::script-helpers not found at scripts/script-helpers or vendor/script-helpers; add it as a submodule." >&2
+            echo "::error::script-helpers not found at vendor/script-helpers or scripts/script-helpers; add it as a submodule." >&2
             exit 1
           fi
           echo "dir=${dir}" >> "$GITHUB_OUTPUT"
@@ -195,6 +196,7 @@ jobs:
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_REF: ${{ inputs.ref }}
           UPLOAD_MODE: ${{ inputs.upload_to_release }}
         run: |
           set -euo pipefail
@@ -202,13 +204,23 @@ jobs:
             auto|true|false) ;;
             *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'; got '${UPLOAD_MODE}'"; exit 1 ;;
           esac
-          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          # The release is named after what was built: release_tag, else ref,
+          # else the ref the workflow runs on. Taking GITHUB_REF_NAME while ref
+          # built another commit would attach 0.9.0's packages to release 1.0.0.
+          ref="${INPUT_REF#refs/tags/}"
+          tag="${INPUT_TAG:-${ref:-${GITHUB_REF_NAME}}}"
           # Strip newlines/CR to prevent GITHUB_OUTPUT injection via unvalidated input
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
           # "auto": only upload when the ref is a real tag push or release_tag was given
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
-            if [[ -z "$INPUT_TAG" ]]; then
+            if [[ -z "$INPUT_TAG" && -n "$ref" ]]; then
+              # ref chose the build: upload only when it names a version tag
+              if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            elif [[ -z "$INPUT_TAG" ]]; then
               # No explicit release_tag: require both a refs/tags/* ref AND semver name
               if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
                 printf 'skip=true\n' >> "$GITHUB_OUTPUT"
@@ -216,6 +228,10 @@ jobs:
               fi
             fi
             # Explicit release_tag: user intent is clear; skip ref-type check
+          fi
+          if [[ "$UPLOAD_MODE" == "true" && -z "$INPUT_TAG" && -n "$ref" ]] && ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+            echo "::error::ref '${ref}' is not a version tag; set release_tag to name the release." >&2
+            exit 1
           fi
           printf 'skip=false\n'    >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"

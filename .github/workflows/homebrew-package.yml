@@ -143,18 +143,19 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          # Use script-helpers where the repository keeps it, and never create
+          # Use script-helpers where the repository keeps it (an existing
+          # vendor/script-helpers first, as before), and never create
           # vendor/: in a Go module that directory switches go build to vendor
           # mode, which fails with "inconsistent vendoring".
           dir=""
-          for d in scripts/script-helpers vendor/script-helpers; do
+          for d in vendor/script-helpers scripts/script-helpers; do
             if [[ -f "$d/helpers.sh" ]]; then
               dir="$d"
               break
             fi
           done
           if [[ -z "$dir" ]]; then
-            echo "::error::script-helpers not found at scripts/script-helpers or vendor/script-helpers; add it as a submodule." >&2
+            echo "::error::script-helpers not found at vendor/script-helpers or scripts/script-helpers; add it as a submodule." >&2
             exit 1
           fi
           echo "dir=${dir}" >> "$GITHUB_OUTPUT"

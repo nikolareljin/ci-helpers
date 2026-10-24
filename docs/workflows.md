@@ -646,7 +646,7 @@ Workflow: `.github/workflows/rpm-build.yml`
 
 Purpose: Build RPM artifacts and upload them as a workflow artifact.
 
-script-helpers must be at `scripts/script-helpers` (a submodule) or `vendor/script-helpers`. The workflow never creates `vendor/`, which would put a Go module in vendor mode.
+script-helpers must be at `vendor/script-helpers` (used first when present) or `scripts/script-helpers` (a submodule). The workflow never creates `vendor/`, which would put a Go module in vendor mode.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -678,7 +678,7 @@ Workflow: `.github/workflows/homebrew-package.yml`
 
 Purpose: Build a Homebrew tarball, generate a formula, upload artifacts, and optionally publish to a tap repo.
 
-script-helpers must be at `scripts/script-helpers` (a submodule) or `vendor/script-helpers`. The workflow never creates `vendor/`, which would put a Go module in vendor mode.
+script-helpers must be at `vendor/script-helpers` (used first when present) or `scripts/script-helpers` (a submodule). The workflow never creates `vendor/`, which would put a Go module in vendor mode.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -926,12 +926,12 @@ Purpose: Build Debian packages, upload artifacts, and optionally attach the `.de
 
 The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
-script-helpers must be at `scripts/script-helpers` (a submodule) or `vendor/script-helpers`. The workflow never creates `vendor/`, which would put a Go module in vendor mode.
+script-helpers must be at `vendor/script-helpers` (used first when present) or `scripts/script-helpers` (a submodule). The workflow never creates `vendor/`, which would put a Go module in vendor mode.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
-- `ref` (string, default `""`): git ref to build (tag, branch or commit); empty builds the ref the workflow runs on. Set it to the tag to rebuild an older release.
+- `ref` (string, default `""`): git ref to build (tag, branch or commit); empty builds the ref the workflow runs on. Set it to the tag to rebuild an older release. Without `release_tag`, the release is named after `ref`: `auto` uploads only when `ref` is a version tag, and `true` fails for any other `ref`.
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `prebuild_command` (string, default `"make man"`)
