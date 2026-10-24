@@ -1818,7 +1818,7 @@ Inputs (selected):
 - `fetch_depth` (number, default `0`)
 - `main_path` (string, default `"."`)
 - `artifact_dir` (string, default `artifacts`)
-- `go_version` (string, default `go.mod`: Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version overrides it)
+- `go_version` (string, default `go.mod`: Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version overrides it. The `go` line is a minimum: add a `toolchain` line or set a version to build with a newer Go)
 - `build_targets` (string, default `linux/amd64,windows/amd64,darwin/amd64`)
 - `ldflags` (string, default `""`)
 - `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
@@ -1860,7 +1860,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `go_version` (string, default `go.mod`: Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version overrides it)
+- `go_version` (string, default `go.mod`: Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version overrides it. The `go` line is a minimum: add a `toolchain` line or set a version to build with a newer Go)
 - `bin_name` (string, required) — output binary name
 - `main_path` (string, default `"."`) — Go package path to build
 - `build_target` (string, default `linux/amd64`) — `GOOS/GOARCH` pair
