@@ -10,7 +10,9 @@
   failed with "inconsistent vendoring". A caller whose own scripts call
   `vendor/script-helpers` without keeping it there now has to.
   `tests/packaging_no_vendor_dir_test.sh` fails if a workflow creates
-  `vendor/` again. Items 3 and 4 of
+  `vendor/` again, and the `packaging-lookup-leaves-go-builds-alone`
+  self-test runs each workflow's lookup in a Go module with dependencies and
+  builds it, with a control that recreates the old symlink and must fail. Items 3 and 4 of
   https://github.com/nikolareljin/ci-helpers/issues/297
 
 ### Added
