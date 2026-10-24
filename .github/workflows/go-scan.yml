@@ -21,7 +21,20 @@ on:
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
       test_command:
         type: string
-        default: "go mod download && go test ./..."
+        # -race when the runner can build it: cgo on (Go turns it off when no C
+        # compiler is found) and a platform on Go's race list. Elsewhere plain
+        # go test, with a notice. Keep identical in go.yml, go-pr-gate.yml and
+        # go-scan.yml; self-test-compiled.yml checks that.
+        default: |
+          go mod download
+          race=""
+          if [ "$(go env CGO_ENABLED)" = 1 ]; then
+            case "$(go env GOOS)/$(go env GOARCH)" in
+              linux/amd64|linux/arm64|linux/ppc64le|linux/s390x|linux/loong64|darwin/amd64|darwin/arm64|freebsd/amd64|netbsd/amd64|windows/amd64) race=-race ;;
+            esac
+          fi
+          [ -n "$race" ] || echo "::notice::go test runs without -race: it needs cgo (a C compiler) on a supported platform"
+          go test $race ./...
       gosec_args:
         type: string
         default: "./..."

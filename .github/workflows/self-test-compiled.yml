@@ -490,8 +490,84 @@ jobs:
       test_command: 'go version && go version | grep -q "go1\.24\." && echo "Setup Go ran; the image ships a different version"'
       build_command: ""
 
+  # The Go presets' default test_command runs with -race where the runner can
+  # build it. Driven directly, not through a preset: the racy fixture must
+  # fail, and a reusable workflow that fails fails the run. One extracted
+  # copy, after checking the three presets carry the same default. Extracted
+  # on ubuntu, which has PyYAML; the macOS and Windows images do not.
+  go-default-test-extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: The three Go presets share one default test_command
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/go-default"
+          python3 - "${RUNNER_TEMP}/go-default/go-test.sh" <<'PY'
+          import pathlib, sys, yaml
+          defaults = {}
+          for name in ('go.yml', 'go-pr-gate.yml', 'go-scan.yml'):
+              doc = yaml.safe_load(pathlib.Path('.github/workflows', name).read_text())
+              defaults[name] = doc[True]['workflow_call']['inputs']['test_command']['default']
+          if len(set(defaults.values())) != 1:
+              sys.exit('test_command defaults differ: ' + repr(defaults))
+          pathlib.Path(sys.argv[1]).write_text(defaults['go.yml'])
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: go-default-test
+          path: ${{ runner.temp }}/go-default/go-test.sh
+          retention-days: 1
+
+  go-default-test-runs-with-race:
+    needs: go-default-test-extract
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
+        with:
+          go-version: "1.25"
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: go-default-test
+          path: ${{ runner.temp }}/go-default
+      - name: The default fails on a data race, or says it ran without -race
+        shell: bash
+        working-directory: tests/fixtures/go-race/racy
+        run: |
+          set -uo pipefail
+          out="${RUNNER_TEMP}/racy.log"
+          if bash -euo pipefail "${RUNNER_TEMP}/go-default/go-test.sh" > "$out" 2>&1; then
+            cat "$out"
+            if grep -q 'go test runs without -race' "$out"; then
+              echo "::warning::${{ matrix.os }}: no -race here (no cgo or unsupported platform)"
+              exit 0
+            fi
+            echo "::error::the racy fixture passed and no notice said -race was off"
+            exit 1
+          fi
+          cat "$out"
+          grep -q 'DATA RACE' "$out" || { echo "::error::failed, but not on the data race"; exit 1; }
+          echo "the default ran with -race and caught the race"
+      - name: The default passes on clean code
+        shell: bash
+        working-directory: tests/fixtures/go-modules/api
+        run: bash -euo pipefail "${RUNNER_TEMP}/go-default/go-test.sh"
+
   # go-scan on a module declaring `go 1.21`: Go comes from go.mod, and
-  # govulncheck (which needs go 1.25.0) still installs, through GOTOOLCHAIN=auto.
+  # govulncheck (which needs go 1.25.0) still installs, built with Go 1.25.0.
   go-scan-follows-go-mod-and-installs-govulncheck:
     uses: ./.github/workflows/go-scan.yml
     with:
@@ -814,6 +890,8 @@ jobs:
       - unity-gate-refuses-and-disarms
       - go-pr-gate-uses-the-shared-default
       - go-pr-gate-honours-a-named-version
+      - go-default-test-extract
+      - go-default-test-runs-with-race
       - go-scan-follows-go-mod-and-installs-govulncheck
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
