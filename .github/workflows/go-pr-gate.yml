@@ -44,7 +44,7 @@ on:
         # The same default as go.yml. Changing one without the other gives a
         # repository a different Go on a pull request than on a push, which is
         # the drift this preset exists to remove.
-        default: "1.25"
+        default: "go.mod"
       install_command:
         type: string
         default: ""

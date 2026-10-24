@@ -254,8 +254,11 @@ jobs:
           on = d.get('on', d.get(True))
           print(on['workflow_call']['inputs']['govulncheck_version']['default'])
           ")"
-          echo "pinned version from go-scan.yml: $ver"
-          go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
+          # The floor go-scan.yml builds it with, so the two cannot drift.
+          tc="$(grep -oE '^ +floor=go[0-9.]+$' .github/workflows/go-scan.yml | cut -d= -f2 || true)"
+          [ "$(printf '%s\n' "$tc" | grep -c .)" = 1 ] || { echo "::error::expected one floor= in go-scan.yml, got '${tc}'"; exit 1; }
+          echo "pinned version from go-scan.yml: $ver, built with $tc"
+          GOTOOLCHAIN="$tc" go install "golang.org/x/vuln/cmd/govulncheck@${ver}"
           cd tests/fixtures/go-vuln
           if "$(go env GOPATH)/bin/govulncheck" ./...; then
             echo "::error::govulncheck passed on a module with a reachable advisory"
@@ -470,16 +473,13 @@ jobs:
           ACCEPT
           echo "the gate refuses bad input and stays off unless armed"
 
-  # The gate that would have caught a real defect on 2026-09-21: a second
-  # `## Unreleased` added above the existing one, which drops everything under
-  # the lower heading from the release notes while the file still appears to
-  # contain it. Asserting the refusals is the point -- a structure check is easy
-  # to write so that it finds nothing.
+  # The default reads go.mod. The fixture declares `go 1.21`, which the runner
+  # image does not ship, so this passes only if Setup Go installed that version.
   go-pr-gate-uses-the-shared-default:
     uses: ./.github/workflows/go-pr-gate.yml
     with:
       working_directory: tests/fixtures/go-modules/api
-      test_command: 'go version && go version | grep -q "go1\.25\." && echo "the shared default is in force"'
+      test_command: 'go version && go version | grep -q "go1\.21\." && echo "Go came from go.mod"'
       build_command: ""
 
   # And this leg names a version the image does not ship, so it can only pass if
@@ -568,6 +568,25 @@ jobs:
         shell: bash
         working-directory: tests/fixtures/go-modules/api
         run: bash -euo pipefail "${RUNNER_TEMP}/go-default/go-test.sh"
+
+  # go-scan on a module declaring `go 1.21`: Go comes from go.mod, and
+  # govulncheck (which needs go 1.25.0) still installs, built with Go 1.25.0.
+  go-scan-follows-go-mod-and-installs-govulncheck:
+    uses: ./.github/workflows/go-scan.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      vulncheck: true
+      test_command: 'go version && go version | grep -q "go1\.21\." && echo "Go came from go.mod"'
+
+  # And on a module declaring `go 1.26.0` that uses a 1.26 feature: a
+  # govulncheck built with 1.25.0 fails on it ("package requires newer Go
+  # version"), so this passes only if the install used the module's Go.
+  go-scan-builds-govulncheck-with-a-newer-module-go:
+    uses: ./.github/workflows/go-scan.yml
+    with:
+      working_directory: tests/fixtures/go-new
+      vulncheck: true
+      test_command: 'go version && go version | grep -q "go1\.26\." && go test ./...'
 
   # Two legs from one input, each on a stack this repository generates rather
   # than one the caller wrote. The fixture plugin passes cleanly, so a failure
@@ -886,6 +905,8 @@ jobs:
       - go-pr-gate-honours-a-named-version
       - go-default-test-extract
       - go-default-test-runs-with-race
+      - go-scan-follows-go-mod-and-installs-govulncheck
+      - go-scan-builds-govulncheck-with-a-newer-module-go
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
       - java-defaults-can-pass

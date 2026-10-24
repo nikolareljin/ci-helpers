@@ -55,6 +55,7 @@ on:
         default: ""
       go_version:
         type: string
+        # Empty: no Go. go.mod: Go from <working_directory>/go.mod.
         default: ""
       flutter_version:
         type: string
@@ -345,7 +346,8 @@ jobs:
         if: ${{ inputs.go_version != '' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
         with:
-          go-version: ${{ inputs.go_version }}
+          go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
+          go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
           cache: ${{ steps.cache_probe.outputs.go }}
           cache-dependency-path: ${{ steps.cache_probe.outputs.go_path }}
 

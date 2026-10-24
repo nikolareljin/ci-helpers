@@ -14,10 +14,9 @@ on:
         default: 0
       go_version:
         type: string
-        # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
-        # so the old default failed outright with `go.mod requires go >= 1.25.0`.
-        # It passed its own version, which is why nothing caught it.
-        default: "1.25"
+        # go.mod: Go from <working_directory>/go.mod (its toolchain line when
+        # present), so a caller follows its own module. A version overrides it.
+        default: "go.mod"
       bin_name:
         type: string
         required: true
@@ -72,7 +71,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
         with:
-          go-version: ${{ inputs.go_version }}
+          go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
+          go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
 
       - name: Build binary
         shell: bash

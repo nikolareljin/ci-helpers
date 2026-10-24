@@ -214,7 +214,7 @@ with:
 
 ```yaml
 with:
-  go_version: "1.25"
+  go_version: "go.mod"
   lint_command: "go vet ./..."
   test_command: "go test ./..."
   build_command: ""
