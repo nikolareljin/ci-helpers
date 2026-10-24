@@ -25,6 +25,8 @@ mkdir -p "$tmp/w/release-files/d" "$tmp/w/secret" "$tmp/w2/release-files"
 touch "$tmp/w/secret/key.pem"
 ln -s "$tmp/w/secret/key.pem" "$tmp/w2/release-files/link.rpm"
 touch "$tmp/w2/release-files/a*.rpm" "$tmp/w2/release-files/x,y.rpm"
+mkdir -p "$tmp/w2/release-files/d,x" "$tmp/w2/release-files/n"$'\n'"l"
+touch "$tmp/w2/release-files/d,x/ok.rpm" "$tmp/w2/release-files/n"$'\n'"l/ok.rpm" "$tmp/w2/release-files/sp ace.rpm"
 touch "$tmp/w/release-files/d/pkg..rpm"
 fail=0
 check() {
@@ -59,6 +61,11 @@ check 1.0.0  ''  refused
 check 1.0.0  'link.rpm'  refused "$tmp/w2"
 check 1.0.0  'a[*].rpm'  refused "$tmp/w2"
 check 1.0.0  'x,y.rpm'  refused "$tmp/w2"
+# The whole path is checked, not only the name: a comma or newline in a
+# directory name, or a space in a name, would split the upload's list.
+check 1.0.0  'd,x/*.rpm'  refused "$tmp/w2"
+check 1.0.0  'n?l/*.rpm'  refused "$tmp/w2"
+check 1.0.0  'sp?ace.rpm'  refused "$tmp/w2"
 # Leaves the directory yet matches files: only the path guard refuses these.
 check 1.0.0  '../release-files/*.rpm'  refused
 check 1.0.0  "/${tmp#/}/w/release-files/*.rpm"  refused

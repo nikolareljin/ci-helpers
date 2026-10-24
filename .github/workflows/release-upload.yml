@@ -75,13 +75,14 @@ jobs:
               echo "::error::'${f}' resolves outside the artifact"
               exit 1
             fi
-            # The upload re-reads each entry as a glob and splits on commas,
-            # so a name with those characters would be a different pattern.
-            case "$(basename "$f")" in
-              *[,\*\?\[\]\{\}\!]*)
-                echo "::error::'${f}' has a glob or comma character in its name; rename it"
-                exit 1 ;;
-            esac
+            # The upload re-reads each entry as a glob, splits on commas, and
+            # this list is one path per line, so every component must be
+            # plain: letters, digits and . _ + @ -, no comma, glob character,
+            # whitespace or control character.
+            if [[ ! "${f#release-files/}" =~ ^[A-Za-z0-9._+@-]+(/[A-Za-z0-9._+@-]+)*$ ]]; then
+              echo "::error::'${f}' has a character the upload would misread (allowed: letters, digits, . _ + @ - and /); rename it"
+              exit 1
+            fi
             files+=("$f")
           done
           if [[ ${#files[@]} -eq 0 ]]; then
