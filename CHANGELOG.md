@@ -1,5 +1,19 @@
 ## Unreleased
 
+### Changed for callers: Go presets run tests with -race
+
+- **`go.yml`, `go-pr-gate.yml` and `go-scan.yml` default `test_command` runs
+  `go test -race ./...`** where the runner can build it: cgo on (Go turns it
+  off when no C compiler is found) and a platform on Go's race list. Elsewhere
+  it runs plain `go test ./...` and prints a notice. Before, no default ran
+  `-race`, so a data race passed CI. Go documents the cost as 2-20x the run
+  time and 5-10x the memory.
+  A caller that sets `test_command` is unchanged; set it to
+  `go mod download && go test ./...` to opt out.
+  `self-test-compiled.yml` checks the three defaults match and runs the
+  default on ubuntu, macOS and Windows against a racy fixture, which must
+  fail. https://github.com/nikolareljin/ci-helpers/issues/305
+
 ### Fixed
 
 - **`deb-build.yml` uploads with its default `artifact_glob`.** The default was
