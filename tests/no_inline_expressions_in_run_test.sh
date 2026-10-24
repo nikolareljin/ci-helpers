@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SCRIPT: no_inline_expressions_in_run_test.sh
-# DESCRIPTION: The run scripts of the signing workflows take inputs through
-#              env, never as ${{ }} spliced into the script, where an input
-#              such as `x; curl ...` would run as code next to the keys.
+# DESCRIPTION: The run scripts of the signing and packaging workflows take
+#              inputs through env, never as ${{ }} spliced into the script,
+#              where an input such as `x; curl ...` would run as code.
 # USAGE: bash tests/no_inline_expressions_in_run_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -11,7 +11,12 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$root" <<'PY'
 import sys, yaml
 root = sys.argv[1]
-files = [".github/workflows/ppa-deb.yml"]
+files = [
+    ".github/workflows/ppa-deb.yml",
+    ".github/workflows/deb-build.yml",
+    ".github/workflows/rpm-build.yml",
+    ".github/workflows/homebrew-package.yml",
+]
 bad = []
 for f in files:
     d = yaml.safe_load(open(f"{root}/{f}"))

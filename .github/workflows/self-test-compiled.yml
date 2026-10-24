@@ -266,6 +266,62 @@ jobs:
           fi
           echo "govulncheck rejected the fixture, as it must"
 
+  # The packaging workflows' script-helpers lookup, run as written in each
+  # workflow, in a Go module with dependencies. The lookup used to symlink
+  # vendor/script-helpers, which puts such a module in vendor mode: go build
+  # fails with "inconsistent vendoring". The control recreates that symlink
+  # and must fail, so a fixture that cannot show the bug fails this job.
+  packaging-lookup-leaves-go-builds-alone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
+        with:
+          go-version-file: tests/fixtures/go-vuln/go.mod
+          cache: false
+      - name: Lookup finds script-helpers and creates no vendor/
+        shell: bash
+        env:
+          GIT_TOKEN: unused
+        run: |
+          set -euo pipefail
+          for wf in deb-build rpm-build homebrew-package; do
+            fx="${RUNNER_TEMP}/fx-${wf}"
+            cp -r tests/fixtures/go-vuln "$fx"
+            mkdir -p "$fx/scripts"
+            cp -r vendor/script-helpers "$fx/scripts/script-helpers"
+            python3 - ".github/workflows/${wf}.yml" "${RUNNER_TEMP}/lookup-${wf}.sh" <<'PY'
+          import sys, yaml
+          d = yaml.safe_load(open(sys.argv[1]))
+          steps = [s for j in d["jobs"].values() for s in j.get("steps", []) if s.get("id") == "script_helpers"]
+          assert len(steps) == 1, f"{sys.argv[1]}: want one step with id script_helpers, got {len(steps)}"
+          open(sys.argv[2], "w").write(steps[0]["run"])
+          PY
+            out="${RUNNER_TEMP}/out-${wf}"
+            (cd "$fx" && GITHUB_OUTPUT="$out" bash "${RUNNER_TEMP}/lookup-${wf}.sh")
+            grep -qx 'dir=scripts/script-helpers' "$out" || { echo "::error::${wf}: lookup output: $(cat "$out")"; exit 1; }
+            [ ! -e "$fx/vendor" ] || { echo "::error::${wf}: created vendor/"; exit 1; }
+            (cd "$fx" && go build ./...)
+            echo "${wf}: found scripts/script-helpers, no vendor/, go build passes"
+          done
+      - name: Control - the old symlink breaks the same build
+        shell: bash
+        run: |
+          set -euo pipefail
+          fx="${RUNNER_TEMP}/fx-control"
+          cp -r tests/fixtures/go-vuln "$fx"
+          mkdir -p "$fx/scripts/script-helpers" "$fx/vendor"
+          ln -sfn ../scripts/script-helpers "$fx/vendor/script-helpers"
+          if (cd "$fx" && go build ./... 2>"${RUNNER_TEMP}/control.err"); then
+            echo "::error::go build passed with vendor/script-helpers; the fixture cannot show the bug"
+            exit 1
+          fi
+          grep -q 'inconsistent vendoring' "${RUNNER_TEMP}/control.err" || { cat "${RUNNER_TEMP}/control.err"; exit 1; }
+          echo "the old symlink fails the build with inconsistent vendoring, as it must"
+
   # Three modules, one holding go.mod and nothing else. The empty one is the
   # point: `go vet ./...` and `go test ./...` both exit 1 on "no packages", so
   # until the preset guarded its commands a repository with one such module
@@ -907,6 +963,7 @@ jobs:
       - go-default-test-runs-with-race
       - go-scan-follows-go-mod-and-installs-govulncheck
       - go-scan-builds-govulncheck-with-a-newer-module-go
+      - packaging-lookup-leaves-go-builds-alone
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
       - java-defaults-can-pass
