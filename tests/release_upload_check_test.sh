@@ -21,10 +21,13 @@ PY
 
 mkdir -p "$tmp/w/release-files/sub.rpm"
 touch "$tmp/w/release-files/a.rpm" "$tmp/w/release-files/b.rpm"
+mkdir -p "$tmp/w/release-files/d"
+touch "$tmp/w/release-files/d/pkg..rpm"
 fail=0
 check() {
   local tag="$1" files="$2" want="$3" got
-  if (cd "$tmp/w" && IN_TAG="$tag" IN_FILES="$files" bash "$tmp/check.sh" >"$tmp/out" 2>&1); then
+  : > "$tmp/gh_out"
+  if (cd "$tmp/w" && IN_TAG="$tag" IN_FILES="$files" GITHUB_OUTPUT="$tmp/gh_out" bash "$tmp/check.sh" >"$tmp/out" 2>&1); then
     got="ok:$(grep -c '^will attach:' "$tmp/out")"
   else
     got="refused"
@@ -38,6 +41,8 @@ check() {
 check 1.0.0  '*.rpm'   ok:2      # the directory sub.rpm is not a file
 check 1.0.0  '*'       ok:2
 check 1.0.0  '*.deb'   refused
+check 1.0.0  'd/pkg..rpm'  ok:1   # '..' inside a name is not a path segment
+check 1.0.0  'd/../*.rpm'  refused
 check ''     '*.rpm'   refused
 check '1 0'  '*.rpm'   refused
 check 1.0.0  '../x'    refused
@@ -45,4 +50,17 @@ check 1.0.0  '/etc/*'  refused
 # Leaves the directory yet matches files: only the path guard refuses these.
 check 1.0.0  '../release-files/*.rpm'  refused
 check 1.0.0  "/${tmp#/}/w/release-files/*.rpm"  refused
+# The upload step takes the list the check wrote, not the pattern again.
+check 1.0.0 '*.rpm' ok:2
+listed="$(sed -n '/^files<</,/^EOF_FILES/p' "$tmp/gh_out" | sed '1d;$d')"
+if [[ "$listed" != $'release-files/a.rpm\nrelease-files/b.rpm' ]]; then
+  echo "FAIL: files output is '${listed}'"; fail=1
+fi
+python3 - "$root/.github/workflows/release-upload.yml" <<'PY' || fail=1
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+up = [s for j in d["jobs"].values() for s in j["steps"] if s.get("uses", "").startswith("softprops/")][0]
+assert up["with"]["files"] == "${{ steps.check.outputs.files }}", "upload does not use the checked list"
+print("ok: the upload takes the checked file list")
+PY
 exit "$fail"

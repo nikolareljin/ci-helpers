@@ -41,6 +41,7 @@ check() {
 }
 
 check refs/tags/1.0.0 auto ""    ""               "tag=1.0.0"
+check refs/tags/1.0.0 false ""   ""               "skip"
 check refs/heads/main auto ""    ""               "skip"
 check refs/tags/1.0.0 auto ""    0.9.0            "tag=0.9.0"
 check refs/heads/main true ""    0.9.0            "tag=0.9.0"

@@ -662,7 +662,7 @@ Inputs:
 - `upload_to_release` (string, default `"false"`): whether this run's `.rpm` files go to a release: `"true"` always, `"auto"` only on a version tag push or with `release_tag` (or a version-tag `ref`). It sets the `tag` and `skip` outputs; `release-upload.yml` does the upload, so this workflow keeps `contents: read`.
 - `release_tag` (string, default `""`): release to attach to; empty takes `ref` when set, else the tag the workflow runs on.
 
-Outputs: `artifact_id`, `tag`, `commit`, `skip` (`"true"` when `upload_to_release` says not to upload).
+Outputs: `artifact_id`, `tag`, `commit`, `skip` (`"true"` when `upload_to_release` says not to upload, including the default `"false"`).
 
 Example:
 
@@ -707,7 +707,7 @@ Inputs:
 - `artifact_id` (string, required): the artifact holding the files, e.g. `rpm-build.yml`'s `artifact_id` output
 - `tag` (string, required): release tag; one word
 - `commit` (string, default `""`): commit a new tag is created at; empty uses the commit the workflow runs on
-- `files` (string, default `"*"`): glob inside the artifact; may not be absolute or contain `..`
+- `files` (string, default `"*"`): glob inside the artifact, matching regular files and not dotfiles; may not be absolute or contain `..`. Exactly the files it matches are uploaded.
 
 ## homebrew-package.yml
 

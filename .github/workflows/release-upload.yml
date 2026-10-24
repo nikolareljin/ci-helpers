@@ -44,6 +44,7 @@ jobs:
           path: release-files
 
       - name: Check the tag and the files
+        id: check
         shell: bash
         env:
           IN_TAG: ${{ inputs.tag }}
@@ -54,7 +55,7 @@ jobs:
             echo "::error::tag must be one non-empty word, got '${IN_TAG}'"
             exit 1
           fi
-          if [[ "$IN_FILES" == /* || "$IN_FILES" == *..* ]]; then
+          if [[ "$IN_FILES" == /* || "$IN_FILES" == .. || "$IN_FILES" == ../* || "$IN_FILES" == */../* || "$IN_FILES" == */.. ]]; then
             echo "::error::files must stay inside the artifact, got '${IN_FILES}'"
             exit 1
           fi
@@ -68,6 +69,14 @@ jobs:
             exit 1
           fi
           printf 'will attach: %s\n' "${files[@]}"
+          # The upload takes exactly this list. Its own glob (dot: true) and
+          # bash's differ on dotfiles, so passing the pattern again could
+          # upload files this step never listed.
+          {
+            echo "files<<EOF_FILES_$$"
+            printf '%s\n' "${files[@]}"
+            echo "EOF_FILES_$$"
+          } >> "$GITHUB_OUTPUT"
 
       # No body or body_path: notes another job wrote stay as they are.
       - name: Attach files to the release
@@ -75,7 +84,7 @@ jobs:
         with:
           tag_name: ${{ inputs.tag }}
           target_commitish: ${{ inputs.commit }}
-          files: release-files/${{ inputs.files }}
+          files: ${{ steps.check.outputs.files }}
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

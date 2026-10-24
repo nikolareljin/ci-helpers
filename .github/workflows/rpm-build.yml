@@ -93,7 +93,6 @@ jobs:
 
       - name: Resolve release tag
         id: resolve
-        if: inputs.upload_to_release != 'false'
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.release_tag }}
@@ -105,6 +104,11 @@ jobs:
             auto|true|false) ;;
             *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'; got '${UPLOAD_MODE}'"; exit 1 ;;
           esac
+          # Always runs, so skip is "true" rather than empty when nothing uploads.
+          if [[ "$UPLOAD_MODE" == "false" ]]; then
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # The release is named after what was built: release_tag, else ref,
           # else the ref the workflow runs on. Taking GITHUB_REF_NAME while ref
           # built another commit would attach 0.9.0's packages to release 1.0.0.
