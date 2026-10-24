@@ -1,3 +1,56 @@
+## Unreleased
+
+### Changed for callers: packaging workflows no longer create vendor/
+
+- **`deb-build.yml`, `rpm-build.yml` and `homebrew-package.yml` use
+  script-helpers where the caller keeps it** (an existing
+  `vendor/script-helpers` first, as before, else `scripts/script-helpers`)
+  and fail with a clear error when neither has `helpers.sh`. They created `vendor/script-helpers` as a symlink, and in a Go
+  module that `vendor/` switches `go build` to vendor mode, so a Go prebuild
+  failed with "inconsistent vendoring". A caller whose own scripts call
+  `vendor/script-helpers` without keeping it there now has to.
+  `tests/packaging_no_vendor_dir_test.sh` fails if a workflow creates
+  `vendor/` again, and the `packaging-lookup-leaves-go-builds-alone`
+  self-test runs each workflow's lookup in a Go module with dependencies and
+  builds it, with a control that recreates the old symlink and must fail. Items 3 and 4 of
+  https://github.com/nikolareljin/ci-helpers/issues/297
+
+### Added
+
+- **`release-upload.yml` attaches an artifact's files to a release**, and
+  `rpm-build.yml` feeds it: `upload_to_release` and `release_tag` set its new
+  `artifact_id`, `tag`, `commit` and `skip` outputs, so a caller no longer
+  writes its own upload job. The upload is its own workflow because a reusable
+  workflow holding a `contents: write` job fails to start for a caller that
+  grants `read`, even when that job is skipped; `rpm-build.yml` keeps
+  `contents: read`. The upload never changes the release notes and creates a
+  new tag at the built commit, and refuses an empty tag, a files glob that
+  leaves the artifact or matches nothing
+  (`tests/release_upload_check_test.sh`). Item 1 of
+  https://github.com/nikolareljin/ci-helpers/issues/297
+- **`deb-build.yml` takes `release_notes`** (default `true`). `false` uploads
+  the `.deb` files and leaves the release body alone, so a release
+  `go-release.yml` already published keeps its "Download Binaries" table.
+  From the comment on https://github.com/nikolareljin/ci-helpers/issues/297
+- **`deb-build.yml` and `rpm-build.yml` take `ref`**: the tag, branch or commit
+  to build. Empty builds the ref the workflow runs on, as before; set it to a
+  tag to rebuild an older release without dispatching on the tag. Without
+  `release_tag`, `deb-build.yml` names the release after `ref`, so a tag push
+  of 1.0.0 with `ref: 0.9.0` cannot attach 0.9.0's packages to 1.0.0;
+  `auto` uploads only when `ref` is a version tag, and `true` fails for any
+  other `ref`. A tag that does not exist yet is created at the built commit,
+  not the one the workflow runs on. `tests/deb_build_release_tag_test.sh`
+  runs the step for each case, and `tests/packaging_lookup_test.sh` runs the script-helpers lookup
+  of all three workflows against five caller layouts.
+
+### Fixed
+
+- **`rpm-build.yml` takes its inputs through env.** `extra_packages`,
+  `prebuild_command`, `spec_path` and `artifact_dir` were spliced into the run
+  scripts as `${{ }}`, so a value such as `x; curl ...` ran as code.
+  `tests/no_inline_expressions_in_run_test.sh` now covers `deb-build.yml`,
+  `rpm-build.yml` and `homebrew-package.yml` too.
+
 ## 2026-10-24 — v0.44.0
 
 ### Changed for callers: Go presets run tests with -race

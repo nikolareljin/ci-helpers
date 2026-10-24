@@ -2,6 +2,19 @@ name: ci-helpers-deb-build
 on:
   workflow_call:
     inputs:
+      release_notes:
+        description: >
+          Write release notes into the release body. false uploads the files
+          and leaves the body as it is, for a release another job already
+          published with its own notes.
+        type: boolean
+        default: true
+      ref:
+        description: >
+          Git ref to build: a tag, branch or commit. Empty builds the ref the
+          workflow runs on. Set it to the tag to rebuild an older release.
+        type: string
+        default: ""
       runner:
         type: string
         default: ubuntu-latest
@@ -79,12 +92,22 @@ jobs:
       notes_id: ${{ steps.notes_up.outputs.artifact-id }}
       skip: ${{ steps.resolve.outputs.skip }}
       tag: ${{ steps.resolve.outputs.tag }}
+      commit: ${{ steps.built.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
           fetch-tags: true
+
+      # The commit this run builds, which ref may make differ from github.sha.
+      # A release whose tag does not exist yet gets its tag here, not at the
+      # commit the workflow runs on.
+      - name: Record the built commit
+        id: built
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install packaging prerequisites
         shell: bash
@@ -107,6 +130,7 @@ jobs:
           fi
 
       - name: Bootstrap script-helpers
+        id: script_helpers
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -118,14 +142,22 @@ jobs:
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           git submodule update --init --recursive || true
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "vendor/script-helpers not found; ensure script-helpers is vendored or initialized." >&2
+          # Use script-helpers where the repository keeps it (an existing
+          # vendor/script-helpers first, as before), and never create
+          # vendor/: in a Go module that directory switches go build to vendor
+          # mode, which fails with "inconsistent vendoring".
+          dir=""
+          for d in vendor/script-helpers scripts/script-helpers; do
+            if [[ -f "$d/helpers.sh" ]]; then
+              dir="$d"
+              break
+            fi
+          done
+          if [[ -z "$dir" ]]; then
+            echo "::error::script-helpers not found at vendor/script-helpers or scripts/script-helpers; add it as a submodule." >&2
             exit 1
           fi
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
 
       # A reused self-hosted runner keeps .deb files from earlier runs next to
       # the checkout, where checkout does not clean; only newer ones are collected.
@@ -139,9 +171,10 @@ jobs:
         env:
           PREBUILD_CMD: ${{ inputs.prebuild_command }}
           BUILD_CMD: ${{ inputs.build_command }}
+          SCRIPT_HELPERS: ${{ steps.script_helpers.outputs.dir }}
         run: |
           set -euo pipefail
-          ./vendor/script-helpers/scripts/build_deb_artifacts.sh \
+          "./${SCRIPT_HELPERS}/scripts/build_deb_artifacts.sh" \
             --repo . \
             --prebuild "$PREBUILD_CMD" \
             --build "$BUILD_CMD"
@@ -175,10 +208,10 @@ jobs:
 
       - name: Resolve release tag
         id: resolve
-        if: inputs.upload_to_release != 'false'
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.release_tag }}
+          INPUT_REF: ${{ inputs.ref }}
           UPLOAD_MODE: ${{ inputs.upload_to_release }}
         run: |
           set -euo pipefail
@@ -186,13 +219,28 @@ jobs:
             auto|true|false) ;;
             *) echo "::error::upload_to_release must be 'auto', 'true', or 'false'; got '${UPLOAD_MODE}'"; exit 1 ;;
           esac
-          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          # Always runs, so skip is "true" rather than empty when nothing uploads.
+          if [[ "$UPLOAD_MODE" == "false" ]]; then
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The release is named after what was built: release_tag, else ref,
+          # else the ref the workflow runs on. Taking GITHUB_REF_NAME while ref
+          # built another commit would attach 0.9.0's packages to release 1.0.0.
+          ref="${INPUT_REF#refs/tags/}"
+          tag="${INPUT_TAG:-${ref:-${GITHUB_REF_NAME}}}"
           # Strip newlines/CR to prevent GITHUB_OUTPUT injection via unvalidated input
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
           # "auto": only upload when the ref is a real tag push or release_tag was given
           if [[ "$UPLOAD_MODE" == "auto" ]]; then
-            if [[ -z "$INPUT_TAG" ]]; then
+            if [[ -z "$INPUT_TAG" && -n "$ref" ]]; then
+              # ref chose the build: upload only when it names a version tag
+              if ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+                printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            elif [[ -z "$INPUT_TAG" ]]; then
               # No explicit release_tag: require both a refs/tags/* ref AND semver name
               if [[ "${GITHUB_REF}" != refs/tags/* ]] || ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
                 printf 'skip=true\n' >> "$GITHUB_OUTPUT"
@@ -201,11 +249,15 @@ jobs:
             fi
             # Explicit release_tag: user intent is clear; skip ref-type check
           fi
+          if [[ "$UPLOAD_MODE" == "true" && -z "$INPUT_TAG" && -n "$ref" ]] && ! grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' <<< "$tag"; then
+            echo "::error::ref '${ref}' is not a version tag; set release_tag to name the release." >&2
+            exit 1
+          fi
           printf 'skip=false\n'    >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       - name: Checkout script-helpers for release notes
-        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        if: ${{ inputs.release_notes && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
@@ -215,7 +267,7 @@ jobs:
           fetch-depth: 1
       - name: Generate release notes
         id: notes
-        if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
+        if: ${{ inputs.release_notes && inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
         shell: bash
         env:
           RN_VERSION: ${{ steps.resolve.outputs.tag }}
@@ -582,6 +634,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
         with:
           tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ needs.build.outputs.commit }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
           files: release-files/*
           overwrite_files: true

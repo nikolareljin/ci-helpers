@@ -1,4 +1,4 @@
-![ci-helpers - shared GitHub Actions workflows for CI/CD. 75 reusable workflows, 28 stack presets, 9 composite actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 9 composite actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -124,7 +124,8 @@ jobs:
 - `.github/workflows/go-deploy.yml`: reusable Go binary build + SSH/rsync deploy workflow
 - `.github/workflows/ppa-deb.yml`: reusable Debian source build + Launchpad PPA publish workflow
 - `.github/workflows/deb-build.yml`: reusable Debian package build workflow (artifacts only)
-- `.github/workflows/rpm-build.yml`: reusable RPM build workflow (artifacts only)
+- `.github/workflows/rpm-build.yml`: reusable RPM build workflow (artifacts, plus release outputs for `release-upload.yml`)
+- `.github/workflows/release-upload.yml`: attaches a workflow artifact's files to a GitHub release without changing its notes
 - `.github/workflows/homebrew-package.yml`: reusable Homebrew tarball/formula build + optional publish workflow
 - `.github/workflows/homebrew-tap-publish.yml`: reusable step that commits one formula to a Homebrew tap (deploy key or token); any language
 - `.github/workflows/rust-release-tarballs.yml`: reusable Rust macOS/Linux tarball release + Homebrew formula workflow
