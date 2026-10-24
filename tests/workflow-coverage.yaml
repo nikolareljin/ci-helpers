@@ -70,7 +70,6 @@ groups:
       - csharp-scan.yml
       - cypress.yml
       - deb-build.yml
-      - go-scan.yml
       - php.yml
       - php-scan.yml
       - pimcore.yml

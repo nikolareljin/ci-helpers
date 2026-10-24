@@ -740,6 +740,11 @@ jobs:
 
           echo "the gate refuses an unlisted workflow, a stale entry, and a list that has fallen behind"
 
+  # The gate that would have caught a real defect on 2026-09-21: a second
+  # `## Unreleased` added above the existing one, which drops everything under
+  # the lower heading from the release notes while the file still appears to
+  # contain it. Asserting the refusals is the point -- a structure check is easy
+  # to write so that it finds nothing.
   changelog-structure-gate-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -791,12 +796,6 @@ jobs:
 
           echo "the gate refuses a second Unreleased, a buried one, and a repeated version"
 
-  # The PR gate had no Go preset, so a Go caller either pinned a version locally
-  # or got no Go setup at all. These two legs together are what prove the preset
-  # sets Go up: asserting only the default would pass even if setup never ran,
-  # because the runner image already ships a 1.25.
-  #
-  # This leg takes the default and asserts the version it names.
   shell-checks-this-repository:
     uses: ./.github/workflows/shell.yml
     with:

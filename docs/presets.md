@@ -513,7 +513,7 @@ Workflow: `.github/workflows/go.yml`
 
 Defaults:
 
-- `go_version`: `1.25`
+- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it)
 - `lint_command`: `test -z "$(gofmt -l .)" && go vet ./...`
 - `test_command`: `go mod download && go test ./...`
 - `build_command`: `go build ./...`
@@ -525,8 +525,6 @@ Example:
 jobs:
   go:
     uses: nikolareljin/ci-helpers/.github/workflows/go.yml@production
-    with:
-      go_version: "1.25"
 ```
 
 ### Several modules in one repository
@@ -938,7 +936,7 @@ Workflow: `.github/workflows/go-scan.yml`
 
 Defaults:
 
-- `go_version`: `1.25`
+- `go_version`: `go.mod` (Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version such as `1.26` overrides it)
 - `govulncheck_version`: `v1.7.0`
 - `vulncheck`: `false`
 
@@ -958,12 +956,10 @@ code, so importing a vulnerable module without calling into it is not flagged.
 It is **off by default**. On by default, it would fail a repository that
 changed nothing on the day an advisory is published.
 
-`v1.7.0` rather than the newest: `x/vuln` v1.8.0 declares `go 1.26.0`, and
-`actions/setup-go` sets `GOTOOLCHAIN=local`, so installing it fails with
-`requires go >= 1.26.0`. It installs fine on a developer machine, where Go
-downloads the newer toolchain on demand, which is a difference worth knowing
-before trusting a local check. Raise this input only together with
-`go_version`.
+`actions/setup-go` sets `GOTOOLCHAIN=local`, so the install runs with
+`GOTOOLCHAIN=auto`: `govulncheck` v1.7.0 declares `go 1.25.0`, and a module on
+an older Go would otherwise fail with `requires go >= 1.25.0`. Go fetches that
+toolchain from the module proxy, checked against the checksum database.
 
 `govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
 would change the gate's behaviour without a change here, and a new advisory

@@ -13,10 +13,9 @@ on:
         default: 0
       go_version:
         type: string
-        # 1.25, not 1.24: the fleet's largest Go consumer declares `go 1.25.0`,
-        # so the old default failed outright with `go.mod requires go >= 1.25.0`.
-        # It passed its own version, which is why nothing caught it.
-        default: "1.25"
+        # go.mod: Go from <working_directory>/go.mod (its toolchain line when
+        # present), so a caller follows its own module. A version overrides it.
+        default: "go.mod"
       lint_command:
         type: string
         default: 'test -z "$(gofmt -l .)" && go vet ./...'
@@ -30,11 +29,8 @@ on:
       # behaviour changes without a commit here, and a new advisory class can
       # turn every consumer red on a day nobody shipped anything.
       #
-      # v1.7.0, not the newest: x/vuln v1.8.0 declares `go 1.26.0`, and
-      # actions/setup-go sets GOTOOLCHAIN=local, so the install fails with
-      # "requires go >= 1.26.0". It succeeds on a developer machine, where Go
-      # downloads the newer toolchain on demand. Raise this only with
-      # go_version.
+      # The install runs with GOTOOLCHAIN=auto, so a version that needs a newer
+      # Go than the module declares still installs.
       govulncheck_version:
         type: string
         default: "v1.7.0"
@@ -66,7 +62,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 @ 2026-09-10
         with:
-          go-version: ${{ inputs.go_version }}
+          go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
+          go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
 
       - name: Go lint
         if: ${{ inputs.lint_command != '' }}
@@ -106,5 +103,7 @@ jobs:
             echo "::error::govulncheck_version must be vX.Y.Z, got '${INPUT_GOVULNCHECK_VERSION}'." >&2
             exit 2
           fi
-          go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
+          # The module may declare an older Go than govulncheck needs (v1.7.0:
+          # go 1.25.0); auto fetches that toolchain, checksummed, for the build.
+          GOTOOLCHAIN=auto go install "golang.org/x/vuln/cmd/govulncheck@${INPUT_GOVULNCHECK_VERSION}"
           "$(go env GOPATH)/bin/govulncheck" "${INPUT_PACKAGES}"

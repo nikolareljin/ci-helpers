@@ -470,16 +470,13 @@ jobs:
           ACCEPT
           echo "the gate refuses bad input and stays off unless armed"
 
-  # The gate that would have caught a real defect on 2026-09-21: a second
-  # `## Unreleased` added above the existing one, which drops everything under
-  # the lower heading from the release notes while the file still appears to
-  # contain it. Asserting the refusals is the point -- a structure check is easy
-  # to write so that it finds nothing.
+  # The default reads go.mod. The fixture declares `go 1.21`, which the runner
+  # image does not ship, so this passes only if Setup Go installed that version.
   go-pr-gate-uses-the-shared-default:
     uses: ./.github/workflows/go-pr-gate.yml
     with:
       working_directory: tests/fixtures/go-modules/api
-      test_command: 'go version && go version | grep -q "go1\.25\." && echo "the shared default is in force"'
+      test_command: 'go version && go version | grep -q "go1\.21\." && echo "Go came from go.mod"'
       build_command: ""
 
   # And this leg names a version the image does not ship, so it can only pass if
@@ -492,6 +489,15 @@ jobs:
       lint_command: ""
       test_command: 'go version && go version | grep -q "go1\.24\." && echo "Setup Go ran; the image ships a different version"'
       build_command: ""
+
+  # go-scan on a module declaring `go 1.21`: Go comes from go.mod, and
+  # govulncheck (which needs go 1.25.0) still installs, through GOTOOLCHAIN=auto.
+  go-scan-follows-go-mod-and-installs-govulncheck:
+    uses: ./.github/workflows/go-scan.yml
+    with:
+      working_directory: tests/fixtures/go-modules/api
+      vulncheck: true
+      test_command: 'go version && go version | grep -q "go1\.21\." && echo "Go came from go.mod"'
 
   # Two legs from one input, each on a stack this repository generates rather
   # than one the caller wrote. The fixture plugin passes cleanly, so a failure
@@ -808,6 +814,7 @@ jobs:
       - unity-gate-refuses-and-disarms
       - go-pr-gate-uses-the-shared-default
       - go-pr-gate-honours-a-named-version
+      - go-scan-follows-go-mod-and-installs-govulncheck
       - kotlin-defaults-can-pass
       - java-gradle-defaults-can-pass
       - java-defaults-can-pass

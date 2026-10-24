@@ -69,8 +69,6 @@ on:
 jobs:
   go_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/go-scan.yml@production
-    with:
-      go_version: "1.25"
 ```
 
 Rust scan (tests + cargo-audit):
