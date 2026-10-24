@@ -957,9 +957,9 @@ It is **off by default**. On by default, it would fail a repository that
 changed nothing on the day an advisory is published.
 
 `actions/setup-go` sets `GOTOOLCHAIN=local`, so the install runs with
-`GOTOOLCHAIN=auto`: `govulncheck` v1.7.0 declares `go 1.25.0`, and a module on
-an older Go would otherwise fail with `requires go >= 1.25.0`. Go fetches that
-toolchain from the module proxy, checked against the checksum database.
+`GOTOOLCHAIN=go1.25.0+auto`: `govulncheck` v1.7.0 declares `go 1.25.0`, and a
+module on an older Go would otherwise fail with `requires go >= 1.25.0`. Go
+fetches Go 1.25.0 from the module proxy, checked against the checksum database.
 
 `govulncheck_version` is pinned and validated as `vX.Y.Z`. A floating `@latest`
 would change the gate's behaviour without a change here, and a new advisory
