@@ -1,4 +1,4 @@
-## Unreleased
+## 2026-10-24 — v0.45.0
 
 ### Changed for callers: packaging workflows no longer create vendor/
 
