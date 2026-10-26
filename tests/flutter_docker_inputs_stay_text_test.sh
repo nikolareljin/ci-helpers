@@ -25,8 +25,10 @@ import re, shlex, sys, yaml
 root, work, value = sys.argv[1:4]
 
 def steps(f, job):
-    d = yaml.safe_load(open(f"{root}/.github/workflows/{f}"))
-    return {s.get("name"): s for s in d["jobs"][job]["steps"]}
+    # Each step with the job's env under its own, as the runner merges them.
+    j = yaml.safe_load(open(f"{root}/.github/workflows/{f}"))["jobs"][job]
+    return {s.get("name"): dict(s, env={**(j.get("env") or {}), **(s.get("env") or {})})
+            for s in j["steps"]}
 
 def render(text, special):
     # What the runner does before bash sees anything: each expression
@@ -42,6 +44,10 @@ cases = [
     ("play", fr["Deploy to Google Play via Fastlane"], {}),
     ("build", fr["Build Android appbundle"],
      {"android_build_command": "set -- one two\nprintf '%s\\n' \"$#\" > built"}),
+    ("appstore", fr["Deploy to App Store via Fastlane"], {}),
+    ("ios", fr["Build iOS (no codesign)"],
+     {"ios_build_command": "set -- one two three\nprintf '%s\\n' \"$#\" > built-ios"}),
+    ("cleanup", fr["Cleanup signing and deploy credentials"], {}),
     ("docker", ds["Build image"], {}),
 ]
 for i, (tag, s, special) in enumerate(cases):
@@ -54,13 +60,20 @@ PY
 for tool in fastlane docker; do
   cat > "$work/bin/$tool" <<EOF
 #!/usr/bin/env bash
-printf '%s\n' "\$@" > "$work/$tool.args"
+printf '%s\n' "\$@" > "$work/$tool.\$STEP.args"
 EOF
   chmod +x "$work/bin/$tool"
 done
-export PATH="$work/bin:$PATH" GITHUB_WORKSPACE="$work/ws" RUNNER_OS=Linux
+export PATH="$work/bin:$PATH" GITHUB_WORKSPACE="$work/ws" HOME="$work/home"
+# Cleanup must find and remove these, under the literal working_directory.
+mkdir -p "$work/ws/$value/android"
+: > "$work/ws/$value/android/key.properties"
+: > "$work/ws/$value/android/upload-keystore.jks"
 fail=0
-for tag in note play build docker; do
+for tag in note play build appstore ios cleanup docker; do
+  # The iOS steps refuse anything but macOS.
+  export STEP="$tag" RUNNER_OS=Linux
+  [[ "$tag" == appstore || "$tag" == ios ]] && RUNNER_OS=macOS
   # shellcheck disable=SC1090
   if ! (cd "$work/wd" && set -a && . "$work/$tag.env" && bash "$work/$tag.sh" > "$work/$tag.out" 2>&1); then
     echo "FAIL step $tag exited non-zero: $(tail -1 "$work/$tag.out")"
@@ -76,22 +89,32 @@ if ! grep -qF -- "$work/ws/$value/android/key.properties" "$work/note.out"; then
   echo "FAIL working_directory did not reach the note unchanged"
   fail=1
 fi
-# fastlane gets the lane's words, each unchanged.
+# fastlane gets each lane's words, each unchanged.
 read -r -a want <<< "$value"
-got=()
-while IFS= read -r line; do got+=("$line"); done < "$work/fastlane.args"
-if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
-  echo "FAIL fastlane got: ${got[*]-<nothing>}"
-  fail=1
-fi
-# The build command is code: it runs, with its own positional parameters.
+for tag in play appstore; do
+  got=()
+  while IFS= read -r line; do got+=("$line"); done < <(cat "$work/fastlane.$tag.args" 2>/dev/null)
+  if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
+    echo "FAIL fastlane ($tag) got: ${got[*]-<nothing>}"
+    fail=1
+  fi
+done
+# The build commands are code: each runs, with its own positional parameters.
 if [[ "$(cat "$work/wd/built" 2>/dev/null)" != 2 ]]; then
   echo "FAIL android_build_command did not run as code"
   fail=1
 fi
+if [[ "$(cat "$work/wd/built-ios" 2>/dev/null)" != 3 ]]; then
+  echo "FAIL ios_build_command did not run as code"
+  fail=1
+fi
+if [[ -e "$work/ws/$value/android/key.properties" || -e "$work/ws/$value/android/upload-keystore.jks" ]]; then
+  echo "FAIL cleanup did not remove the signing files under working_directory"
+  fail=1
+fi
 expected="$(printf '%s\n' build -f "$value" -t "$value" "$value")"
-if [[ "$(cat "$work/docker.args")" != "$expected" ]]; then
-  echo "FAIL docker got: $(tr '\n' '|' < "$work/docker.args")"
+if [[ "$(cat "$work/docker.docker.args" 2>/dev/null)" != "$expected" ]]; then
+  echo "FAIL docker got: $(tr '\n' '|' 2>/dev/null < "$work/docker.docker.args")"
   fail=1
 fi
 [[ "$fail" == 0 ]] || exit 1
