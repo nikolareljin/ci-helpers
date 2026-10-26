@@ -1,4 +1,4 @@
-## Unreleased
+## 2026-10-26 — v0.46.0
 
 ### Changed for callers: `django.yml` installs `requirements-dev.txt`
 
@@ -16,6 +16,14 @@
   Tests: the `django-default-installs-requirements` self-test now also
   installs `requirements-dev.txt` from its fixture and imports both probes
   (fails against the 0.57.0 pin with `No module named 'install_dev_probe'`).
+
+### Fixed
+
+- **`CHANGELOG.md` history repaired.** A merge in 0.39.0 moved the
+  `gitleaks-scan.yml` / `trivy-scan.yml` entry and its "33 of 73" line into
+  the middle of a 0.32.0 sentence, which split a code span so a wrapped line
+  began with `## Unreleased` and rendered as a heading. The 0.32.0 sentence is
+  whole again and the 0.39.0 entry has its line back.
 
 ## 2026-10-24 — v0.45.0
 
@@ -730,6 +738,9 @@
   than on anything that happens to be red. SARIF upload stays off in the self
   test: it would file code-scanning alerts against this repository for a
   dependency that is vulnerable on purpose.
+
+  33 of 73 reusable workflows are now driven by a leg, 14 left in `not-yet`.
+
 - **Python and PHP ran no security tool.** `python-scan.yml` was install, ruff,
   pytest and Django tests; `php-scan.yml` was composer install, phpunit and
   phpcs, while Node, Rust, Go, C# and the container presets all scanned
@@ -1890,18 +1901,7 @@
 
 - **`scripts/check_changelog_structure.py`, run by `pre-commit` and by
   `workflow-yaml-check.yml`.** Release notes are cut from one CHANGELOG section.
-  On 2026-09-21 a second `
-
-- **`gitleaks-scan.yml` and `trivy-scan.yml` are exercised** (E64). Trivy runs
-  against the fixture pinned to a published advisory, and the failing direction
-  is driven with `exit-code: 1` and asserted to fail *on that advisory* rather
-  than on anything that happens to be red. SARIF upload stays off in the self
-  test: it would file code-scanning alerts against this repository for a
-  dependency that is vulnerable on purpose.
-
-  33 of 73 reusable workflows are now driven by a leg, 14 left in `not-yet`.
-
-## Unreleased` was added above the existing one, and
+  On 2026-09-21 a second `## Unreleased` was added above the existing one, and
   everything under the lower heading -- a feature merged that morning -- would
   have been dropped from the next release while the file still appeared to
   contain it. `check_changelog_section.sh` did not notice, because it asks
