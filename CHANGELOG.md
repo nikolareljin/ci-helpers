@@ -7,10 +7,11 @@
   `install_command` now installs `requirements-dev.txt` after
   `requirements.txt` when it exists, so a project that keeps its test tools
   there gets them. A project whose `requirements-dev.txt` cannot install on
-  the runner now fails that step; set `install_command` to keep the old
-  install. The other upstream changes (webshot, Ollama tiers, Node and
-  Python local test runners, `build_rpm_artifacts.sh`, the Claude hook) are
-  in scripts these workflows do not run from the vendored copy.
+  the runner now fails that step;
+  `install_command: pip install -r requirements.txt` keeps the old install.
+  The other upstream changes (webshot, Ollama tiers, Node and Python local
+  test runners, `build_rpm_artifacts.sh`, the Claude hook) are in scripts
+  these workflows do not run from the vendored copy.
   `rpm-build.yml` runs the caller's own script-helpers, not this one.
   Tests: the `django-default-installs-requirements` self-test now also
   installs `requirements-dev.txt` from its fixture and imports both probes
