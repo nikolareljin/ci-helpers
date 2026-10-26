@@ -1,3 +1,18 @@
+## Unreleased
+
+### Fixed
+
+- **`wp-plugin-check.yml` passes its inputs through env.** The plugin-check
+  step spliced 25 `${{ inputs.* }}` into its run script, so a `site_title`
+  with `$5` failed the job (`$5: unbound variable`), a `"` ended the
+  argument, and `$(...)` ran. Every value now reaches `ci_wp_plugin_check.sh`
+  through a `WPC_*` variable; the three `*_command` inputs are still run as
+  code by the script. The script-helpers move uses `$RUNNER_TEMP`. Tests:
+  `tests/wp_plugin_check_inputs_stay_text_test.sh` renders the step as the
+  runner does and runs it against a stub (0 of 25 values arrive against
+  0.46.0), and `tests/no_inline_expressions_in_run_test.sh` now covers this
+  file. E119 M4, first of six files.
+
 ## 2026-10-26 — v0.46.0
 
 ### Changed for callers: `django.yml` installs `requirements-dev.txt`
