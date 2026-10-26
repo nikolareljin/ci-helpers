@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Changed
+
+- **Action pins bumped** (the eight open Dependabot PRs, 316-323):
+  `actions/setup-python` v7.0.0 -> v7.1.0, `github/codeql-action`
+  (`init`, `analyze`, `upload-sarif`) v4.39.0 -> v4.39.1, `ruby/setup-ruby`
+  v1.329.0 -> v1.334.0, `securego/gosec` v2.29.0 -> v2.30.0,
+  `docker/login-action` v4.6.0 -> v4.7.0. 20 pins in 16 files. Dependabot
+  changed only the SHA; the `# <tag> @ <date>` comments now name the new
+  tag, so `update_pinned_actions.sh --check` resolves the pin it checks.
+
 ### Fixed
 
 - **`wp-plugin-check.yml` passes its inputs through env.** The plugin-check
