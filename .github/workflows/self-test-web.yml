@@ -269,11 +269,11 @@ jobs:
       makemigrations_command: ""
       test_command: 'EXPECT_NO_CHECK=1 python manage.py test'
 
-  # The default install_command is empty, and empty must mean "pip install -r
-  # requirements.txt when it exists". Every leg above sets install_command or
-  # has no requirements file, so the default had never run: an empty flag was
-  # passed on, the script read it as "skip", and a caller's dependencies were
-  # never installed.
+  # The default install_command is empty, and empty must mean "install
+  # requirements.txt, then requirements-dev.txt, each when it exists". Every
+  # leg above sets install_command or has no requirements file, so the default
+  # had never run: an empty flag was passed on, the script read it as "skip",
+  # and a caller's dependencies were never installed.
   django-default-installs-requirements:
     uses: ./.github/workflows/django.yml
     with:
@@ -283,7 +283,7 @@ jobs:
       concurrency_key: django-default-installs-requirements
       migrate_command: ""
       makemigrations_command: ""
-      test_command: 'python -c "import install_probe"'
+      test_command: 'python -c "import install_probe, install_dev_probe"'
 
   # -- pnpm, the scan presets, and the browser runners -------------------------
   #

@@ -61,8 +61,9 @@ on:
         type: string
         default: ""
       # Dependency install, performed by ci_django.sh. Empty by default, which
-      # makes the script use `pip install -r requirements.txt` when that file
-      # exists and skip the step when it does not. Set "true" to skip it.
+      # makes the script install `requirements.txt` and then
+      # `requirements-dev.txt`, each when it exists, and skip the step when
+      # neither does. Set "true" to skip it.
       install_command:
         type: string
         default: ""
@@ -149,7 +150,7 @@ jobs:
         with:
           persist-credentials: false
           repository: nikolareljin/script-helpers
-          ref: 88790867d6e603bce6075c1475dc4f3fb0cfbe22 # 0.57.0
+          ref: 1fdf01e83fb7f07529c5ec96cb9cb871fe166f7f # 0.59.0
           path: .script-helpers
           fetch-depth: 1
 
@@ -238,9 +239,10 @@ jobs:
             --test-command "$TEST_COMMAND"
           )
           # Only when set: the script reads --install-command '' as "skip the
-          # install", while an empty input here means its default (pip install
-          # -r requirements.txt when that file exists). Passed unconditionally,
-          # the default never ran and a caller's dependencies were not installed.
+          # install", while an empty input here means its default
+          # (requirements.txt, then requirements-dev.txt, each when it exists).
+          # Passed unconditionally, the default never ran and a caller's
+          # dependencies were not installed.
           # To skip the install, set install_command to "true".
           if [[ -n "$INSTALL_COMMAND" ]]; then
             args+=(--install-command "$INSTALL_COMMAND")

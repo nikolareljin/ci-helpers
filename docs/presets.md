@@ -396,7 +396,7 @@ Defaults:
 
 - `python_version`: `3.12`
 - `lint_command`: `""`
-- `install_command`: `""`, which installs `requirements.txt` when it exists
+- `install_command`: `""`, which installs `requirements.txt` and then `requirements-dev.txt`, each when it exists
 - `migrate_command`: `python manage.py migrate --noinput`
 - `makemigrations_command`: `python manage.py makemigrations --check --dry-run --noinput` (empty skips the drift check)
 - `test_command`: `python manage.py test --noinput`

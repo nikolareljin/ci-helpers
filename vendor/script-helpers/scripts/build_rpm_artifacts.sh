@@ -5,7 +5,10 @@
 # PARAMETERS:
 #   --repo <path>        Repo path (default: GITHUB_WORKSPACE or cwd).
 #   --spec <path>        Spec file path (default: packaging/rpm/<app>.spec).
-#   --prebuild <command> Command to run before build.
+#   --prebuild <command> Command to run before build. The source tarball is then the
+#                        working tree (prebuild output included), without .git,
+#                        packaging/rpm/build or an --artifact-dir inside the tree;
+#                        without it, git archive HEAD.
 #   --artifact-dir <path> Output directory for built RPMs (default: ..).
 #   -h, --help           Show help.
 # EXIT_CODES:
@@ -88,10 +91,27 @@ source_path="$build_root/SOURCES/$source_tar"
 if command -v git >/dev/null 2>&1 && git -C "$repo_dir" rev-parse --git-dir >/dev/null 2>&1 && [[ -z "$prebuild_cmd" ]]; then
   git -C "$repo_dir" archive --format=tar.gz --prefix="${APP_NAME:-app}-${APP_VERSION}/" -o "$source_path" HEAD
 else
-  tar -C "$repo_dir" -czf "$source_path" \
-    --exclude=".git" \
+  # Write outside the tree being archived: build_root is inside it, and tar
+  # reading its own growing output fails with "file changed as we read it".
+  # build_root is excluded too, so earlier builds do not end up in the source.
+  # The artifact directory is skipped when it sits in the tree, or a rebuild
+  # would ship the previous build's .rpm files inside the source.
+  excludes=(--exclude=".git" --exclude="./packaging/rpm/build")
+  repo_abs="$(cd "$repo_dir" && pwd -P)"
+  mkdir -p "$artifact_dir"
+  artifact_abs="$(cd "$artifact_dir" && pwd -P)"
+  if [[ "$artifact_abs" == "$repo_abs"/* ]]; then
+    excludes+=(--exclude="./${artifact_abs#"$repo_abs"/}")
+  fi
+  tmp_tar="$(mktemp "${TMPDIR:-/tmp}/rpm-source.XXXXXX")"
+  if ! tar -C "$repo_dir" -czf "$tmp_tar" \
+    "${excludes[@]}" \
     --transform "s,^,${APP_NAME:-app}-${APP_VERSION}/," \
-    .
+    .; then
+    rm -f "$tmp_tar"
+    exit 1
+  fi
+  mv "$tmp_tar" "$source_path"
 fi
 
 cp "$spec_path" "$build_root/SPECS/"

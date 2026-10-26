@@ -44,11 +44,14 @@ if ($UseDocker) {
     $img     = if ($Image) { $Image } elseif ($env:CI_PYTHON_IMAGE) { $env:CI_PYTHON_IMAGE } else { 'python:3-slim' }
     $volArgs = @('run', '--rm', '-v', "${absWorkdir}:/work", '-w', '/work', $img)
     if (-not $Quick) {
-        $req = Join-Path $absWorkdir 'requirements.txt'
-        if (Test-Path $req) {
-            log_info "pip install -r requirements.txt"
-            docker @volArgs pip install -r requirements.txt
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        # requirements-dev.txt after requirements.txt: it holds pytest when a
+        # project keeps its test tools apart.
+        foreach ($name in 'requirements.txt', 'requirements-dev.txt') {
+            if (Test-Path (Join-Path $absWorkdir $name)) {
+                log_info "pip install -r $name"
+                docker @volArgs pip install -r $name
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
         }
     }
     if (-not $SkipTest) {
@@ -66,11 +69,13 @@ if ($UseDocker) {
     activate_venv $venv
 
     if (-not $Quick) {
-        $req = Join-Path $absWorkdir 'requirements.txt'
-        if (Test-Path $req) {
-            log_info "Installing dependencies from requirements.txt"
-            & $venvPy -m pip install -r $req --quiet
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        foreach ($name in 'requirements.txt', 'requirements-dev.txt') {
+            $req = Join-Path $absWorkdir $name
+            if (Test-Path $req) {
+                log_info "Installing dependencies from $name"
+                & $venvPy -m pip install -r $req --quiet
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
         }
     }
     if (-not $SkipTest) {

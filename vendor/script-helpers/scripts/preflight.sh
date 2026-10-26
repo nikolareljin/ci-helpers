@@ -280,7 +280,7 @@ detect_stacks() {
       pubspec.yaml)                       pairs+=("flutter	$dir"); flutter_dirs+=("$dir") ;;
       gradlew|settings.gradle|settings.gradle.kts) pairs+=("gradle	$dir") ;;
       package.json)                       pairs+=("node	$dir") ;;
-      pyproject.toml|setup.py|requirements.txt) pairs+=("python	$dir") ;;
+      pyproject.toml|setup.py|requirements.txt|requirements-dev.txt) pairs+=("python	$dir") ;;
       go.mod)                             pairs+=("go	$dir") ;;
       Cargo.toml)                         pairs+=("rust	$dir") ;;
       composer.json)                      pairs+=("php	$dir") ;;
@@ -289,6 +289,7 @@ detect_stacks() {
              \( -name pubspec.yaml -o -name gradlew -o -name 'settings.gradle' \
                 -o -name 'settings.gradle.kts' -o -name package.json \
                 -o -name pyproject.toml -o -name setup.py -o -name requirements.txt \
+                -o -name requirements-dev.txt \
                 -o -name go.mod -o -name Cargo.toml -o -name composer.json \) 2>/dev/null | sort)
 
   # iOS. Detected from a Flutter project that has an ios/ directory, and from a

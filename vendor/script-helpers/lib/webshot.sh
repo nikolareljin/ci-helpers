@@ -3,8 +3,9 @@
 #
 # webshot_capture drives a list of pages from a JSON spec: log in once per
 # auth profile, run optional clicks/fills, hide elements, and save a PNG per
-# page (whole page, viewport, or one element). webshot_pdf prints an HTML file
-# to PDF. Both run a Python driver inside a venv that webshot_ensure creates
+# page (whole page, viewport, or one element). webshot_audit crawls a site on
+# phone devices and fails on pages wider than the screen. webshot_pdf prints an
+# HTML file to PDF. Both run a Python driver inside a venv that webshot_ensure creates
 # outside the repository. Depends on the `python` module; `logging` is optional.
 #
 # Exit codes for every public function: 0 ok, 1 run failed, 2 bad arguments or
@@ -96,6 +97,58 @@ webshot_capture() {
   WEBSHOT_MODE=capture WEBSHOT_SPEC="$spec" WEBSHOT_OUT="$out" _webshot_run "$py"
 }
 
+# Usage: webshot_audit <start_url> [--device NAME]... [--skip PREFIX]...
+#                      [--limit N] [--shots DIR] [--timeout-ms N]
+# Crawls same-host links from start_url and loads every page on each device
+# (default "iPhone 13" and "Galaxy S8", 390 and 360px). A page fails when the
+# document is wider than the viewport, or when an h1-h3 is wider than its box
+# (cut off by a hidden overflow, which does not widen the page). For a wide
+# page the report names the deepest elements whose content overflows.
+# --skip drops paths that start with PREFIX. --shots saves DIR/<page>--<device>.png.
+# Returns: 0 no finding; 1 a finding, or the start page failed to load; 2 bad arguments; 3 no playwright.
+# Output: stdout a JSON report {crawled, findings, http_errors}; stderr log lines.
+webshot_audit() {
+  local start="${1:-}" devices="" skips="" limit="500" shots="" timeout_ms="30000" py
+  if [[ -z "$start" || "$start" == -* ]]; then
+    _webshot_log_error "usage: webshot_audit <start_url> [--device NAME]... [--skip PREFIX]... [--limit N] [--shots DIR] [--timeout-ms N]"
+    return 2
+  fi
+  shift
+  while [[ $# -gt 0 ]]; do
+    # A value option at the end would make "shift 2" fail and loop forever.
+    case "$1" in
+      --device|--skip|--limit|--shots|--timeout-ms)
+        [[ $# -ge 2 ]] || { _webshot_log_error "$1 needs a value"; return 2; } ;;
+    esac
+    case "$1" in
+      --device) [[ -n "${2:-}" ]] || { _webshot_log_error "--device needs a name"; return 2; }
+        devices+="${2}"$'\n'; shift 2 ;;
+      --skip) [[ -n "${2:-}" ]] || { _webshot_log_error "--skip needs a prefix"; return 2; }
+        skips+="${2}"$'\n'; shift 2 ;;
+      --limit) limit="${2:-}"; shift 2 ;;
+      --shots) shots="${2:-}"; [[ -n "$shots" ]] || { _webshot_log_error "--shots needs a directory"; return 2; }; shift 2 ;;
+      --timeout-ms) timeout_ms="${2:-}"; shift 2 ;;
+      *) _webshot_log_error "unknown option: $1"; return 2 ;;
+    esac
+  done
+  if [[ ! "$start" =~ ^(https?|file):// ]]; then
+    _webshot_log_error "start_url must be an http(s) or file URL: $start"
+    return 2
+  fi
+  if [[ ! "$limit" =~ ^[1-9][0-9]*$ ]]; then
+    _webshot_log_error "--limit must be a positive integer: $limit"
+    return 2
+  fi
+  if [[ ! "$timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
+    _webshot_log_error "--timeout-ms must be a positive integer: $timeout_ms"
+    return 2
+  fi
+  py="$(webshot_python)" || return 3
+  if [[ -n "$shots" ]]; then mkdir -p "$shots" || return 1; fi
+  WEBSHOT_MODE=audit WEBSHOT_START="$start" WEBSHOT_DEVICES="$devices" WEBSHOT_SKIP="$skips" \
+    WEBSHOT_LIMIT="$limit" WEBSHOT_OUT="$shots" WEBSHOT_TIMEOUT_MS="$timeout_ms" _webshot_run "$py"
+}
+
 # Usage: webshot_pdf <input.html> <output.pdf> [--format Letter|A4|Legal]
 #                    [--landscape] [--footer TEXT] [--wait-ms N]
 # Prints an HTML file with backgrounds. CSS @page size and margins win when
@@ -110,6 +163,11 @@ webshot_pdf() {
   fi
   shift 2
   while [[ $# -gt 0 ]]; do
+    # A value option at the end would make "shift 2" fail and loop forever.
+    case "$1" in
+      --format|--footer|--wait-ms)
+        [[ $# -ge 2 ]] || { _webshot_log_error "$1 needs a value"; return 2; } ;;
+    esac
     case "$1" in
       --format) format="${2:-}"; shift 2 ;;
       --landscape) landscape="1"; shift ;;
@@ -254,6 +312,8 @@ def validate(spec):
                     fail(2, f"auth.{name}.{key} is required for api_token")
         if kind == "form" and not isinstance(prof.get("steps"), list):
             fail(2, f"auth.{name}.steps must be a list for form")
+    if "device" in spec and not (isinstance(spec["device"], str) and spec["device"]):
+        fail(2, "spec.device must be a Playwright device name")
     seen = set()
     for i, shot in enumerate(shots):
         if not isinstance(shot, dict):
@@ -268,6 +328,8 @@ def validate(spec):
             fail(2, f"shot {name}: path or url is required")
         if shot.get("path") and not spec.get("base_url"):
             fail(2, f"shot {name}: path needs spec.base_url")
+        if "device" in shot and not (isinstance(shot["device"], str) and shot["device"]):
+            fail(2, f"shot {name}: device must be a Playwright device name")
         if shot.get("auth") and shot["auth"] not in auth:
             fail(2, f"shot {name}: unknown auth profile {shot['auth']}")
         for step in shot.get("actions") or []:
@@ -320,17 +382,35 @@ def capture():
     manifest, tokens, states = [], {}, {}
 
     with sync_playwright() as p:
+        wanted = {d for d in [spec.get("device")] + [s.get("device") for s in spec["shots"]] if d}
+        unknown = sorted(wanted - set(p.devices))
+        if unknown:
+            fail(2, f"unknown device {', '.join(unknown)}; known: {', '.join(sorted(p.devices))}")
         browser = p.chromium.launch()
         try:
             for shot in spec["shots"]:
                 name = shot["name"]
-                vp = shot.get("viewport") or default_vp
+                device_name = shot.get("device") or spec.get("device")
+                device = dict(p.devices[device_name]) if device_name else {}
+                device.pop("default_browser_type", None)
+                # Shot keys beat spec keys; at the same level an explicit
+                # viewport or scale factor beats the device's.
+                vp = (shot.get("viewport")
+                      or (device.get("viewport") if shot.get("device") else None)
+                      or spec.get("viewport") or device.get("viewport") or default_vp)
+                dsf = (shot.get("device_scale_factor")
+                       or (device.get("device_scale_factor") if shot.get("device") else None)
+                       or spec.get("device_scale_factor") or device.get("device_scale_factor") or default_dsf)
                 ctx_opts = {
+                    **device,
                     "viewport": {"width": int(vp["width"]), "height": int(vp["height"])},
-                    "device_scale_factor": float(shot.get("device_scale_factor", default_dsf)),
+                    "device_scale_factor": float(dsf),
                     "color_scheme": shot.get("color_scheme", spec.get("color_scheme", "light")),
                     "locale": spec.get("locale", "en-US"),
                 }
+                if device and ctx_opts["viewport"] != device.get("viewport"):
+                    # An overridden viewport would sit inside the device's screen.
+                    ctx_opts["screen"] = dict(ctx_opts["viewport"])
                 if spec.get("timezone_id"):
                     ctx_opts["timezone_id"] = spec["timezone_id"]
                 prof_name = shot.get("auth")
@@ -404,6 +484,7 @@ def capture():
                 width, height = png_size(target)
                 manifest.append({
                     "name": name, "file": target.name, "width": width, "height": height, "url": url,
+                    "device": device_name or "",
                     "title": shot.get("title", ""), "console_errors": console_errors, "http_errors": http_errors,
                 })
                 print(f"[webshot] {name}: {width}x{height}", file=sys.stderr)
@@ -417,6 +498,133 @@ def capture():
         fail(1, f"console errors on: {', '.join(noisy)}")
     if noisy:
         print(f"[webshot] console errors on: {', '.join(noisy)} (see manifest.json)", file=sys.stderr)
+
+
+# Scroll width, the deepest elements whose content is wider than them (text
+# that cannot wrap), clipped headings, and the page's links.
+AUDIT_MEASURE = """() => {
+  const d = document.documentElement;
+  const label = e => {
+    const cls = typeof e.className === 'string' ? e.className.trim().split(/\\s+/).filter(Boolean).slice(0, 3).join('.') : '';
+    return `${e.tagName.toLowerCase()}${e.id ? '#' + e.id : ''}${cls ? '.' + cls : ''}`;
+  };
+  const wide = [];
+  if (d.scrollWidth > d.clientWidth) {
+    for (const e of document.querySelectorAll('body *')) {
+      if (getComputedStyle(e).overflowX !== 'visible' || e.clientWidth === 0) continue;
+      if (e.scrollWidth > e.clientWidth + 1 &&
+          ![...e.children].some(c => c.scrollWidth > e.clientWidth + 1)) {
+        wide.push(`${label(e)} ${e.scrollWidth}/${e.clientWidth}`);
+      }
+    }
+  }
+  const clipped = [...document.querySelectorAll('h1, h2, h3')]
+    .filter(h => h.clientWidth > 0 && h.scrollWidth > h.clientWidth + 1)
+    .map(h => `${label(h)} "${h.textContent.trim().slice(0, 40)}" ${h.scrollWidth}/${h.clientWidth}`);
+  return {width: d.clientWidth, scroll_width: d.scrollWidth, elements: wide.slice(0, 5), clipped,
+          links: [...document.querySelectorAll('a[href]')].map(a => a.href)};
+}"""
+
+
+def shot_slug(url):
+    """File name stem for a page: its path and query, made safe; a long one is cut and keeps a hash."""
+    import hashlib
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", (u.path.strip("/") or "index") + (f"_{u.query}" if u.query else ""))
+    if len(slug) > 120:
+        slug = slug[-100:] + "_" + hashlib.sha1(url.encode()).hexdigest()[:12]
+    return slug
+
+
+def audit():
+    from urllib.parse import urldefrag, urlparse
+    start = os.environ["WEBSHOT_START"]
+    names = [d for d in os.environ.get("WEBSHOT_DEVICES", "").splitlines() if d] or ["iPhone 13", "Galaxy S8"]
+    skips = tuple(x for x in os.environ.get("WEBSHOT_SKIP", "").splitlines() if x)
+    limit = int(os.environ["WEBSHOT_LIMIT"])
+    timeout = int(os.environ["WEBSHOT_TIMEOUT_MS"])
+    shots = Path(os.environ["WEBSHOT_OUT"]) if os.environ.get("WEBSHOT_OUT") else None
+    origin = urlparse(start)
+
+    def norm(url):
+        # One key per page: no fragment, and "http://host" is "http://host/".
+        u = urlparse(urldefrag(url)[0])
+        return u._replace(path=u.path or "/").geturl()
+
+    start = norm(start)
+    findings, http_errors, seen, queue = {}, {}, set(), [start]
+    queued, downloads, measured = set(queue), set(), set()
+    with sync_playwright() as p:
+        unknown = sorted(set(names) - set(p.devices))
+        if unknown:
+            fail(2, f"unknown device {', '.join(unknown)}; known: {', '.join(sorted(p.devices))}")
+        browser = p.chromium.launch()
+        try:
+            pages = {}
+            for n in names:
+                opts = dict(p.devices[n])
+                opts.pop("default_browser_type", None)
+                pages[n] = browser.new_context(**opts).new_page()
+                pages[n].set_default_timeout(timeout)
+            while queue and len(seen) < limit:
+                url = queue.pop(0)
+                seen.add(url)
+                key = url
+                for n, page in pages.items():
+                    # A page that fails to load or navigates away mid-check is
+                    # an http_errors entry, not a crash of the whole crawl.
+                    try:
+                        resp = page.goto(url, wait_until="load")
+                        if resp is not None and resp.status >= 400:
+                            http_errors[url] = resp.status
+                            break
+                        if n == names[0]:
+                            # A redirect lands on a page that may be checked
+                            # already; report each page once, by where it ended up.
+                            key = norm(page.url)
+                            if key in measured:
+                                break
+                            measured.add(key)
+                            if url == start:
+                                # http -> https or example.com -> www.example.com:
+                                # the site is where the start page ended up.
+                                origin = urlparse(key)
+                        m = page.evaluate(AUDIT_MEASURE)
+                        if shots:
+                            page.screenshot(path=str(shots / f"{shot_slug(key)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', n)}.png"))
+                    except (PWError, PWTimeout) as exc:
+                        msg = str(exc).splitlines()[0]
+                        # A link to a file the browser downloads (PDF, zip) is not a page.
+                        if "Download is starting" in msg:
+                            downloads.add(url)
+                        else:
+                            http_errors[url] = msg
+                        break
+                    if m["scroll_width"] > m["width"] or m["clipped"]:
+                        findings.setdefault(key, {})[n] = {
+                            "width": m["width"], "scroll_width": m["scroll_width"],
+                            "elements": m["elements"], "clipped_headings": m["clipped"]}
+                    if n != names[0]:
+                        continue
+                    for href in m["links"]:
+                        target = norm(urljoin(page.url, href))
+                        u = urlparse(target)
+                        if (u.scheme, u.netloc) != (origin.scheme, origin.netloc) or u.path.startswith(skips):
+                            continue
+                        if target not in queued:
+                            queued.add(target)
+                            queue.append(target)
+        finally:
+            browser.close()
+    print(json.dumps({"crawled": len(measured), "findings": findings, "http_errors": http_errors,
+                      "downloads": sorted(downloads)}, indent=1))
+    print(f"[webshot] audit: {len(measured)} pages, {len(findings)} with findings, {len(http_errors)} not loaded",
+          file=sys.stderr)
+    if start in http_errors:
+        fail(1, f"start page did not load: {http_errors[start]}")
+    if findings:
+        sys.exit(1)
 
 
 def pdf():
@@ -455,7 +663,7 @@ def pdf():
     print(f"[webshot] pdf: {out}", file=sys.stderr)
 
 
-{"capture": capture, "pdf": pdf}[os.environ["WEBSHOT_MODE"]]()
+{"capture": capture, "audit": audit, "pdf": pdf}[os.environ["WEBSHOT_MODE"]]()
 PY
 }
 
