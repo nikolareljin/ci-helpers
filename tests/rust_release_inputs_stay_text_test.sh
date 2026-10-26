@@ -77,7 +77,8 @@ fi
 # apt-get gets "install -y --" and then the input's words, each unchanged,
 # from every line.
 read -r -a want <<< "$value d e f"
-mapfile -t got < <(tail -n +5 "$STUB_APT_ARGS" 2>/dev/null)
+got=()
+while IFS= read -r line; do got+=("$line"); done < <(tail -n +5 "$STUB_APT_ARGS" 2>/dev/null)
 if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
   echo "FAIL apt-get got: ${got[*]-<nothing>}"
   fail=1
