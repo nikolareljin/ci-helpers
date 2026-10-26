@@ -395,8 +395,13 @@ jobs:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: .tmp/google-play.json
         run: |
           set -euo pipefail
-          # A lane and its options, split into words: never globbed or run.
-          read -r -a lane <<< "$FR_FASTLANE_ANDROID_LANE"
+          # A lane and its options, split as the shell would split quoted
+          # words (notes:"a b" stays one), but never expanded or run.
+          # A file, not a pipe, so an unbalanced quote fails the step.
+          words="$(mktemp)"
+          python3 -c 'import shlex, sys; sys.stdout.write("".join(w + "\0" for w in shlex.split(sys.argv[1])))' "$FR_FASTLANE_ANDROID_LANE" > "$words"
+          lane=()
+          while IFS= read -r -d '' w; do lane+=("$w"); done < "$words"
           if [ -f Gemfile ]; then
             bundle exec fastlane "${lane[@]}"
           else
@@ -419,8 +424,13 @@ jobs:
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
         run: |
           set -euo pipefail
-          # A lane and its options, split into words: never globbed or run.
-          read -r -a lane <<< "$FR_FASTLANE_IOS_LANE"
+          # A lane and its options, split as the shell would split quoted
+          # words (notes:"a b" stays one), but never expanded or run.
+          # A file, not a pipe, so an unbalanced quote fails the step.
+          words="$(mktemp)"
+          python3 -c 'import shlex, sys; sys.stdout.write("".join(w + "\0" for w in shlex.split(sys.argv[1])))' "$FR_FASTLANE_IOS_LANE" > "$words"
+          lane=()
+          while IFS= read -r -d '' w; do lane+=("$w"); done < "$words"
           if [ -f Gemfile ]; then
             bundle exec fastlane "${lane[@]}"
           else

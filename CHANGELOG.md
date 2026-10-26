@@ -59,8 +59,9 @@
   `dockerfile`, `image_name` and `context`, and `flutter-release` spliced
   `working_directory` and the two fastlane lanes, so a value with `$5`
   failed the step and `$(...)` ran. They now read `DS_*` and `FR_*`
-  variables. A lane is split into words with `read -a`, so `beta
-  skip_upload:true` still gives fastlane two arguments. The two
+  variables. A lane is split with Python's `shlex`, as the shell split
+  quoted words, so `beta notes:"a b"` still gives fastlane two arguments
+  but nothing in it is expanded or run. The two
   `*_build_command` inputs are code by design and run with `eval`, in the
   same shell as before. `fpc-release.yml` changed only a comment that
   quoted an expression. Test: `tests/flutter_docker_inputs_stay_text_test.sh`
@@ -68,8 +69,9 @@
 
 - **The inline-expression gate covers every workflow and composite
   action.** `tests/no_inline_expressions_in_run_test.sh` fails on any
-  `${{ inputs.* }}` in a run script except a `*_command` input, reading each
-  expression whole, so `format('{0}', inputs.x)` counts. Ten workflows allow
+  reference to `inputs` in a run script or `shell:` except
+  `inputs.<name>_command`, reading each expression whole, so
+  `format('{0}', inputs.x)`, `inputs['x']` and `toJSON(inputs)` count. Ten workflows allow
   no expression in a run script at all. The composite actions
   `wp-plugin-check` and `pimcore-bundle-check` still splice 58 text inputs
   and are listed as not yet fixed; the gate fails if either is fixed and

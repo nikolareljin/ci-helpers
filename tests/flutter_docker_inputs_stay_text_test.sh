@@ -3,7 +3,8 @@
 # DESCRIPTION: Renders steps of flutter-release.yml and docker-scan.yml as
 #              GitHub does, with text inputs set to text a shell would
 #              execute, and runs them against stub fastlane and docker. Lanes
-#              must reach fastlane as their words, working_directory and the
+#              must reach fastlane as their words, a quoted option as one, with
+#              and without a Gemfile; working_directory and the
 #              docker inputs must arrive unchanged, nothing in them may run,
 #              and the *_build_command inputs must still run as code.
 # USAGE: bash tests/flutter_docker_inputs_stay_text_test.sh
@@ -18,11 +19,15 @@ trap 'rm -rf "$work"' EXIT
 # and backticks must not run.
 # shellcheck disable=SC2016
 value='a $5 "b" $(touch ran) `touch ran` c'
+# A lane also carries a quoted option, which must stay one word.
+lane_value="$value notes:\"x y\""
 mkdir -p "$work/wd" "$work/bin"
 
-python3 - "$root" "$work" "$value" <<'PY'
+python3 - "$root" "$work" "$value" "$lane_value" <<'PY'
 import re, shlex, sys, yaml
-root, work, value = sys.argv[1:4]
+root, work, value, lane_value = sys.argv[1:5]
+# What fastlane must get: the lane split as the shell splits quoted words.
+open(f"{work}/lane.want", "w").write("".join(w + "\n" for w in shlex.split(lane_value)))
 
 def steps(f, job):
     # Each step with the job's env under its own, as the runner merges them.
@@ -41,10 +46,12 @@ fr = steps("flutter-release.yml", "flutter_release")
 ds = steps("docker-scan.yml", "scan")
 cases = [
     ("note", fr["Note for Android signing config"], {}),
-    ("play", fr["Deploy to Google Play via Fastlane"], {}),
+    ("play", fr["Deploy to Google Play via Fastlane"],
+     {"fastlane_android_lane": lane_value}),
     ("build", fr["Build Android appbundle"],
      {"android_build_command": "set -- one two\nprintf '%s\\n' \"$#\" > built"}),
-    ("appstore", fr["Deploy to App Store via Fastlane"], {}),
+    ("appstore", fr["Deploy to App Store via Fastlane"],
+     {"fastlane_ios_lane": lane_value}),
     ("ios", fr["Build iOS (no codesign)"],
      {"ios_build_command": "set -- one two three\nprintf '%s\\n' \"$#\" > built-ios"}),
     ("cleanup", fr["Cleanup signing and deploy credentials"], {}),
@@ -57,7 +64,7 @@ for i, (tag, s, special) in enumerate(cases):
     open(f"{work}/{tag}.sh", "w").write(render(s["run"], special))
 PY
 
-for tool in fastlane docker; do
+for tool in fastlane bundle docker; do
   cat > "$work/bin/$tool" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$work/$tool.\$STEP.args"
@@ -74,6 +81,8 @@ for tag in note play build appstore ios cleanup docker; do
   # The iOS steps refuse anything but macOS.
   export STEP="$tag" RUNNER_OS=Linux
   [[ "$tag" == appstore || "$tag" == ios ]] && RUNNER_OS=macOS
+  # App Store runs with a Gemfile, so the bundle exec branch is covered too.
+  if [[ "$tag" == appstore ]]; then : > "$work/wd/Gemfile"; else rm -f "$work/wd/Gemfile"; fi
   # shellcheck disable=SC1090
   if ! (cd "$work/wd" && set -a && . "$work/$tag.env" && bash "$work/$tag.sh" > "$work/$tag.out" 2>&1); then
     echo "FAIL step $tag exited non-zero: $(tail -1 "$work/$tag.out")"
@@ -89,16 +98,16 @@ if ! grep -qF -- "$work/ws/$value/android/key.properties" "$work/note.out"; then
   echo "FAIL working_directory did not reach the note unchanged"
   fail=1
 fi
-# fastlane gets each lane's words, each unchanged.
-read -r -a want <<< "$value"
-for tag in play appstore; do
-  got=()
-  while IFS= read -r line; do got+=("$line"); done < <(cat "$work/fastlane.$tag.args" 2>/dev/null)
-  if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
-    echo "FAIL fastlane ($tag) got: ${got[*]-<nothing>}"
-    fail=1
-  fi
-done
+# fastlane gets each lane's words, each unchanged; through bundle exec
+# when there is a Gemfile.
+if [[ "$(cat "$work/fastlane.play.args" 2>/dev/null)" != "$(cat "$work/lane.want")" ]]; then
+  echo "FAIL fastlane (play) got: $(tr '\n' '|' 2>/dev/null < "$work/fastlane.play.args")"
+  fail=1
+fi
+if [[ "$(cat "$work/bundle.appstore.args" 2>/dev/null)" != "$(printf 'exec\nfastlane\n'; cat "$work/lane.want")" ]]; then
+  echo "FAIL bundle exec fastlane (appstore) got: $(tr '\n' '|' 2>/dev/null < "$work/bundle.appstore.args")"
+  fail=1
+fi
 # The build commands are code: each runs, with its own positional parameters.
 if [[ "$(cat "$work/wd/built" 2>/dev/null)" != 2 ]]; then
   echo "FAIL android_build_command did not run as code"

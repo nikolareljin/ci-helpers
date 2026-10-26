@@ -3,9 +3,10 @@
 # DESCRIPTION: Run scripts take inputs through env, never as ${{ }} spliced
 #              into the script, where an input such as `x; curl ...` would
 #              run as code. The listed workflows carry no ${{ }} in any run
-#              script. Every other workflow and composite action carries no
-#              ${{ inputs.* }} in one, except a *_command input, which is code
-#              by design. Files in not_yet still splice text inputs; each
+#              script or shell. Every other workflow and composite action
+#              names inputs in no run script or shell in any form (inputs.x,
+#              inputs['x'], toJSON(inputs)), except inputs.<name>_command,
+#              which is code by design. Files in not_yet still splice text inputs; each
 #              must leave the list once it is fixed.
 # USAGE: bash tests/no_inline_expressions_in_run_test.sh
 # ----------------------------------------------------
@@ -52,16 +53,19 @@ for f in files:
     spliced = False
     for job, steps in run_steps(f):
         for s in steps:
-            run = s.get("run", "")
+            # shell: is spliced the same way: `shell: bash -c "${{ ... }} {0}"`.
+            run = f'{s.get("run", "")}\n{s.get("shell", "")}'
             where = f"{f}: {job}: {s.get('name', '?')}"
             if f in strict and "${{" in run:
                 bad.append(where)
-            for name in (n for e in expression.findall(run)
-                         for n in re.findall(r"\binputs\.(\w+)", e)):
-                if f not in strict and not name.endswith("_command"):
+            # Every reference to inputs, in any form: .name, ['name'], or the
+            # whole object. Only inputs.<name>_command is allowed.
+            for ref in (r for e in expression.findall(run)
+                        for r in re.findall(r"\binputs\b(?:\.\w+|\s*\[[^\]]*\])?", e)):
+                if f not in strict and not re.fullmatch(r"inputs\.\w+_command", ref):
                     spliced = True
                     if f not in not_yet:
-                        bad.append(f"{where}: inputs.{name}")
+                        bad.append(f"{where}: {ref}")
     if f in not_yet and not spliced:
         bad.append(f"{f}: no text input spliced any more; remove it from not_yet")
 for b in bad:
