@@ -107,13 +107,17 @@ jobs:
         shell: bash
         run: bash tests/tauri_upload_once_test.sh
 
-      - name: ppa-deb, the packaging workflows and wp-plugin-check take their inputs through env
+      - name: the packaging workflows, wp-plugin-check and rust-release take their inputs through env
         shell: bash
         run: bash tests/no_inline_expressions_in_run_test.sh
 
       - name: wp-plugin-check inputs reach the script as text
         shell: bash
         run: bash tests/wp_plugin_check_inputs_stay_text_test.sh
+
+      - name: rust-release inputs reach apt-get and the artifacts as text
+        shell: bash
+        run: bash tests/rust_release_inputs_stay_text_test.sh
 
       - name: packaging workflows create no vendor/ directory
         shell: bash

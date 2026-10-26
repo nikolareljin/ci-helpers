@@ -9,6 +9,10 @@
   `docker/login-action` v4.6.0 -> v4.7.0. 20 pins in 16 files. Dependabot
   changed only the SHA; the `# <tag> @ <date>` comments now name the new
   tag, so `update_pinned_actions.sh --check` resolves the pin it checks.
+- **`rust-release.yml`: `apt_packages` takes package names only.** The list
+  now goes to `apt-get install` after `--`, so an apt option in it, such as
+  `--no-install-recommends`, fails the step with `Unable to locate
+  package`. Move apt options out of the list. See the Fixed entry below.
 
 ### Fixed
 
@@ -22,6 +26,20 @@
   runner does and runs it against a stub (0 of 25 values arrive against
   0.46.0), and `tests/no_inline_expressions_in_run_test.sh` now covers this
   file. E119 M4, first of six files.
+
+- **`rust-release.yml` passes its inputs through env.** Three steps spliced
+  12 `${{ inputs.* }}` into their run scripts, so a `bin_name` or
+  `artifact_dir` with `$5` failed the build (`$5: unbound variable`) and
+  `$(...)` ran. They now read `INPUT_*` variables, the names the
+  binary-links step already uses. `apt_packages` is split into words, across
+  lines as in `tauri.yml`, and passed after `--`, so a space- or
+  newline-separated list still installs but nothing in it is globbed or
+  run; an empty list skips the install. Tests:
+  `tests/rust_release_inputs_stay_text_test.sh` renders the install and
+  build steps as the runner does and runs them against stub `sudo` and
+  `cargo` (fails against 0.46.0), and
+  `tests/no_inline_expressions_in_run_test.sh` now covers this file. E119
+  M4, second of six files.
 
 ## 2026-10-26 — v0.46.0
 

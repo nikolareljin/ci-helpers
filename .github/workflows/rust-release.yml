@@ -95,40 +95,61 @@ jobs:
       - name: Install build dependencies
         if: ${{ inputs.install_deps }}
         shell: bash
+        env:
+          INPUT_APT_PACKAGES: ${{ inputs.apt_packages }}
         run: |
           set -euo pipefail
+          # Space- or newline-separated, as in tauri.yml: split into words,
+          # never globbed or run. read stops at a newline, so map them first.
+          _pkgs="${INPUT_APT_PACKAGES//$'\r'}"
+          read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
           sudo apt-get update
-          sudo apt-get install -y ${{ inputs.apt_packages }}
+          if [ ${#pkgs[@]} -gt 0 ]; then
+            sudo apt-get install -y -- "${pkgs[@]}"
+          fi
 
       - name: Add Rust targets
         shell: bash
+        env:
+          INPUT_BUILD_WINDOWS: ${{ inputs.build_windows }}
+          INPUT_BUILD_LINUX_GNU: ${{ inputs.build_linux_gnu }}
+          INPUT_BUILD_LINUX_MUSL: ${{ inputs.build_linux_musl }}
+          INPUT_BUILD_MACOS: ${{ inputs.build_macos }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.build_windows }}" = "true" ]; then
+          if [ "$INPUT_BUILD_WINDOWS" = "true" ]; then
             rustup target add x86_64-pc-windows-gnu
           fi
-          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+          if [ "$INPUT_BUILD_LINUX_GNU" = "true" ]; then
             rustup target add x86_64-unknown-linux-gnu
           fi
-          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+          if [ "$INPUT_BUILD_LINUX_MUSL" = "true" ]; then
             rustup target add x86_64-unknown-linux-musl
           fi
-          if [ "${{ inputs.build_macos }}" = "true" ]; then
+          if [ "$INPUT_BUILD_MACOS" = "true" ]; then
             rustup target add x86_64-apple-darwin
           fi
 
       - name: Build release binaries
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          INPUT_BUILD_WINDOWS: ${{ inputs.build_windows }}
+          INPUT_BUILD_LINUX_GNU: ${{ inputs.build_linux_gnu }}
+          INPUT_BUILD_LINUX_MUSL: ${{ inputs.build_linux_musl }}
+          INPUT_BUILD_MACOS: ${{ inputs.build_macos }}
+          INPUT_BIN_NAME: ${{ inputs.bin_name }}
+          INPUT_ARTIFACT_DIR: ${{ inputs.artifact_dir }}
+          INPUT_LINUX_GNU_ALIASES: ${{ inputs.linux_gnu_aliases }}
         run: |
           set -euo pipefail
-          bin="${{ inputs.bin_name }}"
-          artifact_dir="${{ inputs.artifact_dir }}"
+          bin="$INPUT_BIN_NAME"
+          artifact_dir="$INPUT_ARTIFACT_DIR"
           mkdir -p "$artifact_dir"
 
           cargo build --release
 
-          if [ "${{ inputs.build_windows }}" = "true" ]; then
+          if [ "$INPUT_BUILD_WINDOWS" = "true" ]; then
             cargo build --release --target=x86_64-pc-windows-gnu
             if [ -f "target/x86_64-pc-windows-gnu/release/${bin}.exe" ]; then
               cp "target/x86_64-pc-windows-gnu/release/${bin}.exe" "${artifact_dir}/${bin}-windows.exe"
@@ -138,7 +159,7 @@ jobs:
             fi
           fi
 
-          if [ "${{ inputs.build_linux_gnu }}" = "true" ]; then
+          if [ "$INPUT_BUILD_LINUX_GNU" = "true" ]; then
             cargo build --release --target=x86_64-unknown-linux-gnu
             if [ -f "target/x86_64-unknown-linux-gnu/release/${bin}" ]; then
               cp "target/x86_64-unknown-linux-gnu/release/${bin}" "${artifact_dir}/${bin}-linux"
@@ -147,7 +168,7 @@ jobs:
               exit 1
             fi
 
-            aliases="${{ inputs.linux_gnu_aliases }}"
+            aliases="$INPUT_LINUX_GNU_ALIASES"
             if [ -n "$aliases" ]; then
               IFS=',' read -r -a alias_list <<< "$aliases"
               for alias in "${alias_list[@]}"; do
@@ -156,7 +177,7 @@ jobs:
             fi
           fi
 
-          if [ "${{ inputs.build_linux_musl }}" = "true" ]; then
+          if [ "$INPUT_BUILD_LINUX_MUSL" = "true" ]; then
             cargo build --release --target=x86_64-unknown-linux-musl
             if [ -f "target/x86_64-unknown-linux-musl/release/${bin}" ]; then
               cp "target/x86_64-unknown-linux-musl/release/${bin}" "${artifact_dir}/${bin}-musl"
@@ -166,7 +187,7 @@ jobs:
             fi
           fi
 
-          if [ "${{ inputs.build_macos }}" = "true" ]; then
+          if [ "$INPUT_BUILD_MACOS" = "true" ]; then
             if command -v x86_64-apple-darwin-gcc >/dev/null 2>&1; then
               export CARGO_BUILD_TARGET_X86_64_APPLE_DARWIN_LINKER=x86_64-apple-darwin-gcc
               cargo build --release --target=x86_64-apple-darwin
