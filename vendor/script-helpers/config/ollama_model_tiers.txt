@@ -40,7 +40,7 @@ type classify   qwen3:1.7b     qwen3:1.7b        qwen3:1.7b        qwen3:1.7b
 type extract    qwen3.5:2b     qwen3.5:4b        qwen3.5:9b        qwen3.5:9b
 type vision     qwen3-vl:4b    qwen3-vl:4b       qwen3-vl:8b       qwen3-vl:8b
 type embed      nomic-embed-text nomic-embed-text nomic-embed-text nomic-embed-text
-type code       qwen3.5:4b     qwen2.5-coder:7b  qwen3-coder:30b   qwen3.6:27b-coding
+type code       granite4.1:3b  qwen2.5-coder:7b  qwen3-coder:30b   qwen3.6:27b-coding
 type creative   qwen3.5:4b     gemma4:latest     gemma4:latest     gemma4:latest
 type tiny       qwen3:0.6b     qwen3:0.6b        qwen3:0.6b        qwen3:0.6b
 

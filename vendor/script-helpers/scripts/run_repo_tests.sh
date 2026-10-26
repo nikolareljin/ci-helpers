@@ -142,7 +142,9 @@ run_tests() {
       )"
       if [[ -n "$test_script" ]]; then
         echo "[tests] npm test"
-        npm test || return $?
+        # CI=true unless set: a watch-mode runner (react-scripts test, vitest without run)
+        # otherwise waits for input and the push never returns.
+        CI="${CI:-true}" npm test || return $?
         _ran_tests=true
         return 0
       fi
@@ -151,7 +153,7 @@ run_tests() {
   fi
 
   # Python - only return when tests actually ran; otherwise fall through.
-  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]]; then
+  if [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f requirements.txt ]] || [[ -f requirements-dev.txt ]]; then
     if [[ -n "$_scripts_dir" ]] && [[ -f "$_scripts_dir/local_test_python.sh" ]]; then
       echo "[tests] local_test_python.sh --quick"
       bash "$_scripts_dir/local_test_python.sh" --quick || return $?

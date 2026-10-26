@@ -55,7 +55,8 @@ function _Run {
     $cmdArgs = if ($Cmd.Length -gt 1) { $Cmd[1..($Cmd.Length - 1)] } else { @() }
     if ($UseDocker) {
         $img = if ($Image) { $Image } elseif ($env:CI_NODE_IMAGE) { $env:CI_NODE_IMAGE } else { 'node:22-alpine' }
-        docker run --rm -v "${absWorkdir}:/work" -w /work $img $exe @cmdArgs
+        # -e CI passes the host value when set (the test step sets it below).
+        docker run --rm -e CI -v "${absWorkdir}:/work" -w /work $img $exe @cmdArgs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
         Push-Location $absWorkdir
@@ -69,6 +70,13 @@ function _Run {
 log_info "Node CI - workdir: $absWorkdir"
 if (-not $NoInstall) { log_info "Install: $($InstallCmd -join ' ')";  _Run $InstallCmd }
 if (-not $SkipLint)  { log_info "Lint:    $($LintCmd -join ' ')";     _Run $LintCmd    }
-if (-not $SkipTest)  { log_info "Test:    $($TestCmd -join ' ')";      _Run $TestCmd    }
+# CI=true unless set: a watch-mode test runner (react-scripts test, vitest without run)
+# otherwise waits for input.
+if (-not $SkipTest)  {
+    log_info "Test:    $($TestCmd -join ' ')"
+    $prevCI = $env:CI
+    if (-not $env:CI) { $env:CI = 'true' }
+    try { _Run $TestCmd } finally { $env:CI = $prevCI }
+}
 if (-not $SkipBuild) { log_info "Build:   $($BuildCmd -join ' ')";    _Run $BuildCmd   }
 print_success "Node CI complete."

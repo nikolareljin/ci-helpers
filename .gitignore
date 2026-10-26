@@ -52,4 +52,5 @@ CLAUDE.md
 
 # pip build output from the django-install fixture (self-test-web.yml)
 tests/fixtures/django-install/probe/build/
+tests/fixtures/django-install/probe-dev/build/
 *.egg-info/

@@ -84,7 +84,9 @@ if [[ "$USE_DOCKER" == "true" ]]; then
     exit 1
   fi
   ABS_WORKDIR="$(cd "$WORKDIR" && pwd)"
-  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work)
+  # CI=true unless set (this script refuses CI=true on the host, so it is
+  # never inherited): with -t a watch-mode test runner otherwise waits for input.
+  DOCKER_CMD=(docker run --pull=always --rm -t -u "$(id -u):$(id -g)" -e "CI=${CI:-true}" -e NPM_CONFIG_CACHE=/tmp/.npm -v "$ABS_WORKDIR":/work -w /work)
   if [[ -n "${HOME:-}" ]]; then
     mkdir -p "$HOME/.npm"
     DOCKER_CMD+=(-v "$HOME/.npm":/tmp/.npm)
@@ -130,7 +132,7 @@ else
   fi
   if [[ "$SKIP_TEST" == "false" ]]; then
     log_info "$TEST_CMD"
-    bash -lc "$TEST_CMD"
+    CI="${CI:-true}" bash -lc "$TEST_CMD"
   fi
   if [[ "$SKIP_BUILD" == "false" ]]; then
     log_info "$BUILD_CMD"

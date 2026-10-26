@@ -5,7 +5,8 @@
 # PARAMETERS:
 #   --workdir <path>     Working directory for Python commands (default: current dir).
 #   --no-install         Skip dependency install step.
-#   --requirements <f>   Requirements file to install (default: requirements.txt if present).
+#   --requirements <f>   Requirements file to install (default: requirements.txt, then
+#                        requirements-dev.txt, each if present).
 #   --constraints <f>    Constraints file to use (optional).
 #   --extra-install <c>  Extra packages to install (e.g. "pytest tldextract").
 #   --test-cmd <c>       Test command (default: python -m pytest -q).
@@ -188,6 +189,18 @@ else
   IMAGE="${CI_DEFAULT_PYTHON_IMAGE}:${IMAGE_TAG}"
 fi
 
+# --requirements names one file. Without it, requirements.txt and then
+# requirements-dev.txt, each if present: a project that keeps pytest in the dev
+# file otherwise fails with "No module named pytest".
+REQ_FILES=()
+if [[ -n "$REQ_FILE" ]]; then
+  REQ_FILES=("$REQ_FILE")
+else
+  for req in requirements.txt requirements-dev.txt; do
+    [[ -f "$WORKDIR/$req" ]] && REQ_FILES+=("$req")
+  done
+fi
+
 if [[ "$USE_DOCKER" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
     log_error "docker is required when running in Docker mode (default). Use --no-docker to run on the host instead."
@@ -224,16 +237,13 @@ if [[ "$USE_DOCKER" == "true" ]]; then
       CMDS+=("$PIP_CMD")
     else
       CMDS+=("python -m pip install --user --upgrade pip")
-      if [[ -z "$REQ_FILE" && -f "$ABS_WORKDIR/requirements.txt" ]]; then
-        REQ_FILE="requirements.txt"
-      fi
-      if [[ -n "$REQ_FILE" ]]; then
-        install_cmd="python -m pip install --user -r \"$REQ_FILE\""
+      for req in ${REQ_FILES[@]+"${REQ_FILES[@]}"}; do
+        install_cmd="python -m pip install --user -r \"$req\""
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
           install_cmd+=" -c \"$CONSTRAINTS_FILE\""
         fi
         CMDS+=("$install_cmd")
-      fi
+      done
       if [[ -n "$EXTRA_INSTALL" ]]; then
         # Word splitting is intentional: EXTRA_INSTALL may contain multiple
         # space-separated package names (e.g. "pytest tldextract").
@@ -265,17 +275,14 @@ else
     else
       log_info "python -m pip install --upgrade pip"
       python -m pip install --upgrade pip
-      if [[ -z "$REQ_FILE" && -f "requirements.txt" ]]; then
-        REQ_FILE="requirements.txt"
-      fi
-      if [[ -n "$REQ_FILE" ]]; then
-        install_cmd="python -m pip install -r \"$REQ_FILE\""
+      for req in ${REQ_FILES[@]+"${REQ_FILES[@]}"}; do
+        install_cmd="python -m pip install -r \"$req\""
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
           install_cmd+=" -c \"$CONSTRAINTS_FILE\""
         fi
         log_info "$install_cmd"
         bash -lc "$install_cmd"
-      fi
+      done
       if [[ -n "$EXTRA_INSTALL" ]]; then
         log_info "python -m pip install $EXTRA_INSTALL"
         # shellcheck disable=SC2086 # Intentional: EXTRA_INSTALL contains space-separated package names.

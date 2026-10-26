@@ -18,7 +18,8 @@
 #   --db-wait-seconds <n>         How long to wait for it to answer (default: 60).
 #   --settings <module>           DJANGO_SETTINGS_MODULE for every step.
 #   --install-command <command>   Dependency install. Empty skips it
-#                                 (default: pip install -r requirements.txt, when that file exists).
+#                                 (default: pip install -r requirements.txt, then
+#                                 requirements-dev.txt, each when it exists).
 #   --migrate-command <command>   Schema. Empty skips it (default: python manage.py migrate --noinput).
 #   --check-command <command>     Schema drift, as its own step between the schema and the
 #                                 tests. Empty skips it (default:
@@ -153,11 +154,14 @@ esac
 # The default install runs only when there is something to install, so a project
 # whose dependencies are already present is not failed by a missing file.
 if [[ "$install_command" == "__default__" ]]; then
-  if [[ -f "${abs_workdir}/requirements.txt" ]]; then
-    install_command="pip install --no-input -r requirements.txt"
-  else
-    install_command=""
-  fi
+  # requirements-dev.txt after requirements.txt, each if present: it holds the
+  # test tools when a project keeps them apart.
+  install_command=""
+  for req in requirements.txt requirements-dev.txt; do
+    if [[ -f "${abs_workdir}/${req}" ]]; then
+      install_command="${install_command:+$install_command && }pip install --no-input -r ${req}"
+    fi
+  done
 fi
 
 sqlite_file=""

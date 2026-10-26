@@ -38,8 +38,12 @@
 #   - a check could not run and the USER set SECURITY_GATE_ALLOW_UNCHECKED=1
 #     in this hook's own environment (a command that sets it is refused);
 #   - an empty command: nothing runs.
-# There is no allow before the whole-command pass. The private-name prefilter
-# only decides whether the slow full check is needed, and errs towards it.
+#   - contained_private: the command, as this hook reads it, stays inside one
+#     repository whose every remote is listed private, so a private name in
+#     it reaches no public place; only the private-name check is skipped.
+# Apart from contained_private there is no allow before the whole-command
+# pass. The private-name prefilter only decides whether the slow full check is
+# needed, and errs towards it.
 #
 # INSTALL: in the settings.json Claude Code reads for the directory,
 #
@@ -200,6 +204,348 @@ fi
 if [[ "$session_scope" -ne 0 ]]; then
   echo "The security gate could not tell whether this repository is in scope (owner_scope.sh missing or git config unreadable); refused." >&2
   exit 2
+fi
+
+# contained_private: inside a private repository, a command may name that
+# repository and other private ones. That holds only when the whole command, as
+# this hook reads it, stays inside one repository whose every remote is listed
+# private. Anything that could carry text elsewhere (another directory, a URL,
+# an interpreter, an expansion, a gh call aimed at another repository) keeps the
+# full check. Prints "yes" or nothing; the caller treats nothing as strict.
+contained_private=false
+if [[ "$HAVE_PY" == true ]]; then
+  names_list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
+  # Not inside $(...): bash 3.2 (macOS) parses a heredoc there as part of the
+  # substitution and fails on the backtick in the Python below.
+  "$PY" -I - "$payload_file" "$names_list" "$PWD" > "${payload_file}.contained" 2>/dev/null <<'PY'
+import json, os, pathlib, re, shlex, subprocess, sys
+
+payload, names_list, cwd = sys.argv[1:4]
+
+def strict():
+    sys.exit(0)
+
+try:
+    data = json.load(open(payload, encoding="utf-8"))
+except Exception:
+    strict()
+if data.get("tool_name") != "Bash":
+    strict()
+command = (data.get("tool_input") or {}).get("command") or ""
+# Expansions, substitutions and globs are text the parser cannot read: a glob
+# can expand to a symlink that points out of the repository.
+# A newline is refused too: shlex reads it as whitespace, so the next line's
+# command would be judged as arguments of this one. Braces too: {a,../x}
+# expands to paths the checks below never see.
+if not command or re.search(r"[$`\\*?\[{}\n\r]|<\(|>\(", command):
+    strict()
+try:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens = list(lexer)
+except ValueError:
+    strict()
+
+# Tilde forms other than ~ and ~/x: ~+ is $PWD, ~- is $OLDPWD, ~user another
+# home. Judged per token, and per piece of one (--opt=~+/x), after tokenizing.
+TILDE_RE = re.compile(r"(^|[=:,<>&|;])~(?!/|$)")
+if any(TILDE_RE.search(t) for t in tokens):
+    strict()
+
+SEPARATORS = {"&&", "||", ";", "|", "&", "\n"}
+REDIRECTS = {">", ">>", "<", "<<", "<<<", ">|", "&>", "&>>", ">&", "<&"}
+# joins[i]: the operators before and after segments[i] (None at either end).
+segments, joins, cur, last = [], [], [], None
+for t in tokens:
+    if t in SEPARATORS:
+        if cur:
+            segments.append(cur)
+            joins.append([last, t])
+        cur, last = [], t
+    elif t in ("(", ")", "{", "}"):
+        strict()
+    elif t and all(ch in "();<>|&" for ch in t) and t not in REDIRECTS:
+        strict()
+    else:
+        cur.append(t)
+if cur:
+    segments.append(cur)
+    joins.append([last, None])
+
+# An allowlist: only commands known to read or write local files, plus git and
+# gh with the subcommands below. Anything else (wrappers such as nice or make,
+# interpreters, network tools) keeps the full check.
+SAFE = {"cd", "ls", "cat", "head", "tail", "wc", "grep", "rg", "sed", "diff", "sort",
+        "uniq", "cut", "tr", "echo", "printf", "true", "pwd", "stat", "file", "mkdir",
+        "touch", "cp", "mv", "git", "gh"}
+GIT_SAFE = {"status", "log", "show", "diff", "add", "rm", "mv", "restore", "checkout",
+            "switch", "branch", "commit", "stash", "grep", "ls-files", "rev-parse",
+            "fetch", "pull", "push", "merge", "rebase", "tag", "blame", "shortlog",
+            "describe", "reset"}
+GH_SAFE = {("pr", "create"), ("pr", "edit"), ("pr", "comment"), ("pr", "view"),
+           ("pr", "list"), ("pr", "diff"), ("pr", "checks"), ("issue", "create"),
+           ("issue", "edit"), ("issue", "comment"), ("issue", "view"), ("issue", "list")}
+
+def toplevel(d):
+    try:
+        out = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=5)
+    except Exception:
+        return ""
+    return str(pathlib.Path(out.stdout.strip()).resolve()) if out.returncode == 0 else ""
+
+_native = {}
+
+def native(p):
+    # Windows: the shell passes /tmp/x and /c/x, which Python reads as C:\tmp\x.
+    if os.name != "nt" or not p.startswith("/"):
+        return p
+    if p not in _native:
+        try:
+            out = subprocess.run(["cygpath", "-w", p], capture_output=True,
+                                 text=True, timeout=5)
+        except Exception:
+            strict()
+        if out.returncode != 0 or not out.stdout.strip():
+            strict()
+        _native[p] = out.stdout.strip()
+    return _native[p]
+
+def resolve(base, p):
+    p = os.path.expanduser(p)
+    if p.startswith("~"):
+        strict()
+    return str(pathlib.Path(base, native(p)).resolve())
+
+repo = toplevel(cwd)
+workdir = cwd
+ran = False
+# Set once a git command may rewrite the work tree (see below).
+tree_changed = False
+TREE_GIT = {"checkout", "switch", "restore", "reset", "merge", "rebase", "pull",
+            "stash", "rm", "mv"}
+READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "sed", "diff", "cut", "tr",
+             "echo", "printf", "true", "pwd", "stat", "git"}
+
+def git_dir(d):
+    try:
+        out = subprocess.run(["git", "-C", d, "rev-parse", "--absolute-git-dir"],
+                             capture_output=True, text=True, timeout=5)
+    except Exception:
+        return ""
+    return str(pathlib.Path(out.stdout.strip()).resolve()) if out.returncode == 0 else ""
+
+gitdir = git_dir(cwd)
+
+_owner = {}
+
+def owning_repo(path):
+    # The repository of the nearest existing directory at or above path.
+    d = path
+    while d and not os.path.isdir(d):
+        d = os.path.dirname(d)
+    if d not in _owner:
+        _owner[d] = toplevel(d)
+    return _owner[d]
+
+def inside(path):
+    # The git dir is never contained: a hook or config written there runs later.
+    if not repo or not gitdir or path == gitdir or path.startswith(gitdir + os.sep):
+        return False
+    if not (path == repo or path.startswith(repo + os.sep)):
+        return False
+    # A nested repository (a submodule, a checkout inside the tree) is another place.
+    return owning_repo(path) == repo
+
+URL_RE = re.compile(r"://|^[^/\s]+@[^/\s]+:|^[A-Za-z][\w.-]*:[\w.-]+/")
+SPLIT_RE = re.compile(r"[\s=:,;'\"]+")
+
+def check_arg(arg):
+    if URL_RE.search(arg):
+        strict()
+    # -o/x and -o~/x: the path after a short option is not a word of its own.
+    if re.match(r"^-[^-=]+[/~]", arg):
+        strict()
+    # -t.. and -o<link>: any tail of a short-option cluster (cp -at..) can be
+    # its value, so a tail that is .. or names an existing path must stay inside.
+    if re.match(r"^-[^-]", arg):
+        for k in range(2, len(arg)):
+            tail = arg[k:]
+            if (tail == ".." or os.path.lexists(os.path.join(workdir, tail))) \
+                    and not inside(resolve(workdir, tail)):
+                strict()
+    # Every path in the argument, also inside a value (--output=/x, 'w /x'),
+    # resolved through symlinks.
+    # sub/../../x climbs out without starting with "..".
+    for piece in SPLIT_RE.split(arg):
+        if ("/" in piece or piece.startswith("~") or piece == "..") \
+                and not inside(resolve(workdir, piece)):
+            strict()
+    value = arg.split("=", 1)[1] if arg.startswith("-") and "=" in arg else arg
+    if value and os.path.lexists(os.path.join(workdir, value)):
+        if not inside(resolve(workdir, value)):
+            strict()
+
+def slug_names(url):
+    # owner/name of a network URL; a local path is not judged by its spelling.
+    if not re.match(r"^[A-Za-z][\w+.-]*://|^[^/\s]+@[^/\s]+:", url):
+        return None
+    m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url)
+    return (m.group(1).lower(), m.group(2).lower()) if m else None
+
+def remote_urls(d):
+    # The URL column of git remote -v (insteadOf applied), fetch and push.
+    out = subprocess.run(["git", "-C", d, "remote", "-v"], capture_output=True,
+                         text=True, timeout=5)
+    if out.returncode != 0:
+        strict()
+    return [line.split("\t", 1)[1].rsplit(" ", 1)[0]
+            for line in out.stdout.splitlines() if "\t" in line]
+
+for seg, (before, after) in zip(segments, joins):
+    # VAR=value prefixes: GIT_DIR=, GIT_WORK_TREE= and friends move git elsewhere.
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):
+        strict()
+    word = os.path.basename(seg[0]).lower()
+    if word not in SAFE or seg[0] != word:
+        strict()
+    # Paths are checked before anything runs. After a checkout or merge, a path
+    # checked as missing can be a symlink out of the repository, so after it
+    # only commands that cannot write count (sort -o, uniq in out and file -C
+    # write).
+    if tree_changed and (word not in READ_ONLY or any(a in REDIRECTS for a in seg[1:])):
+        strict()
+    # sed scripts can run commands (e, s///e) and write files (w), so sed only
+    # prints line ranges: sed -n 5,20p file.
+    if word == "sed":
+        script = [a for a in seg[1:] if not a.startswith("-")][:1]
+        if any(a.startswith("-") and a not in ("-n", "-E", "-r") for a in seg[1:]) \
+                or not script or not re.fullmatch(r"(\d+(,\d+)?)?p", script[0]):
+            strict()
+    # rg runs --pre and --hostname-bin, and -z (also inside -iz) runs a
+    # decompressor. GNU sort takes any unambiguous prefix (--compress=).
+    if word == "rg" and any(a.startswith(("--pre", "--search-zip", "--hostname-bin"))
+                            or re.match(r"^-[^-]*z", a) for a in seg[1:]):
+        strict()
+    if word == "sort" and any(a.startswith("--") and len(a) > 3 and
+                              "compress-program".startswith(a[2:].split("=", 1)[0])
+                              for a in seg[1:]):
+        strict()
+    if word == "cd":
+        # cd - is $OLDPWD, and CDPATH can send a bare name anywhere; only
+        # /, ./, ../ and ~ forms go where they say.
+        if len(seg) != 2 or seg[1].startswith("-") \
+                or not seg[1].startswith(("/", "./", "../", "~")) and seg[1] not in (".", ".."):
+            strict()
+        # A cd moves what follows only when it runs in this shell and what
+        # follows runs only after it worked: after |, || or before |, &, ||, ;
+        # the next command can run in the old directory.
+        if before not in (None, ";", "&&", "&") or after not in (None, "&&"):
+            strict()
+        workdir = resolve(workdir, seg[1])
+        # A leading cd picks the repository; a later one must stay inside it.
+        if not ran:
+            repo = toplevel(workdir)
+            gitdir = git_dir(workdir)
+        if not inside(workdir):
+            strict()
+        continue
+    if word == "git":
+        if toplevel(workdir) != repo:
+            strict()
+        rest = seg[1:]
+        while rest and rest[0].startswith("-"):
+            if rest[0] in ("--no-pager", "--paginate", "-P", "--no-replace-objects"):
+                rest = rest[1:]
+                continue
+            # -C, -c, --git-dir, --work-tree, --exec-path: refused, not followed.
+            strict()
+        if not rest or rest[0] not in GIT_SAFE:
+            strict()
+        changes_tree = rest[0] in TREE_GIT
+        # --output writes wherever it points, even the repository root;
+        # recurse-submodules pushes each submodule to its own remote; the
+        # others run a command.
+        # git takes any unambiguous prefix of a long option (--up= is
+        # --upload-pack), so a prefix of one of these is refused too.
+        risky = ("output", "exec", "upload-pack", "receive-pack", "extcmd",
+                 "open-files-in-pager", "recurse-submodules")
+        for a in rest:
+            name = a[2:].split("=", 1)[0] if a.startswith("--") else ""
+            if name and any(r.startswith(name) for r in risky) or re.match(r"^-[^-]*[xO]", a):
+                strict()
+        if rest[0] in ("push", "fetch", "pull"):
+            # Only a remote of this repository, named: without one, git follows
+            # branch.<b>.remote or pushRemote, which can be a URL.
+            remotes = subprocess.run(["git", "-C", workdir, "remote"], capture_output=True,
+                                     text=True, timeout=5).stdout.split()
+            pos = [a for a in rest[1:] if not a.startswith("-")]
+            if not pos or pos[0] not in remotes:
+                strict()
+    if word == "gh":
+        if os.environ.get("GH_REPO") or os.environ.get("GH_HOST"):
+            strict()
+        low = [a.lower() for a in seg]
+        if len(low) < 3 or (low[1], low[2]) not in GH_SAFE:
+            strict()
+        if toplevel(workdir) != repo:
+            strict()
+        own = {"%s/%s" % s for s in (slug_names(u) for u in remote_urls(workdir)) if s}
+        for k, a in enumerate(seg):
+            target = None
+            if a in ("-R", "--repo") and k + 1 < len(seg):
+                target = seg[k + 1]
+            elif a.startswith("--repo="):
+                target = a.split("=", 1)[1]
+            elif a.startswith("-R") and len(a) > 2:
+                target = a[2:].lstrip("=")
+            if target is not None and target.lower().split("github.com/")[-1].rstrip("/") not in own:
+                strict()
+    ran = True
+    # cp -a and mv carry symlinks to new names, checked below while missing.
+    if word in ("cp", "mv") or word == "git" and changes_tree:
+        tree_changed = True
+    if not repo:
+        strict()
+    for a in seg[1:]:
+        if a in REDIRECTS:
+            continue
+        check_arg(a)
+
+if not repo or not inside(str(pathlib.Path(workdir).resolve())):
+    strict()
+
+# Every remote of the repository must be listed private, namespace and name.
+private, public = set(), set()
+try:
+    col = {}
+    for line in open(names_list, encoding="utf-8"):
+        line = line.rstrip("\n")
+        if line.startswith("#") and "visibility" in line or line.startswith("visibility"):
+            hdr = [h.lstrip("# ").strip() for h in line.split("\t")]
+            col = {h: i for i, h in enumerate(hdr)}
+            continue
+        if not line or line.startswith("#") or not col:
+            continue
+        f = line.split("\t")
+        try:
+            key = "%s/%s" % (f[col["namespace"]].lower(), f[col["name"]].lower())
+            (private if f[col["visibility"]].lower() == "private" else public).add(key)
+        except (KeyError, IndexError):
+            continue
+except OSError:
+    strict()
+# A remote that is not a network URL (a local path) cannot be judged: strict.
+urls = remote_urls(repo)
+slugs = [slug_names(u) for u in urls]
+if not urls or None in slugs or any("%s/%s" % s not in private or "%s/%s" % s in public
+                                    for s in slugs):
+    strict()
+print("yes")
+PY
+  [[ "$(cat "${payload_file}.contained" 2>/dev/null)" == yes ]] && contained_private=true
+  rm -f "${payload_file}.contained"
 fi
 
 # One python pass: is this a publishing command, which repository is it aimed
@@ -565,6 +911,7 @@ else:
 names_check() {
   local f="$1" rc out pc=0
   shift
+  [[ "$contained_private" == true ]] && return 0   # see contained_private above
   private_name_candidate "$f" || pc=$?
   [[ "$pc" -eq 1 ]] && return 0      # no listed name in the text; awk failing (2+) runs the full check
   if [[ ! -f "$GATE" ]]; then reason="check_private_names.sh is missing next to this hook"; return 2; fi

@@ -1,0 +1,6 @@
+# Every text file checks out with LF, whatever core.autocrlf says. With the
+# Git for Windows default (autocrlf=true) a script checks out with CRLF and
+# bash fails on it with $'\r': command not found. This covers the hooks and
+# bin/ commands that have no extension.
+* text=auto eol=lf
+*.png binary

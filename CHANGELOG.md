@@ -1,3 +1,22 @@
+## Unreleased
+
+### Changed for callers: `django.yml` installs `requirements-dev.txt`
+
+- **`vendor/script-helpers` 0.57.0 -> 0.59.0**, and the 16 workflow `ref:`
+  pins with it. One caller-visible change: `django.yml` with the default
+  `install_command` now installs `requirements-dev.txt` after
+  `requirements.txt` when it exists, so a project that keeps its test tools
+  there gets them. A project whose `requirements-dev.txt` cannot install on
+  the runner now fails that step;
+  `install_command: pip install -r requirements.txt` keeps the old install.
+  The other upstream changes (webshot, Ollama tiers, Node and Python local
+  test runners, `build_rpm_artifacts.sh`, the Claude hook) are in scripts
+  these workflows do not run from the vendored copy.
+  `rpm-build.yml` runs the caller's own script-helpers, not this one.
+  Tests: the `django-default-installs-requirements` self-test now also
+  installs `requirements-dev.txt` from its fixture and imports both probes
+  (fails against the 0.57.0 pin with `No module named 'install_dev_probe'`).
+
 ## 2026-10-24 — v0.45.0
 
 ### Changed for callers: packaging workflows no longer create vendor/

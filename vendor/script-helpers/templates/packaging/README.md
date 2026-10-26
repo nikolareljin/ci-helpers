@@ -12,18 +12,20 @@ This folder contains cross-distribution packaging metadata and helper files.
 
 ## Build commands
 
+Commands assume script-helpers is a submodule at `scripts/script-helpers`, where script-helpers' own README installs it; change the path if this repository keeps it elsewhere.
+
 From the repo root:
 
-- Debian: `./vendor/script-helpers/scripts/build_deb_artifacts.sh --repo .`
-- RPM: `./vendor/script-helpers/scripts/build_rpm_artifacts.sh --repo .`
-- Arch: `./vendor/script-helpers/scripts/build_arch_artifacts.sh --repo .`
+- Debian: `./scripts/script-helpers/scripts/build_deb_artifacts.sh --repo .`
+- RPM: `./scripts/script-helpers/scripts/build_rpm_artifacts.sh --repo .`
+- Arch: `./scripts/script-helpers/scripts/build_arch_artifacts.sh --repo .`
 
 ## Homebrew
 
 Render a formula with the current version and a SHA256:
 
 ```
-./vendor/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha>
+./scripts/script-helpers/scripts/render_brew_formula.sh --repo . --url <tarball_url> --sha256 <sha>
 ```
 
 ## Notes

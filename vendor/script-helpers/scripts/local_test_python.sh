@@ -7,6 +7,7 @@
 # PARAMETERS:
 #   --quick   Skip install; run lint and tests against the current environment.
 #   --dir     Subdirectory containing pyproject.toml/requirements.txt (default: .).
+#             requirements-dev.txt, when present, installs after requirements.txt.
 #   -h, --help  Show this help and exit.
 # EXIT_CODES:
 #   0  Every check that ran passed.
@@ -90,7 +91,7 @@ fi
 # create a project-local venv and use that. Reuses lib/python.sh's helper rather
 # than repeating the logic.
 if [[ "$PYTHON" == "python3" || "$PYTHON" == "python" ]] \
-   && [[ -f requirements.txt || -f pyproject.toml ]] \
+   && [[ -f requirements.txt || -f requirements-dev.txt || -f pyproject.toml ]] \
    && "$PYTHON" -c 'import os,sys,sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null; then
   _sh_dir="$SH_ROOT"
   if [[ -f "$_sh_dir/helpers.sh" ]]; then
@@ -111,14 +112,19 @@ if [[ "$PYTHON" == "python3" || "$PYTHON" == "python" ]] \
 fi
 
 if [[ "$QUICK" == "false" ]]; then
-  if [[ -f requirements.txt ]]; then
+  if [[ -f requirements.txt || -f requirements-dev.txt ]]; then
     if ! "$PYTHON" -m pip --version &>/dev/null; then
       echo "[local-test-python] pip not found for $PYTHON. Install pip in the selected Python environment." >&2
       exit 1
     fi
 
-    echo "[local-test-python] $PYTHON -m pip install -r requirements.txt"
-    "$PYTHON" -m pip install -r requirements.txt --quiet
+    # requirements-dev.txt holds the test tools (pytest) when a project keeps
+    # them apart; without it the tests are skipped, not run.
+    for req in requirements.txt requirements-dev.txt; do
+      [[ -f "$req" ]] || continue
+      echo "[local-test-python] $PYTHON -m pip install -r $req"
+      "$PYTHON" -m pip install -r "$req" --quiet
+    done
   elif [[ -f pyproject.toml ]]; then
     echo "[local-test-python] pyproject.toml found without requirements.txt; using the selected Python environment."
   fi
