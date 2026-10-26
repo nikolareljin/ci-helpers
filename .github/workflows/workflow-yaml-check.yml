@@ -115,6 +115,10 @@ jobs:
         shell: bash
         run: bash tests/wp_plugin_check_inputs_stay_text_test.sh
 
+      - name: rust-release inputs reach apt-get and the artifacts as text
+        shell: bash
+        run: bash tests/rust_release_inputs_stay_text_test.sh
+
       - name: packaging workflows create no vendor/ directory
         shell: bash
         run: bash tests/packaging_no_vendor_dir_test.sh
