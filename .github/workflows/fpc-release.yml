@@ -217,9 +217,9 @@ jobs:
         run: |
           set -euo pipefail
           name="${BIN_NAME}"
-          # Reject CR/LF — stripping locally is insufficient because later steps
-          # expand ${{ inputs.bin_name }} directly, so a newline in the original
-          # value could still inject keys into GITHUB_OUTPUT.
+          # Reject CR/LF: stripping it here would not reach later steps, which
+          # read the original value, including the artifact names and paths
+          # set from inputs.bin_name in their with: blocks.
           case "$name" in
             *$'\n'*|*$'\r'*)
               echo "::error::bin_name must not contain CR or LF characters."

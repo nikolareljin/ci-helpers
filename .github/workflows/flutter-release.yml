@@ -239,7 +239,7 @@ jobs:
             echo "Missing App Store Connect API key secrets. Provide app_store_connect_api_key_base64, app_store_connect_key_id, and app_store_connect_issuer_id." >&2
             exit 1
           fi
-          if [[ "${{ runner.os }}" != "macOS" ]]; then
+          if [[ "$RUNNER_OS" != "macOS" ]]; then
             echo "App Store deploys require a macOS runner." >&2
             exit 1
           fi
@@ -247,6 +247,7 @@ jobs:
       - name: Configure Android signing
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         env:
+          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
           ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
@@ -269,7 +270,7 @@ jobs:
             echo "::add-mask::${ANDROID_KEY_PASSWORD}"
             echo "::add-mask::${ANDROID_KEY_ALIAS}"
           }
-          android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
+          android_dir="${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android"
           mkdir -p "${android_dir}"
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
           printf '%s\n' \
@@ -296,31 +297,38 @@ jobs:
 
       - name: Note for Android signing config
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        env:
+          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         run: |
           echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
           echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
-          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android/key.properties)."
+          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android/key.properties)."
 
       - name: Build Android appbundle
         if: ${{ inputs.build_android }}
         env:
+          FR_ANDROID_BUILD_COMMAND: ${{ inputs.android_build_command }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
           ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
           ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
         run: |
           set -euo pipefail
-          ${{ inputs.android_build_command }}
+          # Code by design, run in this shell as the inline form did.
+          eval "$FR_ANDROID_BUILD_COMMAND"
 
       - name: Build iOS (no codesign)
         if: ${{ inputs.build_ios && !inputs.deploy_app_store }}
+        env:
+          FR_IOS_BUILD_COMMAND: ${{ inputs.ios_build_command }}
         run: |
           set -euo pipefail
-          if [[ "${{ runner.os }}" != "macOS" ]]; then
+          if [[ "$RUNNER_OS" != "macOS" ]]; then
             echo "iOS builds require a macOS runner." >&2
             exit 1
           fi
-          ${{ inputs.ios_build_command }}
+          # Code by design, run in this shell as the inline form did.
+          eval "$FR_IOS_BUILD_COMMAND"
 
       - name: Note for App Store deploys
         if: ${{ inputs.deploy_app_store }}
@@ -378,6 +386,7 @@ jobs:
       - name: Deploy to Google Play via Fastlane
         if: ${{ inputs.deploy_google_play }}
         env:
+          FR_FASTLANE_ANDROID_LANE: ${{ inputs.fastlane_android_lane }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
           ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
@@ -386,15 +395,18 @@ jobs:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: .tmp/google-play.json
         run: |
           set -euo pipefail
+          # A lane and its options, split into words: never globbed or run.
+          read -r -a lane <<< "$FR_FASTLANE_ANDROID_LANE"
           if [ -f Gemfile ]; then
-            bundle exec fastlane ${{ inputs.fastlane_android_lane }}
+            bundle exec fastlane "${lane[@]}"
           else
-            fastlane ${{ inputs.fastlane_android_lane }}
+            fastlane "${lane[@]}"
           fi
 
       - name: Deploy to App Store via Fastlane
         if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
         env:
+          FR_FASTLANE_IOS_LANE: ${{ inputs.fastlane_ios_lane }}
           FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
           FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
           FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
@@ -407,19 +419,22 @@ jobs:
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
         run: |
           set -euo pipefail
+          # A lane and its options, split into words: never globbed or run.
+          read -r -a lane <<< "$FR_FASTLANE_IOS_LANE"
           if [ -f Gemfile ]; then
-            bundle exec fastlane ${{ inputs.fastlane_ios_lane }}
+            bundle exec fastlane "${lane[@]}"
           else
-            fastlane ${{ inputs.fastlane_ios_lane }}
+            fastlane "${lane[@]}"
           fi
 
       - name: Cleanup signing and deploy credentials
         if: ${{ always() && (inputs.build_android || inputs.deploy_google_play || inputs.deploy_app_store) }}
         env:
+          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
           FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
         run: |
           set -euo pipefail
-          android_dir="${GITHUB_WORKSPACE}/${{ inputs.working_directory }}/android"
+          android_dir="${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android"
           rm -f "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
 
           google_play_json="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"

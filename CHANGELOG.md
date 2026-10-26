@@ -54,6 +54,28 @@
   main), and `tests/no_inline_expressions_in_run_test.sh` now covers this
   file. E119 M4, third of six files.
 
+- **`docker-scan.yml`, `flutter-release.yml` and `fpc-release.yml` pass
+  their inputs through env.** `docker-scan`'s build step spliced
+  `dockerfile`, `image_name` and `context`, and `flutter-release` spliced
+  `working_directory` and the two fastlane lanes, so a value with `$5`
+  failed the step and `$(...)` ran. They now read `DS_*` and `FR_*`
+  variables. A lane is split into words with `read -a`, so `beta
+  skip_upload:true` still gives fastlane two arguments. The two
+  `*_build_command` inputs are code by design and run with `eval`, in the
+  same shell as before. `fpc-release.yml` changed only a comment that
+  quoted an expression. Test: `tests/flutter_docker_inputs_stay_text_test.sh`
+  runs the steps against stub `fastlane` and `docker` (fails against main).
+
+- **The inline-expression gate covers every workflow and composite
+  action.** `tests/no_inline_expressions_in_run_test.sh` fails on any
+  `${{ inputs.* }}` in a run script except a `*_command` input, reading each
+  expression whole, so `format('{0}', inputs.x)` counts. Ten workflows allow
+  no expression in a run script at all. The composite actions
+  `wp-plugin-check` and `pimcore-bundle-check` still splice 58 text inputs
+  and are listed as not yet fixed; the gate fails if either is fixed and
+  stays listed. E119 M4: the six workflows are done; the two actions are
+  left.
+
 ## 2026-10-26 — v0.46.0
 
 ### Changed for callers: `django.yml` installs `requirements-dev.txt`

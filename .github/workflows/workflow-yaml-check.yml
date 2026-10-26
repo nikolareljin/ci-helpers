@@ -107,7 +107,7 @@ jobs:
         shell: bash
         run: bash tests/tauri_upload_once_test.sh
 
-      - name: the packaging workflows, wp-plugin-check, rust-release and pimcore-bundle-check take their inputs through env
+      - name: run scripts take text inputs through env, never as an inline expression
         shell: bash
         run: bash tests/no_inline_expressions_in_run_test.sh
 
@@ -122,6 +122,10 @@ jobs:
       - name: pimcore-bundle-check inputs reach the script as text
         shell: bash
         run: bash tests/pimcore_bundle_check_inputs_stay_text_test.sh
+
+      - name: flutter-release and docker-scan inputs reach their tools as text
+        shell: bash
+        run: bash tests/flutter_docker_inputs_stay_text_test.sh
 
       - name: packaging workflows create no vendor/ directory
         shell: bash
