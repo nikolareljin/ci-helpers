@@ -9,6 +9,10 @@
   `docker/login-action` v4.6.0 -> v4.7.0. 20 pins in 16 files. Dependabot
   changed only the SHA; the `# <tag> @ <date>` comments now name the new
   tag, so `update_pinned_actions.sh --check` resolves the pin it checks.
+- **`rust-release.yml`: `apt_packages` takes package names only.** The list
+  now goes to `apt-get install` after `--`, so an apt option in it, such as
+  `--no-install-recommends`, fails the step with `Unable to locate
+  package`. Move apt options out of the list. See the Fixed entry below.
 
 ### Fixed
 
