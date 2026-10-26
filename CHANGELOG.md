@@ -41,6 +41,19 @@
   `tests/no_inline_expressions_in_run_test.sh` now covers this file. E119
   M4, second of six files.
 
+- **`pimcore-bundle-check.yml` passes its inputs through env.** The
+  bundle-check step spliced 18 `${{ inputs.* }}` into its run script, so a
+  value with `$5` failed the job (`$5: unbound variable`), a `"` ended the
+  argument, and `$(...)` ran. Every value now reaches
+  `ci_pimcore_bundle_check.sh` through a `PBC_*` variable; the `*_command`
+  inputs are still run as code by the script. The script-helpers move uses
+  `$RUNNER_TEMP`. With the default inputs the script gets the same 36
+  arguments as before. Tests:
+  `tests/pimcore_bundle_check_inputs_stay_text_test.sh` renders the step as
+  the runner does and runs it against a stub (0 of 18 values arrive against
+  main), and `tests/no_inline_expressions_in_run_test.sh` now covers this
+  file. E119 M4, third of six files.
+
 ## 2026-10-26 — v0.46.0
 
 ### Changed for callers: `django.yml` installs `requirements-dev.txt`
