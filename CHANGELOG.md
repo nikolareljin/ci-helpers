@@ -61,7 +61,9 @@
   failed the step and `$(...)` ran. They now read `DS_*` and `FR_*`
   variables. A lane is split with Python's `shlex`, as the shell split
   quoted words, so `beta notes:"a b"` still gives fastlane two arguments
-  but nothing in it is expanded or run. The two
+  but nothing in it is expanded or run. The deploy steps now need
+  `python3` on the runner: GitHub-hosted runners have it, a self-hosted
+  `runner` without it fails the step. The two
   `*_build_command` inputs are code by design and run with `eval`, in the
   same shell as before. `fpc-release.yml` changed only a comment that
   quoted an expression. Test: `tests/flutter_docker_inputs_stay_text_test.sh`
