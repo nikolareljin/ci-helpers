@@ -18,11 +18,13 @@ trap 'rm -rf "$work"' EXIT
 # alias. $5 must stay "$5", $(...) and backticks must not run.
 # shellcheck disable=SC2016
 value='a $5 "b" $(touch ran) `touch ran` c'
+# apt_packages also spans lines, CRLF included, as a YAML block gives it.
+apt_value="$value"$'\r\nd e\nf'
 mkdir -p "$work/wd" "$work/bin"
 
-python3 - "$root" "$work" "$value" <<'PY'
+python3 - "$root" "$work" "$value" "$apt_value" <<'PY'
 import re, shlex, sys, yaml
-root, work, value = sys.argv[1:4]
+root, work, value, apt_value = sys.argv[1:5]
 d = yaml.safe_load(open(f"{root}/.github/workflows/rust-release.yml"))
 steps = {s.get("name"): s for s in d["jobs"]["build"]["steps"]}
 
@@ -30,6 +32,7 @@ def render(text):
     # What the runner does before bash sees anything: each expression
     # becomes its value. Booleans are "true" so every target branch runs.
     text = re.sub(r"\$\{\{\s*inputs\.build_\w+\s*\}\}", "true", text)
+    text = re.sub(r"\$\{\{\s*inputs\.apt_packages\s*\}\}", lambda m: apt_value, text)
     return re.sub(r"\$\{\{.*?\}\}", lambda m: value, text)
 
 for i, name in enumerate(["Install build dependencies", "Build release binaries"]):
@@ -71,8 +74,9 @@ if [[ -e "$work/wd/ran" ]]; then
   fail=1
 fi
 
-# apt-get gets "install -y --" and then the input's words, each unchanged.
-read -r -a want <<< "$value"
+# apt-get gets "install -y --" and then the input's words, each unchanged,
+# from every line.
+read -r -a want <<< "$value d e f"
 mapfile -t got < <(tail -n +5 "$STUB_APT_ARGS" 2>/dev/null)
 if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
   echo "FAIL apt-get got: ${got[*]-<nothing>}"

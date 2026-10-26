@@ -99,10 +99,14 @@ jobs:
           INPUT_APT_PACKAGES: ${{ inputs.apt_packages }}
         run: |
           set -euo pipefail
-          # A space-separated list: split into words, never globbed or run.
-          read -r -a pkgs <<< "$INPUT_APT_PACKAGES"
+          # Space- or newline-separated, as in tauri.yml: split into words,
+          # never globbed or run. read stops at a newline, so map them first.
+          _pkgs="${INPUT_APT_PACKAGES//$'\r'}"
+          read -r -a pkgs <<< "${_pkgs//$'\n'/ }"
           sudo apt-get update
-          sudo apt-get install -y -- "${pkgs[@]}"
+          if [ ${#pkgs[@]} -gt 0 ]; then
+            sudo apt-get install -y -- "${pkgs[@]}"
+          fi
 
       - name: Add Rust targets
         shell: bash

@@ -27,9 +27,10 @@
   12 `${{ inputs.* }}` into their run scripts, so a `bin_name` or
   `artifact_dir` with `$5` failed the build (`$5: unbound variable`) and
   `$(...)` ran. They now read `INPUT_*` variables, the names the
-  binary-links step already uses. `apt_packages` is split into words with
-  `read -a` and passed after `--`, so a package list still installs but
-  nothing in it is globbed or run. Tests:
+  binary-links step already uses. `apt_packages` is split into words, across
+  lines as in `tauri.yml`, and passed after `--`, so a space- or
+  newline-separated list still installs but nothing in it is globbed or
+  run; an empty list skips the install. Tests:
   `tests/rust_release_inputs_stay_text_test.sh` renders the install and
   build steps as the runner does and runs them against stub `sudo` and
   `cargo` (fails against 0.46.0), and
