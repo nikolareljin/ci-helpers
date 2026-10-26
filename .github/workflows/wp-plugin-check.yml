@@ -227,8 +227,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "${{ runner.temp }}/script-helpers"
-          mv .script-helpers "${{ runner.temp }}/script-helpers"
+          rm -rf "$RUNNER_TEMP/script-helpers"
+          mv .script-helpers "$RUNNER_TEMP/script-helpers"
 
       # A plugin repository should not carry a compose file whose only
       # distinguishing feature is an image tag. Written to runner.temp so it is
@@ -320,37 +320,68 @@ jobs:
       - name: WordPress plugin check
         shell: bash
         env:
-          # The generated stack reads these two. A caller-supplied compose file
-          # reads whatever it already declared, and is unaffected.
+          # The generated stack reads WP_CHECK_PORT, and WP_CHECK_PLUGIN_SRC,
+          # which the script sets for --plugin-src-env. A caller-supplied
+          # compose file reads whatever it already declared, and is unaffected.
           WP_CHECK_PORT: ${{ inputs.host_port }}
+          # Every input reaches the script through env, never spliced into the
+          # script text: a value with `$5`, `"` or `$(...)` stays a value. The
+          # three *_command inputs are code by design; ci_wp_plugin_check.sh
+          # runs them.
+          WPC_SCRIPT: ${{ runner.temp }}/script-helpers/scripts/ci_wp_plugin_check.sh
+          WPC_COMPOSE_FILE: ${{ steps.stack.outputs.compose_file || inputs.compose_file }}
+          WPC_PLUGIN_SLUG: ${{ inputs.plugin_slug }}
+          WPC_PLUGIN_SRC: ${{ inputs.plugin_src }}
+          WPC_PLUGIN_SRC_ENV: ${{ steps.stack.outputs.compose_file && 'WP_CHECK_PLUGIN_SRC' || inputs.plugin_src_env }}
+          WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+          WPC_DB_SERVICE: ${{ inputs.db_service }}
+          WPC_WORDPRESS_SERVICE: ${{ inputs.wordpress_service }}
+          WPC_HOST_PORT: ${{ inputs.host_port }}
+          WPC_OUT_DIR: ${{ inputs.out_dir }}
+          WPC_DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
+          WPC_MULTISITE: ${{ inputs.multisite }}
+          WPC_ACTIVATE_NETWORK: ${{ inputs.activate_network }}
+          WPC_ADMIN_USER: ${{ inputs.admin_user }}
+          WPC_ADMIN_PASSWORD: ${{ inputs.admin_password }}
+          WPC_ADMIN_EMAIL: ${{ inputs.admin_email }}
+          WPC_SITE_TITLE: ${{ inputs.site_title }}
+          WPC_META_CHECK_SCRIPT: ${{ inputs.meta_check_script }}
+          WPC_PHP_LINT_COMMAND: ${{ inputs.php_lint_command }}
+          WPC_PHPCS_WARNING_COMMAND: ${{ inputs.phpcs_warning_command }}
+          WPC_PHPUNIT_COMMAND: ${{ inputs.phpunit_command }}
+          WPC_PHPUNIT_WORKING_DIRECTORY: ${{ inputs.phpunit_working_directory }}
+          WPC_EXCLUDE_DIRECTORIES: ${{ inputs.exclude_directories }}
+          WPC_EXCLUDE_FILES: ${{ inputs.exclude_files }}
+          WPC_FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+          WPC_CLEANUP: ${{ inputs.cleanup }}
         run: |
           set -euo pipefail
-          "${{ runner.temp }}/script-helpers/scripts/ci_wp_plugin_check.sh" \
-            --compose-file "${{ steps.stack.outputs.compose_file || inputs.compose_file }}" \
-            --plugin-slug "${{ inputs.plugin_slug }}" \
-            --plugin-src "${{ inputs.plugin_src }}" \
-            --plugin-src-env "${{ steps.stack.outputs.compose_file && 'WP_CHECK_PLUGIN_SRC' || inputs.plugin_src_env }}" \
-            --wpcli-service "${{ inputs.wpcli_service }}" \
-            --db-service "${{ inputs.db_service }}" \
-            --wordpress-service "${{ inputs.wordpress_service }}" \
-            --host-port "${{ inputs.host_port }}" \
-            --out-dir "${{ inputs.out_dir }}" \
-            --db-wait-seconds "${{ inputs.db_wait_seconds }}" \
-            --multisite "${{ inputs.multisite }}" \
-            --activate-network "${{ inputs.activate_network }}" \
-            --admin-user "${{ inputs.admin_user }}" \
-            --admin-password "${{ inputs.admin_password }}" \
-            --admin-email "${{ inputs.admin_email }}" \
-            --site-title "${{ inputs.site_title }}" \
-            --meta-check-script "${{ inputs.meta_check_script }}" \
-            --php-lint-command "${{ inputs.php_lint_command }}" \
-            --phpcs-warning-command "${{ inputs.phpcs_warning_command }}" \
-            --phpunit-command "${{ inputs.phpunit_command }}" \
-            --phpunit-working-directory "${{ inputs.phpunit_working_directory }}" \
-            --exclude-directories "${{ inputs.exclude_directories }}" \
-            --exclude-files "${{ inputs.exclude_files }}" \
-            --fail-on-findings "${{ inputs.fail_on_findings }}" \
-            --cleanup "${{ inputs.cleanup }}"
+          "$WPC_SCRIPT" \
+            --compose-file "$WPC_COMPOSE_FILE" \
+            --plugin-slug "$WPC_PLUGIN_SLUG" \
+            --plugin-src "$WPC_PLUGIN_SRC" \
+            --plugin-src-env "$WPC_PLUGIN_SRC_ENV" \
+            --wpcli-service "$WPC_WPCLI_SERVICE" \
+            --db-service "$WPC_DB_SERVICE" \
+            --wordpress-service "$WPC_WORDPRESS_SERVICE" \
+            --host-port "$WPC_HOST_PORT" \
+            --out-dir "$WPC_OUT_DIR" \
+            --db-wait-seconds "$WPC_DB_WAIT_SECONDS" \
+            --multisite "$WPC_MULTISITE" \
+            --activate-network "$WPC_ACTIVATE_NETWORK" \
+            --admin-user "$WPC_ADMIN_USER" \
+            --admin-password "$WPC_ADMIN_PASSWORD" \
+            --admin-email "$WPC_ADMIN_EMAIL" \
+            --site-title "$WPC_SITE_TITLE" \
+            --meta-check-script "$WPC_META_CHECK_SCRIPT" \
+            --php-lint-command "$WPC_PHP_LINT_COMMAND" \
+            --phpcs-warning-command "$WPC_PHPCS_WARNING_COMMAND" \
+            --phpunit-command "$WPC_PHPUNIT_COMMAND" \
+            --phpunit-working-directory "$WPC_PHPUNIT_WORKING_DIRECTORY" \
+            --exclude-directories "$WPC_EXCLUDE_DIRECTORIES" \
+            --exclude-files "$WPC_EXCLUDE_FILES" \
+            --fail-on-findings "$WPC_FAIL_ON_FINDINGS" \
+            --cleanup "$WPC_CLEANUP"
 
       - name: Upload artifacts
         if: ${{ inputs.upload_artifact }}
