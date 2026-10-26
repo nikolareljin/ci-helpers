@@ -1824,7 +1824,7 @@ Inputs (selected):
 - `artifact_dir` (string, default `artifacts`)
 - `rust_toolchain` (string, default `stable`)
 - `install_deps` (boolean, default `true`)
-- `apt_packages` (string, default `build-essential mingw-w64 musl-tools`)
+- `apt_packages` (string, default `build-essential mingw-w64 musl-tools`; package names separated by spaces or newlines, passed to `apt-get install` after `--`, so an apt option here is read as a package name)
 - `build_windows`, `build_linux_gnu`, `build_linux_musl`, `build_macos` (booleans, default `true`)
 - `linux_gnu_aliases` (string, default `""`, comma-delimited)
 - `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
