@@ -80,6 +80,20 @@
   stays listed. E119 M4: the six workflows are done; the two actions are
   left.
 
+- **The `wp-plugin-check` and `pimcore-bundle-check` composite actions
+  pass their inputs through env.** Their run steps spliced 58 text inputs,
+  so a value with `$5` failed the step and `$(...)` ran on the runner. They
+  now read `WPC_*` and `PBC_*` variables. `wp-plugin-check` also built the
+  `wp` command lines inside `sh -lc "..."`, so `plugin_slug`, `site_title`,
+  the admin inputs and `meta_check_script` ran a second time as shell in
+  the wp-cli container, and a `'` in `site_title` broke the install. They
+  now reach the container with `docker compose run -e` and are quoted
+  there. The `*_command` inputs are code by design and run as before. The
+  gate has no exceptions left. Test:
+  `tests/composite_check_actions_inputs_stay_text_test.sh` runs every run
+  step of both actions against stub `docker` and `wp` (fails against
+  main). E119 M4 is done.
+
 ## 2026-10-26 — v0.46.0
 
 ### Changed for callers: `django.yml` installs `requirements-dev.txt`

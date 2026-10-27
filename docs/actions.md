@@ -330,6 +330,8 @@ Note: Requires Docker on the runner and a compose file that mounts the bundle.
 For most repositories the [`pimcore.yml` preset](presets.md#pimcore) is the
 better entry point — it wraps this action and adds a PHP version matrix.
 
+Inputs that end in `_command` are shell code and run as written. Every other input reaches docker as text and is never expanded or run.
+
 Inputs (selected):
 
 - `compose_file` (default `test/docker-compose.yml`)
@@ -382,6 +384,8 @@ Note: Requires Docker on the runner and a compose file that mounts the plugin.
 
 For a whole job, with a generated stack and a version matrix, use the
 [`wp-plugin-check.yml`](workflows.md#wp-plugin-checkyml) workflow instead.
+
+Inputs that end in `_command` are shell code and run as written. Every other input reaches docker and `wp` as text and is never expanded or run.
 
 Inputs:
 

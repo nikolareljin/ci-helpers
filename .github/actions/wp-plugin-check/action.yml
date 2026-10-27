@@ -130,10 +130,13 @@ runs:
 
     - name: Prepare WP-CLI config
       shell: bash
+      env:
+        WPC_OUT_DIR: ${{ inputs.out_dir }}
+        WPC_HOST_PORT: ${{ inputs.host_port }}
       run: |
         set -euo pipefail
-        out_dir="${{ inputs.out_dir }}"
-        host_port="${{ inputs.host_port }}"
+        out_dir="${WPC_OUT_DIR}"
+        host_port="${WPC_HOST_PORT}"
         mkdir -p "$out_dir"
         cat > "$out_dir/wp-cli.yml" <<WPCLI
         path: /var/www/html
@@ -146,13 +149,19 @@ runs:
 
     - name: Start WordPress stack
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        WPC_DB_SERVICE: ${{ inputs.db_service }}
+        WPC_WORDPRESS_SERVICE: ${{ inputs.wordpress_service }}
+        WPC_PLUGIN_SRC_ENV: ${{ inputs.plugin_src_env }}
+        WPC_PLUGIN_SRC: ${{ inputs.plugin_src }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        db_service="${{ inputs.db_service }}"
-        wordpress_service="${{ inputs.wordpress_service }}"
-        plugin_src_env="${{ inputs.plugin_src_env }}"
-        plugin_src="${{ inputs.plugin_src }}"
+        compose_file="${WPC_COMPOSE_FILE}"
+        db_service="${WPC_DB_SERVICE}"
+        wordpress_service="${WPC_WORDPRESS_SERVICE}"
+        plugin_src_env="${WPC_PLUGIN_SRC_ENV}"
+        plugin_src="${WPC_PLUGIN_SRC}"
 
         # Absolute, resolved from the workspace: Compose would otherwise resolve a
         # relative value against the compose file's directory, not the repository.
@@ -183,45 +192,55 @@ runs:
 
     - name: Wait for DB
       shell: bash
+      env:
+        WPC_DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
       run: |
         set -euo pipefail
-        sleep "${{ inputs.db_wait_seconds }}"
+        sleep "${WPC_DB_WAIT_SECONDS}"
 
     - name: Install WordPress
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+        WPC_HOST_PORT: ${{ inputs.host_port }}
+        WPC_ADMIN_USER: ${{ inputs.admin_user }}
+        WPC_ADMIN_PASSWORD: ${{ inputs.admin_password }}
+        WPC_ADMIN_EMAIL: ${{ inputs.admin_email }}
+        WPC_SITE_TITLE: ${{ inputs.site_title }}
+        WPC_MULTISITE: ${{ inputs.multisite }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        wpcli_service="${{ inputs.wpcli_service }}"
-        host_port="${{ inputs.host_port }}"
-        admin_user="${{ inputs.admin_user }}"
-        admin_password="${{ inputs.admin_password }}"
-        admin_email="${{ inputs.admin_email }}"
-        site_title="${{ inputs.site_title }}"
-        multisite="${{ inputs.multisite }}"
+        compose_file="${WPC_COMPOSE_FILE}"
+        wpcli_service="${WPC_WPCLI_SERVICE}"
+        multisite="${WPC_MULTISITE}"
 
         docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
 
         if [[ "$multisite" == "true" ]]; then
           docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'wp config set WP_ALLOW_MULTISITE true --raw || true'
-          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core multisite-install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email --subdomains=0"
+          docker compose -f "$compose_file" run --rm -e WPC_HOST_PORT -e WPC_SITE_TITLE -e WPC_ADMIN_USER -e WPC_ADMIN_PASSWORD -e WPC_ADMIN_EMAIL "$wpcli_service" sh -lc 'wp core is-installed || wp core multisite-install --url="localhost:$WPC_HOST_PORT" --title="$WPC_SITE_TITLE" --admin_user="$WPC_ADMIN_USER" --admin_password="$WPC_ADMIN_PASSWORD" --admin_email="$WPC_ADMIN_EMAIL" --skip-email --subdomains=0'
         else
-          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp core is-installed || wp core install --url=localhost:${host_port} --title='${site_title}' --admin_user='${admin_user}' --admin_password='${admin_password}' --admin_email='${admin_email}' --skip-email"
+          docker compose -f "$compose_file" run --rm -e WPC_HOST_PORT -e WPC_SITE_TITLE -e WPC_ADMIN_USER -e WPC_ADMIN_PASSWORD -e WPC_ADMIN_EMAIL "$wpcli_service" sh -lc 'wp core is-installed || wp core install --url="localhost:$WPC_HOST_PORT" --title="$WPC_SITE_TITLE" --admin_user="$WPC_ADMIN_USER" --admin_password="$WPC_ADMIN_PASSWORD" --admin_email="$WPC_ADMIN_EMAIL" --skip-email'
         fi
 
     - name: Activate plugin
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+        WPC_PLUGIN_SLUG: ${{ inputs.plugin_slug }}
+        WPC_ACTIVATE_NETWORK: ${{ inputs.activate_network }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        wpcli_service="${{ inputs.wpcli_service }}"
-        plugin_slug="${{ inputs.plugin_slug }}"
-        activate_network="${{ inputs.activate_network }}"
+        compose_file="${WPC_COMPOSE_FILE}"
+        wpcli_service="${WPC_WPCLI_SERVICE}"
+        activate_network="${WPC_ACTIVATE_NETWORK}"
 
         if [[ "$activate_network" == "true" ]]; then
-          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug} --network || wp plugin activate ${plugin_slug}"
+          docker compose -f "$compose_file" run --rm -e WPC_PLUGIN_SLUG "$wpcli_service" sh -lc 'wp plugin activate "$WPC_PLUGIN_SLUG" --network || wp plugin activate "$WPC_PLUGIN_SLUG"'
         else
-          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin activate ${plugin_slug}"
+          docker compose -f "$compose_file" run --rm -e WPC_PLUGIN_SLUG "$wpcli_service" sh -lc 'wp plugin activate "$WPC_PLUGIN_SLUG"'
         fi
 
     # The download runs in the wp-cli container, where a DNS miss reads
@@ -248,15 +267,19 @@ runs:
 
     - name: Run plugin-check
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+        WPC_PLUGIN_SLUG: ${{ inputs.plugin_slug }}
+        WPC_OUT_DIR: ${{ inputs.out_dir }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        wpcli_service="${{ inputs.wpcli_service }}"
-        plugin_slug="${{ inputs.plugin_slug }}"
-        out_dir="${{ inputs.out_dir }}"
+        compose_file="${WPC_COMPOSE_FILE}"
+        wpcli_service="${WPC_WPCLI_SERVICE}"
+        out_dir="${WPC_OUT_DIR}"
 
         if docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp help plugin | grep -q '\\<check\\>'"; then
-          docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp plugin check ${plugin_slug} --format=json" > "$out_dir/plugin-check.json" || true
+          docker compose -f "$compose_file" run --rm -e WPC_PLUGIN_SLUG "$wpcli_service" sh -lc 'wp plugin check "$WPC_PLUGIN_SLUG" --format=json' > "$out_dir/plugin-check.json" || true
           echo "plugin-check JSON saved to $out_dir/plugin-check.json"
         else
           echo "'wp plugin check' command not available in WP-CLI."
@@ -265,28 +288,35 @@ runs:
     - name: Run meta checks
       if: ${{ inputs.meta_check_script != '' }}
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+        WPC_META_CHECK_SCRIPT: ${{ inputs.meta_check_script }}
+        WPC_OUT_DIR: ${{ inputs.out_dir }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        wpcli_service="${{ inputs.wpcli_service }}"
-        meta_check_script="${{ inputs.meta_check_script }}"
-        out_dir="${{ inputs.out_dir }}"
+        compose_file="${WPC_COMPOSE_FILE}"
+        wpcli_service="${WPC_WPCLI_SERVICE}"
+        out_dir="${WPC_OUT_DIR}"
 
-        docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc "wp eval-file /workspace/${meta_check_script}" > "$out_dir/meta-check.json"
+        docker compose -f "$compose_file" run --rm -e WPC_META_CHECK_SCRIPT "$wpcli_service" sh -lc 'wp eval-file "/workspace/$WPC_META_CHECK_SCRIPT"' > "$out_dir/meta-check.json"
         echo "meta-check JSON saved to $out_dir/meta-check.json"
 
     - name: Fail on findings
       if: ${{ inputs.fail_on_findings == 'true' }}
       shell: bash
+      env:
+        WPC_OUT_DIR: ${{ inputs.out_dir }}
       run: |
         set -euo pipefail
 
         python3 - <<'PY'
         import json
+        import os
         import sys
         from pathlib import Path
 
-        out_dir = Path("${{ inputs.out_dir }}")
+        out_dir = Path(os.environ["WPC_OUT_DIR"])
         plugin_check = out_dir / "plugin-check.json"
         meta_check = out_dir / "meta-check.json"
 
@@ -328,7 +358,9 @@ runs:
     - name: Cleanup
       if: ${{ always() && inputs.cleanup == 'true' }}
       shell: bash
+      env:
+        WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
+        compose_file="${WPC_COMPOSE_FILE}"
         docker compose -f "$compose_file" down -v
