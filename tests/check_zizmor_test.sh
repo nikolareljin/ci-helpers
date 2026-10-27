@@ -70,5 +70,14 @@ if grep -q 'ok.yml' <<<"$out"; then echo "FAIL: ok.yml reported (inputs.test_com
 rm "$work/.github/workflows/bad.yml" "$work/.github/workflows/splice.yml"
 if ! (cd "$work" && bash "$CHECK" >/dev/null 2>&1); then echo "FAIL: fixed forms did not pass"; fail=1; fi
 
-(( fail == 0 )) && echo "check_zizmor: all three findings reported, *_command and fixed forms pass"
+# No report at all (image pull failed, docker missing) is exit 2, not a pass.
+mkdir -p "$work/stub"
+printf '#!/bin/sh\necho "pull access denied" >&2\nexit 125\n' > "$work/stub/docker"
+chmod +x "$work/stub/docker"
+rc=0
+out="$(cd "$work" && PATH="$work/stub:$PATH" bash "$CHECK" 2>&1)" || rc=$?
+if (( rc != 2 )); then echo "FAIL: no report gave exit $rc, expected 2"; fail=1; fi
+grep -q 'pull access denied' <<<"$out" || { echo "FAIL: docker error not shown"; fail=1; }
+
+(( fail == 0 )) && echo "check_zizmor: all three findings reported, *_command and fixed forms pass, no report fails"
 exit "$fail"

@@ -32,15 +32,19 @@ done
 
 # zizmor exits non-zero whenever it finds anything, so its status alone says
 # nothing; an empty or unparsable report is what means it did not run.
+errlog="$(mktemp)"
+trap 'rm -f "$errlog"' EXIT
 report="$(docker run --rm -v "$PWD":/repo:ro -w /repo "$ZIZMOR_IMAGE" \
-  --offline --format json "${paths[@]}" 2>/dev/null || true)"
+  --offline --format json "${paths[@]}" 2>"$errlog" || true)"
 
 # shellcheck disable=SC2016 # the Python matches a literal ${{ }}
 if ! hits="$(printf '%s' "$report" | python3 -c '
 import json, re, sys
 findings = json.load(sys.stdin)
 for f in findings:
-    loc = next(l for l in f["locations"] if l["symbolic"].get("kind") == "Primary")
+    # Every finding has a Primary location; the first one stands in if not.
+    loc = next((l for l in f["locations"] if l["symbolic"].get("kind") == "Primary"),
+               f["locations"][0])
     path = loc["symbolic"]["key"]["Local"]["given_path"]
     span = loc["concrete"]["location"]["offset_span"]
     with open(path, "rb") as fh:
@@ -51,9 +55,10 @@ for f in findings:
         continue
     row = loc["concrete"]["location"]["start_point"]["row"] + 1
     note = loc["symbolic"].get("annotation", "")
-    print("%s:%d: %s: %s: %s" % (path, row, f["ident"], note, text.splitlines()[0][:80]))
+    print("%s:%d: %s: %s: %s" % (path, row, f["ident"], note, (text.splitlines() or [""])[0][:80]))
 ')"; then
-  echo "zizmor did not produce a report." >&2
+  echo "zizmor did not produce a report:" >&2
+  tail -n 20 "$errlog" >&2
   exit 2
 fi
 
