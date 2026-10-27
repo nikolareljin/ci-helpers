@@ -1913,7 +1913,10 @@ Inputs:
 - `ldflags` (string, default `""`) — optional linker flags
 - `remote_path` (string, required) — destination directory on the remote host
 - `remote_bin_name` (string, default `""`) — rename binary on remote (defaults to `bin_name`)
-- `extra_files` (string, default `""`) — comma-separated list of files to copy alongside the binary
+- `extra_files` (string, default `""`) — comma-separated list of files to copy alongside the binary.
+  A missing entry fails the deploy before anything is copied.
+- `allow_missing_extra_files` (boolean, default `false`) - skip a missing `extra_files` entry
+  with a warning instead of failing
 - `post_deploy_command` (string, default `""`) — command to run on the remote host after deploy
 
 Secrets:
@@ -2528,6 +2531,7 @@ Inputs (workflow_call):
 | Input | Default | Description |
 |-------|---------|-------------|
 | `base_branch` | `main` | Branch the PR targets. Any value other than `main` is used as given; `main` (also the default, so indistinguishable from not passing it) uses the repository's default branch from the event payload. |
+| `soft_fail` | `false` | When `true`, a known permission `403` (Actions may not open PRs, the token lacks `pull-requests: write`, PRs disabled) warns and the job passes. By default it fails the job. ci-helpers' own run on `create` (no inputs) warns, since its release script opens the PR. |
 
 The caller may trigger it from `create` (filtered to `release/*` branches) or from any other event such as `push` to `release/*`; a ref that is not `release/[v]X.Y.Z[-rcN|-rc.N]` is skipped.
 

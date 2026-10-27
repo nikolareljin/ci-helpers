@@ -2,6 +2,27 @@
 
 ### Changed
 
+- **Four silent passes fail now** (audit Lows L1, L3, L4, L5):
+  - `go-deploy`: a missing `extra_files` entry fails the deploy before
+    anything is copied; it used to warn and report success without the
+    file. `allow_missing_extra_files: true` keeps the old skip.
+  - `release-rc-pr`: a permission `403` fails a caller's job; it used to
+    warn and go green, so a release PR that never opened went unnoticed.
+    `soft_fail: true` keeps the warning. ci-helpers' own run on `create`
+    still warns: its release script opens that PR.
+  - `production-branch` and `security-weekly` fail when
+    `git submodule update` fails, instead of running the pin checks on a
+    half-populated tree. The caller-side workflows (`deb-build`,
+    `rpm-build`, `homebrew-package`, `auto-tag`, `update-production`)
+    still continue, since a caller's private submodule may not be
+    fetchable, but print a warning.
+  - `go-release` and `release-build` set `cache: false` on `setup-go`, so a
+    release build restores no module cache another run wrote.
+
+  Tests: `tests/go_deploy_extra_files_test.sh` and
+  `tests/release_rc_pr_soft_fail_test.sh` run the real step scripts with
+  stubbed `ssh`/`rsync` and a mocked API. E119 step 8.
+
 - **zizmor gates every PR on all its audits.** `scripts/check_zizmor.sh`
   (zizmor 1.16.3, pinned by digest) replaces `check_token_exposure.sh`,
   which failed on two audits only. It fails on any finding except a

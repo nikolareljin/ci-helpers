@@ -38,6 +38,12 @@ on:
       extra_files:
         type: string
         default: ""
+      allow_missing_extra_files:
+        description: >
+          When true, an extra_files entry that does not exist is skipped with
+          a warning. By default it fails the deploy before anything is copied.
+        type: boolean
+        default: false
       post_deploy_command:
         type: string
         default: ""
@@ -119,6 +125,7 @@ jobs:
           INPUT_BIN_NAME: ${{ inputs.bin_name }}
           INPUT_REMOTE_BIN_NAME: ${{ inputs.remote_bin_name }}
           INPUT_EXTRA_FILES: ${{ inputs.extra_files }}
+          INPUT_ALLOW_MISSING_EXTRA_FILES: ${{ inputs.allow_missing_extra_files }}
           # post_deploy_command is an intentional arbitrary shell command executed on
           # the remote; callers are trusted to supply safe values.
           INPUT_POST_DEPLOY_COMMAND: ${{ inputs.post_deploy_command }}
@@ -180,14 +187,9 @@ jobs:
           remote_path_quoted="$(quote_remote_shell_arg "$REMOTE_PATH")"
           remote_binary_target="${REMOTE_PATH}/${remote_bin}"
 
-          # Ensure remote directory exists.
-          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- ${remote_path_quoted}"
-
-          # Use raw rsync destination paths. quote_remote_shell_arg() is only for
-          # strings embedded into a remote shell command, not rsync target specs.
-          rsync -az --protect-args -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target}"
-
-          # Transfer extra files (comma-separated list).
+          # Check extra files (comma-separated list) before copying anything,
+          # so a missing config file fails the deploy instead of warning.
+          extras=()
           if [ -n "${INPUT_EXTRA_FILES}" ]; then
             IFS=',' read -r -a files <<< "${INPUT_EXTRA_FILES}"
             for f in "${files[@]}"; do
@@ -198,12 +200,26 @@ jobs:
                 continue
               fi
               if [ -f "$f" ]; then
-                rsync -az --protect-args -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
+                extras+=("$f")
+              elif [ "${INPUT_ALLOW_MISSING_EXTRA_FILES}" = "true" ]; then
+                echo "::warning::extra file '$f' not found, skipping"
               else
-                echo "Warning: extra file '$f' not found, skipping" >&2
+                echo "::error::extra file '$f' not found (allow_missing_extra_files: true skips it)" >&2
+                exit 1
               fi
             done
           fi
+
+          # Ensure remote directory exists.
+          ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- ${remote_path_quoted}"
+
+          # Use raw rsync destination paths. quote_remote_shell_arg() is only for
+          # strings embedded into a remote shell command, not rsync target specs.
+          rsync -az --protect-args -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target}"
+
+          for f in ${extras[@]+"${extras[@]}"}; do
+            rsync -az --protect-args -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"
+          done
 
           # Run post-deploy command on remote (caller-supplied, trusted).
           if [ -n "${INPUT_POST_DEPLOY_COMMAND}" ]; then

@@ -12,6 +12,14 @@ on:
           main needs no input.
         type: string
         default: "main"
+      soft_fail:
+        description: >
+          When true, a known permission 403 (Actions may not create PRs, the
+          token lacks pull-requests: write, PRs disabled) warns and the job
+          passes. By default it fails, so a release PR that never opened shows
+          as a red check. ci-helpers' own run on create (no inputs) warns.
+        type: boolean
+        default: false
     secrets:
       GH_PAT:
         description: >
@@ -45,6 +53,9 @@ jobs:
       # Called: the caller's base_branch (default "main"). Run directly on
       # create: the inputs context is empty, so this is "". The script decides.
       BASE_BRANCH: ${{ inputs.base_branch }}
+      # "true"/"false" when called. Empty when ci-helpers runs this on its
+      # own create, where the release script opens the PR: that run warns.
+      SOFT_FAIL: ${{ inputs.soft_fail }}
     steps:
       - name: Create PR to default branch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9 @ 2026-05-23
@@ -104,8 +115,9 @@ jobs:
                 ? err.message
                 : '';
               const message = rawMessage.toLowerCase();
-              // Allowlist of known permission/config 403s that are safe to soft-warn.
-              // Anything else (abuse detection, SSO policy, unknown causes) fails hard.
+              // Known permission/config 403s get remediation text; they fail
+              // unless soft_fail is true. Anything else (abuse detection, SSO
+              // policy, unknown causes) is rethrown as is.
               const permissionDeniedPatterns = [
                 'not permitted to create',               // Actions setting disabled
                 'resource not accessible by integration', // token lacks pull-requests: write
@@ -114,7 +126,8 @@ jobs:
               const isPermissionDenied = status === 403 &&
                 permissionDeniedPatterns.some(p => message.includes(p));
               if (isPermissionDenied) {
-                core.warning(
+                const report = process.env.SOFT_FAIL === 'false' ? core.setFailed : core.warning;
+                report(
                   `Could not create PR for ${head} -> ${base} (403 Forbidden).\n` +
                   `API error: ${rawMessage}\n` +
                   `Possible causes and remediations:\n` +

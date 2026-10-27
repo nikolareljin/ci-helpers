@@ -83,6 +83,7 @@ The PR targets the repository's default branch. To target a different branch, pa
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `base_branch` | string | `main` | Branch the PR targets. Any value other than `main` is used as given. `main` -- also the default, so it cannot be told apart from passing nothing -- uses the repository's default branch from the event payload. |
+| `soft_fail` | boolean | `false` | When `true`, a known permission `403` (Actions may not open PRs, the token lacks `pull-requests: write`, PRs disabled) warns and the job passes. By default it fails the job. ci-helpers' own run on `create` (no inputs) warns, since its release script opens the PR. |
 
 ## Secrets (workflow_call)
 
@@ -120,7 +121,8 @@ Two failures stop this workflow from opening a PR:
    gets `401` for that call. A copy that calls `repos.get()` fails this way.
 2. **`403 GitHub Actions is not permitted to create or approve pull requests`.**
    The repository setting that lets Actions open PRs is off. Enable **Option A**
-   above, or provide `GH_PAT`.
+   above, or provide `GH_PAT`. The job fails with this message and the
+   remediations when called; `soft_fail: true` turns it into a warning.
 
 ---
 

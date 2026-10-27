@@ -136,6 +136,8 @@ jobs:
         with:
           go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
           go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
+          # A release build restores no cache another run wrote.
+          cache: false
 
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' }}
