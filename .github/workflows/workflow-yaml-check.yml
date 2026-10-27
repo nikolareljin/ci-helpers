@@ -127,6 +127,10 @@ jobs:
         shell: bash
         run: bash tests/flutter_docker_inputs_stay_text_test.sh
 
+      - name: wp-plugin-check and pimcore-bundle-check actions pass inputs as text
+        shell: bash
+        run: bash tests/composite_check_actions_inputs_stay_text_test.sh
+
       - name: packaging workflows create no vendor/ directory
         shell: bash
         run: bash tests/packaging_no_vendor_dir_test.sh

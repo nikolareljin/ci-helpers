@@ -163,9 +163,11 @@ runs:
 
     - name: Prepare output directory
       shell: bash
+      env:
+        PBC_OUT_DIR: ${{ inputs.out_dir }}
       run: |
         set -euo pipefail
-        mkdir -p "${{ inputs.out_dir }}"
+        mkdir -p "${PBC_OUT_DIR}"
 
     - name: Export PHP version for the compose stack
       if: ${{ inputs.php_version != '' && inputs.php_version_env != '' }}
@@ -197,13 +199,19 @@ runs:
 
     - name: Start test stack
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_DB_SERVICE: ${{ inputs.db_service }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_BUNDLE_SRC_ENV: ${{ inputs.bundle_src_env }}
+        PBC_BUNDLE_SRC: ${{ inputs.bundle_src }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        db_service="${{ inputs.db_service }}"
-        php_service="${{ inputs.php_service }}"
-        bundle_src_env="${{ inputs.bundle_src_env }}"
-        bundle_src="${{ inputs.bundle_src }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        db_service="${PBC_DB_SERVICE}"
+        php_service="${PBC_PHP_SERVICE}"
+        bundle_src_env="${PBC_BUNDLE_SRC_ENV}"
+        bundle_src="${PBC_BUNDLE_SRC}"
 
         bundle_src_abs="$(realpath "$bundle_src")"
         # Later steps run `docker compose` against the same file, and Cleanup's
@@ -230,11 +238,15 @@ runs:
 
     - name: Wait for database
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_DB_SERVICE: ${{ inputs.db_service }}
+        PBC_DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        db_service="${{ inputs.db_service }}"
-        wait_secs="${{ inputs.db_wait_seconds }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        db_service="${PBC_DB_SERVICE}"
+        wait_secs="${PBC_DB_WAIT_SECONDS}"
 
         echo "Waiting up to ${wait_secs}s for ${db_service} to become healthy..."
         elapsed=0
@@ -252,24 +264,33 @@ runs:
 
     - name: Install Composer dependencies (Docker)
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_COMPOSER_COMMAND: ${{ inputs.composer_command }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        php_service="${{ inputs.php_service }}"
-        composer_cmd="${{ inputs.composer_command }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        php_service="${PBC_PHP_SERVICE}"
 
+        # Code by design, run as written by the shell in the php service.
         docker compose -f "$compose_file" exec -T "$php_service" \
-          sh -lc "$composer_cmd"
+          sh -lc "$PBC_COMPOSER_COMMAND"
 
     - name: PHPCS — PSR-12 code style (Docker)
       if: ${{ inputs.phpcs_command != '' }}
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_OUT_DIR: ${{ inputs.out_dir }}
+        PBC_FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        php_service="${{ inputs.php_service }}"
-        out_dir="${{ inputs.out_dir }}"
-        fail="${{ inputs.fail_on_findings }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        php_service="${PBC_PHP_SERVICE}"
+        out_dir="${PBC_OUT_DIR}"
+        fail="${PBC_FAIL_ON_FINDINGS}"
 
         if docker compose -f "$compose_file" exec -T "$php_service" \
              sh -lc "${{ inputs.phpcs_command }} --report=checkstyle --report-file=/tmp/phpcs.xml" ; then
@@ -284,12 +305,17 @@ runs:
     - name: PHPStan — static analysis (Docker)
       if: ${{ inputs.phpstan_command != '' }}
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_OUT_DIR: ${{ inputs.out_dir }}
+        PBC_FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        php_service="${{ inputs.php_service }}"
-        out_dir="${{ inputs.out_dir }}"
-        fail="${{ inputs.fail_on_findings }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        php_service="${PBC_PHP_SERVICE}"
+        out_dir="${PBC_OUT_DIR}"
+        fail="${PBC_FAIL_ON_FINDINGS}"
 
         if docker compose -f "$compose_file" exec -T "$php_service" \
              sh -lc "${{ inputs.phpstan_command }} --error-format=checkstyle > /tmp/phpstan.xml 2>&1" ; then
@@ -304,12 +330,17 @@ runs:
     - name: PHPUnit — test suite (Docker)
       if: ${{ inputs.phpunit_command != '' }}
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_OUT_DIR: ${{ inputs.out_dir }}
+        PBC_FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        php_service="${{ inputs.php_service }}"
-        out_dir="${{ inputs.out_dir }}"
-        fail="${{ inputs.fail_on_findings }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        php_service="${PBC_PHP_SERVICE}"
+        out_dir="${PBC_OUT_DIR}"
+        fail="${PBC_FAIL_ON_FINDINGS}"
 
         if docker compose -f "$compose_file" exec -T "$php_service" \
              sh -lc "${{ inputs.phpunit_command }} --log-junit /tmp/phpunit.xml" ; then
@@ -324,11 +355,15 @@ runs:
     - name: PHPUnit — coverage (Docker)
       if: ${{ inputs.phpunit_coverage_command != '' }}
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        PBC_PHP_SERVICE: ${{ inputs.php_service }}
+        PBC_OUT_DIR: ${{ inputs.out_dir }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
-        php_service="${{ inputs.php_service }}"
-        out_dir="${{ inputs.out_dir }}"
+        compose_file="${PBC_COMPOSE_FILE}"
+        php_service="${PBC_PHP_SERVICE}"
+        out_dir="${PBC_OUT_DIR}"
 
         docker compose -f "$compose_file" exec -T "$php_service" \
           sh -lc "mkdir -p /tmp/coverage && ${{ inputs.phpunit_coverage_command }} --coverage-clover /tmp/coverage/clover.xml"
@@ -339,8 +374,10 @@ runs:
     - name: Cleanup
       if: ${{ always() && inputs.cleanup == 'true' }}
       shell: bash
+      env:
+        PBC_COMPOSE_FILE: ${{ inputs.compose_file }}
       run: |
         set -euo pipefail
-        compose_file="${{ inputs.compose_file }}"
+        compose_file="${PBC_COMPOSE_FILE}"
         docker compose -f "$compose_file" down -v --remove-orphans
         echo "Test stack torn down."

@@ -6,8 +6,7 @@
 #              script or shell. Every other workflow and composite action
 #              names inputs in no run script or shell in any form (inputs.x,
 #              inputs['x'], toJSON(inputs)), except inputs.<name>_command,
-#              which is code by design. Files in not_yet still splice text inputs; each
-#              must leave the list once it is fixed.
+#              which is code by design.
 # USAGE: bash tests/no_inline_expressions_in_run_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -28,12 +27,6 @@ strict = [
     ".github/workflows/flutter-release.yml",
     ".github/workflows/fpc-release.yml",
 ]
-# Composite actions that still splice text inputs (E119 M4). A file here
-# must still have a splice, so a fixed file cannot stay listed.
-not_yet = {
-    ".github/actions/pimcore-bundle-check/action.yml",
-    ".github/actions/wp-plugin-check/action.yml",
-}
 # Each ${{ ... }} in full, so a format('{0}', inputs.x) is read whole.
 expression = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 
@@ -50,7 +43,6 @@ files = sorted(f for pattern in (".github/workflows/*.y*ml",
 assert set(strict) <= set(files), set(strict) - set(files)
 bad = []
 for f in files:
-    spliced = False
     for job, steps in run_steps(f):
         for s in steps:
             # shell: is spliced the same way: `shell: bash -c "${{ ... }} {0}"`.
@@ -63,11 +55,7 @@ for f in files:
             for ref in (r for e in expression.findall(run)
                         for r in re.findall(r"\binputs\b(?:\.\w+|\s*\[[^\]]*\])?", e)):
                 if f not in strict and not re.fullmatch(r"inputs\.\w+_command", ref):
-                    spliced = True
-                    if f not in not_yet:
-                        bad.append(f"{where}: {ref}")
-    if f in not_yet and not spliced:
-        bad.append(f"{f}: no text input spliced any more; remove it from not_yet")
+                    bad.append(f"{where}: {ref}")
 for b in bad:
     print(f"FAIL inline expression in run: {b}")
 sys.exit(1 if bad else 0)
