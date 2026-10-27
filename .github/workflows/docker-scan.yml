@@ -65,9 +65,13 @@ jobs:
       - name: Build image
         shell: bash
         working-directory: ${{ inputs.working_directory }}
+        env:
+          DS_DOCKERFILE: ${{ inputs.dockerfile }}
+          DS_IMAGE_NAME: ${{ inputs.image_name }}
+          DS_CONTEXT: ${{ inputs.context }}
         run: |
           set -euo pipefail
-          docker build -f "${{ inputs.dockerfile }}" -t "${{ inputs.image_name }}" "${{ inputs.context }}"
+          docker build -f "$DS_DOCKERFILE" -t "$DS_IMAGE_NAME" "$DS_CONTEXT"
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87 # master @ 2026-10-21

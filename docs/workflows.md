@@ -335,15 +335,15 @@ Inputs:
 - `build_ios` (boolean, default `false`)
 - `deploy_google_play` (boolean, default `false`)
 - `deploy_app_store` (boolean, default `false`)
-- `android_build_command` (string, default `flutter build appbundle --release`)
-- `ios_build_command` (string, default `flutter build ipa --release`)
+- `android_build_command` (string, default `flutter build appbundle --release`; shell code, run as written)
+- `ios_build_command` (string, default `flutter build ipa --release`; shell code, run as written)
 - `android_artifact_path` (string, default `build/app/outputs/bundle/release/*.aab`)
 - `ios_artifact_path` (string, default `build/ios/ipa/*.ipa`)
 - `upload_artifacts` (boolean, default `true`)
 - `android_artifact_name` (string, default `flutter-android`)
 - `ios_artifact_name` (string, default `flutter-ios`)
-- `fastlane_android_lane` (string, default `android_release`)
-- `fastlane_ios_lane` (string, default `ios_release`)
+- `fastlane_android_lane` (string, default `android_release`; a lane and its options, such as `beta skip_upload:true`, split as the shell splits quoted words (`notes:"a b"` stays one) and passed to fastlane as text, never expanded or run; the split uses `python3`, which GitHub-hosted runners have, so a self-hosted `runner` needs it for the deploy steps)
+- `fastlane_ios_lane` (string, default `ios_release`; split and passed as for `fastlane_android_lane`)
 - `timeout_minutes` (number, default `60`) — job timeout; the higher default covers
   cold Flutter and Fastlane builds, including expensive macOS runners.
 
