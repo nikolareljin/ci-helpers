@@ -42,6 +42,10 @@ inputs:
     description: Artifact name when uploading the report.
     default: gitleaks-report
     required: false
+outputs:
+  gl_bin:
+    description: Path of the gitleaks binary the action downloaded and verified.
+    value: ${{ steps.install.outputs.gl_bin }}
 runs:
   using: composite
   steps:

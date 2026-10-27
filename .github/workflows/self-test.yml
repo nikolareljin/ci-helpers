@@ -1192,6 +1192,7 @@ jobs:
           fail_on_findings: "true"
 
       - name: Findings are reported without failing, by default
+        id: lenient
         uses: ./.github/actions/gitleaks-scan
         with:
           scan_path: ${{ env.LEAKY }}
@@ -1218,6 +1219,8 @@ jobs:
 
       - name: Without the fix, this directory passed without being scanned
         shell: bash
+        env:
+          GL_BIN: ${{ steps.lenient.outputs.gl_bin }}
         run: |
           set -uo pipefail
           # Why the action has a `--no-git` branch at all. `detect` reads git

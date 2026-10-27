@@ -9,8 +9,10 @@
   design; the `workflow-yaml-check` job is now `zizmor`. The 14 findings it
   found are fixed or marked:
   - `gitleaks-scan` passed the binary path through `GITHUB_ENV`, which
-    every later step of the caller's job also received; it is a step output
-    now.
+    every later step of the caller's job also received. It is the action
+    output `gl_bin` now, and `GL_BIN` is no longer set after the action: a
+    caller step that ran `"$GL_BIN"` reads
+    `${{ steps.<id>.outputs.gl_bin }}` instead.
   - `self-test.yml` read three `steps.*.outcome` inline; they go through env.
   - `windows-sign` writes signing values to `GITHUB_ENV` only with
     `export_env: "true"`, by design; those two steps carry
