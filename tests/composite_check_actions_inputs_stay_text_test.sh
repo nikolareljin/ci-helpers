@@ -58,13 +58,17 @@ open(f"{work}/steps", "w").write("\n".join(names) + "\n")
 PY
 
 # docker records its arguments, one per line, and runs any sh -lc script
-# as the container would. wp records its arguments, lists check in
+# as the container would: with only the variables named by -e. wp records its arguments, lists check in
 # `wp help`, reports no site installed yet and prints empty JSON results.
 cat > "$work/bin/docker" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$@" >> "$work/docker.args"
-while [[ \$# -gt 0 && "\$1" != sh ]]; do shift; done
-if [[ "\${1:-}" == sh && "\${2:-}" == -lc ]]; then exec sh -c "\$3"; fi
+pass=(PATH="\$PATH")
+while [[ \$# -gt 0 && "\$1" != sh ]]; do
+  if [[ "\$1" == -e ]]; then pass+=("\$2=\${!2-}"); shift; fi
+  shift
+done
+if [[ "\${1:-}" == sh && "\${2:-}" == -lc ]]; then exec env -i "\${pass[@]}" sh -c "\$3"; fi
 EOF
 cat > "$work/bin/wp" <<EOF
 #!/usr/bin/env bash
