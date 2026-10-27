@@ -74,8 +74,11 @@ on:
         type: string
         default: "admin"
       wp_admin_password:
+        description: >
+          Admin password for the throwaway test site. Empty (the default) uses a
+          random one per run; a value passed here is shown with the run's inputs.
         type: string
-        default: "admin"
+        default: ""
       wp_admin_email:
         type: string
         default: "admin@example.com"
@@ -235,6 +238,12 @@ jobs:
         run: |
           set -euo pipefail
           wp_root="${INPUT_WP_ROOT}"
+          # Empty (the default) gets a random password per run: an input is
+          # shown with the run, and this one sits on a command line.
+          if [[ -z "$INPUT_WP_ADMIN_PASSWORD" ]]; then
+            INPUT_WP_ADMIN_PASSWORD="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+            export INPUT_WP_ADMIN_PASSWORD
+          fi
 
           # -f: an HTTP error must fail here, not leave an error page to run as
           # PHP. A released phar with its digest pinned here: the rolling

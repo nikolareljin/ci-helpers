@@ -12,6 +12,16 @@ Related docs:
 All workflows use Bash with `set -euo pipefail` for the commands you pass in.
 All commands run inside `inputs.working_directory` (default `"."`).
 
+### Runners on pull requests
+
+Every `runner` input accepts any label, a self-hosted one included. On a
+`pull_request` event the job runs the PR's code, so a self-hosted runner that
+outlives the job keeps whatever that code left behind: caches, docker images
+and volumes, files outside the workspace. The next job on that machine, a
+release included, starts from that state. For workflows a pull request
+triggers, pass a GitHub-hosted label (`ubuntu-*`, `macos-*`, `windows-*`) or
+an ephemeral self-hosted runner, one that is destroyed after each job.
+
 ## ci.yml
 
 Workflow: `.github/workflows/ci.yml`
@@ -1058,7 +1068,7 @@ Inputs (selected):
 - `wp_cli_scan` (boolean, default `true`, only runs when WordPress is detected)
 - `wp_root` (string, default `wp-cli-site`) - where the scan installs a throwaway WordPress site
 - `wp_site_url` (string, default `http://localhost:8080`), `wp_site_title` (string, default `CI Site`)
-- `wp_admin_user` (string, default `admin`), `wp_admin_password` (string, default `admin`), `wp_admin_email` (string, default `admin@example.com`) - credentials for that throwaway site only
+- `wp_admin_user` (string, default `admin`), `wp_admin_password` (string, default `""`: a random password per run), `wp_admin_email` (string, default `admin@example.com`) - credentials for that throwaway site only
 - `wp_posts_count` (number, default `10`) - demo posts generated before the scan
 - `lint_pimcore_command` (string, default `vendor/bin/phpcs --standard=PSR12 --extensions=php src/`, only runs when Pimcore is detected)
 - `fetch_depth` (number, default `0`)
@@ -2111,7 +2121,7 @@ Inputs:
 - `multisite` (boolean, default `true`)
 - `activate_network` (boolean, default `true`)
 - `admin_user` (string, default `admin`)
-- `admin_password` (string, default `admin`)
+- `admin_password` (string, default `""`: a random password per run)
 - `admin_email` (string, default `admin@example.com`)
 - `site_title` (string, default `WP Test Site`)
 - `meta_check_script` (string, default `""`)

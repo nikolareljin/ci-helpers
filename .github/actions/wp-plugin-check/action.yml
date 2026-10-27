@@ -53,8 +53,10 @@ inputs:
     default: admin
     required: false
   admin_password:
-    description: WordPress admin password.
-    default: admin
+    description: >
+      Admin password for the throwaway test site. Empty (the default) uses a
+      random one per run; a value passed here is shown with the run's inputs.
+    default: ""
     required: false
   admin_email:
     description: WordPress admin email.
@@ -214,6 +216,12 @@ runs:
         compose_file="${WPC_COMPOSE_FILE}"
         wpcli_service="${WPC_WPCLI_SERVICE}"
         multisite="${WPC_MULTISITE}"
+        # Empty (the default) gets a random password per run: an input is
+        # shown with the run, and this one sits on a command line.
+        if [[ -z "$WPC_ADMIN_PASSWORD" ]]; then
+          WPC_ADMIN_PASSWORD="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          export WPC_ADMIN_PASSWORD
+        fi
 
         docker compose -f "$compose_file" run --rm "$wpcli_service" sh -lc 'test -f wp-config.php || wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --skip-check'
 

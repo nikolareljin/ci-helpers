@@ -2,6 +2,16 @@
 
 ### Changed
 
+- **WordPress test sites get a random admin password** (audit Lows L6,
+  L7): `admin_password` on `wp-plugin-check` (workflow and action) and
+  `wp_admin_password` on `php-scan` default to `""`, which generates a
+  32-hex password per run; the old default `admin` was public. A value
+  passed in is still used, and is still shown with the run's inputs. Nothing
+  in these workflows logs in afterwards. `docs/workflows.md` says which
+  runners are safe for pull-request events: GitHub-hosted, or self-hosted
+  ones destroyed after each job. Test: `tests/wp_admin_password_test.sh`
+  runs the three install steps with stub tools. E119 step 8.
+
 - **Four silent passes fail now** (audit Lows L1, L3, L4, L5):
   - `go-deploy`: a missing `extra_files` entry fails the deploy before
     anything is copied; it used to warn and report success without the
