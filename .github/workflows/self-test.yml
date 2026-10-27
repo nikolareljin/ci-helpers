@@ -1199,9 +1199,11 @@ jobs:
 
       - name: Both scans found the key, and only one of them failed
         shell: bash
+        env:
+          FAILS_OUTCOME: ${{ steps.fails.outcome }}
         run: |
           set -euo pipefail
-          if [[ "${{ steps.fails.outcome }}" != "failure" ]]; then
+          if [[ "$FAILS_OUTCOME" != "failure" ]]; then
             echo "::error::fail_on_findings: true did not fail on a planted key"
             exit 1
           fi
@@ -1298,9 +1300,11 @@ jobs:
 
       - name: It failed on the pinned advisory, not on something passing
         shell: bash
+        env:
+          VULNERABLE_OUTCOME: ${{ steps.vulnerable.outcome }}
         run: |
           set -euo pipefail
-          if [[ "${{ steps.vulnerable.outcome }}" != "failure" ]]; then
+          if [[ "$VULNERABLE_OUTCOME" != "failure" ]]; then
             echo "::error::the fixture pinned to an advisory did not fail at exit-code 1"
             exit 1
           fi
@@ -1374,9 +1378,11 @@ jobs:
 
       - name: It failed on the rule the fixture exists for
         shell: bash
+        env:
+          BAD_OUTCOME: ${{ steps.bad.outcome }}
         run: |
           set -euo pipefail
-          if [[ "${{ steps.bad.outcome }}" != "failure" ]]; then
+          if [[ "$BAD_OUTCOME" != "failure" ]]; then
             echo "::error::the root Dockerfile passed a misconfiguration scan"
             exit 1
           fi

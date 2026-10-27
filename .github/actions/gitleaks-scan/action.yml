@@ -53,6 +53,7 @@ runs:
         set -euo pipefail
         mkdir -p "$(dirname "${OUTPUT}")"
     - name: Install gitleaks binary
+      id: install
       shell: bash
       env:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
@@ -125,7 +126,9 @@ runs:
           GL_BIN="${work}/bin/gitleaks"
           chmod +x "${GL_BIN}"
         fi
-        echo "GL_BIN=${GL_BIN}" >> "${GITHUB_ENV}"
+        # An output, not GITHUB_ENV, which would also reach every later step
+        # of the caller's job.
+        echo "gl_bin=${GL_BIN}" >> "${GITHUB_OUTPUT}"
 
     # Without config_path, gitleaks loads .gitleaks.toml and .gitleaksignore
     # from the checked-out tree, so on a pull request those files come from the
@@ -168,6 +171,7 @@ runs:
     - name: Run gitleaks scan
       shell: bash
       env:
+        GL_BIN: ${{ steps.install.outputs.gl_bin }}
         SCAN_PATH: ${{ inputs.scan_path }}
         OUTPUT: ${{ inputs.output }}
         CONFIG_PATH: ${{ inputs.config_path }}

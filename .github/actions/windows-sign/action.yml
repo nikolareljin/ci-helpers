@@ -134,7 +134,7 @@ runs:
         PRIV_KEY: ${{ inputs.tauri_signing_private_key }}
         PRIV_KEY_PW: ${{ inputs.tauri_signing_private_key_password }}
         EXPORT_ENV: ${{ inputs.export_env }}
-      run: |
+      run: |  # zizmor: ignore[github-env] export_env "true" writes it on purpose; off by default
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
 
@@ -187,7 +187,7 @@ runs:
         AZ_ACCOUNT: ${{ inputs.azure_code_signing_account }}
         AZ_PROFILE: ${{ inputs.azure_cert_profile }}
         EXPORT_ENV: ${{ inputs.export_env }}
-      run: |
+      run: |  # zizmor: ignore[github-env] export_env "true" writes it on purpose; off by default
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
 

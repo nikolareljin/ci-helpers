@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# SCRIPT: check_token_exposure.sh
-# DESCRIPTION: Fail when zizmor reports a checkout that keeps its token on disk
-#              (artipacked) or a job with broader permissions than it needs
-#              (excessive-permissions). Other zizmor audits do not fail this.
-# USAGE: ./scripts/check_token_exposure.sh [path ...]
+# SCRIPT: check_zizmor.sh
+# DESCRIPTION: Fail on every zizmor finding, with one exception: a
+#              template-injection whose expression is exactly
+#              inputs.<name>_command, an input that is shell code by design.
+#              A finding that is deliberate carries a
+#              `# zizmor: ignore[<audit>]` comment with its reason, which
+#              zizmor honours.
+# USAGE: ./scripts/check_zizmor.sh [path ...]
 # PARAMETERS:
 #   path ...    Files or directories to audit (default: .github).
 #   -h, --help  Show this help message.
 # EXIT CODES:
-#   0  No such finding.
+#   0  No finding outside the exception.
 #   1  One or more found; each is listed.
 #   2  zizmor could not run.
 # ----------------------------------------------------
@@ -32,25 +35,31 @@ done
 report="$(docker run --rm -v "$PWD":/repo:ro -w /repo "$ZIZMOR_IMAGE" \
   --offline --format json "${paths[@]}" 2>/dev/null || true)"
 
+# shellcheck disable=SC2016 # the Python matches a literal ${{ }}
 if ! hits="$(printf '%s' "$report" | python3 -c '
-import json, sys
+import json, re, sys
 findings = json.load(sys.stdin)
 for f in findings:
-    if f["ident"] not in ("artipacked", "excessive-permissions"):
-        continue
-    loc = f["locations"][0]
+    loc = next(l for l in f["locations"] if l["symbolic"].get("kind") == "Primary")
     path = loc["symbolic"]["key"]["Local"]["given_path"]
+    span = loc["concrete"]["location"]["offset_span"]
+    with open(path, "rb") as fh:
+        text = fh.read()[span["start"]:span["end"]].decode()
+    # The span is the expression body, with or without its ${{ }}.
+    expr = re.sub(r"^\$\{\{|\}\}$", "", text.strip()).strip()
+    if f["ident"] == "template-injection" and re.fullmatch(r"inputs\.\w+_command", expr):
+        continue
     row = loc["concrete"]["location"]["start_point"]["row"] + 1
     note = loc["symbolic"].get("annotation", "")
-    print("%s:%d: %s: %s" % (path, row, f["ident"], note))
+    print("%s:%d: %s: %s: %s" % (path, row, f["ident"], note, text.splitlines()[0][:80]))
 ')"; then
   echo "zizmor did not produce a report." >&2
   exit 2
 fi
 
 if [[ -n "$hits" ]]; then
-  echo "Token exposure found:" >&2
+  echo "zizmor findings:" >&2
   printf '%s\n' "$hits" >&2
   exit 1
 fi
-echo "No persisted credentials and no excessive permissions."
+echo "No zizmor finding outside inputs.<name>_command."
