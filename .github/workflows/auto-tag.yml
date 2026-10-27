@@ -274,7 +274,11 @@ jobs:
           auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          git submodule update --init --recursive || true
+          # A caller's private submodule may not be fetchable with this token,
+          # so a failure warns instead of failing the build, but never silently.
+          if ! git submodule update --init --recursive; then
+            echo "::warning::git submodule update failed; continuing with the submodules already checked out"
+          fi
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
             ln -sfn ../scripts/script-helpers vendor/script-helpers
@@ -386,7 +390,11 @@ jobs:
           auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          git submodule update --init --recursive || true
+          # A caller's private submodule may not be fetchable with this token,
+          # so a failure warns instead of failing the build, but never silently.
+          if ! git submodule update --init --recursive; then
+            echo "::warning::git submodule update failed; continuing with the submodules already checked out"
+          fi
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
             ln -sfn ../scripts/script-helpers vendor/script-helpers

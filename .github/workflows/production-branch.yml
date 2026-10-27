@@ -26,7 +26,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --recursive || true
+          # No `|| true`: a failed fetch must not let the pin checks run on a
+          # half-populated tree. Without .gitmodules this is a no-op.
+          git submodule update --init --recursive
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
             ln -sfn ../scripts/script-helpers vendor/script-helpers
@@ -65,7 +67,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --recursive || true
+          # No `|| true`: a failed fetch must not let the pin checks run on a
+          # half-populated tree. Without .gitmodules this is a no-op.
+          git submodule update --init --recursive
           if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
             mkdir -p vendor
             ln -sfn ../scripts/script-helpers vendor/script-helpers

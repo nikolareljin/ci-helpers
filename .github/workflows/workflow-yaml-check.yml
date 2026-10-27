@@ -171,6 +171,14 @@ jobs:
         shell: bash
         run: bash tests/deb_build_artifact_path_test.sh
 
+      - name: go-deploy fails on a missing extra file before copying
+        shell: bash
+        run: bash tests/go_deploy_extra_files_test.sh
+
+      - name: release-rc-pr fails on a permission 403 unless soft_fail
+        shell: bash
+        run: bash tests/release_rc_pr_soft_fail_test.sh
+
   zizmor:
     # Every zizmor finding fails, among them a checkout that keeps its token,
     # a job with no permissions block and a text input spliced into a script.
