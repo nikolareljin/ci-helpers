@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # release-rc-pr.yml's github-script under node with a mocked API: a known
-# permission 403 fails the job by default and only warns with soft_fail.
+# permission 403 fails the job when called with soft_fail false (the default)
+# and warns with soft_fail true, or on ci-helpers' own create run (empty).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,12 +38,12 @@ JS
 run() { HEAD_BRANCH=release/1.2.3 BASE_BRANCH=main SOFT_FAIL="$1" node "$work/run.js" "$work/script.js"; }
 
 fail=0
-for v in false ""; do
+out="$(run false)"
+[[ "$out" == *setFailed* && "$out" != *warning* ]] || { echo "FAIL: SOFT_FAIL=false gave: $out"; fail=1; }
+for v in true ""; do
   out="$(run "$v")"
-  [[ "$out" == *setFailed* && "$out" != *warning* ]] || { echo "FAIL: SOFT_FAIL='$v' gave: $out"; fail=1; }
+  [[ "$out" == *warning* && "$out" != *setFailed* ]] || { echo "FAIL: SOFT_FAIL='$v' gave: $out"; fail=1; }
 done
-out="$(run true)"
-[[ "$out" == *warning* && "$out" != *setFailed* ]] || { echo "FAIL: SOFT_FAIL=true gave: $out"; fail=1; }
 
-(( fail == 0 )) && echo "release_rc_pr_soft_fail: 403 fails by default, warns with soft_fail"
+(( fail == 0 )) && echo "release_rc_pr_soft_fail: 403 fails when called by default, warns with soft_fail or on own create"
 exit "$fail"

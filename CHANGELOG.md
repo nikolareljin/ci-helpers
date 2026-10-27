@@ -6,9 +6,10 @@
   - `go-deploy`: a missing `extra_files` entry fails the deploy before
     anything is copied; it used to warn and report success without the
     file. `allow_missing_extra_files: true` keeps the old skip.
-  - `release-rc-pr`: a permission `403` fails the job; it used to warn and
-    go green, so a release PR that never opened went unnoticed.
-    `soft_fail: true` keeps the warning.
+  - `release-rc-pr`: a permission `403` fails a caller's job; it used to
+    warn and go green, so a release PR that never opened went unnoticed.
+    `soft_fail: true` keeps the warning. ci-helpers' own run on `create`
+    still warns: its release script opens that PR.
   - `production-branch` and `security-weekly` fail when
     `git submodule update` fails, instead of running the pin checks on a
     half-populated tree. The caller-side workflows (`deb-build`,

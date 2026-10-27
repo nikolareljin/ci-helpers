@@ -2531,7 +2531,7 @@ Inputs (workflow_call):
 | Input | Default | Description |
 |-------|---------|-------------|
 | `base_branch` | `main` | Branch the PR targets. Any value other than `main` is used as given; `main` (also the default, so indistinguishable from not passing it) uses the repository's default branch from the event payload. |
-| `soft_fail` | `false` | When `true`, a known permission `403` (Actions may not open PRs, the token lacks `pull-requests: write`, PRs disabled) warns and the job passes. By default it fails the job. |
+| `soft_fail` | `false` | When `true`, a known permission `403` (Actions may not open PRs, the token lacks `pull-requests: write`, PRs disabled) warns and the job passes. By default it fails the job. ci-helpers' own run on `create` (no inputs) warns, since its release script opens the PR. |
 
 The caller may trigger it from `create` (filtered to `release/*` branches) or from any other event such as `push` to `release/*`; a ref that is not `release/[v]X.Y.Z[-rcN|-rc.N]` is skipped.
 

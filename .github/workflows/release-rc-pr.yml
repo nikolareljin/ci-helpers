@@ -17,7 +17,7 @@ on:
           When true, a known permission 403 (Actions may not create PRs, the
           token lacks pull-requests: write, PRs disabled) warns and the job
           passes. By default it fails, so a release PR that never opened shows
-          as a red check.
+          as a red check. ci-helpers' own run on create (no inputs) warns.
         type: boolean
         default: false
     secrets:
@@ -53,7 +53,8 @@ jobs:
       # Called: the caller's base_branch (default "main"). Run directly on
       # create: the inputs context is empty, so this is "". The script decides.
       BASE_BRANCH: ${{ inputs.base_branch }}
-      # Empty when run directly on create, which fails like false.
+      # "true"/"false" when called. Empty when ci-helpers runs this on its
+      # own create, where the release script opens the PR: that run warns.
       SOFT_FAIL: ${{ inputs.soft_fail }}
     steps:
       - name: Create PR to default branch
@@ -125,7 +126,7 @@ jobs:
               const isPermissionDenied = status === 403 &&
                 permissionDeniedPatterns.some(p => message.includes(p));
               if (isPermissionDenied) {
-                const report = process.env.SOFT_FAIL === 'true' ? core.warning : core.setFailed;
+                const report = process.env.SOFT_FAIL === 'false' ? core.setFailed : core.warning;
                 report(
                   `Could not create PR for ${head} -> ${base} (403 Forbidden).\n` +
                   `API error: ${rawMessage}\n` +
