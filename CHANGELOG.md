@@ -2,6 +2,31 @@
 
 ### Changed
 
+- **zizmor gates every PR on all its audits.** `scripts/check_zizmor.sh`
+  (zizmor 1.16.3, pinned by digest) replaces `check_token_exposure.sh`,
+  which failed on two audits only. It fails on any finding except a
+  template-injection of `inputs.<name>_command`, which is shell code by
+  design; the `workflow-yaml-check` job is now `zizmor`. The 14 findings it
+  found are fixed or marked:
+  - `gitleaks-scan` passed the binary path through `GITHUB_ENV`, which
+    every later step of the caller's job also received. It is the action
+    output `gl_bin` now, and `GL_BIN` is no longer set after the action: a
+    caller step that ran `"$GL_BIN"` reads
+    `${{ steps.<id>.outputs.gl_bin }}` instead.
+  - `self-test.yml` read three `steps.*.outcome` inline; they go through env.
+  - `windows-sign` writes signing values to `GITHUB_ENV` only with
+    `export_env: "true"`, by design; those two steps carry
+    `# zizmor: ignore[github-env]`.
+  - `docker-multiarch` passes `context` to `docker/build-push-action`,
+    whose Dockerfile runs caller code anyway; marked
+    `# zizmor: ignore[template-injection]`.
+  - Dependabot waits 7 days after a release before proposing it
+    (`cooldown`).
+
+  Test: `tests/check_zizmor_test.sh` plants a persisted token, a job with
+  no permissions and a spliced text input, and checks `*_command` passes.
+  E119 step 8; actionlint already gates every PR.
+
 - **Action pins bumped** (the eight open Dependabot PRs, 316-323):
   `actions/setup-python` v7.0.0 -> v7.1.0, `github/codeql-action`
   (`init`, `analyze`, `upload-sarif`) v4.39.0 -> v4.39.1, `ruby/setup-ruby`

@@ -11,6 +11,9 @@ updates:
       day: monday
       time: "06:00"
     open-pull-requests-limit: 10
+    # A release a week old has had time to be yanked if it was bad.
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns: ["actions/*"]

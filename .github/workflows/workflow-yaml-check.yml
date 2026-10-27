@@ -171,12 +171,13 @@ jobs:
         shell: bash
         run: bash tests/deb_build_artifact_path_test.sh
 
-  token-exposure:
-    # A checkout that keeps its token on disk hands it to every dependency the
-    # caller installs; a job with no permissions block runs with the caller's
-    # token. zizmor finds both. Other zizmor findings are tracked separately
-    # and do not block here yet. Pinned by image digest.
-    name: token exposure (zizmor)
+  zizmor:
+    # Every zizmor finding fails, among them a checkout that keeps its token,
+    # a job with no permissions block and a text input spliced into a script.
+    # The one exception is inputs.<name>_command, shell code by design; a
+    # deliberate finding carries a zizmor ignore comment with its reason.
+    # Pinned by image digest.
+    name: zizmor
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -185,10 +186,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
-      - name: The token-exposure check reports what it must
-        run: bash tests/check_token_exposure_test.sh
-      - name: No persisted credentials, no inherited permissions
-        run: bash scripts/check_token_exposure.sh
+      - name: The zizmor check reports what it must
+        run: bash tests/check_zizmor_test.sh
+      - name: No zizmor finding outside inputs.<name>_command
+        run: bash scripts/check_zizmor.sh
 
   actionlint:
     # PyYAML proves a file parses; it does not know a runner label from a typo,

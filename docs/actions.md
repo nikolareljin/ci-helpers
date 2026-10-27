@@ -126,6 +126,12 @@ Inputs:
 - `upload_artifact` (default `"false"`)
 - `artifact_name` (default `gitleaks-report`)
 
+Outputs:
+
+- `gl_bin`: path of the gitleaks binary the action downloaded and verified.
+  The action sets no environment variable for later steps; a step that runs
+  the same binary reads this output.
+
 Notes:
 
 - The gitleaks release archive is verified against the `checksums.txt` published
