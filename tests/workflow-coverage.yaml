@@ -143,5 +143,7 @@ notes:
     image, which changes without us.
   release-rc-pr.yml: >-
     Needs `GH_PAT` because the default token cannot open a pull request that
-    triggers further workflows. Its refusal path -- a 403 logged as a warning
-    while the job exits 0 -- is the failure that prompted this list.
+    triggers further workflows. A 403 used to log a warning while the job
+    exited 0, the failure that prompted this list; a caller's job now fails
+    on it, which tests/release_rc_pr_soft_fail_test.sh runs against a
+    mocked API.
