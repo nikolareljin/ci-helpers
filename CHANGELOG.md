@@ -2,6 +2,15 @@
 
 ### Changed
 
+- **gitleaks-scan verifies against digests held in the action** (audit Low
+  L2): the six v8.30.1 archive digests (linux, darwin, windows; x64, arm64)
+  are pinned in the action, taken from that release's `checksums.txt` and
+  matching GitHub's asset digests. The action no longer downloads
+  `checksums.txt`, which came from the same release as the archive and so
+  proved only that the download was intact. Another `gitleaks_version` needs
+  the new `gitleaks_sha256` input (also on `gitleaks-scan.yml`), or the step
+  fails. Test: `tests/gitleaks_pinned_digest_test.sh`. E119 step 8.
+
 - **WordPress test sites get a random admin password** (audit Lows L6,
   L7): `admin_password` on `wp-plugin-check` (workflow and action) and
   `wp_admin_password` on `php-scan` default to `""`, which generates a

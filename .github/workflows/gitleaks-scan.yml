@@ -27,6 +27,12 @@ on:
           for reproducible scans and supply-chain safety.
         type: string
         default: "v8.30.1"
+      gitleaks_sha256:
+        description: >
+          sha256 of the release archive for the runner, required with a
+          gitleaks_version other than v8.30.1, whose digests are pinned.
+        type: string
+        default: ""
       fail_on_findings:
         description: Exit non-zero when findings are detected
         type: boolean
@@ -95,6 +101,7 @@ jobs:
           output: ${{ inputs.output }}
           config_path: ${{ inputs.config_path }}
           gitleaks_version: ${{ inputs.gitleaks_version }}
+          gitleaks_sha256: ${{ inputs.gitleaks_sha256 }}
           fail_on_findings: ${{ inputs.fail_on_findings }}
           upload_artifact: ${{ inputs.upload_artifact }}
           artifact_name: ${{ inputs.artifact_name }}

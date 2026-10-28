@@ -567,12 +567,13 @@ Inputs:
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `gitleaks-report`)
 - `gitleaks_version` (string, default `v8.30.1`) - release tag to download. Pin it for reproducible scans.
+- `gitleaks_sha256` (string, default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose archive digests are pinned in the action
 
 Notes:
 
 - `scan_path`, `config_path` and `report_format` are all honoured. The scan
-  runs a pinned `gitleaks` binary, verified against the checksums file
-  published with the same release.
+  runs a pinned `gitleaks` binary, verified against a sha256 held in the
+  action (or `gitleaks_sha256`), not one fetched from the same release.
 - **In a git work tree the scan reads the repository's history**, so naming a
   subdirectory in `scan_path` does not narrow it -- every commit is still
   scanned. Outside a work tree the files under `scan_path` are scanned instead.
