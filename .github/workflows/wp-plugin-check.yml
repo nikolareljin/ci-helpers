@@ -45,8 +45,11 @@ on:
         type: string
         default: admin
       admin_password:
+        description: >
+          Admin password for the throwaway test site. Empty (the default) uses a
+          random one per run; a value passed here is shown with the run's inputs.
         type: string
-        default: admin
+        default: ""
       admin_email:
         type: string
         default: admin@example.com
@@ -356,6 +359,12 @@ jobs:
           WPC_CLEANUP: ${{ inputs.cleanup }}
         run: |
           set -euo pipefail
+          # Empty (the default) gets a random password per run: an input is
+          # shown with the run, and this one sits on a command line.
+          if [[ -z "$WPC_ADMIN_PASSWORD" ]]; then
+            WPC_ADMIN_PASSWORD="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+            export WPC_ADMIN_PASSWORD
+          fi
           "$WPC_SCRIPT" \
             --compose-file "$WPC_COMPOSE_FILE" \
             --plugin-slug "$WPC_PLUGIN_SLUG" \

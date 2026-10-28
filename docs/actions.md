@@ -403,7 +403,7 @@ Inputs:
 - `host_port` (default `"8080"`) - host port of the WordPress service
 - `db_wait_seconds` (default `"30"`)
 - `multisite` (default `"true"`), `activate_network` (default `"true"`)
-- `admin_user` (default `admin`), `admin_password` (default `admin`), `admin_email` (default `admin@example.com`), `site_title` (default `WP Test Site`)
+- `admin_user` (default `admin`), `admin_password` (default `""`: a random password per run), `admin_email` (default `admin@example.com`), `site_title` (default `WP Test Site`)
 - `meta_check_script` (default `""`) - a `wp eval-file` script for your own checks
 - `out_dir` (default `test/tmp`)
 - `php_version` (optional for lint/PHPUnit)
