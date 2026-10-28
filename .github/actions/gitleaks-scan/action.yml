@@ -117,7 +117,8 @@ runs:
           gitleaks_8.30.1_windows_arm64.zip)   pinned=b95f5e4f5c425cedca7ee203d9afd29597e692c4924a12ed42f970537c72cc0f ;;
           *) pinned="" ;;
         esac
-        expected="${GITLEAKS_SHA256:-${pinned}}"
+        # sha256sum prints lower case; a digest pasted in upper case still matches.
+        expected="$(printf '%s' "${GITLEAKS_SHA256:-${pinned}}" | tr '[:upper:]' '[:lower:]')"
         if [ -z "${expected}" ]; then
           echo "::error::No pinned sha256 for ${archive}; pass gitleaks_sha256 (its line in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
           exit 1

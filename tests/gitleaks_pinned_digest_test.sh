@@ -62,5 +62,8 @@ rc=0; out="$(run_step v9.9.9 "$fake_sha")" || rc=$?
 if (( rc != 0 )); then echo "FAIL: gitleaks_sha256 matching the archive gave exit $rc: $out"; fail=1; fi
 grep -q '^gl_bin=.*/gitleaks$' "$work/out" || { echo "FAIL: gl_bin not set"; fail=1; }
 
+rc=0; out="$(run_step v9.9.9 "$(tr '[:lower:]' '[:upper:]' <<<"$fake_sha")")" || rc=$?
+if (( rc != 0 )); then echo "FAIL: an upper-case gitleaks_sha256 gave exit $rc: $out"; fail=1; fi
+
 (( fail == 0 )) && echo "gitleaks_pinned_digest: pinned digest checked, unpinned version needs gitleaks_sha256"
 exit "$fail"
