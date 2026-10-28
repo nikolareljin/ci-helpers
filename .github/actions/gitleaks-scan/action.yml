@@ -117,10 +117,15 @@ runs:
           gitleaks_8.30.1_windows_arm64.zip)   pinned=b95f5e4f5c425cedca7ee203d9afd29597e692c4924a12ed42f970537c72cc0f ;;
           *) pinned="" ;;
         esac
-        # sha256sum prints lower case; a digest pasted in upper case still matches.
-        expected="$(printf '%s' "${GITLEAKS_SHA256:-${pinned}}" | tr '[:upper:]' '[:lower:]')"
+        # First field only, lower-cased: a pasted checksums.txt line
+        # ("<hash>  <file>") or an upper-case digest still works.
+        expected="$(printf '%s' "${GITLEAKS_SHA256:-${pinned}}" | awk 'NR == 1 { print tolower($1) }')"
         if [ -z "${expected}" ]; then
-          echo "::error::No pinned sha256 for ${archive}; pass gitleaks_sha256 (its line in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
+          echo "::error::No pinned sha256 for ${archive}; pass gitleaks_sha256 (its digest in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
+          exit 1
+        fi
+        if [ "${#expected}" -ne 64 ] || [ -n "$(printf '%s' "${expected}" | tr -d '0-9a-f')" ]; then
+          echo "::error::gitleaks_sha256 must be 64 hex characters, got '${expected}'." >&2
           exit 1
         fi
         if command -v sha256sum >/dev/null 2>&1; then

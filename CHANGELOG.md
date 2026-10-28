@@ -9,7 +9,8 @@
   `checksums.txt`, which came from the same release as the archive and so
   proved only that the download was intact. Another `gitleaks_version` needs
   the new `gitleaks_sha256` input (also on `gitleaks-scan.yml`), or the step
-  fails. Test: `tests/gitleaks_pinned_digest_test.sh`. E119 step 8.
+  fails; it takes the bare digest or the whole `checksums.txt` line, and
+  anything that is not 64 hex characters is refused by name. Test: `tests/gitleaks_pinned_digest_test.sh`. E119 step 8.
 - **gitleaks-scan runs on Windows.** Git Bash's `sha256sum` prefixes the
   hash with `\` when the path has a backslash, as a Windows `RUNNER_TEMP`
   does, so every Windows run failed with a checksum mismatch. The archive

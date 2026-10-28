@@ -65,5 +65,12 @@ grep -q '^gl_bin=.*/gitleaks$' "$work/out" || { echo "FAIL: gl_bin not set"; fai
 rc=0; out="$(run_step v9.9.9 "$(tr '[:lower:]' '[:upper:]' <<<"$fake_sha")")" || rc=$?
 if (( rc != 0 )); then echo "FAIL: an upper-case gitleaks_sha256 gave exit $rc: $out"; fail=1; fi
 
+rc=0; out="$(run_step v9.9.9 "  $fake_sha  gitleaks_9.9.9_linux_x64.tar.gz")" || rc=$?
+if (( rc != 0 )); then echo "FAIL: a pasted checksums.txt line gave exit $rc: $out"; fail=1; fi
+
+rc=0; out="$(run_step v9.9.9 "${fake_sha:0:40}")" || rc=$?
+if (( rc == 0 )); then echo "FAIL: a truncated gitleaks_sha256 was accepted"; fail=1; fi
+grep -q "must be 64 hex characters" <<<"$out" || { echo "FAIL: bad digest not named: $out"; fail=1; }
+
 (( fail == 0 )) && echo "gitleaks_pinned_digest: pinned digest checked, unpinned version needs gitleaks_sha256"
 exit "$fail"
