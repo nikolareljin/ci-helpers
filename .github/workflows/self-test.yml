@@ -1155,6 +1155,44 @@ jobs:
           if (Get-ChildItem -Path $env:RUNNER_TEMP -Filter "sign-*.pfx" -ErrorAction SilentlyContinue) { Write-Output "::error::a failed run left a PFX file in RUNNER_TEMP"; $bad = 1 }
           exit $bad
 
+  # The action pins a digest per archive; only a real download on each
+  # platform proves the pin is that archive's. linux x64 runs above.
+  gitleaks-pins-match-each-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: An empty directory to scan
+        shell: bash
+        run: mkdir -p "${RUNNER_TEMP}/empty"
+
+      - name: Install against the pinned digest and scan
+        id: scan
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: ${{ runner.temp }}/empty
+          output: ${{ runner.temp }}/empty.sarif
+
+      - name: The verified binary is the pinned release
+        shell: bash
+        env:
+          GL_BIN: ${{ steps.scan.outputs.gl_bin }}
+        run: |
+          set -euo pipefail
+          got="$("$GL_BIN" version)"
+          if [[ "$got" != *8.30.1* ]]; then
+            echo "::error::expected gitleaks 8.30.1, got '$got'"
+            exit 1
+          fi
+          echo "gitleaks $got on $RUNNER_OS/$RUNNER_ARCH"
+
   gitleaks-refuses-what-it-must:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1678,6 +1716,7 @@ jobs:
       - shell-refuses-what-it-must
       - gitleaks-scan-defaults-can-pass
       - gitleaks-refuses-what-it-must
+      - gitleaks-pins-match-each-platform
       - trivy-scan-defaults-can-pass
       - trivy-refuses-what-it-must
       - trivy-finds-misconfiguration
