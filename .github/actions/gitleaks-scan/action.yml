@@ -124,9 +124,11 @@ runs:
           exit 1
         fi
         if command -v sha256sum >/dev/null 2>&1; then
-          actual=$(sha256sum "${work}/${archive}" | awk '{ print $1 }')
+          # From stdin: given a path with a backslash (a Windows RUNNER_TEMP),
+          # Git Bash's sha256sum prefixes the hash with "\".
+          actual=$(sha256sum < "${work}/${archive}" | awk '{ print $1 }')
         elif command -v shasum >/dev/null 2>&1; then
-          actual=$(shasum -a 256 "${work}/${archive}" | awk '{ print $1 }')
+          actual=$(shasum -a 256 < "${work}/${archive}" | awk '{ print $1 }')
         else
           echo "::error::Neither sha256sum nor shasum is available to verify ${archive}." >&2
           exit 1

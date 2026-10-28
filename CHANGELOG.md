@@ -10,6 +10,12 @@
   proved only that the download was intact. Another `gitleaks_version` needs
   the new `gitleaks_sha256` input (also on `gitleaks-scan.yml`), or the step
   fails. Test: `tests/gitleaks_pinned_digest_test.sh`. E119 step 8.
+- **gitleaks-scan runs on Windows.** Git Bash's `sha256sum` prefixes the
+  hash with `\` when the path has a backslash, as a Windows `RUNNER_TEMP`
+  does, so every Windows run failed with a checksum mismatch. The archive
+  is hashed from stdin. Self-test `gitleaks-pins-match-each-platform`
+  installs the pinned binary on linux arm64, macOS arm64 and x64, and
+  Windows x64 and arm64.
 
 - **WordPress test sites get a random admin password** (audit Lows L6,
   L7): `admin_password` on `wp-plugin-check` (workflow and action) and

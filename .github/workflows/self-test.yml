@@ -1169,16 +1169,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: An empty directory to scan
+      - name: A directory with one clean file
         shell: bash
-        run: mkdir -p "${RUNNER_TEMP}/empty"
+        # Not empty: the action refuses a scan that read 0 bytes.
+        run: |
+          mkdir -p "${RUNNER_TEMP}/clean"
+          echo "nothing secret here" > "${RUNNER_TEMP}/clean/README.txt"
 
       - name: Install against the pinned digest and scan
         id: scan
         uses: ./.github/actions/gitleaks-scan
         with:
-          scan_path: ${{ runner.temp }}/empty
-          output: ${{ runner.temp }}/empty.sarif
+          scan_path: ${{ runner.temp }}/clean
+          output: ${{ runner.temp }}/clean.sarif
 
       - name: The verified binary is the pinned release
         shell: bash
