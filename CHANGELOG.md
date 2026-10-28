@@ -15,7 +15,8 @@
   does, so every Windows run failed with a checksum mismatch. The archive
   is hashed from stdin. Self-test `gitleaks-pins-match-each-platform`
   installs the pinned binary on linux arm64, macOS arm64 and x64, and
-  Windows x64 and arm64.
+  Windows x64; on Windows arm64, Git Bash reports `x86_64`, so the x64 zip
+  is the one verified and run.
 
 - **WordPress test sites get a random admin password** (audit Lows L6,
   L7): `admin_password` on `wp-plugin-check` (workflow and action) and

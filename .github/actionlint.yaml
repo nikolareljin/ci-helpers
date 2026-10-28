@@ -3,6 +3,7 @@
 self-hosted-runner:
   labels:
     - macos-15-intel
+    - windows-11-arm
 
 # actionlint (1.7.12 and older) does not know the job context's workflow_sha
 # and workflow_repository, which GitHub documents for the workflow file that
