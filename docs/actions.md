@@ -121,6 +121,7 @@ Inputs:
 - `report_format` (default `sarif`)
 - `output` (default `results.sarif`)
 - `gitleaks_version` (default `v8.30.1`)
+- `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"false"`)
 - `upload_artifact` (default `"false"`)
@@ -134,8 +135,10 @@ Outputs:
 
 Notes:
 
-- The gitleaks release archive is verified against the `checksums.txt` published
-  with the same release before it runs; a mismatch fails the step.
+- The gitleaks release archive is verified before it runs against a sha256
+  held in this repository (or `gitleaks_sha256`), never against a checksums
+  file fetched from the same release; a mismatch or a missing digest fails
+  the step.
 - Reports are written with `--redact`: findings, rule IDs, files, lines and
   fingerprints are kept, secret values are not.
 - With `config_path` empty, gitleaks reads `.gitleaks.toml` (and, always,

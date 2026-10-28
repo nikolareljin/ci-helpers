@@ -2,6 +2,23 @@
 
 ### Changed
 
+- **gitleaks-scan verifies against digests held in the action** (audit Low
+  L2): the six v8.30.1 archive digests (linux, darwin, windows; x64, arm64)
+  are pinned in the action, taken from that release's `checksums.txt` and
+  matching GitHub's asset digests. The action no longer downloads
+  `checksums.txt`, which came from the same release as the archive and so
+  proved only that the download was intact. Another `gitleaks_version` needs
+  the new `gitleaks_sha256` input (also on `gitleaks-scan.yml`), or the step
+  fails; it takes the bare digest or the whole `checksums.txt` line, and
+  anything that is not 64 hex characters is refused by name. Test: `tests/gitleaks_pinned_digest_test.sh`. E119 step 8.
+- **gitleaks-scan runs on Windows.** Git Bash's `sha256sum` prefixes the
+  hash with `\` when the path has a backslash, as a Windows `RUNNER_TEMP`
+  does, so every Windows run failed with a checksum mismatch. The archive
+  is hashed from stdin. Self-test `gitleaks-pins-match-each-platform`
+  installs the pinned binary on linux arm64, macOS arm64 and x64, and
+  Windows x64; on Windows arm64, Git Bash reports `x86_64`, so the x64 zip
+  is the one verified and run.
+
 - **WordPress test sites get a random admin password** (audit Lows L6,
   L7): `admin_password` on `wp-plugin-check` (workflow and action) and
   `wp_admin_password` on `php-scan` default to `""`, which generates a

@@ -26,6 +26,12 @@ inputs:
       for reproducible scans and supply-chain safety.
     default: "v8.30.1"
     required: false
+  gitleaks_sha256:
+    description: >
+      sha256 of the release archive for this runner, required with a
+      gitleaks_version other than v8.30.1, whose digests are pinned here.
+    default: ""
+    required: false
   config_path:
     description: Optional Gitleaks config file path.
     default: ""
@@ -61,6 +67,7 @@ runs:
       shell: bash
       env:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
+        GITLEAKS_SHA256: ${{ inputs.gitleaks_sha256 }}
       run: |
         set -euo pipefail
         # Normalize: strip any leading "v" then re-add it so both "v8.30.1"
@@ -84,7 +91,6 @@ runs:
         esac
 
         archive="gitleaks_${ver}_${os}_${arch}.${ext}"
-        checksums="gitleaks_${ver}_checksums.txt"
         # A private directory per run: fixed /tmp paths are shared by every job
         # on a self-hosted runner, so one job could swap another's binary.
         if [ -n "${RUNNER_TEMP:-}" ]; then
@@ -98,19 +104,36 @@ runs:
         # to a different repo than the one being downloaded from.
         base_url="https://github.com/gitleaks/gitleaks/releases/download/${tag}"
         curl -fsSL "${base_url}/${archive}" -o "${work}/${archive}"
-        curl -fsSL "${base_url}/${checksums}" -o "${work}/${checksums}"
 
-        # Verify the archive against the checksums file published with the same
-        # release before anything from it is executed.
-        expected=$(awk -v f="${archive}" '$2 == f { print $1 }' "${work}/${checksums}")
+        # Verify against a digest held in this repository, never one fetched
+        # beside the archive: a replaced release would bring its own checksums.
+        # 8.30.1, from its checksums.txt, matching GitHub's asset digests.
+        case "${archive}" in
+          gitleaks_8.30.1_linux_x64.tar.gz)    pinned=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;;
+          gitleaks_8.30.1_linux_arm64.tar.gz)  pinned=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;;
+          gitleaks_8.30.1_darwin_x64.tar.gz)   pinned=dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709 ;;
+          gitleaks_8.30.1_darwin_arm64.tar.gz) pinned=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5 ;;
+          gitleaks_8.30.1_windows_x64.zip)     pinned=d29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e ;;
+          gitleaks_8.30.1_windows_arm64.zip)   pinned=b95f5e4f5c425cedca7ee203d9afd29597e692c4924a12ed42f970537c72cc0f ;;
+          *) pinned="" ;;
+        esac
+        # First field only, lower-cased: a pasted checksums.txt line
+        # ("<hash>  <file>") or an upper-case digest still works.
+        expected="$(printf '%s' "${GITLEAKS_SHA256:-${pinned}}" | awk 'NR == 1 { print tolower($1) }')"
         if [ -z "${expected}" ]; then
-          echo "::error::${checksums} has no entry for ${archive}; refusing to run an unverified binary." >&2
+          echo "::error::No pinned sha256 for ${archive}; pass gitleaks_sha256 (its digest in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
+          exit 1
+        fi
+        if [ "${#expected}" -ne 64 ] || [ -n "$(printf '%s' "${expected}" | tr -d '0-9a-f')" ]; then
+          echo "::error::gitleaks_sha256 must be 64 hex characters, got '${expected}'." >&2
           exit 1
         fi
         if command -v sha256sum >/dev/null 2>&1; then
-          actual=$(sha256sum "${work}/${archive}" | awk '{ print $1 }')
+          # From stdin: given a path with a backslash (a Windows RUNNER_TEMP),
+          # Git Bash's sha256sum prefixes the hash with "\".
+          actual=$(sha256sum < "${work}/${archive}" | awk '{ print $1 }')
         elif command -v shasum >/dev/null 2>&1; then
-          actual=$(shasum -a 256 "${work}/${archive}" | awk '{ print $1 }')
+          actual=$(shasum -a 256 < "${work}/${archive}" | awk '{ print $1 }')
         else
           echo "::error::Neither sha256sum nor shasum is available to verify ${archive}." >&2
           exit 1
