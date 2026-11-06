@@ -32,7 +32,9 @@ jobs:
 
       - name: Check stale SHA pins
         shell: bash
-        run: bash scripts/update_pinned_actions.sh --check
+        # A merged Dependabot bump leaves its comment behind until the next
+        # release branch moves it; that must not fail this gate.
+        run: bash scripts/update_pinned_actions.sh --check --allow-newer-tag
         env:
           GH_TOKEN: ${{ github.token }}
 

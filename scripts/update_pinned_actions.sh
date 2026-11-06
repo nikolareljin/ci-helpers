@@ -14,18 +14,20 @@
 #   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
 #                      same repository, newer than the tag in its comment, is reported as
 #                      NEWER and does not fail. Anything else that differs is still STALE.
-#                      For a Dependabot pull request; a release gate runs without it.
+#                      Every gate passes it except the pull request of a release branch.
 #   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
 #   - python3
 #   - perl
-#   - scripts/semver_compare.sh (next to this script), unless --check runs without --allow-newer-tag
+#   - scripts/semver_compare.sh (next to this script) and the helpers it sources
+#     (vendor/script-helpers, or SCRIPT_HELPERS_DIR), unless --check runs without
+#     --allow-newer-tag. If the comparer fails, the pin gets a warning and is left alone.
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
-#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate for a Dependabot pull request
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate outside a release branch
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 set -euo pipefail
@@ -60,18 +62,20 @@ usage() {
 #   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
 #                      same repository, newer than the tag in its comment, is reported as
 #                      NEWER and does not fail. Anything else that differs is still STALE.
-#                      For a Dependabot pull request; a release gate runs without it.
+#                      Every gate passes it except the pull request of a release branch.
 #   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
 #   - python3
 #   - perl
-#   - scripts/semver_compare.sh (next to this script), unless --check runs without --allow-newer-tag
+#   - scripts/semver_compare.sh (next to this script) and the helpers it sources
+#     (vendor/script-helpers, or SCRIPT_HELPERS_DIR), unless --check runs without
+#     --allow-newer-tag. If the comparer fails, the pin gets a warning and is left alone.
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
-#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate for a Dependabot pull request
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate outside a release branch
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 EOF
@@ -138,6 +142,8 @@ fi
 declare -A sha_cache=()
 # Cache: "owner/repo" -> "<tag> <commit sha>" lines
 declare -A tags_cache=()
+# Repositories whose tag listing failed; asked once per run.
+declare -A tags_failed=()
 
 stale_count=0
 ok_count=0
@@ -195,43 +201,77 @@ compare_versions() {
   bash "$semver_compare" "${pa[0]}.${pa[1]:-0}.${pa[2]:-0}" "${pb[0]}.${pb[1]:-0}.${pb[2]:-0}"
 }
 
+# compare_versions in `order`. Returns 1 unless the comparer answered gt, lt or
+# eq: a crash is an unanswered question, not "not newer".
+order=""
+version_order() {
+  order="$(compare_versions "$1" "$2")" || return 1
+  case "$order" in
+    gt|lt|eq) ;;
+    *) return 1 ;;
+  esac
+}
+
 # The highest release tag of $repo at commit $sha that is newer than $ref and
-# of the same shape, in `found_tag`; empty when there is none. Returns 1 when
-# the tag listing or a tag lookup failed, which the caller reports as a
-# warning: an unanswered question is not a pass.
+# of the same shape, in `found_tag`; empty when there is none. The highest such
+# tag of another shape goes in `found_other_tag`. Returns 1 when the tag listing,
+# a tag lookup or a comparison failed, which the caller reports as a warning:
+# an unanswered question is not a pass.
+#
+# A longer tag is cut to the comment's shape first: `v7.0.1` is not newer than a
+# `# v7` comment, it is an old commit of that line, and the pin is merely stale.
 #
 # The listing says which tags sit on the commit (`commit.sha` is the commit
 # even for an annotated tag). Each candidate is then resolved the way the
 # comment's ref is, through fetch_sha, so the two SHAs being compared come
 # from the same lookup.
 found_tag=""
+found_other_tag=""
 find_newer_tag() {
   local repo="$1" sha="$2" ref="$3"
   found_tag=""
+  found_other_tag=""
   is_release_version "$ref" || return 0
+  [[ -z "${tags_failed["$repo"]+_}" ]] || return 1
 
   local listing
   if [[ "${tags_cache["$repo"]+_}" ]]; then
     listing="${tags_cache["$repo"]}"
   else
-    listing="$(gh api --paginate "repos/${repo}/tags?per_page=100" --jq '.[] | "\(.name) \(.commit.sha)"' 2>/dev/null)" || return 1
+    if ! listing="$(gh api --paginate "repos/${repo}/tags?per_page=100" --jq '.[] | "\(.name) \(.commit.sha)"' 2>/dev/null)"; then
+      tags_failed["$repo"]=1
+      return 1
+    fi
     tags_cache["$repo"]="$listing"
   fi
 
-  local name tag_sha best="" shape
+  local name tag_sha best="" other="" shape
   shape="$(version_shape "$ref")"
   while read -r -u 3 name tag_sha; do
     [[ "$tag_sha" == "$sha" ]] || continue
     is_release_version "$name" || continue
-    [[ "$(version_shape "$name")" == "$shape" ]] || continue
     fetch_sha "$repo" "$name" || return 1
     [[ "$fetched_sha" == "$sha" ]] || continue
-    [[ "$(compare_versions "$name" "$ref")" == "gt" ]] || continue
-    if [[ -z "$best" || "$(compare_versions "$name" "$best")" == "gt" ]]; then
+    if [[ "$(version_shape "$name")" == "$shape" ]]; then
+      version_order "$name" "$ref" || return 1
+      [[ "$order" == "gt" ]] || continue
+      if [[ -n "$best" ]]; then
+        version_order "$name" "$best" || return 1
+        [[ "$order" == "gt" ]] || continue
+      fi
       best="$name"
+    else
+      version_order "$(cut -d. -f"1-$((shape + 1))" <<< "$name")" "$ref" || return 1
+      [[ "$order" == "gt" ]] || continue
+      if [[ -n "$other" ]]; then
+        version_order "$name" "$other" || return 1
+        [[ "$order" == "gt" ]] || continue
+      fi
+      other="$name"
     fi
   done 3<<< "$listing"
   found_tag="$best"
+  found_other_tag="$other"
 }
 
 # $line with its `# <ref> @ <date>` comment moved to `# <tag> @ <today>`, in
@@ -304,39 +344,50 @@ for file in "${files[@]}"; do
         continue
       fi
 
-      if ! fetch_sha "$repo" "$ref"; then
-        echo "WARN  $file: could not fetch SHA for ${repo}@${ref} — skipping" >&2
-        warn_count=$((warn_count + 1))
-        continue
-      fi
+      resolved=true
+      fetch_sha "$repo" "$ref" || resolved=false
       new_sha="$fetched_sha"
 
-      if [[ -z "$new_sha" ]]; then
-        echo "WARN  $file: empty SHA returned for ${repo}@${ref} — skipping" >&2
-        warn_count=$((warn_count + 1))
-        continue
-      fi
-
-      if [[ "$old_sha" == "$new_sha" ]]; then
+      if $resolved && [[ "$old_sha" == "$new_sha" ]]; then
         echo "OK    ${file}: ${action_path} # ${ref} (${old_sha:0:12}…)"
         ok_count=$((ok_count + 1))
         continue
       fi
 
-      # The SHA is not the comment's ref. Dependabot moves a SHA to the next
-      # release and leaves the comment, so before calling that stale, ask
-      # whether the SHA is a newer release tag of the same repository. A plain
-      # --check does not ask: it is the release gate, and there the comment
-      # must be right. Without --check the comment is the thing to correct;
-      # moving the SHA back to the comment's tag undid the bump.
+      # The SHA is not the comment's ref, or the ref is gone upstream. Dependabot
+      # moves a SHA to the next release and leaves the comment, so before calling
+      # that stale, ask whether the SHA is a newer release tag of the same
+      # repository. A plain --check does not ask: it is the release branch gate,
+      # and there the comment must be right. Without --check the comment is the
+      # thing to correct; moving the SHA back to the comment's tag undid the bump.
       newer_tag=""
+      other_tag=""
       if $allow_newer_tag || ! $check_only; then
         if ! find_newer_tag "$repo" "$old_sha" "$ref"; then
-          echo "WARN  $file: could not resolve the tags of ${repo} to place ${old_sha:0:12}, skipping" >&2
+          if $resolved; then
+            echo "WARN  $file: could not resolve the tags of ${repo} to place ${old_sha:0:12}, skipping" >&2
+          else
+            echo "WARN  $file: could not fetch SHA for ${repo}@${ref} or resolve its tags, skipping" >&2
+          fi
           warn_count=$((warn_count + 1))
           continue
         fi
         newer_tag="$found_tag"
+        other_tag="$found_other_tag"
+      fi
+
+      # `# v1` at the commit of v2.0.0 with no v2 tag: the comment has no tag of
+      # its shape to move to, and moving the SHA back would undo the bump.
+      if [[ -z "$newer_tag" && -n "$other_tag" ]]; then
+        echo "WARN  $file: ${action_path} is pinned at ${other_tag}, newer than its comment ${ref} but of another shape; correct the comment by hand, skipping" >&2
+        warn_count=$((warn_count + 1))
+        continue
+      fi
+
+      if ! $resolved && [[ -z "$newer_tag" ]]; then
+        echo "WARN  $file: could not fetch SHA for ${repo}@${ref}, skipping" >&2
+        warn_count=$((warn_count + 1))
+        continue
       fi
 
       if [[ -n "$newer_tag" ]]; then

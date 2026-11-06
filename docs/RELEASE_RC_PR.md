@@ -155,10 +155,18 @@ Merging six of those leaves six pins reading `# v1.321.0 @ 2026-09-10` while
 pointing at v1.324.0. `scripts/update_pinned_actions.sh` and the security audit
 both read those comments, so the repository ends up reporting a version it does
 not ship. The plain run above reports each such pin as `NEWER` and moves its
-comment to the tag the SHA is, with today's date; the SHA stays. Its pull
-request passed the check with `--allow-newer-tag`, which only the Dependabot
-pull-request gate passes; the release gates run a plain `--check`, so a comment
-left behind fails the release until the plain run has corrected it.
+comment to the tag the SHA is, with today's date; the SHA stays.
+
+A SHA verified as a newer release tag of the same action passes every gate
+outside a release branch: `workflow-yaml-check.yml` on push and on other pull
+requests, `auto-tag-release-push.yml`, `production-branch.yml` and
+`security-weekly.yml` all run `--check --allow-newer-tag`. Only a pull request
+whose head ref starts with `release/` runs a plain `--check`, so a comment left
+behind fails there until the plain run above has corrected it.
+
+The plain run warns and leaves the line alone when it cannot tell, or when the
+SHA is a newer release of another shape (`# v1` at the commit of `v2.0.0`, with
+no `v2` tag). Correct that comment by hand.
 
 Without this step, a consumer pinned to `@production` gets an action version
 nobody recorded.

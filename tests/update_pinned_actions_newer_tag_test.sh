@@ -6,7 +6,8 @@
 #              an unknown SHA, a branch commit, an older tag, a pre-release and
 #              a branch in the comment stay STALE; a failed tag listing is a
 #              warning. A plain --check is unchanged. Without --check the
-#              comment moves to the tag and the SHA stays.
+#              comment moves to the tag and the SHA stays. Also: each failure of
+#              the tag lookup warns, and the gates pass the option as documented.
 # USAGE: bash tests/update_pinned_actions_newer_tag_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -23,6 +24,8 @@ sha_c=cccccccccccccccccccccccccccccccccccccccc   # main, no tag
 sha_r=1111111111111111111111111111111111111111   # v1.2.0-rc1
 sha_m=2222222222222222222222222222222222222222   # v2 and v2.0.0
 sha_x=3333333333333333333333333333333333333333   # nowhere
+sha_h=4444444444444444444444444444444444444444   # acme/multi v3.0.0, v3.1.0, v3.2.0
+sha_n=5555555555555555555555555555555555555555   # acme/other v3.0.0, no v3
 
 mkdir -p "$work/bin" "$work/state/tags/acme"
 # Stub gh. commits/<ref> answers from $STATE/commits ("repo ref sha" lines);
@@ -65,6 +68,19 @@ acme/tool v2 $sha_m
 acme/tool v2.0.0 $sha_m
 acme/notags v1.0.0 $sha_a
 acme/notags v1.1.0 $sha_b
+acme/multi v2.9.0 $sha_z
+acme/multi v3.0.0 $sha_h
+acme/multi v3.1.0 $sha_h
+acme/multi v3.2.0 $sha_h
+acme/other v2 $sha_m
+acme/other v3.0.0 $sha_n
+acme/disagree v1.0.0 $sha_a
+acme/disagree v1.1.0 $sha_c
+acme/gone v1.0.0 $sha_a
+acme/solo v1.0.0 $sha_a
+acme/solo v1.1.0 $sha_b
+acme/line v1 $sha_b
+acme/line v1.0.2 $sha_a
 EOF
 cat > "$work/state/tags/acme/tool" <<EOF
 v2.0.0 $sha_m
@@ -75,6 +91,33 @@ v1 $sha_b
 v1.0.0 $sha_a
 v0.9.0 $sha_z
 EOF
+# The highest tag sits in the middle, so neither first nor last wins by accident.
+cat > "$work/state/tags/acme/multi" <<EOF
+v3.1.0 $sha_h
+v3.2.0 $sha_h
+v3.0.0 $sha_h
+EOF
+cat > "$work/state/tags/acme/other" <<EOF
+v3.0.0 $sha_n
+EOF
+# v1.1.0 is listed at sha_b, its commit lookup says sha_c.
+cat > "$work/state/tags/acme/disagree" <<EOF
+v1.1.0 $sha_b
+v1.0.0 $sha_a
+EOF
+# v1.1.0 is listed at sha_b, its commit lookup fails.
+cat > "$work/state/tags/acme/gone" <<EOF
+v1.1.0 $sha_b
+v1.0.0 $sha_a
+EOF
+cat > "$work/state/tags/acme/solo" <<EOF
+v1.1.0 $sha_b
+v1.0.0 $sha_a
+EOF
+cat > "$work/state/tags/acme/line" <<EOF
+v1 $sha_b
+v1.0.2 $sha_a
+EOF
 export STATE="$work/state"
 
 fail=0
@@ -84,6 +127,7 @@ pin() { # name sha ref [repo, default tool] -> writes $work/<name>/.github/w.yml
 }
 run() { # name expected-rc mode (check | dependabot | update)
   local name="$1" want="$2" mode="$3" rc=0
+  last_pin="$work/$name/.github/w.yml"
   : > "$STATE/calls"
   cd "$work/$name"
   case "$mode" in
@@ -194,5 +238,146 @@ want="      - uses: acme/tool@${sha_a} # v1.0.0 @ ${today}"
 got="$(tail -n 1 "$work/revert/.github/w.yml")"
 [ "$got" = "$want" ] || { echo "FAIL revert: got '$got', want '$want'"; fail=1; }
 
-(( fail == 0 )) && echo "update_pinned_actions: NEWER accepted, 5 refused forms STALE, listing failure warns, comment corrected"
+unchanged() { # name line: the last run left this as its pin
+  local got
+  got="$(tail -n 1 "$last_pin")"
+  [ "$got" = "$2" ] || { echo "FAIL $1: got '$got', want '$2'"; fail=1; }
+}
+tag_calls() { # name count
+  local got
+  got="$(grep -c "/tags" "$STATE/calls" || true)"
+  [ "$got" = "$2" ] || { echo "FAIL $1: $got tag listings, expected $2"; fail=1; }
+}
+
+# The listing and the commit lookup disagree: not a verified tag, so STALE.
+pin disagree "$sha_b" v1.0.0 disagree
+run disagree 1 dependabot
+expect disagree "^STALE"
+
+# The commit lookup of a listed tag fails: a warning, not STALE.
+pin lookup-fails "$sha_b" v1.0.0 gone
+run lookup-fails 1 dependabot
+expect lookup-fails "^WARN .*could not resolve the tags of acme/gone"
+refuse lookup-fails "^STALE"
+
+# Three tags on one SHA: the highest, wherever the listing puts it.
+pin two-tags "$sha_h" v2.9.0 multi
+run two-tags 0 dependabot
+expect two-tags "= v3.2.0$"
+
+# The listing asks for every page.
+run newer 0 dependabot
+if ! grep -q -- "--paginate repos/acme/tool/tags" "$STATE/calls"; then
+  echo "FAIL paginate: $(grep /tags "$STATE/calls" || echo 'no tag listing')"; fail=1
+fi
+
+# Two pins of one repository list its tags once.
+mkdir -p "$work/cached/.github"
+printf 'jobs:\n  a:\n    steps:\n      - uses: acme/tool@%s # v1.0.0 @ 2026-01-01\n      - uses: acme/tool/sub@%s # v1.0.0 @ 2026-01-01\n' "$sha_b" "$sha_m" > "$work/cached/.github/w.yml"
+run cached 0 dependabot
+expect cached "2 newer than their comment"
+tag_calls cached 1
+
+# A failed listing is asked once too, and each pin still warns.
+mkdir -p "$work/cached-fail/.github"
+printf 'jobs:\n  a:\n    steps:\n      - uses: acme/notags@%s # v1.0.0 @ 2026-01-01\n      - uses: acme/notags/sub@%s # v1.0.0 @ 2026-01-01\n' "$sha_b" "$sha_m" > "$work/cached-fail/.github/w.yml"
+run cached-fail 1 dependabot
+expect cached-fail "0 newer than their comment, 2 warnings"
+tag_calls cached-fail 1
+
+# The comparer crashes or answers nonsense: the plain run warns and keeps the
+# bump. A copy of the script next to a broken comparer, so the real one is safe.
+mkdir -p "$work/broken/scripts"
+cp "$script" "$work/broken/scripts/update_pinned_actions.sh"
+real_script="$script"
+crash() { # comparer-body sha ref repo
+  printf '#!/usr/bin/env bash\n%s\n' "$1" > "$work/broken/scripts/semver_compare.sh"
+  pin crash "$2" "$3" "$4"
+  local before
+  before="$(tail -n 1 "$work/crash/.github/w.yml")"
+  script="$work/broken/scripts/update_pinned_actions.sh"
+  run crash 0 update
+  script="$real_script"
+  expect crash "^WARN .*could not resolve the tags of acme/$4"
+  refuse crash "^STALE"
+  refuse crash "^NEWER"
+  unchanged crash "$before"
+}
+crash 'exit 3' "$sha_b" v1.0.0 solo
+crash 'echo nonsense' "$sha_b" v1.0.0 solo
+crash 'echo gt; exit 3' "$sha_b" v1.0.0 solo
+# Fails only when comparing two candidates, not a candidate with the comment.
+crash '[ "$2" = 2.9.0 ] && echo gt || exit 3' "$sha_h" v2.9.0 multi
+# The tag of another shape.
+crash 'exit 3' "$sha_n" v2 other
+
+# `# v2` at the commit of v3.0.0, no v3 tag: warn and keep the line.
+pin other-shape "$sha_n" v2 other
+before="$(tail -n 1 "$work/other-shape/.github/w.yml")"
+run other-shape 0 update
+expect other-shape "^WARN .*pinned at v3.0.0, newer than its comment v2"
+refuse other-shape "^STALE"
+unchanged other-shape "$before"
+run other-shape 1 dependabot
+expect other-shape "^WARN .*pinned at v3.0.0"
+
+# `# v1` at an old commit of that line (v1.0.2, while v1 moved on) is stale, not
+# another shape: the plain run still refreshes it.
+pin floating "$sha_a" v1 line
+run floating 0 update
+expect floating "^STALE"
+refuse floating "^WARN"
+unchanged floating "      - uses: acme/line@${sha_b} # v1 @ ${today}"
+
+# The comment's tag is deleted upstream: the bump still gets its comment.
+pin deleted "$sha_b" v0.5.0
+run deleted 0 update
+expect deleted "^NEWER"
+unchanged deleted "      - uses: acme/tool@${sha_b} # v1.1.0 @ ${today}"
+pin deleted "$sha_b" v0.5.0
+run deleted 0 dependabot
+expect deleted "= v1.1.0"
+
+# Deleted, and the SHA is no tag either: a warning, nothing rewritten.
+pin deleted-unknown "$sha_x" v0.5.0
+before="$(tail -n 1 "$work/deleted-unknown/.github/w.yml")"
+run deleted-unknown 0 update
+expect deleted-unknown "^WARN .*could not fetch SHA for acme/tool@v0.5.0"
+unchanged deleted-unknown "$before"
+
+# A plain --check of a deleted tag warns and lists nothing.
+pin deleted "$sha_b" v0.5.0
+run deleted 1 check
+expect deleted "^WARN .*could not fetch SHA"
+listed_tags "deleted, plain --check"
+
+# The gates. Drive the real step of workflow-yaml-check.yml against a stand-in
+# script that records its arguments: strict only on a release branch pull request.
+mkdir -p "$work/gate/scripts"
+cat > "$work/gate/scripts/update_pinned_actions.sh" <<'SH'
+echo "$*" > "$GATE_ARGS"
+SH
+python3 - "$root/.github/workflows/workflow-yaml-check.yml" > "$work/gate/step.sh" <<'PY_STEP'
+import sys, yaml
+for step in yaml.safe_load(open(sys.argv[1]))["jobs"]["yaml"]["steps"]:
+    if step.get("name") == "Action pins are annotated and current":
+        print(step["run"])
+PY_STEP
+gate() { # head-ref expected-args
+  local got
+  ( cd "$work/gate" && GATE_ARGS="$work/gate/args" HEAD_REF="$1" bash -e step.sh )
+  got="$(cat "$work/gate/args")"
+  [ "$got" = "$2" ] || { echo "FAIL gate '$1': got '$got', want '$2'"; fail=1; }
+}
+gate "" "--check --allow-newer-tag"
+gate "dependabot/github_actions/x" "--check --allow-newer-tag"
+gate "fix/release/1.2.3" "--check --allow-newer-tag"
+gate "release/1.2.3" "--check"
+for wf in auto-tag-release-push production-branch security-weekly; do
+  if ! grep -q "run: bash scripts/update_pinned_actions.sh --check --allow-newer-tag$" "$root/.github/workflows/$wf.yml"; then
+    echo "FAIL $wf.yml does not pass --allow-newer-tag"; fail=1
+  fi
+done
+
+(( fail == 0 )) && echo "update_pinned_actions: NEWER accepted, refused forms STALE, lookup failures warn, comment corrected, gates as documented"
 exit "$fail"
