@@ -4,8 +4,9 @@
 #              GitHub does, with every string input set to text a shell would
 #              execute and every build_* flag "true", and runs them against
 #              stub sudo and cargo. apt_packages must reach apt-get as its
-#              words, bin_name, artifact_dir and linux_gnu_aliases must name
-#              the artifacts unchanged, and nothing in them may run.
+#              words, artifact_dir must name the directory unchanged, bin_name
+#              and linux_gnu_aliases must be refused unless plain names, and
+#              nothing in them may run.
 # USAGE: bash tests/rust_release_inputs_stay_text_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -33,6 +34,8 @@ def render(text):
     # becomes its value. Booleans are "true" so every target branch runs.
     text = re.sub(r"\$\{\{\s*inputs\.build_\w+\s*\}\}", "true", text)
     text = re.sub(r"\$\{\{\s*inputs\.apt_packages\s*\}\}", lambda m: apt_value, text)
+    text = re.sub(r"\$\{\{\s*inputs\.bin_name\s*\}\}", "tool", text)
+    text = re.sub(r"\$\{\{\s*inputs\.linux_gnu_aliases\s*\}\}", "deb", text)
     return re.sub(r"\$\{\{.*?\}\}", lambda m: value, text)
 
 for i, name in enumerate(["Install build dependencies", "Build release binaries"]):
@@ -84,11 +87,23 @@ if [[ "${got[*]-}" != "${want[*]}" || "${#got[@]}" != "${#want[@]}" ]]; then
   fail=1
 fi
 
-for suffix in windows.exe linux musl "$value"; do
-  if [[ ! -f "$work/wd/$value/$value-$suffix" ]]; then
-    echo "FAIL missing artifact: $value-$suffix"
+for suffix in windows.exe linux musl deb; do
+  if [[ ! -f "$work/wd/$value/tool-$suffix" ]]; then
+    echo "FAIL missing artifact: tool-$suffix"
+    fail=1
+  fi
+done
+
+# Refused before anything is built, and without running what they hold.
+for bad in "BIN_NAME=$value" "BIN_NAME=../evil" "BIN_NAME=-evil" "LINUX_GNU_ALIASES=../evil" "LINUX_GNU_ALIASES=deb,$value"; do
+  if (cd "$work/wd" && set -a && . "$work/env1.sh" && export "INPUT_$bad" && bash "$work/run1.sh" >/dev/null 2>&1); then
+    echo "FAIL accepted: $bad"
+    fail=1
+  fi
+  if [[ -e "$work/wd/ran" || -e "$work/evil-linux" || -e "$work/wd/evil-deb" ]]; then
+    echo "FAIL $bad escaped or ran"
     fail=1
   fi
 done
 [[ "$fail" == 0 ]] || exit 1
-echo "ok: rust-release inputs reach apt-get and the artifact names as text"
+echo "ok: rust-release inputs stay text, and unsafe names are refused"

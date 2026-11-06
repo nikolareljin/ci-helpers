@@ -44,7 +44,7 @@ if [ -z "$bin_name" ]; then
 fi
 
 # Both name files under the artifact directory: `--bin-name ../x` wrote outside it.
-valid_name='^[[:alnum:]][[:alnum:]._+-]*$'
+valid_name='^[[:alnum:]_][[:alnum:]._+-]*$'
 if [[ ! "$bin_name" =~ $valid_name || "$bin_name" == *..* ]]; then
   echo "Invalid --bin-name: $bin_name" >&2
   exit 2

@@ -77,11 +77,34 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# True for an empty directory, or one holding pyvenv.cfg and nothing a virtualenv
+# does not create. A dangling symlink is true: removing it removes only the link.
+is_removable_venv() {
+  local dir="$1" entry has_cfg=false
+  if [[ -L "$dir" && ! -e "$dir" ]]; then return 0; fi
+  [[ -d "$dir" ]] || return 1
+  local -a entries=()
+  while IFS= read -r -d '' entry; do
+    entries+=("$entry")
+  done < <(find "$dir/" -mindepth 1 -maxdepth 1 -print0)
+  [[ ${#entries[@]} -gt 0 ]] || return 0
+  for entry in "${entries[@]}"; do
+    case "${entry##*/}" in
+      pyvenv.cfg) [[ -f "$entry" ]] && has_cfg=true ;;
+      bin|include|lib|lib64|share|.gitignore|Scripts|Include|Lib) ;;
+      *) return 1 ;;
+    esac
+  done
+  [[ "$has_cfg" == true ]]
+}
+
 if [[ "$mode" == "clean" ]]; then
   # --venv is caller input and this is rm -rf: `clean --venv "$HOME"` would
-  # delete the home directory. A virtualenv always has pyvenv.cfg.
-  if [[ -e "$venv_dir" && ! -f "$venv_dir/pyvenv.cfg" ]]; then
-    log_error "docs_site: ${venv_dir} is not a virtualenv (no pyvenv.cfg); not removing it"
+  # delete the home directory. pyvenv.cfg alone does not settle it, because
+  # `python -m venv` accepts a directory that already holds other files, so
+  # anything a virtualenv does not create also refuses.
+  if [[ -e "$venv_dir" || -L "$venv_dir" ]] && ! is_removable_venv "$venv_dir"; then
+    log_error "docs_site: ${venv_dir} is not only a virtualenv; not removing it"
     exit 2
   fi
   rm -rf -- "${ROOT_DIR}/site" "$venv_dir"

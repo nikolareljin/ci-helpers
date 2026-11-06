@@ -2,8 +2,8 @@
 
 ### Fixed
 
-- **`docs_site.sh clean` removes `--venv` only when it is a virtualenv.** It ran `rm -rf` on the value, so `clean --venv "$HOME"` deleted the home directory. A directory without `pyvenv.cfg` now exits 2 and nothing is removed.
-- **`rust_release_build.sh` refuses a `--bin-name` or `--linux-gnu-aliases` entry that is not a plain name.** Both name files under the artifact directory, so `--bin-name ../x` wrote outside it. It now exits 2.
+- **`docs_site.sh clean` removes `--venv` only when it is a virtualenv.** It ran `rm -rf` on the value, so `clean --venv "$HOME"` deleted the home directory. A path with no `pyvenv.cfg`, or with anything a virtualenv does not create, now exits 2 and nothing is removed. An empty directory is still removed.
+- **`rust_release_build.sh`, `rust-release.yml` and `rust-release-tarballs.yml` refuse a binary name or Linux alias that is not a plain name.** These name files under the output directory, so `../x` wrote outside it. The script exits 2 and the workflows fail the build step. A caller passing a name with a space or a shell character must rename it.
 
 ### Changed
 

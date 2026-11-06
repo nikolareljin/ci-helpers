@@ -134,6 +134,12 @@ jobs:
           BIN_NAME: ${{ inputs.bin_name }}
         run: |
           set -euo pipefail
+          # It names the tarball and the file tar reads: `../x` left the build directory.
+          valid_name='^[[:alnum:]_][[:alnum:]._+-]*$'
+          if [[ ! "$BIN_NAME" =~ $valid_name || "$BIN_NAME" == *..* ]]; then
+            echo "::error::bin_name must be a plain file name"
+            exit 1
+          fi
           if [ -n "${RUST_TARGET:-}" ]; then
             export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
             rustup target add "$RUST_TARGET"

@@ -31,6 +31,30 @@ check "clean removes a virtualenv" 0 $?
 bash "${docs[@]}" clean --venv "$work/absent" >/dev/null 2>&1
 check "clean accepts a virtualenv that does not exist" 0 $?
 
+mkdir -p "$work/mixed"; touch "$work/mixed/pyvenv.cfg" "$work/mixed/keep"
+bash "${docs[@]}" clean --venv "$work/mixed" >/dev/null 2>&1
+check "clean refuses a virtualenv made in a directory with other files" 2 $?
+[[ -f "$work/mixed/keep" ]]; check "and keeps them" 0 $?
+
+mkdir -p "$work/nocfg/lib"
+bash "${docs[@]}" clean --venv "$work/nocfg" >/dev/null 2>&1
+check "clean refuses venv-like directories with no pyvenv.cfg" 2 $?
+
+mkdir -p "$work/empty"
+bash "${docs[@]}" clean --venv "$work/empty" >/dev/null 2>&1
+check "clean removes an empty directory" 0 $?
+
+touch "$work/plain"
+bash "${docs[@]}" clean --venv "$work/plain" >/dev/null 2>&1
+check "clean refuses a file" 2 $?
+
+mkdir -p "$work/real"; touch "$work/real/pyvenv.cfg"; mkdir -p "$work/real/bin" "$work/real/lib"
+bash "${docs[@]}" clean --venv "$work/real" >/dev/null 2>&1
+check "clean removes a full virtualenv" 0 $?
+python3 -m venv --without-pip "$work/pyvenv" >/dev/null 2>&1
+bash "${docs[@]}" clean --venv "$work/pyvenv" >/dev/null 2>&1
+check "clean removes one python made" 0 $?
+
 # A cargo stand-in, so a refused name is told from a failed build.
 mkdir -p "$work/bin" "$work/rust"
 printf '#!/bin/sh\nexit 0\n' > "$work/bin/cargo"; chmod +x "$work/bin/cargo"
@@ -41,7 +65,12 @@ rust --bin-name -evil --targets linux-gnu; check "--bin-name starting with - is 
 rust --bin-name a..b --targets linux-gnu; check "--bin-name with .. is refused" 2 $?
 rust --bin-name tool --linux-gnu-aliases deb,../evil --targets linux-gnu; check "an alias with a path is refused" 2 $?
 
+rust --bin-name tool --linux-gnu-aliases deb,-x --targets linux-gnu; check "an alias starting with - is refused" 2 $?
+rust --bin-name tool --linux-gnu-aliases a..b --targets linux-gnu; check "an alias with .. is refused" 2 $?
+
 mkdir -p "$work/rust/target/x86_64-unknown-linux-gnu/release"
+touch "$work/rust/target/x86_64-unknown-linux-gnu/release/_tool"
+rust --bin-name _tool --targets linux-gnu; check "a name Cargo allows with a leading _ builds" 0 $?
 touch "$work/rust/target/x86_64-unknown-linux-gnu/release/my_tool+1.2"
 rust --bin-name my_tool+1.2 --linux-gnu-aliases deb,yum --targets linux-gnu
 check "a normal name and aliases build" 0 $?
