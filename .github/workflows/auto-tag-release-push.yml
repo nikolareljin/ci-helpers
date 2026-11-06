@@ -52,7 +52,7 @@ jobs:
             rc=0
             bash scripts/update_pinned_actions.sh --check || rc=$?
             if (( rc != 0 )); then
-              echo "::error::Strict pin check failed, so no tag is cut and a re-run fails the same. After a release merge, see 'A release merge fails the pin gate' in docs/RELEASE_RC_PR.md."
+              echo "::error::Strict pin check failed, so no tag is cut. A stale or newer pin fails the same on a re-run; a lookup warning may not. After a release merge, see 'A release merge fails the pin gate' in docs/RELEASE_RC_PR.md."
             fi
             exit "$rc"
           fi

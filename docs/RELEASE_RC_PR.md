@@ -185,13 +185,16 @@ Two things to check by hand when a Dependabot pin looks wrong:
 
 A Dependabot bump can land on `main` after the release pull request went green.
 The merge then fails the plain `--check` in `auto-tag-release-push.yml`, so no
-tag is cut. A re-run checks the same commit and fails the same way.
+tag is cut. A re-run checks the same commit and fails the same way, unless the
+failure was only a lookup warning, which a re-run can clear.
 
 Recover with a new pull request from the same head ref, while tag `X.Y.Z` does
 not exist. The `release` ruleset blocks deleting the branch, so reuse it:
 
 ```bash
+git fetch origin
 git switch release/X.Y.Z
+git pull --ff-only
 git merge origin/main
 bash scripts/update_pinned_actions.sh          # moves the comments
 bash scripts/update_pinned_actions.sh --check  # must report 0 stale, 0 warnings
