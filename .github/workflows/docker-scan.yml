@@ -74,7 +74,7 @@ jobs:
           docker build -f "$DS_DOCKERFILE" -t "$DS_IMAGE_NAME" "$DS_CONTEXT"
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87 # master @ 2026-10-21
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
         with:
           image-ref: ${{ inputs.image_name }}
           format: table

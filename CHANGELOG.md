@@ -1,3 +1,16 @@
+## 2026-11-06 — v0.47.1
+
+### Fixed
+
+- **`wp-plugin-check` passes a findings-free scan.** The vendored
+  script-helpers moves 0.59.0 → 0.61.1, picking up the report-parser
+  fix: a clean `wp plugin check` prints a bare `Success:` line, which
+  older parsers rejected as invalid JSON and exited 5 — a perfectly
+  clean plugin could never pass with `fail_on_findings: true`. All 16
+  workflow pins move with the vendored copy, as the pin check requires.
+- **Refresh stale third-party action pins** (`trivy-action`,
+  `action-gh-release`) to their current upstream SHAs.
+
 ## 2026-10-28 — v0.47.0
 
 ### Changed

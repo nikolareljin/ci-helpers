@@ -485,6 +485,11 @@ if plugin_check.exists():
                 errors, warnings = count_entries(items)
                 error_count += errors
                 warning_count += warnings
+        elif re.fullmatch(r"Success:[^\n]*\n?", raw):
+            # No FILE sections and a bare wp-cli success line: the scan ran
+            # and found nothing. Zero findings is a pass, not a parse
+            # failure. Anything else still falls through below.
+            pass
         else:
             # Older wp-cli, or a build that emits a single document.
             data = load_json(plugin_check, "plugin-check.json")

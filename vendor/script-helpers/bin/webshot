@@ -3,6 +3,7 @@
 #        webshot capture <spec.json> <out_dir>
 #        webshot audit <start_url> [--device NAME]... [--skip PREFIX]... [--limit N] [--shots DIR] [--timeout-ms N]
 #        webshot pdf <input.html> <output.pdf> [--format F] [--landscape] [--footer TEXT] [--wait-ms N]
+#        webshot android-audit <url> [--serial S] [--path P]... [--shots DIR] [--timeout-ms N]
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
@@ -15,9 +16,10 @@ case "$cmd" in
   ensure) webshot_ensure "$@" ;;
   capture) webshot_capture "$@" ;;
   audit) webshot_audit "$@" ;;
+  android-audit) webshot_android_audit "$@" ;;
   pdf) webshot_pdf "$@" ;;
   -h|--help|help|"")
-    sed -n '2,5p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     [[ -n "$cmd" ]] || exit 2
     ;;
   *) log_error "unknown command: $cmd"; exit 2 ;;
