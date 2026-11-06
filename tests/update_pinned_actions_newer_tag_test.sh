@@ -373,11 +373,50 @@ gate "" "--check --allow-newer-tag"
 gate "dependabot/github_actions/x" "--check --allow-newer-tag"
 gate "fix/release/1.2.3" "--check --allow-newer-tag"
 gate "release/1.2.3" "--check"
-for wf in auto-tag-release-push production-branch security-weekly; do
-  if ! grep -q "run: bash scripts/update_pinned_actions.sh --check --allow-newer-tag$" "$root/.github/workflows/$wf.yml"; then
-    echo "FAIL $wf.yml does not pass --allow-newer-tag"; fail=1
-  fi
-done
+grep -q "run: bash scripts/update_pinned_actions.sh --check --allow-newer-tag$" "$root/.github/workflows/security-weekly.yml" ||
+  { echo "FAIL security-weekly.yml does not pass --allow-newer-tag"; fail=1; }
+grep -q "run: bash scripts/update_pinned_actions.sh --check$" "$root/.github/workflows/production-branch.yml" ||
+  { echo "FAIL production-branch.yml is not a plain --check"; fail=1; }
+
+# The real gate step of auto-tag-release-push.yml, with stub git and gh: only a
+# merged non-release pull request that is this commit relaxes the check.
+mkdir -p "$work/tagbin"
+cat > "$work/tagbin/git" <<'SH'
+#!/usr/bin/env bash
+echo "$SUBJECT"
+SH
+cat > "$work/tagbin/gh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" > "$GH_LOG"
+[ -n "$GH_ANSWER" ] || exit 1
+echo "$GH_ANSWER"
+SH
+chmod +x "$work/tagbin/git" "$work/tagbin/gh"
+python3 - "$root/.github/workflows/auto-tag-release-push.yml" > "$work/gate/tag_step.sh" <<'PY_STEP'
+import sys, yaml
+for step in yaml.safe_load(open(sys.argv[1]))["jobs"]["gate"]["steps"]:
+    if step.get("name") == "Check stale SHA pins":
+        print(step["run"])
+PY_STEP
+tag_gate() { # subject gh-answer expected-args
+  local got
+  rm -f "$work/gate/args"
+  ( cd "$work/gate" && PATH="$work/tagbin:$PATH" GATE_ARGS="$work/gate/args" GH_LOG="$work/gate/gh.log" \
+      GITHUB_SHA=abc GITHUB_REPOSITORY=acme/lib SUBJECT="$1" GH_ANSWER="$2" bash -e -o pipefail tag_step.sh )
+  got="$(cat "$work/gate/args")"
+  [ "$got" = "$3" ] || { echo "FAIL tag gate '$1' '$2': got '$got', want '$3'"; fail=1; }
+}
+relaxed="--check --allow-newer-tag"
+tag_gate "fix: a thing (#12)" "true abc fix/thing" "$relaxed"
+grep -q "repos/acme/lib/pulls/12 " "$work/gate/gh.log" || { echo "FAIL tag gate asked $(cat "$work/gate/gh.log")"; fail=1; }
+tag_gate "Merge pull request #13 from acme/fix/thing" "true abc fix/thing" "$relaxed"
+tag_gate "Release 1.2.3 (#14)" "true abc release/1.2.3" "--check"
+tag_gate "Merge pull request #14 from acme/release/1.2.3" "true abc release/1.2.3" "--check"
+# An edited squash subject naming another pull request: not this commit.
+tag_gate "Release 1.2.3 (#12)" "true other fix/thing" "--check"
+tag_gate "fix: not merged (#15)" "false abc fix/thing" "--check"
+tag_gate "fix: lookup fails (#16)" "" "--check"
+tag_gate "direct push" "true abc fix/thing" "--check"
 
 (( fail == 0 )) && echo "update_pinned_actions: NEWER accepted, refused forms STALE, lookup failures warn, comment corrected, gates as documented"
 exit "$fail"

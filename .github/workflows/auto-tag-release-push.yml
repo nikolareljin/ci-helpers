@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -27,8 +28,29 @@ jobs:
       - name: Check stale SHA pins
         shell: bash
         # A merged Dependabot bump leaves its comment behind until the next
-        # release branch moves it; that must not fail this gate.
-        run: bash scripts/update_pinned_actions.sh --check --allow-newer-tag
+        # release branch moves it, so an ordinary merge may pass with
+        # --allow-newer-tag. A release merge may not. The release detection in
+        # auto-tag.yml runs after this gate, so this asks GitHub itself: only a
+        # merged pull request that is this very commit and not from release/
+        # relaxes the check. A direct push or a failed lookup stays strict.
+        run: |
+          subject="$(git log -1 --format=%s)"
+          merge_pattern='^Merge pull request #([0-9]+) '
+          squash_pattern='\(#([0-9]+)\)$'
+          pr=""
+          if [[ "$subject" =~ $merge_pattern ]] || [[ "$subject" =~ $squash_pattern ]]; then
+            pr="${BASH_REMATCH[1]}"
+          fi
+          answer=""
+          if [[ -n "$pr" ]]; then
+            answer="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '"\(.merged_at != null) \(.merge_commit_sha) \(.head.ref)"')" || answer=""
+          fi
+          read -r merged merge_sha head_ref <<< "$answer"
+          if [[ "$merged" == "true" && "$merge_sha" == "$GITHUB_SHA" && -n "$head_ref" && "$head_ref" != release/* ]]; then
+            bash scripts/update_pinned_actions.sh --check --allow-newer-tag
+          else
+            bash scripts/update_pinned_actions.sh --check
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Detect floating action refs

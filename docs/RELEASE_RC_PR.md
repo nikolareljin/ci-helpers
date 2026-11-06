@@ -157,12 +157,14 @@ both read those comments, so the repository ends up reporting a version it does
 not ship. The plain run above reports each such pin as `NEWER` and moves its
 comment to the tag the SHA is, with today's date; the SHA stays.
 
-A SHA verified as a newer release tag of the same action passes every gate
-outside a release branch: `workflow-yaml-check.yml` on push and on other pull
-requests, `auto-tag-release-push.yml`, `production-branch.yml` and
-`security-weekly.yml` all run `--check --allow-newer-tag`. Only a pull request
-whose head ref starts with `release/` runs a plain `--check`, so a comment left
-behind fails there until the plain run above has corrected it.
+A SHA verified as a newer release tag of the same action passes ordinary work:
+`workflow-yaml-check.yml` on push and on other pull requests,
+`security-weekly.yml`, and `auto-tag-release-push.yml` on the merge of a pull
+request from any other branch all run `--check --allow-newer-tag`. A plain
+`--check` runs on a pull request whose head ref starts with `release/`, on a
+release merge or any push `auto-tag-release-push.yml` cannot place, and in
+`production-branch.yml`. A comment left behind fails those until the plain run
+above has corrected it.
 
 The plain run warns and leaves the line alone when it cannot tell, or when the
 SHA is a newer release of another shape (`# v1` at the commit of `v2.0.0`, with
