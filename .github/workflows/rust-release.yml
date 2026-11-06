@@ -144,15 +144,19 @@ jobs:
         run: |
           set -euo pipefail
           # Both name files under artifact_dir: `../x` wrote outside it.
-          valid_name='^[[:alnum:]_][[:alnum:]._+-]*$'
-          if [[ ! "$INPUT_BIN_NAME" =~ $valid_name || "$INPUT_BIN_NAME" == *..* ]]; then
+          # LC_ALL=C: a bracket range follows the locale, and could admit a letter like e-acute.
+          plain_name() {
+            local LC_ALL=C valid_name='^[A-Za-z0-9_][A-Za-z0-9._+-]*$'
+            [[ "$1" =~ $valid_name && "$1" != *..* ]]
+          }
+          if ! plain_name "$INPUT_BIN_NAME"; then
             echo "::error::bin_name must be a plain file name"
             exit 1
           fi
           if [ -n "$INPUT_LINUX_GNU_ALIASES" ]; then
             IFS=',' read -r -a alias_list <<< "$INPUT_LINUX_GNU_ALIASES"
-            for alias in "${alias_list[@]}"; do
-              if [[ ! "$alias" =~ $valid_name || "$alias" == *..* ]]; then
+            for alias in ${alias_list[@]+"${alias_list[@]}"}; do
+              if ! plain_name "$alias"; then
                 echo "::error::linux_gnu_aliases entries must be plain names"
                 exit 1
               fi

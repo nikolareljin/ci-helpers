@@ -51,9 +51,38 @@ check "clean refuses a file" 2 $?
 mkdir -p "$work/real"; touch "$work/real/pyvenv.cfg"; mkdir -p "$work/real/bin" "$work/real/lib"
 bash "${docs[@]}" clean --venv "$work/real" >/dev/null 2>&1
 check "clean removes a full virtualenv" 0 $?
-python3 -m venv --without-pip "$work/pyvenv" >/dev/null 2>&1
-bash "${docs[@]}" clean --venv "$work/pyvenv" >/dev/null 2>&1
-check "clean removes one python made" 0 $?
+if python3 -m venv --without-pip "$work/pyvenv" >/dev/null 2>&1; then
+  bash "${docs[@]}" clean --venv "$work/pyvenv" >/dev/null 2>&1
+  check "clean removes one python made" 0 $?
+  [[ ! -e "$work/pyvenv" ]]; check "and it is gone" 0 $?
+else
+  echo "skip clean of a real virtualenv: python3 -m venv failed"
+fi
+
+# Layout `uv venv` and `virtualenv` write.
+mkdir -p "$work/uv/bin" "$work/uv/lib"; touch "$work/uv/pyvenv.cfg" "$work/uv/CACHEDIR.TAG" "$work/uv/.gitignore" "$work/uv/.lock"
+bash "${docs[@]}" clean --venv "$work/uv" >/dev/null 2>&1
+check "clean removes a uv or virtualenv layout" 0 $?
+
+# DOCS_VENV has no dash check of its own; find once read this as a predicate
+# and reported it empty.
+mkdir -p "$work/repo/-foo"; touch "$work/repo/-foo/precious"
+(cd "$work/repo" && DOCS_VENV=-foo bash scripts/docs_site.sh clean >/dev/null 2>&1)
+check "DOCS_VENV with a leading dash is refused" 2 $?
+[[ -f "$work/repo/-foo/precious" ]]; check "and keeps its files" 0 $?
+
+if [[ "$(id -u)" != 0 ]]; then
+  mkdir -p "$work/repo/site" "$work/locked"; touch "$work/locked/keep"; chmod 000 "$work/locked"
+  bash "${docs[@]}" clean --venv "$work/locked" >/dev/null 2>&1
+  check "a directory it cannot list is refused" 2 $?
+  [[ -d "$work/repo/site" ]]; check "and ./site stays" 0 $?
+  chmod 700 "$work/locked"
+fi
+
+mkdir -p "$work/target/bin"; touch "$work/target/pyvenv.cfg"; ln -s "$work/target" "$work/link"
+bash "${docs[@]}" clean --venv "$work/link/" >/dev/null 2>&1
+check "a link with a trailing slash is accepted" 0 $?
+[[ ! -e "$work/link" && -f "$work/target/pyvenv.cfg" ]]; check "only the link goes" 0 $?
 
 # A cargo stand-in, so a refused name is told from a failed build.
 mkdir -p "$work/bin" "$work/rust"
@@ -62,6 +91,7 @@ rust() { (cd "$work/rust" && PATH="$work/bin:$PATH" bash "$root/scripts/rust_rel
 
 rust --bin-name ../evil --targets linux-gnu; check "--bin-name with a path is refused" 2 $?
 rust --bin-name -evil --targets linux-gnu; check "--bin-name starting with - is refused" 2 $?
+rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu; check "--bin-name outside ASCII is refused" 2 $?
 rust --bin-name a..b --targets linux-gnu; check "--bin-name with .. is refused" 2 $?
 rust --bin-name tool --linux-gnu-aliases deb,../evil --targets linux-gnu; check "an alias with a path is refused" 2 $?
 

@@ -3,13 +3,15 @@
 # DESCRIPTION: Build Rust release binaries for multiple targets and collect them in an artifacts directory.
 # USAGE: ./rust_release_build.sh --bin-name <name> [--artifact-dir <dir>] [--targets <list>] [--linux-gnu-aliases <list>]
 # PARAMETERS:
-#   --bin-name <name>           Required. Cargo binary name.
+#   --bin-name <name>           Required. Cargo binary name: letters, digits, _, then also . + -; no ..
 #   --artifact-dir <dir>        Output directory for binaries (default: artifacts).
 #   --targets <list>            Comma-delimited targets: windows,linux-gnu,linux-musl,macos (default: all).
-#   --linux-gnu-aliases <list>  Comma-delimited extra Linux GNU artifact suffixes (e.g. deb,pacman,yum,redhat).
+#   --linux-gnu-aliases <list>  Comma-delimited extra Linux GNU artifact suffixes (e.g. deb,pacman,yum,redhat), same rule.
 #   --install-deps              Install build dependencies via apt-get.
 #   --apt-packages <list>       Space-delimited apt packages (default: build-essential mingw-w64 musl-tools).
 #   -h, --help                  Show this help message.
+# EXIT CODES:
+#   0 ok; 1 a build or a binary is missing; 2 bad arguments or an invalid name.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -44,15 +46,19 @@ if [ -z "$bin_name" ]; then
 fi
 
 # Both name files under the artifact directory: `--bin-name ../x` wrote outside it.
-valid_name='^[[:alnum:]_][[:alnum:]._+-]*$'
-if [[ ! "$bin_name" =~ $valid_name || "$bin_name" == *..* ]]; then
+# LC_ALL=C: a bracket range follows the locale, and could admit a letter like e-acute.
+plain_name() {
+  local LC_ALL=C valid_name='^[A-Za-z0-9_][A-Za-z0-9._+-]*$'
+  [[ "$1" =~ $valid_name && "$1" != *..* ]]
+}
+if ! plain_name "$bin_name"; then
   echo "Invalid --bin-name: $bin_name" >&2
   exit 2
 fi
 if [ -n "$linux_gnu_aliases" ]; then
   IFS=',' read -r -a alias_list <<< "$linux_gnu_aliases"
-  for alias in "${alias_list[@]}"; do
-    if [[ ! "$alias" =~ $valid_name || "$alias" == *..* ]]; then
+  for alias in ${alias_list[@]+"${alias_list[@]}"}; do
+    if ! plain_name "$alias"; then
       echo "Invalid --linux-gnu-aliases entry: $alias" >&2
       exit 2
     fi

@@ -9,7 +9,8 @@
 #   check     Build --strict into a temporary directory, assert the entry file and
 #             the search index exist, then delete it. For CI and hooks.
 #   deps      Create or refresh the documentation virtualenv and exit.
-#   clean     Remove ./site and the virtualenv.
+#   clean     Remove ./site and the virtualenv. Refuses a path that holds anything
+#             but a virtualenv, at its top level.
 #   --port N  Port for serve/preview. Default 8000.
 #   --venv D  Virtualenv location. Default: ${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/ci-helpers
 #   -h        Show this help message.
@@ -77,38 +78,44 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# True for an empty directory, or one holding pyvenv.cfg and nothing a virtualenv
-# does not create. A dangling symlink is true: removing it removes only the link.
+# True for an empty directory, or one with pyvenv.cfg and, at its top level,
+# nothing the virtualenv tools create. False for a directory it cannot list:
+# that is not known to be empty. A symlink to a directory is judged by its target.
 is_removable_venv() {
-  local dir="$1" entry has_cfg=false
+  local dir="$1" entry has_cfg=false listed=0
   if [[ -L "$dir" && ! -e "$dir" ]]; then return 0; fi
-  [[ -d "$dir" ]] || return 1
-  local -a entries=()
-  while IFS= read -r -d '' entry; do
-    entries+=("$entry")
-  done < <(find "$dir/" -mindepth 1 -maxdepth 1 -print0)
-  [[ ${#entries[@]} -gt 0 ]] || return 0
-  for entry in "${entries[@]}"; do
+  [[ -d "$dir" && -r "$dir" && -x "$dir" ]] || return 1
+  # An unmatched glob stays literal, which the existence test skips.
+  for entry in "$dir"/* "$dir"/.*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
     case "${entry##*/}" in
+      .|..) continue ;;
       pyvenv.cfg) [[ -f "$entry" ]] && has_cfg=true ;;
-      bin|include|lib|lib64|share|.gitignore|Scripts|Include|Lib) ;;
+      bin|include|lib|lib64|share|etc|man|Scripts|Include|Lib) ;;
+      .gitignore|.lock|.Python|CACHEDIR.TAG|pip-selfcheck.json) ;;
       *) return 1 ;;
     esac
+    listed=$((listed + 1))
   done
-  [[ "$has_cfg" == true ]]
+  [[ $listed -eq 0 || "$has_cfg" == true ]]
 }
 
 if [[ "$mode" == "clean" ]]; then
   # --venv is caller input and this is rm -rf: `clean --venv "$HOME"` would
   # delete the home directory. pyvenv.cfg alone does not settle it, because
   # `python -m venv` accepts a directory that already holds other files, so
-  # anything a virtualenv does not create also refuses.
+  # anything else at its top level also refuses. DOCS_VENV skips the check
+  # --venv makes on a leading dash, and `link/` would empty the link's target.
+  while [[ "$venv_dir" == */ && "$venv_dir" != / ]]; do venv_dir="${venv_dir%/}"; done
+  [[ "$venv_dir" != -* ]] || venv_dir="./$venv_dir"
   if [[ -e "$venv_dir" || -L "$venv_dir" ]] && ! is_removable_venv "$venv_dir"; then
     log_error "docs_site: ${venv_dir} is not only a virtualenv; not removing it"
     exit 2
   fi
+  venv_label="$venv_dir"
+  [[ ! -L "$venv_dir" ]] || venv_label="the link ${venv_dir} (not its target)"
   rm -rf -- "${ROOT_DIR}/site" "$venv_dir"
-  log_info "docs_site: removed ./site and ${venv_dir}"
+  log_info "docs_site: removed ./site and ${venv_label}"
   exit 0
 fi
 
