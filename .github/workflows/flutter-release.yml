@@ -338,7 +338,7 @@ jobs:
 
       - name: Setup Ruby
         if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
-        uses: ruby/setup-ruby@26e5b7d197ebf60545ee9667bcbace0be11ccaec # v1.334.0 @ 2026-10-23
+        uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0 @ 2026-10-24
         with:
           ruby-version: ${{ inputs.ruby_version }}
           bundler-cache: true
