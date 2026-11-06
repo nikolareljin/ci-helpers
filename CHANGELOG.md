@@ -1,4 +1,4 @@
-## Unreleased
+## 2026-11-06 — v0.48.0
 
 ### Fixed
 
@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **`vendor/script-helpers` 0.61.1 -> 0.61.2**, and the 16 workflow `ref:` pins with it. Two caller-visible changes. `wp-plugin-check.yml` with `fail_on_findings: true`: a `wp plugin check` run that exits non-zero and reports no errors now exits 5; the exit code was logged and ignored, so a run that broke after printing `Success:` or only warnings passed. `wp-phpunit.yml`: `wp_tests_dir` and `wp_core_dir` are compared as physical paths and refused (exit 2) when they are, or contain, the working directory, the plugin or `$HOME`, or hold a `.` or `..` component; the defaults `/tmp/wordpress-tests-lib` and `/tmp/wordpress` pass as before. The other upstream changes (`--` before paths in `cp`, `mv`, `rm`, `cat` and `head`; `http_probe_json`, `http_check_key` and `cloudflare_smoke_test` contact only `http://` and `https://` URLs; `refresh_private_names.sh` owner validation) are in code these workflows do not run from the vendored copy, or do not change a run with valid input.
 - **`ruby/setup-ruby` v1.334.0 -> v1.335.0** in `flutter-release.yml`, replacing https://github.com/nikolareljin/ci-helpers/pull/333, which moved the SHA but left the comment on v1.334.0, so `update_pinned_actions.sh --check` failed. Upstream adds Windows builds of Ruby 3.3.13, 3.4.12 and 4.0.9 only.
 - **The self-test runs real Plugin Check on a clean plugin and on one with an error.** The existing fixture has warnings, so the bare success report was never exercised and a clean plugin exited 5 until a consumer found it. `self-test-web.yml` now requires exit 0 with a `Success:` report for `tests/fixtures/wp-check-clean` and exit 4 for `tests/fixtures/wp-check-error`.
 
