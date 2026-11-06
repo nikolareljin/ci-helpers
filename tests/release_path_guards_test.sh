@@ -137,6 +137,10 @@ rust --bin-name my_tool+1.2 --linux-gnu-aliases deb,yum --targets linux-gnu
 check "a normal name and aliases build" 0 $?
 rust --bin-name my_tool+1.2 --linux-gnu-aliases $'deb\nx' --targets linux-gnu
 check "a second alias line is still refused" 2 $?
+rm -f "$work/rust/artifacts/my_tool+1.2-deb"
+rust --bin-name my_tool+1.2 --linux-gnu-aliases $'deb\n' --targets linux-gnu
+check "a trailing newline in aliases is accepted" 0 $?
+[[ -f "$work/rust/artifacts/my_tool+1.2-deb" ]]; check "and names the artifact" 0 $?
 [[ -f "$work/rust/artifacts/my_tool+1.2-linux" && -f "$work/rust/artifacts/my_tool+1.2-yum" ]]
 check "and land in the artifact directory" 0 $?
 
