@@ -4,12 +4,14 @@
 # webshot_capture drives a list of pages from a JSON spec: log in once per
 # auth profile, run optional clicks/fills, hide elements, and save a PNG per
 # page (whole page, viewport, or one element). webshot_audit crawls a site on
-# phone devices and fails on pages wider than the screen. webshot_pdf prints an
+# phone devices and fails on pages wider than the screen; webshot_android_audit
+# runs the same checks in Chrome on a real phone over adb. webshot_pdf prints an
 # HTML file to PDF. Both run a Python driver inside a venv that webshot_ensure creates
 # outside the repository. Depends on the `python` module; `logging` is optional.
 #
 # Exit codes for every public function: 0 ok, 1 run failed, 2 bad arguments or
-# spec, 3 Python or Playwright unavailable.
+# spec, 3 Python or Playwright unavailable (webshot_android_audit: adb, Python or
+# a ready device).
 
 WEBSHOT_PLAYWRIGHT_VERSION="${WEBSHOT_PLAYWRIGHT_VERSION:-1.63.0}"
 
@@ -149,6 +151,107 @@ webshot_audit() {
     WEBSHOT_LIMIT="$limit" WEBSHOT_OUT="$shots" WEBSHOT_TIMEOUT_MS="$timeout_ms" _webshot_run "$py"
 }
 
+# Usage: webshot_android_audit <url> [--serial S] [--path P]... [--shots DIR]
+#                              [--timeout-ms N]
+# Runs the webshot_audit checks in Chrome on a real Android phone over adb.
+# A localhost or 127.0.0.1 URL reaches the phone through `adb reverse`, so the
+# site is never opened to the network. The phone's Chrome opens the URL; the
+# checks run through its DevTools socket (`adb forward ... chrome_devtools_remote`)
+# with Python's standard library, so Playwright is not needed. --path (repeat)
+# checks those paths of the URL instead of the URL itself; there is no crawl.
+# --shots saves DIR/<page>--<model>.png with `adb exec-out screencap`. The
+# phone needs USB debugging on and Chrome installed. Port forwards are removed
+# on exit, also on INT and TERM; a reverse set up before the run stays.
+# Returns: 0 no finding; 1 a finding or a page did not load; 2 bad arguments; 3 adb, Python or a ready device missing.
+# Output: stdout a JSON report {device, viewport, checked, findings, http_errors}; stderr log lines.
+webshot_android_audit() {
+  local url="${1:-}" serial="" paths="" shots="" timeout_ms="30000"
+  if [[ -z "$url" || "$url" == -* ]]; then
+    _webshot_log_error "usage: webshot_android_audit <url> [--serial S] [--path P]... [--shots DIR] [--timeout-ms N]"
+    return 2
+  fi
+  shift
+  while [[ $# -gt 0 ]]; do
+    # A value option at the end would make "shift 2" fail and loop forever.
+    case "$1" in
+      --serial|--path|--shots|--timeout-ms)
+        [[ $# -ge 2 && -n "${2:-}" ]] || { _webshot_log_error "$1 needs a value"; return 2; } ;;
+    esac
+    case "$1" in
+      --serial) serial="$2"; shift 2 ;;
+      --path) paths+="$2"$'\n'; shift 2 ;;
+      --shots) shots="$2"; shift 2 ;;
+      --timeout-ms) timeout_ms="$2"; shift 2 ;;
+      *) _webshot_log_error "unknown option: $1"; return 2 ;;
+    esac
+  done
+  # No quote or space: the URL is passed through the phone's shell.
+  if [[ ! "$url" =~ ^(https?)://([^/:?#]+)(:([0-9]+))?([/?#][^\'\"[:space:]]*)?$ ]]; then
+    _webshot_log_error "url must be an http(s) URL without quotes or spaces: $url"
+    return 2
+  fi
+  local scheme="${BASH_REMATCH[1]}" host="${BASH_REMATCH[2]}" port="${BASH_REMATCH[4]}"
+  [[ -n "$port" ]] || { [[ "$scheme" == https ]] && port=443 || port=80; }
+  if [[ ! "$timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
+    _webshot_log_error "--timeout-ms must be a positive integer: $timeout_ms"
+    return 2
+  fi
+  local py
+  py="$(webshot_python 2>/dev/null)" || py="$(command -v python3)" || {
+    _webshot_log_error "no python3 found"
+    return 3
+  }
+  command -v adb >/dev/null 2>&1 || { _webshot_log_error "adb not found on PATH"; return 3; }
+  local ready
+  ready="$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}')"
+  if [[ -z "$serial" ]]; then
+    serial="$(head -n 1 <<<"$ready")"
+    [[ -n "$serial" ]] || { _webshot_log_error "no Android device attached and ready (adb devices); connect a phone with USB debugging on"; return 3; }
+  elif ! grep -qxF -- "$serial" <<<"$ready"; then
+    _webshot_log_error "device $serial is not attached and ready (adb devices)"
+    return 3
+  fi
+  if [[ -n "$shots" ]]; then mkdir -p "$shots" || return 1; fi
+  # A subshell, so the EXIT trap removes the forwards when this call ends
+  # without replacing a trap of the caller.
+  (
+    # Plain variables: the subshell keeps them private, and the EXIT trap
+    # runs after a function scope would be gone.
+    reversed="" cdp="" model="" driver="" existing="" dev="$serial"
+    trap '[[ -n "${cdp:-}" ]] && adb -s "$dev" forward --remove "tcp:$cdp" >/dev/null 2>&1
+          [[ -n "${reversed:-}" ]] && adb -s "$dev" reverse --remove "tcp:$reversed" >/dev/null 2>&1
+          true' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    case "$host" in
+      localhost|127.0.0.1)
+        # A reverse the user set up already stays, and is not removed at exit.
+        existing="$(adb -s "$serial" reverse --list 2>/dev/null | tr -d '\r')"
+        if ! grep -q " tcp:$port tcp:$port\$" <<<"$existing"; then
+          adb -s "$serial" reverse "tcp:$port" "tcp:$port" >/dev/null || { _webshot_log_error "adb reverse tcp:$port failed"; exit 1; }
+          reversed="$port"
+        fi ;;
+    esac
+    adb -s "$serial" shell am start -a android.intent.action.VIEW -d "'$url'" -p com.android.chrome >/dev/null 2>&1 \
+      || { _webshot_log_error "could not open Chrome on $serial"; exit 1; }
+    # tcp:0 lets adb pick a free local port and print it.
+    cdp="$(adb -s "$serial" forward tcp:0 localabstract:chrome_devtools_remote 2>/dev/null | tr -d '\r\n')"
+    [[ "$cdp" =~ ^[0-9]+$ ]] || { cdp=""; _webshot_log_error "adb forward to Chrome's DevTools socket failed"; exit 1; }
+    model="$(adb -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r\n')"
+    # In the background, so a TERM to this subshell stops the driver too
+    # instead of waiting for it to finish.
+    WEBSHOT_MODE=android WEBSHOT_START="$url" WEBSHOT_PATHS="$paths" WEBSHOT_OUT="$shots" \
+      WEBSHOT_TIMEOUT_MS="$timeout_ms" WEBSHOT_ADB_SERIAL="$serial" WEBSHOT_CDP_PORT="$cdp" \
+      WEBSHOT_DEVICE_NAME="${model:-$serial}" _webshot_run "$py" &
+    driver=$!
+    # $driver is the subshell running _webshot_run; Python is its child, so
+    # stop the child first or it keeps running without a parent.
+    trap 'pkill -TERM -P "$driver" 2>/dev/null; kill "$driver" 2>/dev/null; exit 130' INT
+    trap 'pkill -TERM -P "$driver" 2>/dev/null; kill "$driver" 2>/dev/null; exit 143' TERM
+    wait "$driver"
+  )
+}
+
 # Usage: webshot_pdf <input.html> <output.pdf> [--format Letter|A4|Legal]
 #                    [--landscape] [--footer TEXT] [--wait-ms N]
 # Prints an HTML file with backgrounds. CSS @page size and margins win when
@@ -232,7 +335,9 @@ def fail(code, msg):
 try:
     from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 except ImportError:
-    fail(3, "playwright is not importable in this Python")
+    # The android mode talks to the phone's Chrome directly.
+    if os.environ.get("WEBSHOT_MODE") != "android":
+        fail(3, "playwright is not importable in this Python")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 ACTIONS = {"click", "fill", "press", "hover", "wait_for", "wait_ms", "scroll_to", "select", "eval"}
@@ -579,6 +684,13 @@ def audit():
                         if resp is not None and resp.status >= 400:
                             http_errors[url] = resp.status
                             break
+                        # An image or other file the browser shows itself
+                        # (a JPG wallpaper) is not a page: list it with the
+                        # downloads instead of measuring it as a wide page.
+                        ctype = (resp.headers.get("content-type", "") if resp is not None else "").lower()
+                        if ctype and "html" not in ctype:
+                            downloads.add(url)
+                            break
                         if n == names[0]:
                             # A redirect lands on a page that may be checked
                             # already; report each page once, by where it ended up.
@@ -627,6 +739,169 @@ def audit():
         sys.exit(1)
 
 
+class DevTools:
+    """A Chrome DevTools Protocol client over a plain WebSocket (RFC 6455),
+    standard library only: Playwright does not support CDP to Chrome on Android."""
+
+    def __init__(self, ws_url, timeout):
+        import base64, socket
+        from urllib.parse import urlparse
+        u = urlparse(ws_url)
+        self.sock = socket.create_connection((u.hostname, u.port or 80), timeout=timeout)
+        key = base64.b64encode(os.urandom(16)).decode()
+        path = u.path + (f"?{u.query}" if u.query else "")
+        self.sock.sendall((f"GET {path} HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nUpgrade: websocket\r\n"
+                           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+        self.buf = b""
+        while b"\r\n\r\n" not in self.buf:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise OSError("DevTools closed the connection during the handshake")
+            self.buf += chunk
+        head, _, self.buf = self.buf.partition(b"\r\n\r\n")
+        status = head.split(b"\r\n")[0].decode(errors="replace")
+        if " 101 " not in f"{status} ":
+            raise OSError(f"DevTools refused the WebSocket: {status}")
+        self.next_id = 0
+
+    def _read(self, n):
+        while len(self.buf) < n:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise OSError("DevTools closed the connection")
+            self.buf += chunk
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def _send(self, opcode, data):
+        mask = os.urandom(4)
+        n = len(data)
+        head = bytes([0x80 | opcode])
+        if n < 126:
+            head += bytes([0x80 | n])
+        elif n < 65536:
+            head += bytes([0x80 | 126]) + struct.pack(">H", n)
+        else:
+            head += bytes([0x80 | 127]) + struct.pack(">Q", n)
+        self.sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def _message(self):
+        parts = b""
+        while True:
+            b0, b1 = self._read(2)
+            n = b1 & 0x7F
+            if n == 126:
+                n = struct.unpack(">H", self._read(2))[0]
+            elif n == 127:
+                n = struct.unpack(">Q", self._read(8))[0]
+            mask = self._read(4) if b1 & 0x80 else None
+            payload = self._read(n)
+            if mask:
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            opcode = b0 & 0x0F
+            if opcode == 8:
+                raise OSError("DevTools closed the connection")
+            if opcode == 9:
+                self._send(10, payload)
+                continue
+            if opcode in (0, 1, 2):
+                parts += payload
+                if b0 & 0x80:
+                    return json.loads(parts.decode())
+
+    def call(self, method, **params):
+        self.next_id += 1
+        mid = self.next_id
+        self._send(1, json.dumps({"id": mid, "method": method, "params": params}).encode())
+        while True:
+            msg = self._message()  # events in between are skipped
+            if msg.get("id") == mid:
+                if "error" in msg:
+                    raise RuntimeError(f"{method}: {msg['error'].get('message')}")
+                return msg.get("result", {})
+
+    def evaluate(self, expression):
+        res = self.call("Runtime.evaluate", expression=expression, returnByValue=True)
+        if "exceptionDetails" in res:
+            raise RuntimeError(f"page script failed: {res['exceptionDetails'].get('text')}")
+        return res.get("result", {}).get("value")
+
+
+def android():
+    import http.client, subprocess, time
+    from urllib.parse import urlparse
+    start = os.environ["WEBSHOT_START"]
+    paths = [x for x in os.environ.get("WEBSHOT_PATHS", "").splitlines() if x]
+    urls = [urljoin(start, x) for x in paths] or [start]
+    timeout = int(os.environ["WEBSHOT_TIMEOUT_MS"]) / 1000
+    shots = Path(os.environ["WEBSHOT_OUT"]) if os.environ.get("WEBSHOT_OUT") else None
+    serial, device = os.environ["WEBSHOT_ADB_SERIAL"], os.environ["WEBSHOT_DEVICE_NAME"]
+    port = int(os.environ["WEBSHOT_CDP_PORT"])
+    origin = urlparse(start)
+
+    # Chrome may still be starting: wait for its DevTools to list a tab.
+    deadline, tabs, last = time.time() + timeout, [], ""
+    while time.time() < deadline:
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", "/json")
+            tabs = [t for t in json.loads(conn.getresponse().read()) if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+            if tabs:
+                break
+        except (OSError, ValueError) as exc:
+            last = str(exc)
+        time.sleep(0.5)
+    if not tabs:
+        fail(1, f"Chrome's DevTools listed no tab ({last or 'none open'}); is USB debugging on and Chrome running?")
+    # The tab that opened the URL, else the first one.
+    tab = next((t for t in tabs if urlparse(t.get("url", ""))[:2] == origin[:2]), tabs[0])
+
+    findings, http_errors, checked = {}, {}, []
+    try:
+        cdp = DevTools(tab["webSocketDebuggerUrl"], timeout)
+        viewport = cdp.evaluate("({width: innerWidth, height: innerHeight, dpr: devicePixelRatio})")
+        for url in urls:
+            nav = cdp.call("Page.navigate", url=url)
+            if nav.get("errorText"):
+                http_errors[url] = nav["errorText"]
+                continue
+            # Page.navigate returns before the page loads; wait for "complete"
+            # on the new document.
+            end = time.time() + timeout
+            while time.time() < end:
+                state = cdp.evaluate("[document.readyState, location.href]")
+                if state and state[0] == "complete" and state[1] != "about:blank":
+                    break
+                time.sleep(0.25)
+            else:
+                http_errors[url] = f"not loaded in {int(timeout * 1000)} ms"
+                continue
+            time.sleep(0.5)  # late layout: fonts, lazy images
+            status = cdp.evaluate("(performance.getEntriesByType('navigation')[0] || {}).responseStatus || 0")
+            if status and status >= 400:
+                http_errors[url] = status
+                continue
+            checked.append(url)
+            m = cdp.evaluate(f"({AUDIT_MEASURE})()")
+            if m["scroll_width"] > m["width"] or m["clipped"]:
+                findings[url] = {device: {"width": m["width"], "scroll_width": m["scroll_width"],
+                                          "elements": m["elements"], "clipped_headings": m["clipped"]}}
+            if shots:
+                png = subprocess.run([os.environ.get("WEBSHOT_ADB", "adb"), "-s", serial, "exec-out", "screencap", "-p"],
+                                     capture_output=True, timeout=timeout)
+                if png.returncode != 0 or not png.stdout.startswith(b"\x89PNG"):
+                    fail(1, f"screencap failed on {serial}: {png.stderr.decode(errors='replace').strip()[:200]}")
+                (shots / f"{shot_slug(url)}--{re.sub(r'[^A-Za-z0-9._-]+', '_', device)}.png").write_bytes(png.stdout)
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+        fail(1, f"DevTools: {exc}")
+    print(json.dumps({"device": device, "viewport": viewport, "checked": checked, "findings": findings,
+                      "http_errors": http_errors}, indent=1))
+    print(f"[webshot] android audit on {device}: {len(checked)} pages, {len(findings)} with findings, "
+          f"{len(http_errors)} not loaded", file=sys.stderr)
+    if findings or http_errors:
+        sys.exit(1)
+
+
 def pdf():
     src = Path(os.environ["WEBSHOT_IN"]).resolve()
     out = Path(os.environ["WEBSHOT_OUT"])
@@ -663,7 +938,7 @@ def pdf():
     print(f"[webshot] pdf: {out}", file=sys.stderr)
 
 
-{"capture": capture, "audit": audit, "pdf": pdf}[os.environ["WEBSHOT_MODE"]]()
+{"capture": capture, "audit": audit, "android": android, "pdf": pdf}[os.environ["WEBSHOT_MODE"]]()
 PY
 }
 

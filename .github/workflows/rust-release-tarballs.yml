@@ -176,7 +176,7 @@ jobs:
         with:
           persist-credentials: false
           repository: nikolareljin/script-helpers
-          ref: 1fdf01e83fb7f07529c5ec96cb9cb871fe166f7f # 0.59.0
+          ref: efbc15636e0a1b6bee9083ad66b7628e84c50858 # 0.61.1
           path: .script-helpers
           fetch-depth: 1
 
@@ -271,7 +271,7 @@ jobs:
           path: release-notes
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3 @ 2026-09-10
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3 @ 2026-11-06
         with:
           tag_name: ${{ needs.build-tarballs.outputs.tag }}
           body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}

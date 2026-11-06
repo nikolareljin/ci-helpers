@@ -127,7 +127,7 @@ _ollama_ep_check_overrides() {
   if [[ $# -gt 0 ]]; then
     _oep_names="$(printf '%s\n' "$@")"
   else
-    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$|^AI_TIER_' || true)"
+    _oep_names="$(ollama_models_file_roles "$_oep_file")"
   fi
   # The names come in on fd 3: stdin stays the person's, for the answer below.
   while IFS= read -r _oep_name <&3; do
@@ -269,6 +269,17 @@ ollama_models_file_names() {
     | awk '!seen[$0]++' || true
 }
 
+# Usage: ollama_models_file_roles <file>; prints the roles the file names
+# (NAME), one per line, in file order: every assigned name except a role's
+# class columns (NAME_SMALL, NAME_LARGE, NAME_XLARGE), their GPU floors
+# (_MIN_USABLE_VRAM_GB, _VRAM_GB, _RAM_GB) and the AI_TIER_* settings.
+# Returns: 0 (also when the file is missing).
+# Output: stdout one name per line.
+ollama_models_file_roles() {
+  ollama_models_file_names "${1:-}" \
+    | grep -v -E '_(SMALL|LARGE|XLARGE)(_MIN_USABLE_VRAM_GB|_V?RAM_GB)?$|^AI_TIER_' || true
+}
+
 # Usage: ollama_model_tagged <model>; prints the model the way Ollama lists
 # it: with a tag (":latest" if none is given), and without the default
 # registry's host or "library/" prefix.
@@ -291,20 +302,20 @@ ollama_model_tagged() {
 # Usage: ollama_models_required <file> [NAME...]; prints the models a start
 # needs, the way Ollama lists them, one per line, each once.
 #
-# With no NAME: every name in the file, except the ones for other machine
-# classes. A name ending in _SMALL, _LARGE or _XLARGE is the model for another
-# class; a name ending in _RAM_GB or _VRAM_GB after that is a number used to
-# pick the class, not a model.
+# With no NAME: the file's roles (ollama_models_file_roles), not the columns
+# and figures for other machine classes.
 # A non-blank value in the environment wins over the file. So a caller that
 # has loaded its own .env gets that machine's choice.
 #
-# Returns 2 and prints nothing if a NAME is not a valid variable name. A list
-# that stopped at the bad name would start a project with only some of its
-# models.
+# Returns 2 and prints nothing if a NAME is not a valid variable name, if
+# AI_MODEL_TIER is not a class, or if a reserve in the file is not valid. A
+# list that stopped at the bad name would start a project with only some of
+# its models.
 # Returns 1 and prints nothing if a file is given and does not exist. A
 # mistyped path would otherwise mean "this project needs no models", and the
 # start would check nothing. Pass "" to use no file.
-# Returns: 0 printed; 1 file given but missing; 2 a NAME is not a variable name.
+# Returns: 0 printed; 1 file given but missing; 2 a bad NAME, AI_MODEL_TIER
+# or reserve.
 # Output: stdout one model per line; stderr errors.
 ollama_models_required() {
   # Its own variables start with _oep_: a NAME is read through ${!NAME}, and a
@@ -324,15 +335,16 @@ ollama_models_required() {
     done
     _oep_names="$(printf '%s\n' "$@")"
   else
-    _oep_names="$(ollama_models_file_names "$_oep_file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$' || true)"
+    _oep_names="$(ollama_models_file_roles "$_oep_file")"
   fi
   # Checked here, not per name: the names are read in a pipeline below, where
   # a refusal would end the loop and leave a list with no models in it.
   if [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]] \
-     && ! _ollama_ep_tier_rank "$(printf '%s' "$AI_MODEL_TIER" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" >/dev/null; then
-    print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not $(_ollama_ep_said "$AI_MODEL_TIER")" >&2
+     && ! _ollama_ep_tier_name "$AI_MODEL_TIER" >/dev/null; then
+    print_error "AI_MODEL_TIER is one of $_OLLAMA_EP_TIERS_SAID; not $(_ollama_ep_said "$AI_MODEL_TIER")" >&2
     return 2
   fi
+  _ollama_ep_tier_reserves "$_oep_file" >/dev/null || return 2
   while IFS= read -r _oep_name; do
     [[ -n "$_oep_name" ]] || continue
     # This machine's column (ollama_model_for_class); a value in the
@@ -654,37 +666,130 @@ ollama_gpu_mem_largest_bytes() {
 # A models file may name a model per class of machine besides the default
 # (fleet model registry, ADR-0058 in R-765):
 #
-#   NAME_XLARGE + NAME_XLARGE_VRAM_GB   its largest GPU has at least that much
-#   NAME_LARGE  + NAME_LARGE_VRAM_GB    its largest GPU has at least that much,
-#                 or AI_TIER_LARGE_RAM_GB  or the machine has that much memory
-#   NAME_SMALL  + AI_TIER_SMALL_RAM_GB  the machine has less than that, in
-#                                       memory and in GPU memory both
+#   NAME_XLARGE  its largest GPU has NAME_XLARGE_MIN_USABLE_VRAM_GB usable
+#   NAME_LARGE   its largest GPU has NAME_LARGE_MIN_USABLE_VRAM_GB usable, or
+#                memory has AI_TIER_LARGE_USABLE_RAM_GB usable
+#   NAME_SMALL   memory and the largest GPU both have less than
+#                AI_TIER_SMALL_USABLE_RAM_GB usable
+#
+# Usable is what is left after the reserves: AI_TIER_GPU_RESERVE_GB (GiB) off
+# the largest GPU, AI_TIER_RAM_RESERVE_PERCENT off memory. The older fields,
+# NAME_LARGE_VRAM_GB, NAME_XLARGE_VRAM_GB, AI_TIER_SMALL_RAM_GB and
+# AI_TIER_LARGE_RAM_GB, are installed figures and keep their meaning: the
+# reserves do not apply to them. Where both are given, the usable one is used.
 #
 # Figures are whole GiB as the machine reports them (rounded down): a "32 GB"
-# machine reports 31, so the registry's floors are one below the nominal size.
+# machine reports 31.
 
-# The classes, from the lowest. A cap (the fallback) and AI_MODEL_TIER are one
-# of these; "standard" is the default column, NAME itself.
+# The classes, from the lowest. A cap (the fallback) is one of these;
+# "standard" is the default column, NAME itself.
 _ollama_ep_tier_rank() {
   case "${1:-}" in small) echo 0 ;; standard) echo 1 ;; large) echo 2 ;; xlarge) echo 3 ;; *) return 1 ;; esac
+}
+
+# The classes as a person may state them (AI_MODEL_TIER, a tier argument).
+_OLLAMA_EP_TIERS_SAID="small, standard (or medium), large, xlarge"
+
+# Usage: _ollama_ep_tier_name <word>; prints the class a stated tier names:
+# case and blanks do not matter, and "medium" is standard.
+# Returns: 0 a class; 1 not one.
+# Output: stdout the class.
+_ollama_ep_tier_name() {
+  local _oep_t
+  _oep_t="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\r')" || true
+  [[ "$_oep_t" != medium ]] || _oep_t=standard
+  _ollama_ep_tier_rank "$_oep_t" >/dev/null || return 1
+  printf '%s\n' "$_oep_t"
+}
+
+# The class floors run on every pick, and a pick is one of many in a start;
+# each read of the file is a few processes (slow under Git Bash). So the
+# file's names are listed once, only fields it has are read, and the numbers
+# are worked out without a subshell.
+
+# Usage: _ollama_ep_tier_whole <value>; succeeds when value is a whole number
+# a shell can count with (at most 15 digits).
+_ollama_ep_tier_whole() { [[ "${1:-}" =~ ^[0-9]+$ && "${#1}" -le 15 ]]; }
+
+# Usage: _ollama_ep_tier_reserves <models_file> [names]; prints "<GPU GiB>:<memory
+# percent>", the reserves the file states (0 when it states none). names, the
+# file's names between spaces (" A B "), saves listing them again.
+# Returns: 0; 2 a reserve that is not a whole number, or a memory reserve of
+# 100 percent or more (no memory would be left).
+# Output: stdout the two reserves; stderr errors.
+_ollama_ep_tier_reserves() {
+  local _oep_file="${1:-}" _oep_names="${2-}" _oep_v _oep_gpu=0 _oep_ram=0
+  [[ -n "$_oep_names" ]] || _oep_names=" $(ollama_models_file_names "$_oep_file" | tr '\n' ' ')"
+  if [[ "$_oep_names" == *" AI_TIER_GPU_RESERVE_GB "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_GPU_RESERVE_GB)"
+    if ! _ollama_ep_tier_whole "$_oep_v"; then
+      print_error "AI_TIER_GPU_RESERVE_GB in $(_ollama_ep_said "$_oep_file") is a whole number of GiB; not $(_ollama_ep_said "$_oep_v")" >&2
+      return 2
+    fi
+    _oep_gpu=$(( 10#$_oep_v ))
+  fi
+  if [[ "$_oep_names" == *" AI_TIER_RAM_RESERVE_PERCENT "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)"
+    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#$_oep_v )) -ge 100 ]]; then
+      print_error "AI_TIER_RAM_RESERVE_PERCENT in $(_ollama_ep_said "$_oep_file") is a whole number below 100; not $(_ollama_ep_said "$_oep_v")" >&2
+      return 2
+    fi
+    _oep_ram=$(( 10#$_oep_v ))
+  fi
+  printf '%s:%s\n' "$_oep_gpu" "$_oep_ram"
+}
+
+# Usage: _ollama_ep_tier_floor <models_file> <names> <usable name> <installed
+# name> <GPU reserve GiB> <memory reserve percent> <GPU var> <memory var>; sets
+# the two variables to the floor as an installed figure, the one the machine
+# reports, judged against the GPU and against memory: a usable field becomes
+# the installed capacity that leaves that much after the reserve; an installed
+# field is used as written, for both. Empty for neither, or for a value that is
+# not a whole number (a floor that never matches).
+#   GPU:    usable max(g - R, 0) >= U  is  U = 0, or g >= U + R
+#   memory: usable floor(m * (100 - P) / 100) >= U  is  m >= ceil(100 U / (100 - P))
+# Returns: 0.
+# Output: none.
+_ollama_ep_tier_floor() {
+  local _oep_v="" _oep_usable=0 _oep_g="" _oep_m=""
+  if [[ "$2" == *" $3 "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$1" "$3")"
+    _oep_usable=1
+  elif [[ "$2" == *" $4 "* ]]; then
+    _oep_v="$(_ollama_ep_file_val "$1" "$4")"
+  fi
+  if _ollama_ep_tier_whole "$_oep_v"; then
+    _oep_v=$(( 10#$_oep_v ))
+    if [[ "$_oep_usable" -eq 1 ]]; then
+      _oep_g=$(( _oep_v == 0 ? 0 : _oep_v + $5 ))
+      _oep_m=$(( (_oep_v * 100 + 99 - $6) / (100 - $6) ))
+    else
+      _oep_g="$_oep_v" _oep_m="$_oep_v"
+    fi
+  fi
+  printf -v "$7" '%s' "$_oep_g"
+  printf -v "$8" '%s' "$_oep_m"
 }
 _ollama_ep_gib() { echo $(( ${1:-0} / 1073741824 )); }
 
 # Usage: _ollama_ep_class_rank <mem> <gpu> <small_below_ram> <large_ram>
-# <large_vram> <xlarge_vram>; the one rule both pickers use (ollama_model_for_class
-# with a models file's numbers, ollama_host_tier with the tiers file's). All
-# whole GiB; an empty threshold never matches; empty memory is standard.
+# <large_vram> <xlarge_vram> [small_below_vram]; the one rule both pickers use
+# (ollama_model_for_class with a models file's numbers, ollama_host_tier with
+# the tiers file's). All whole GiB; an empty threshold never matches; empty
+# memory is standard. small_below_vram is the small floor for the GPU when it
+# differs from memory's (a usable floor after different reserves); by default
+# the same.
 # Returns: 0.
 # Output: stdout the rank (0 small .. 3 xlarge).
 _ollama_ep_class_rank() {
-  local mem="${1:-}" gpu="${2:-0}" small="${3:-}" lram="${4:-}" lvram="${5:-}" xvram="${6:-}"
+  local mem="${1:-}" gpu="${2:-0}" small="${3:-}" lram="${4:-}" lvram="${5:-}" xvram="${6:-}" svram="${7:-${3:-}}"
   if [[ -z "$mem" ]]; then
     echo 1
   elif [[ -n "$xvram" && "$gpu" -ge "$xvram" ]]; then
     echo 3
   elif [[ -n "$lvram" && "$gpu" -ge "$lvram" ]] || [[ -n "$lram" && "$mem" -ge "$lram" ]]; then
     echo 2
-  elif [[ -n "$small" && "$mem" -lt "$small" && "$gpu" -lt "$small" ]]; then
+  elif [[ -n "$small" && "$mem" -lt "$small" && "$gpu" -lt "$svram" ]]; then
     # A small machine with a good GPU is not a small machine.
     echo 0
   else
@@ -711,18 +816,21 @@ ollama_machine_figures() {
 # Usage: ollama_model_for_class <models_file> NAME; prints the model this
 # machine gets for NAME: the highest class column it qualifies for that names a
 # model, else NAME. A non-blank NAME in the environment (from .env) wins, as
-# everywhere in this module. AI_MODEL_TIER=small|standard|large|xlarge names the
-# class instead of measuring; a class with no model for NAME falls to the next
-# one below it (small: to the default). _OLLAMA_EP_TIER_CAP (set by
-# ollama_project_ensure_models when a model does not fit) limits the class.
-# Memory that cannot be read picks the default column, never a guessed class.
-# Returns 2 for a NAME that is not a variable name or an AI_MODEL_TIER that is
-# not a class; prints nothing when neither NAME nor a column has a value.
-# Returns: 0 printed (or nothing to print); 2 bad NAME or AI_MODEL_TIER.
+# everywhere in this module. AI_MODEL_TIER=small|standard|medium|large|xlarge
+# names the class instead of measuring (medium is standard); a class with no
+# model for NAME falls to the next one below it (small: to the default).
+# _OLLAMA_EP_TIER_CAP (set by ollama_project_ensure_models when a model does
+# not fit) limits the class. Memory that cannot be read picks the default
+# column, never a guessed class. Prints nothing when neither NAME nor a column
+# has a value.
+# Returns: 0 printed (or nothing to print); 2 a NAME that is not a variable
+# name, an AI_MODEL_TIER that is not a class, or a reserve in the file that is
+# not valid (_ollama_ep_tier_reserves).
 # Output: stdout the model; stderr errors.
 ollama_model_for_class() {
   local _oep_file="${1:-}" _oep_name="${2:-}" _oep_value _oep_tier _oep_cap _oep_mem _oep_gpu
   local _oep_def _oep_small _oep_large _oep_xlarge _oep_large_vram _oep_xlarge_vram _oep_small_ram _oep_large_ram
+  local _oep_reserves _oep_gpu_reserve _oep_ram_reserve _oep_small_vram _oep_keys _oep_unused
   if ! _ollama_ep_is_name "$_oep_name"; then
     print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
     return 2
@@ -736,24 +844,32 @@ ollama_model_for_class() {
   _oep_small="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_SMALL")"
   _oep_large="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE")"
   _oep_xlarge="$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE")"
-  _oep_large_vram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_LARGE_VRAM_GB")")" || _oep_large_vram=""
-  _oep_xlarge_vram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" "${_oep_name}_XLARGE_VRAM_GB")")" || _oep_xlarge_vram=""
-  _oep_small_ram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_SMALL_RAM_GB)")" || _oep_small_ram=""
-  _oep_large_ram="$(_ollama_ep_uint "$(_ollama_ep_file_val "$_oep_file" AI_TIER_LARGE_RAM_GB)")" || _oep_large_ram=""
+  _oep_keys=" $(ollama_models_file_names "$_oep_file" | tr '\n' ' ')"
+  _oep_reserves="$(_ollama_ep_tier_reserves "$_oep_file" "$_oep_keys")" || return 2
+  IFS=: read -r _oep_gpu_reserve _oep_ram_reserve <<<"$_oep_reserves"
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" "${_oep_name}_LARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_LARGE_VRAM_GB" \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_large_vram _oep_unused
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" "${_oep_name}_XLARGE_MIN_USABLE_VRAM_GB" "${_oep_name}_XLARGE_VRAM_GB" \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_xlarge_vram _oep_unused
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" AI_TIER_LARGE_USABLE_RAM_GB AI_TIER_LARGE_RAM_GB \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_unused _oep_large_ram
+  # The small floor applies to the GPU too, after the GPU's reserve.
+  _ollama_ep_tier_floor "$_oep_file" "$_oep_keys" AI_TIER_SMALL_USABLE_RAM_GB AI_TIER_SMALL_RAM_GB \
+    "$_oep_gpu_reserve" "$_oep_ram_reserve" _oep_small_vram _oep_small_ram
 
   _oep_cap="$(_ollama_ep_tier_rank "${_OLLAMA_EP_TIER_CAP:-xlarge}")" || _oep_cap=3
-  _oep_tier="$(printf '%s' "${AI_MODEL_TIER:-}" | tr 'A-Z' 'a-z' | tr -d ' \t\r')" || true
-  if [[ -n "$_oep_tier" ]]; then
-    if ! _oep_tier="$(_ollama_ep_tier_rank "$_oep_tier")"; then
-      print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not $(_ollama_ep_said "${AI_MODEL_TIER:-}")" >&2
+  if [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]]; then
+    if ! _oep_tier="$(_ollama_ep_tier_name "$AI_MODEL_TIER")"; then
+      print_error "AI_MODEL_TIER is one of $_OLLAMA_EP_TIERS_SAID; not $(_ollama_ep_said "${AI_MODEL_TIER:-}")" >&2
       return 2
     fi
+    _oep_tier="$(_ollama_ep_tier_rank "$_oep_tier")"
   else
     IFS=: read -r _oep_mem _oep_gpu <<<"$(ollama_machine_figures)"
     # A class whose column names no model cannot be reached by measuring.
     [[ -n "$_oep_xlarge" ]] || _oep_xlarge_vram=""
     [[ -n "$_oep_large" ]] || { _oep_large_vram=""; _oep_large_ram=""; }
-    _oep_tier="$(_ollama_ep_class_rank "$_oep_mem" "$_oep_gpu" "$_oep_small_ram" "$_oep_large_ram" "$_oep_large_vram" "$_oep_xlarge_vram")"
+    _oep_tier="$(_ollama_ep_class_rank "$_oep_mem" "$_oep_gpu" "$_oep_small_ram" "$_oep_large_ram" "$_oep_large_vram" "$_oep_xlarge_vram" "$_oep_small_vram")"
   fi
   [[ "$_oep_tier" -le "$_oep_cap" ]] || _oep_tier="$_oep_cap"
   # The class's column, or the next one below it that names a model.
@@ -1986,7 +2102,7 @@ ollama_project_prepare() {
   done
   if [[ "$_oep_tier" -eq 1 ]]; then
     _oep_value="$(_ollama_ep_setting AI_MODEL_TIER "$_oep_env" | tr -d ' \t\r')" || true
-    if [[ -n "$_oep_value" && "$_oep_value" != "standard" ]]; then
+    if [[ -n "$_oep_value" && "$(_ollama_ep_tier_name "$_oep_value")" != standard ]]; then
       print_warning "AI_MODEL_TIER=$(_ollama_ep_said "$_oep_value") is not used: the app reads ${_oep_vars[*]:-its model variable} only." >&2
     fi
     export AI_MODEL_TIER=standard
@@ -2202,10 +2318,9 @@ ollama_model_tier_types() {
 # Output: stdout the tier and a newline; stderr errors.
 ollama_host_tier() {
   local _oep_tier _oep_mem _oep_gpu _oep_small _oep_lram _oep_lvram _oep_xvram
-  _oep_tier="$(printf '%s' "${AI_MODEL_TIER:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' \t\r')" || true
-  if [[ -n "$_oep_tier" ]]; then
-    if ! _ollama_ep_tier_rank "$_oep_tier" >/dev/null; then
-      print_error "AI_MODEL_TIER is one of small, standard, large, xlarge; not '$(_ollama_ep_said "${AI_MODEL_TIER:-}")'" >&2
+  if [[ -n "$(printf '%s' "${AI_MODEL_TIER:-}" | tr -d ' \t\r')" ]]; then
+    if ! _oep_tier="$(_ollama_ep_tier_name "$AI_MODEL_TIER")"; then
+      print_error "AI_MODEL_TIER is one of $_OLLAMA_EP_TIERS_SAID; not '$(_ollama_ep_said "${AI_MODEL_TIER:-}")'" >&2
       return 3
     fi
     printf '%s\n' "$_oep_tier"
@@ -2293,10 +2408,11 @@ ollama_tier_model() {
     # Memory that cannot be read gives standard by rule, not by measure: no floor.
     [[ -n "$_oep_mem" ]] || _oep_measured=0
   fi
-  if ! _oep_rank="$(_ollama_ep_tier_rank "$_oep_tier")"; then
-    print_error "A tier is one of small, standard, large, xlarge; not '$(_ollama_ep_said "$_oep_tier")'" >&2
+  if ! _oep_rank="$(_ollama_ep_tier_rank "$(_ollama_ep_tier_name "$_oep_tier")")"; then
+    print_error "A tier is one of $_OLLAMA_EP_TIERS_SAID; not '$(_ollama_ep_said "$_oep_tier")'" >&2
     return 3
   fi
+  _oep_tier="$(_ollama_ep_tier_name "$_oep_tier")"
   _oep_row=""
   [[ ! "$_oep_type" =~ ^[a-z][a-z0-9_-]*$ ]] || _oep_row="$(_ollama_ep_tiers_get type "$_oep_type")"
   if [[ -z "$_oep_row" ]]; then
@@ -2625,7 +2741,7 @@ _ollama_ep_env_private() {
 #        name, a model that is not a model reference, no data file, a
 #        threshold in it that is not a whole number or a malformed size line, env_file
 #        not readable or not writable
-#   11   AI_MODEL_TIER is not small, standard, large or xlarge
+#   11   AI_MODEL_TIER is not small, standard (or medium), large or xlarge
 #   12   no terminal, the two differ, and that Ollama has neither
 # Output: stdout the model and a newline; stderr the question, progress and errors.
 # A subshell on purpose: the variables it sets stay inside.

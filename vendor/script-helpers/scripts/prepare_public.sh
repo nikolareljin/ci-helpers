@@ -150,7 +150,7 @@ audit_repo() {
   local g="$1" prefix="$2" fox_scope="$3" t rc unchecked=0
   scratch; t="$SCRATCH_DIR"
   : > "$t/hits.tsv"     # check, label, text
-  : > "$t/not-checked"
+  : > "$t/allowed-words"
 
   git -C "$g" for-each-ref --format='%(refname)' > "$t/refs"
   [[ -s "$t/refs" ]] || { say "no refs in $g"; return 2; }
@@ -260,11 +260,13 @@ PY
   rc=0
   # Run from the scratch directory, so the allowlist of whatever repository the
   # caller stands in does not apply. The machine's allowlist still does: each
-  # name it skips is listed in the report, never silently passed.
-  (cd "$t" && LC_ALL=C PRIVATE_NAMES_ALLOW="${SELF}${PRIVATE_NAMES_ALLOW:+,$PRIVATE_NAMES_ALLOW}" \
+  # name it frees as a word is checked only in the shape of a repository
+  # reference, and is listed in the report as such, never silently passed.
+  # The repository's own name is not a hit in any shape: its README clones it.
+  (cd "$t" && LC_ALL=C PRIVATE_NAMES_SELF="$SELF" \
     bash "$SCRIPT_DIR/check_private_names.sh" "${nargs[@]}") < "$t/units" > "$t/names.out" 2>&1 || rc=$?
-  sed -n 's/.*allowed by override, not checked: //p' "$t/names.out" | awk -v s="$SELF" 'tolower($0) != tolower(s)' | sort -u > "$t/not-checked" || true
-  [[ -s "$t/not-checked" ]] && say "names skipped by an allowlist, NOT checked: $(paste -sd, - < "$t/not-checked")"
+  sed -n 's/.*allowed by override as a word; checked as a repository reference: //p' "$t/names.out" | sort -u > "$t/allowed-words" || true
+  [[ -s "$t/allowed-words" ]] && say "names an allowlist frees as words, checked only as a repository reference: $(paste -sd, - < "$t/allowed-words")"
   if [[ $rc -ge 2 ]]; then
     unchecked=1; say "the name check could not run:"; tail -5 "$t/names.out" | sed 's/^/    /' >&2
   fi
@@ -406,7 +408,7 @@ binary = [l.rstrip("\n") for l in open(os.path.join(t, "binary-skipped"), encodi
 lfs = [l.rstrip("\n") for l in open(os.path.join(t, "lfs"), encoding="utf-8", errors="replace")]
 fox = [dict(zip(("ref", "result"), l.rstrip("\n").split("\t", 1))) for l in open(os.path.join(t, "foxguard.tsv"), encoding="utf-8")]
 refs = [l.strip() for l in open(os.path.join(t, "refs"), encoding="utf-8") if l.strip()]
-not_checked = [l.strip() for l in open(os.path.join(t, "not-checked"), encoding="utf-8") if l.strip()]
+allowed_words = [l.strip() for l in open(os.path.join(t, "allowed-words"), encoding="utf-8") if l.strip()]
 counts = {}
 for h in hits:
     counts[h["check"]] = counts.get(h["check"], 0) + 1
@@ -422,7 +424,7 @@ report = {
     "hit_counts": {"total": len(hits), **counts},
     "terms": terms,
     "hits": hits,
-    "names_not_checked": not_checked,
+    "names_allowed_as_words": allowed_words,
     "binary_not_read": binary,
     "lfs_not_checked": lfs,
     "foxguard_advisory": fox,
@@ -438,8 +440,8 @@ with open(prefix + ".txt", "w", encoding="utf-8") as f:
     if terms:
         f.write("Names found: %s\n" % ", ".join("%s%s %d" % (n, " (%s)" % v["code"] if v["code"] else "", v["hits"])
                                                 for n, v in sorted(terms.items(), key=lambda kv: -kv[1]["hits"])))
-    if not_checked:
-        f.write("Names skipped by an allowlist, NOT checked: %s\n" % ", ".join(not_checked))
+    if allowed_words:
+        f.write("Names an allowlist frees as words, checked only as a repository reference: %s\n" % ", ".join(allowed_words))
     for h in hits:
         loc = h["path"] + (":%d" % h["line"] if h["line"] else "")
         f.write("\n[%s] %s %s %s %s%s\n    %s\n" % (h["check"], h["kind"], h["ref"] or "-", (h["commit"] or "-")[:12], loc,

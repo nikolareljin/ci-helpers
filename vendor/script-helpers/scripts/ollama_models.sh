@@ -28,14 +28,16 @@
 #           the disk and memory check (OLLAMA_PULL_MISSING decides: 1 pull, 0 never,
 #           ask on a terminal). A model above the default column that does not fit
 #           falls back one column.
-#   AI_MODEL_TIER=small|standard|large|xlarge names the class instead of measuring.
+#   AI_MODEL_TIER=small|standard|medium|large|xlarge names the class instead of measuring.
 #   -h, --help  Show this help.
 # EXIT_CODES:
 #   0  done; with ensure, every model is there; with class, also with no
 #      tiers file (tier=unknown and a warning on stderr)
 #   2  bad arguments (also select with no type or no address), a NAME that
 #      is not a variable name, a bad AI_MODEL_TIER (select exits 11 for it),
-#      or a tiers file threshold that is not a whole number (select: 10)
+#      a tiers file threshold that is not a whole number (select: 10), or a
+#      models file reserve that is not valid (AI_TIER_GPU_RESERVE_GB not a
+#      whole number, AI_TIER_RAM_RESERVE_PERCENT not below 100)
 #   1-9 with ensure: as ollama_project_ensure_models (docs/local-models.md)
 #   with select: 0 chosen and present; 1-8 as ollama_endpoint_ensure_models
 #      (4 no Ollama, 5 missing and not pulled); 10 more than five arguments,
@@ -76,8 +78,9 @@ case "$cmd" in
       [[ -f "$file" ]] || { log_error "No models file at $file"; exit 2; }
       while IFS= read -r name; do
         [[ -n "$name" ]] || continue
-        echo "$name=$(ollama_model_for_class "$file" "$name")"
-      done < <(ollama_models_file_names "$file" | grep -v -E '_(SMALL|LARGE|XLARGE)(_V?RAM_GB)?$|^AI_TIER_' || true)
+        model="$(ollama_model_for_class "$file" "$name")" || exit 2
+        echo "$name=$model"
+      done < <(ollama_models_file_roles "$file")
     fi
     ;;
   pick)

@@ -1,8 +1,11 @@
 # private-names-allow -- the default allow list for scripts/check_private_names.sh
 #
-# Ordinary English words that are never checked as repository names, because
-# they appear in code, docs and commit messages all the time. Only dictionary
-# words belong here, never a project or repository name.
+# Ordinary English words that are not checked as bare repository names, because
+# they appear in code, docs and commit messages all the time. One that is also
+# a private repository's name is still looked for in the shape of a repository
+# reference (`word.git`, "the word repo", `cd word`, a projects path, a
+# host/owner/word URL). Only dictionary words belong here, never a project or
+# repository name.
 #
 # Not read directly: check_private_names.sh copies this file to
 # ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names-allow when that file
