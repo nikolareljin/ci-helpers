@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Fixed
+
+- **`docs_site.sh clean` removes `--venv` only when it is a virtualenv.** It ran `rm -rf` on the value, so `clean --venv "$HOME"` deleted the home directory. A path with no `pyvenv.cfg`, with anything at its top level that the virtualenv tools do not create, or that cannot be listed, now exits 2 and nothing is removed. An empty directory is still removed, and for a symlink only the link is.
+- **`rust_release_build.sh`, `rust-release.yml` and `rust-release-tarballs.yml` refuse a binary name or Linux alias that is not a plain name.** These name files under the output directory, so `../x` wrote outside it. The script exits 2 and the workflows fail the build step. A caller passing a name with a space, a shell character or a non-ASCII letter must rename it.
+
 ### Changed
 
 - **The self-test runs real Plugin Check on a clean plugin and on one with an error.** The existing fixture has warnings, so the bare success report was never exercised and a clean plugin exited 5 until a consumer found it. `self-test-web.yml` now requires exit 0 with a `Success:` report for `tests/fixtures/wp-check-clean` and exit 4 for `tests/fixtures/wp-check-error`.

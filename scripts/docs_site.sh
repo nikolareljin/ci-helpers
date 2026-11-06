@@ -9,12 +9,14 @@
 #   check     Build --strict into a temporary directory, assert the entry file and
 #             the search index exist, then delete it. For CI and hooks.
 #   deps      Create or refresh the documentation virtualenv and exit.
-#   clean     Remove ./site and the virtualenv.
+#   clean     Remove ./site and the virtualenv. Refuses a path that holds anything
+#             but a virtualenv, at its top level.
 #   --port N  Port for serve/preview. Default 8000.
 #   --venv D  Virtualenv location. Default: ${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/ci-helpers
 #   -h        Show this help message.
 # EXIT CODES:
-#   0 ok; 1 build or check failed; 2 bad arguments; 3 no usable python3.
+#   0 ok; 1 build or check failed; 2 bad arguments, or clean on a --venv that is
+#   not a virtualenv; 3 no usable python3.
 #   serve_static_site's codes 2, 3 and 4 are passed through unchanged.
 # EXAMPLE: ./scripts/docs_site.sh preview --port 8080
 # ----------------------------------------------------
@@ -76,9 +78,50 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# True for an empty directory, or one with pyvenv.cfg and, at its top level,
+# nothing the virtualenv tools create. False for a directory it cannot list:
+# that is not known to be empty. A symlink to a directory is judged by its target.
+is_removable_venv() {
+  local dir="$1" entry has_cfg=false listed=0
+  if [[ -L "$dir" && ! -e "$dir" ]]; then return 0; fi
+  [[ -d "$dir" && -r "$dir" && -x "$dir" ]] || return 1
+  # noglob can be inherited through SHELLOPTS, and would read as "empty".
+  set +f
+  # An unmatched glob stays literal, which the existence test skips.
+  for entry in "$dir"/* "$dir"/.*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    case "${entry##*/}" in
+      .|..) continue ;;
+      pyvenv.cfg) [[ -f "$entry" ]] && has_cfg=true ;;
+      bin|include|lib|lib64|share|etc|man|Scripts|Include|Lib) ;;
+      .gitignore|.lock|.Python|CACHEDIR.TAG|pip-selfcheck.json) ;;
+      *) return 1 ;;
+    esac
+    listed=$((listed + 1))
+  done
+  [[ $listed -eq 0 || "$has_cfg" == true ]]
+}
+
 if [[ "$mode" == "clean" ]]; then
-  rm -rf "${ROOT_DIR}/site" "$venv_dir"
-  log_info "docs_site: removed ./site and ${venv_dir}"
+  # --venv is caller input and this is rm -rf: `clean --venv "$HOME"` would
+  # delete the home directory. pyvenv.cfg alone does not settle it, because
+  # `python -m venv` accepts a directory that already holds other files, so
+  # anything else at its top level also refuses. `link/` would empty the link's
+  # target, and rm refuses a final `.` only after ./site is gone.
+  while [[ "$venv_dir" == */ && "$venv_dir" != / ]]; do venv_dir="${venv_dir%/}"; done
+  case "$venv_dir" in
+    .|..|*/.|*/..)
+      log_error "docs_site: --venv must name the directory itself, got ${venv_dir}"
+      exit 2 ;;
+  esac
+  if [[ -e "$venv_dir" || -L "$venv_dir" ]] && ! is_removable_venv "$venv_dir"; then
+    log_error "docs_site: ${venv_dir} is not only a virtualenv; not removing it"
+    exit 2
+  fi
+  venv_label="$venv_dir"
+  [[ ! -L "$venv_dir" ]] || venv_label="the link ${venv_dir} (not its target)"
+  rm -rf -- "${ROOT_DIR}/site" "$venv_dir"
+  log_info "docs_site: removed ./site and ${venv_label}"
   exit 0
 fi
 
