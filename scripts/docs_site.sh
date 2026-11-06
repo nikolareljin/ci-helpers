@@ -14,7 +14,8 @@
 #   --venv D  Virtualenv location. Default: ${XDG_CACHE_HOME:-$HOME/.cache}/nr-docs-venv/ci-helpers
 #   -h        Show this help message.
 # EXIT CODES:
-#   0 ok; 1 build or check failed; 2 bad arguments; 3 no usable python3.
+#   0 ok; 1 build or check failed; 2 bad arguments, or clean on a --venv that is
+#   not a virtualenv; 3 no usable python3.
 #   serve_static_site's codes 2, 3 and 4 are passed through unchanged.
 # EXAMPLE: ./scripts/docs_site.sh preview --port 8080
 # ----------------------------------------------------
@@ -77,7 +78,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$mode" == "clean" ]]; then
-  rm -rf "${ROOT_DIR}/site" "$venv_dir"
+  # --venv is caller input and this is rm -rf: `clean --venv "$HOME"` would
+  # delete the home directory. A virtualenv always has pyvenv.cfg.
+  if [[ -e "$venv_dir" && ! -f "$venv_dir/pyvenv.cfg" ]]; then
+    log_error "docs_site: ${venv_dir} is not a virtualenv (no pyvenv.cfg); not removing it"
+    exit 2
+  fi
+  rm -rf -- "${ROOT_DIR}/site" "$venv_dir"
   log_info "docs_site: removed ./site and ${venv_dir}"
   exit 0
 fi

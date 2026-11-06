@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Fixed
+
+- **`docs_site.sh clean` removes `--venv` only when it is a virtualenv.** It ran `rm -rf` on the value, so `clean --venv "$HOME"` deleted the home directory. A directory without `pyvenv.cfg` now exits 2 and nothing is removed.
+- **`rust_release_build.sh` refuses a `--bin-name` or `--linux-gnu-aliases` entry that is not a plain name.** Both name files under the artifact directory, so `--bin-name ../x` wrote outside it. It now exits 2.
+
 ### Changed
 
 - **The self-test runs real Plugin Check on a clean plugin and on one with an error.** The existing fixture has warnings, so the bare success report was never exercised and a clean plugin exited 5 until a consumer found it. `self-test-web.yml` now requires exit 0 with a `Success:` report for `tests/fixtures/wp-check-clean` and exit 4 for `tests/fixtures/wp-check-error`.

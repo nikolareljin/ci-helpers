@@ -43,6 +43,22 @@ if [ -z "$bin_name" ]; then
   exit 2
 fi
 
+# Both name files under the artifact directory: `--bin-name ../x` wrote outside it.
+valid_name='^[[:alnum:]][[:alnum:]._+-]*$'
+if [[ ! "$bin_name" =~ $valid_name || "$bin_name" == *..* ]]; then
+  echo "Invalid --bin-name: $bin_name" >&2
+  exit 2
+fi
+if [ -n "$linux_gnu_aliases" ]; then
+  IFS=',' read -r -a alias_list <<< "$linux_gnu_aliases"
+  for alias in "${alias_list[@]}"; do
+    if [[ ! "$alias" =~ $valid_name || "$alias" == *..* ]]; then
+      echo "Invalid --linux-gnu-aliases entry: $alias" >&2
+      exit 2
+    fi
+  done
+fi
+
 if $install_deps; then
   apt_packages="$(printf '%s' "$apt_packages" | sed 's/^[[:space:]][[:space:]]*//; s/[[:space:]][[:space:]]*$//')"
   # Validate apt_packages: each token must start with an alphanumeric package-name character.
@@ -60,7 +76,7 @@ if $install_deps; then
   fi
 fi
 
-mkdir -p "$artifact_dir"
+mkdir -p -- "$artifact_dir"
 
 IFS=',' read -r -a target_list <<< "$targets"
 
@@ -70,7 +86,7 @@ build_target() {
   local src_path="$3"
 
   if [ -f "$src_path" ]; then
-    cp "$src_path" "$artifact_dir/$out_name"
+    cp -- "$src_path" "$artifact_dir/$out_name"
   else
     echo "Binary not found at $src_path" >&2
     exit 1
@@ -95,9 +111,8 @@ for target in "${target_list[@]}"; do
         "${bin_name}-linux" \
         "target/x86_64-unknown-linux-gnu/release/${bin_name}"
       if [ -n "$linux_gnu_aliases" ]; then
-        IFS=',' read -r -a alias_list <<< "$linux_gnu_aliases"
         for alias in "${alias_list[@]}"; do
-          cp "target/x86_64-unknown-linux-gnu/release/${bin_name}" "$artifact_dir/${bin_name}-${alias}"
+          cp -- "target/x86_64-unknown-linux-gnu/release/${bin_name}" "$artifact_dir/${bin_name}-${alias}"
         done
       fi
       ;;
