@@ -85,6 +85,8 @@ is_removable_venv() {
   local dir="$1" entry has_cfg=false listed=0
   if [[ -L "$dir" && ! -e "$dir" ]]; then return 0; fi
   [[ -d "$dir" && -r "$dir" && -x "$dir" ]] || return 1
+  # noglob can be inherited through SHELLOPTS, and would read as "empty".
+  set +f
   # An unmatched glob stays literal, which the existence test skips.
   for entry in "$dir"/* "$dir"/.*; do
     [[ -e "$entry" || -L "$entry" ]] || continue
@@ -104,10 +106,14 @@ if [[ "$mode" == "clean" ]]; then
   # --venv is caller input and this is rm -rf: `clean --venv "$HOME"` would
   # delete the home directory. pyvenv.cfg alone does not settle it, because
   # `python -m venv` accepts a directory that already holds other files, so
-  # anything else at its top level also refuses. DOCS_VENV skips the check
-  # --venv makes on a leading dash, and `link/` would empty the link's target.
+  # anything else at its top level also refuses. `link/` would empty the link's
+  # target, and rm refuses a final `.` only after ./site is gone.
   while [[ "$venv_dir" == */ && "$venv_dir" != / ]]; do venv_dir="${venv_dir%/}"; done
-  [[ "$venv_dir" != -* ]] || venv_dir="./$venv_dir"
+  case "$venv_dir" in
+    .|..|*/.|*/..)
+      log_error "docs_site: --venv must name the directory itself, got ${venv_dir}"
+      exit 2 ;;
+  esac
   if [[ -e "$venv_dir" || -L "$venv_dir" ]] && ! is_removable_venv "$venv_dir"; then
     log_error "docs_site: ${venv_dir} is not only a virtualenv; not removing it"
     exit 2

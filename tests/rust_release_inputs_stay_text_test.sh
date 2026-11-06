@@ -95,7 +95,8 @@ for suffix in windows.exe linux musl deb; do
 done
 
 # Refused before anything is built, and without running what they hold.
-for bad in "BIN_NAME=$value" "BIN_NAME=../evil" "BIN_NAME=-evil" "LINUX_GNU_ALIASES=../evil" "LINUX_GNU_ALIASES=deb,$value"; do
+for bad in "BIN_NAME=$value" "BIN_NAME=../evil" "BIN_NAME=-evil" "LINUX_GNU_ALIASES=../evil" "LINUX_GNU_ALIASES=deb,$value" "BIN_NAME=a..b" "LINUX_GNU_ALIASES=a..b" "LINUX_GNU_ALIASES=deb
+../evil" "BIN_NAME=$(printf 'tool\303\251')"; do
   if (cd "$work/wd" && set -a && . "$work/env1.sh" && export "INPUT_$bad" && bash "$work/run1.sh" >/dev/null 2>&1); then
     echo "FAIL accepted: $bad"
     fail=1
@@ -105,5 +106,28 @@ for bad in "BIN_NAME=$value" "BIN_NAME=../evil" "BIN_NAME=-evil" "LINUX_GNU_ALIA
     fail=1
   fi
 done
+# rust-release-tarballs.yml: the same refusal, ahead of the build.
+python3 - "$root" "$work/tar.sh" <<'PY'
+import sys, yaml
+root, out = sys.argv[1:3]
+d = yaml.safe_load(open(f"{root}/.github/workflows/rust-release-tarballs.yml"))
+for job in d["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("name") == "Build release binary":
+            open(out, "w").write(s["run"])
+PY
+for bad in ../x -x a..b "a b" "$value"; do
+  if (cd "$work/wd" && BIN_NAME="$bad" RUST_TARGET="" bash "$work/tar.sh" >"$work/tar.out" 2>&1) \
+    || ! grep -q 'plain file name' "$work/tar.out"; then
+    echo "FAIL tarballs accepted bin_name: $bad"
+    fail=1
+  fi
+done
+mkdir -p "$work/wd/target/release"; : > "$work/wd/target/release/tool"
+if ! (cd "$work/wd" && BIN_NAME=tool RUST_TARGET="" GITHUB_OUTPUT="$work/gh" bash "$work/tar.sh" >/dev/null 2>&1); then
+  echo "FAIL tarballs refused a plain bin_name"
+  fail=1
+fi
+
 [[ "$fail" == 0 ]] || exit 1
 echo "ok: rust-release inputs stay text, and unsafe names are refused"

@@ -28,6 +28,14 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --bin-name|--artifact-dir|--targets|--linux-gnu-aliases|--apt-packages)
+      if [[ $# -lt 2 ]]; then
+        echo "$1 needs a value" >&2
+        exit 2
+      fi
+      ;;
+  esac
+  case "$1" in
     --bin-name) bin_name="$2"; shift 2;;
     --artifact-dir) artifact_dir="$2"; shift 2;;
     --targets) targets="$2"; shift 2;;
@@ -53,6 +61,11 @@ plain_name() {
 }
 if ! plain_name "$bin_name"; then
   echo "Invalid --bin-name: $bin_name" >&2
+  exit 2
+fi
+if [[ "$linux_gnu_aliases" == *$'\n'* ]]; then
+  # read takes the first line only, so the rest would vanish unchecked.
+  echo "Invalid --linux-gnu-aliases: more than one line" >&2
   exit 2
 fi
 if [ -n "$linux_gnu_aliases" ]; then

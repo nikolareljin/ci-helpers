@@ -858,6 +858,8 @@ not Ubuntu 20.04), attach the tarballs to
 the release, generate a Homebrew formula and publish it through
 [homebrew-tap-publish.yml](#homebrew-tap-publishyml).
 
+`bin_name` must be a plain name: letters, digits and `_`, then also `.`, `+` and `-`; no `..`.
+
 Required inputs: `bin_name`, `desc`, `homepage`. Optional:
 `formula_class` (default derived from `bin_name`), `license` (default `MIT`),
 `release_tag` (default: the pushed tag; set it for a backfill run from
@@ -1870,7 +1872,7 @@ Purpose: Build multi-target Go binaries and publish a GitHub Release.
 The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
-- `bin_name` (string, required): letters, digits and `_`, then also `.`, `+` and `-`; no `..`
+- `bin_name` (string, required)
 - `working_directory` (string, default `.`)
 - `fetch_depth` (number, default `0`)
 - `main_path` (string, default `"."`)

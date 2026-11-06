@@ -153,6 +153,10 @@ jobs:
             echo "::error::bin_name must be a plain file name"
             exit 1
           fi
+          if [[ "$INPUT_LINUX_GNU_ALIASES" == *$'\n'* ]]; then
+            echo "::error::linux_gnu_aliases must be one line"
+            exit 1
+          fi
           if [ -n "$INPUT_LINUX_GNU_ALIASES" ]; then
             IFS=',' read -r -a alias_list <<< "$INPUT_LINUX_GNU_ALIASES"
             for alias in ${alias_list[@]+"${alias_list[@]}"}; do

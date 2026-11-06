@@ -36,6 +36,26 @@ bash "${docs[@]}" clean --venv "$work/mixed" >/dev/null 2>&1
 check "clean refuses a virtualenv made in a directory with other files" 2 $?
 [[ -f "$work/mixed/keep" ]]; check "and keeps them" 0 $?
 
+mkdir -p "$work/hidden"; touch "$work/hidden/pyvenv.cfg" "$work/hidden/.keep"
+bash "${docs[@]}" clean --venv "$work/hidden" >/dev/null 2>&1
+check "clean refuses a hidden file beside pyvenv.cfg" 2 $?
+
+mkdir -p "$work/nog"; touch "$work/nog/keep"
+env SHELLOPTS=noglob bash "${docs[@]}" clean --venv "$work/nog" >/dev/null 2>&1
+check "inherited noglob does not read as empty" 2 $?
+[[ -f "$work/nog/keep" ]]; check "and keeps the files" 0 $?
+
+mkdir -p "$work/dot"; touch "$work/dot/pyvenv.cfg"
+mkdir -p "$work/repo/site"
+bash "${docs[@]}" clean --venv "$work/dot/." >/dev/null 2>&1
+check "a final . is refused" 2 $?
+[[ -d "$work/repo/site" ]]; check "before ./site goes" 0 $?
+
+ln -s "$work/gone" "$work/dangling"
+bash "${docs[@]}" clean --venv "$work/dangling" >/dev/null 2>&1
+check "a dangling link is removed" 0 $?
+[[ ! -L "$work/dangling" ]]; check "the link is gone" 0 $?
+
 mkdir -p "$work/nocfg/lib"
 bash "${docs[@]}" clean --venv "$work/nocfg" >/dev/null 2>&1
 check "clean refuses venv-like directories with no pyvenv.cfg" 2 $?
@@ -92,6 +112,11 @@ rust() { (cd "$work/rust" && PATH="$work/bin:$PATH" bash "$root/scripts/rust_rel
 rust --bin-name ../evil --targets linux-gnu; check "--bin-name with a path is refused" 2 $?
 rust --bin-name -evil --targets linux-gnu; check "--bin-name starting with - is refused" 2 $?
 rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu; check "--bin-name outside ASCII is refused" 2 $?
+rust --bin-name; check "--bin-name with no value exits 2" 2 $?
+rust --bin-name tool --linux-gnu-aliases "$(printf 'deb\n../evil')" --targets linux-gnu; check "aliases over two lines are refused" 2 $?
+for loc in $(locale -a 2>/dev/null | grep -i -E '^(en_[A-Z]{2}|el_GR)\.utf-?8$' | head -1); do
+  (export LC_ALL="$loc"; rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu); check "and under $loc" 2 $?
+done
 rust --bin-name a..b --targets linux-gnu; check "--bin-name with .. is refused" 2 $?
 rust --bin-name tool --linux-gnu-aliases deb,../evil --targets linux-gnu; check "an alias with a path is refused" 2 $?
 
