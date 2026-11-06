@@ -1,3 +1,9 @@
+## Unreleased
+
+### Changed
+
+- **The self-test runs real Plugin Check on a clean plugin and on one with an error.** The existing fixture has warnings, so the bare success report was never exercised and a clean plugin exited 5 until a consumer found it. `self-test-web.yml` now requires exit 0 with a `Success:` report for `tests/fixtures/wp-check-clean` and exit 4 for `tests/fixtures/wp-check-error`.
+
 ## 2026-11-06 — v0.47.1
 
 ### Fixed
