@@ -154,7 +154,11 @@ request per action and **moves the SHA without touching the version comment**.
 Merging six of those leaves six pins reading `# v1.321.0 @ 2026-09-10` while
 pointing at v1.324.0. `scripts/update_pinned_actions.sh` and the security audit
 both read those comments, so the repository ends up reporting a version it does
-not ship.
+not ship. The plain run above reports each such pin as `NEWER` and moves its
+comment to the tag the SHA is, with today's date; the SHA stays. Its pull
+request passed the check with `--allow-newer-tag`, which only the Dependabot
+pull-request gate passes; the release gates run a plain `--check`, so a comment
+left behind fails the release until the plain run has corrected it.
 
 Without this step, a consumer pinned to `@production` gets an action version
 nobody recorded.

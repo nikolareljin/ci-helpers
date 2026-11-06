@@ -60,11 +60,27 @@ jobs:
       # The comment is not decoration: `update_pinned_actions.sh` re-resolves
       # it to find the newest SHA, so a pin without one is a pin nothing can
       # refresh.
+      #
+      # Dependabot moves a SHA to the next release and leaves the comment on
+      # the old one, so on its pull requests alone a pin may be the commit of
+      # a release tag newer than its comment; anything else is still stale.
+      # The next plain run of the script moves the comment. The condition is
+      # computed in env, never in the script.
       - name: Action pins are annotated and current
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/update_pinned_actions.sh --check
+          DEPENDABOT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [ "$DEPENDABOT_PR" = "true" ]; then
+            bash scripts/update_pinned_actions.sh --check --allow-newer-tag
+          else
+            bash scripts/update_pinned_actions.sh --check
+          fi
+
+      - name: The pin check accepts a Dependabot bump and refuses everything else
+        shell: bash
+        run: bash tests/update_pinned_actions_newer_tag_test.sh
 
       # Images by digest, downloads by sha256, SSH host keys checked. The
       # test runs the gate against cases it must refuse and cases it must

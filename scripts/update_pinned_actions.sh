@@ -4,19 +4,28 @@
 #              Reads the annotated ref from the inline comment (e.g. "# master @ 2026-04-13"),
 #              fetches the current HEAD SHA for that ref via the GitHub API, and updates stale
 #              pins in place.
-# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [-h]
+#              A pin whose SHA is the commit of a release tag newer than the one its
+#              comment names (a Dependabot bump, which moves the SHA and leaves the
+#              comment) gets its comment moved to that tag instead of its SHA moved back.
+# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [--allow-newer-tag] [-h]
 # PARAMETERS:
-#   --dir <path>   Directory to scan recursively (default: .github).
-#   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
-#   -h, --help     Show this help message.
+#   --dir <path>       Directory to scan recursively (default: .github).
+#   --check            Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
+#   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
+#                      same repository, newer than the tag in its comment, is reported as
+#                      NEWER and does not fail. Anything else that differs is still STALE.
+#                      For a Dependabot pull request; a release gate runs without it.
+#   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
 #   - python3
 #   - perl
+#   - scripts/semver_compare.sh (next to this script), unless --check runs without --allow-newer-tag
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate for a Dependabot pull request
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 set -euo pipefail
@@ -28,7 +37,10 @@ fi
 
 dir=".github"
 check_only=false
+allow_newer_tag=false
 today="$(date +%Y-%m-%d)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+semver_compare="${script_dir}/semver_compare.sh"
 
 usage() {
   cat <<'EOF'
@@ -38,19 +50,28 @@ usage() {
 #              Reads the annotated ref from the inline comment (e.g. "# master @ 2026-04-13"),
 #              fetches the current HEAD SHA for that ref via the GitHub API, and updates stale
 #              pins in place.
-# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [-h]
+#              A pin whose SHA is the commit of a release tag newer than the one its
+#              comment names (a Dependabot bump, which moves the SHA and leaves the
+#              comment) gets its comment moved to that tag instead of its SHA moved back.
+# USAGE: ./scripts/update_pinned_actions.sh [--dir <path>] [--check] [--allow-newer-tag] [-h]
 # PARAMETERS:
-#   --dir <path>   Directory to scan recursively (default: .github).
-#   --check        Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
-#   -h, --help     Show this help message.
+#   --dir <path>       Directory to scan recursively (default: .github).
+#   --check            Dry-run: report stale pins and lookup warnings; exit 1 if any are found.
+#   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
+#                      same repository, newer than the tag in its comment, is reported as
+#                      NEWER and does not fail. Anything else that differs is still STALE.
+#                      For a Dependabot pull request; a release gate runs without it.
+#   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
 #   - bash 4.0+
 #   - python3
 #   - perl
+#   - scripts/semver_compare.sh (next to this script), unless --check runs without --allow-newer-tag
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate for a Dependabot pull request
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 EOF
@@ -75,6 +96,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --check) check_only=true; shift ;;
+    --allow-newer-tag) allow_newer_tag=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
@@ -100,6 +122,13 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
+# The tag lookup compares versions. A plain --check never looks up a tag, so it
+# does not need the comparer; every other mode does.
+if { $allow_newer_tag || ! $check_only; } && [[ ! -f "$semver_compare" ]]; then
+  echo "Error: ${semver_compare} not found; it compares a pin's tag with its comment." >&2
+  exit 1
+fi
+
 if [[ ! -d "$dir" ]]; then
   echo "Error: directory not found: $dir" >&2
   exit 1
@@ -107,9 +136,12 @@ fi
 
 # Cache: "owner/repo@ref" -> "sha"
 declare -A sha_cache=()
+# Cache: "owner/repo" -> "<tag> <commit sha>" lines
+declare -A tags_cache=()
 
 stale_count=0
 ok_count=0
+newer_count=0
 warn_count=0
 
 url_encode_path_segment() {
@@ -138,6 +170,84 @@ fetch_sha() {
   fi
   sha_cache["$cache_key"]="$sha"
   fetched_sha="$sha"
+}
+
+# A release version: v1, v1.2 or v1.2.3, with or without the v. A pre-release
+# (v1.2.3-rc1) or a branch (main, stable) is not one.
+is_release_version() {
+  [[ "$1" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]]
+}
+
+# How many dotted components a version has, so a comment that tracks a major
+# (`v7`) is only ever moved to another major (`v8`), never to `v8.0.2`.
+version_shape() {
+  local v="${1#v}"
+  v="${v//[^.]/}"
+  echo "${#v}"
+}
+
+# gt, lt or eq: `a` against `b`, each padded to X.Y.Z for semver_compare.sh.
+compare_versions() {
+  local a="${1#v}" b="${2#v}"
+  local -a pa pb
+  IFS='.' read -r -a pa <<< "$a"
+  IFS='.' read -r -a pb <<< "$b"
+  bash "$semver_compare" "${pa[0]}.${pa[1]:-0}.${pa[2]:-0}" "${pb[0]}.${pb[1]:-0}.${pb[2]:-0}"
+}
+
+# The highest release tag of $repo at commit $sha that is newer than $ref and
+# of the same shape, in `found_tag`; empty when there is none. Returns 1 when
+# the tag listing or a tag lookup failed, which the caller reports as a
+# warning: an unanswered question is not a pass.
+#
+# The listing says which tags sit on the commit (`commit.sha` is the commit
+# even for an annotated tag). Each candidate is then resolved the way the
+# comment's ref is, through fetch_sha, so the two SHAs being compared come
+# from the same lookup.
+found_tag=""
+find_newer_tag() {
+  local repo="$1" sha="$2" ref="$3"
+  found_tag=""
+  is_release_version "$ref" || return 0
+
+  local listing
+  if [[ "${tags_cache["$repo"]+_}" ]]; then
+    listing="${tags_cache["$repo"]}"
+  else
+    listing="$(gh api --paginate "repos/${repo}/tags?per_page=100" --jq '.[] | "\(.name) \(.commit.sha)"' 2>/dev/null)" || return 1
+    tags_cache["$repo"]="$listing"
+  fi
+
+  local name tag_sha best="" shape
+  shape="$(version_shape "$ref")"
+  while read -r -u 3 name tag_sha; do
+    [[ "$tag_sha" == "$sha" ]] || continue
+    is_release_version "$name" || continue
+    [[ "$(version_shape "$name")" == "$shape" ]] || continue
+    fetch_sha "$repo" "$name" || return 1
+    [[ "$fetched_sha" == "$sha" ]] || continue
+    [[ "$(compare_versions "$name" "$ref")" == "gt" ]] || continue
+    if [[ -z "$best" || "$(compare_versions "$name" "$best")" == "gt" ]]; then
+      best="$name"
+    fi
+  done 3<<< "$listing"
+  found_tag="$best"
+}
+
+# $line with its `# <ref> @ <date>` comment moved to `# <tag> @ <today>`, in
+# `rewritten`. Splits at the SHA so the ref is only ever replaced inside the
+# comment, not in the action path. Returns 1 when the comment is not where the
+# pin pattern put it, so nothing is written.
+rewritten=""
+rewrite_pin_comment() {
+  local line="$1" sha="$2" tag="$3"
+  local head="${line%%@"${sha}"*}@${sha}" tail="${line#*@"${sha}"}"
+  rewritten=""
+  if [[ "$tail" =~ ^([[:space:]]+#[[:space:]]+)[^[:space:]@]+([[:space:]]+@[[:space:]]+)[0-9]{4}-[0-9]{2}-[0-9]{2}(.*)$ ]]; then
+    rewritten="${head}${BASH_REMATCH[1]}${tag}${BASH_REMATCH[2]}${today}${BASH_REMATCH[3]}"
+    return 0
+  fi
+  return 1
 }
 
 # Find all YAML files under dir
@@ -210,6 +320,40 @@ for file in "${files[@]}"; do
       if [[ "$old_sha" == "$new_sha" ]]; then
         echo "OK    ${file}: ${action_path} # ${ref} (${old_sha:0:12}…)"
         ok_count=$((ok_count + 1))
+        continue
+      fi
+
+      # The SHA is not the comment's ref. Dependabot moves a SHA to the next
+      # release and leaves the comment, so before calling that stale, ask
+      # whether the SHA is a newer release tag of the same repository. A plain
+      # --check does not ask: it is the release gate, and there the comment
+      # must be right. Without --check the comment is the thing to correct;
+      # moving the SHA back to the comment's tag undid the bump.
+      newer_tag=""
+      if $allow_newer_tag || ! $check_only; then
+        if ! find_newer_tag "$repo" "$old_sha" "$ref"; then
+          echo "WARN  $file: could not resolve the tags of ${repo} to place ${old_sha:0:12}, skipping" >&2
+          warn_count=$((warn_count + 1))
+          continue
+        fi
+        newer_tag="$found_tag"
+      fi
+
+      if [[ -n "$newer_tag" ]]; then
+        newer_count=$((newer_count + 1))
+        echo "NEWER ${file}: ${action_path}"
+        echo "      comment: ${ref}  (${old_date})"
+        echo "      pinned:  ${old_sha}  = ${newer_tag}"
+
+        if ! $check_only; then
+          if ! rewrite_pin_comment "$line" "$old_sha" "$newer_tag"; then
+            echo "WARN  $file: could not rewrite the comment of ${action_path}, skipping" >&2
+            warn_count=$((warn_count + 1))
+            continue
+          fi
+          replacements_old+=("${line}")
+          replacements_new+=("${rewritten}")
+        fi
       else
         stale_count=$((stale_count + 1))
         echo "STALE ${file}: ${action_path}"
@@ -262,7 +406,11 @@ for file in "${files[@]}"; do
 done
 
 echo ""
-echo "Summary: ${ok_count} up-to-date, ${stale_count} stale, ${warn_count} warnings."
+echo "Summary: ${ok_count} up-to-date, ${stale_count} stale, ${newer_count} newer than their comment, ${warn_count} warnings."
+
+if $check_only && [[ $newer_count -gt 0 ]]; then
+  echo "Run without --check to move each NEWER comment to the tag its SHA is."
+fi
 
 if $check_only && [[ $stale_count -gt 0 || $warn_count -gt 0 ]]; then
   if [[ $stale_count -gt 0 ]]; then
