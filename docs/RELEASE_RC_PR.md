@@ -154,7 +154,21 @@ request per action and **moves the SHA without touching the version comment**.
 Merging six of those leaves six pins reading `# v1.321.0 @ 2026-09-10` while
 pointing at v1.324.0. `scripts/update_pinned_actions.sh` and the security audit
 both read those comments, so the repository ends up reporting a version it does
-not ship.
+not ship. The plain run above reports each such pin as `NEWER` and moves its
+comment to the tag the SHA is, with today's date; the SHA stays.
+
+A SHA verified as a newer release tag of the same action passes ordinary work:
+`workflow-yaml-check.yml` on push and on other pull requests,
+`security-weekly.yml`, and `auto-tag-release-push.yml` on the merge of a pull
+request from any other branch all run `--check --allow-newer-tag`. A plain
+`--check` runs on a pull request whose head ref starts with `release/`, on a
+release merge or any push `auto-tag-release-push.yml` cannot place, and in
+`production-branch.yml`. A comment left behind fails those until the plain run
+above has corrected it.
+
+The plain run warns and leaves the line alone when it cannot tell, or when the
+SHA is a newer release of another shape (`# v1` at the commit of `v2.0.0`, with
+no `v2` tag). Correct that comment by hand.
 
 Without this step, a consumer pinned to `@production` gets an action version
 nobody recorded.
@@ -166,3 +180,29 @@ Two things to check by hand when a Dependabot pin looks wrong:
   look like a mismatch when it is correct.
 - The comment format is `# vX.Y.Z @ YYYY-MM-DD`, with the date of the bump, not
   the date of the upstream release.
+
+### A release merge fails the pin gate
+
+A Dependabot bump can land on `main` after the release pull request went green.
+The merge then fails the plain `--check` in `auto-tag-release-push.yml`, so no
+tag is cut. A re-run checks the same commit and fails the same way, unless the
+failure was only a lookup warning, which a re-run can clear.
+
+Recover with a new pull request from the same head ref, while tag `X.Y.Z` does
+not exist. The `release` ruleset blocks deleting the branch, so reuse it:
+
+```bash
+git fetch origin
+git switch release/X.Y.Z
+git pull --ff-only
+git merge origin/main
+bash scripts/update_pinned_actions.sh          # moves the comments
+bash scripts/update_pinned_actions.sh --check  # must report 0 stale, 0 warnings
+git commit -am "Refresh action pin comments for X.Y.Z"
+git push
+gh pr create --base main --head release/X.Y.Z --fill
+```
+
+`auto-tag.yml` keys on the head ref of the pull request merged as the pushed
+commit and refuses only a tag that exists, so this merge cuts the tag, and for a
+final `X.Y.Z` moves `production`. A different branch name cuts nothing.

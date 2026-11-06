@@ -60,11 +60,26 @@ jobs:
       # The comment is not decoration: `update_pinned_actions.sh` re-resolves
       # it to find the newest SHA, so a pin without one is a pin nothing can
       # refresh.
+      #
+      # Dependabot moves a SHA to the next release and leaves the comment, so a
+      # pin may be the commit of a release tag newer than its comment; anything
+      # else is still stale. Only a release branch pull request is strict: the
+      # release moves those comments (docs/RELEASE_RC_PR.md). The head ref comes
+      # through env, never in the script; it is empty on push.
       - name: Action pins are annotated and current
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/update_pinned_actions.sh --check
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            release/*) bash scripts/update_pinned_actions.sh --check ;;
+            *) bash scripts/update_pinned_actions.sh --check --allow-newer-tag ;;
+          esac
+
+      - name: The pin check accepts a Dependabot bump and refuses everything else
+        shell: bash
+        run: bash tests/update_pinned_actions_newer_tag_test.sh
 
       # Images by digest, downloads by sha256, SSH host keys checked. The
       # test runs the gate against cases it must refuse and cases it must
