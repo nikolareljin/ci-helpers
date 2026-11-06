@@ -858,6 +858,8 @@ not Ubuntu 20.04), attach the tarballs to
 the release, generate a Homebrew formula and publish it through
 [homebrew-tap-publish.yml](#homebrew-tap-publishyml).
 
+`bin_name` must be a plain name: letters, digits and `_`, then also `.`, `+` and `-`; no `..`.
+
 Required inputs: `bin_name`, `desc`, `homepage`. Optional:
 `formula_class` (default derived from `bin_name`), `license` (default `MIT`),
 `release_tag` (default: the pushed tag; set it for a backfill run from
@@ -1831,13 +1833,13 @@ Purpose: Build multi-target Rust release binaries and publish a GitHub Release.
 The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
-- `bin_name` (string, required)
+- `bin_name` (string, required): letters, digits and `_`, then also `.`, `+` and `-`; no `..`
 - `artifact_dir` (string, default `artifacts`)
 - `rust_toolchain` (string, default `stable`)
 - `install_deps` (boolean, default `true`)
 - `apt_packages` (string, default `build-essential mingw-w64 musl-tools`; package names separated by spaces or newlines, passed to `apt-get install` after `--`, so an apt option here is read as a package name)
 - `build_windows`, `build_linux_gnu`, `build_linux_musl`, `build_macos` (booleans, default `true`)
-- `linux_gnu_aliases` (string, default `""`, comma-delimited)
+- `linux_gnu_aliases` (string, default `""`, comma-delimited), each name: letters, digits and `_`, then also `.`, `+` and `-`; no `..`
 - `release_tag`, `release_name`, `release_notes` (string, optional; an empty `release_name` names the release after its tag)
 - `generate_release_notes` (boolean, default `true`)
 - `binary_links` (string, default `""`, `label|filename` per line; when empty, the Download Binaries table is generated from the build targets)

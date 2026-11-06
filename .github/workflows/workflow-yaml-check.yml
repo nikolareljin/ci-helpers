@@ -81,6 +81,10 @@ jobs:
         shell: bash
         run: bash tests/fpc_appimage_verify_test.sh
 
+      - name: docs_site clean and rust_release_build refuse unsafe paths
+        shell: bash
+        run: bash tests/release_path_guards_test.sh
+
       - name: Detect floating action refs
         shell: bash
         run: bash scripts/check_floating_refs.sh

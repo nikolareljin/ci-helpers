@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Fixed
+
+- **`docs_site.sh clean` removes `--venv` only when it is a virtualenv.** It ran `rm -rf` on the value, so `clean --venv "$HOME"` deleted the home directory. A path with no `pyvenv.cfg`, with anything at its top level that the virtualenv tools do not create, or that cannot be listed, now exits 2 and nothing is removed. An empty directory is still removed, and for a symlink only the link is.
+- **`rust_release_build.sh`, `rust-release.yml` and `rust-release-tarballs.yml` refuse a binary name or Linux alias that is not a plain name.** These name files under the output directory, so `../x` wrote outside it. The script exits 2 and the workflows fail the build step. A caller passing a name with a space, a shell character or a non-ASCII letter must rename it.
+
 ### Changed
 
 - **`ruby/setup-ruby` v1.334.0 -> v1.335.0** in `flutter-release.yml`, replacing https://github.com/nikolareljin/ci-helpers/pull/333, which moved the SHA but left the comment on v1.334.0, so `update_pinned_actions.sh --check` failed. Upstream adds Windows builds of Ruby 3.3.13, 3.4.12 and 4.0.9 only.
