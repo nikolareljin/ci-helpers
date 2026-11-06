@@ -14,7 +14,9 @@
 #   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
 #                      same repository, newer than the tag in its comment, is reported as
 #                      NEWER and does not fail. Anything else that differs is still STALE.
-#                      Every gate passes it except the pull request of a release branch.
+#                      Ordinary pull requests, non-release pushes to main and the weekly scan
+#                      pass it. Release pull requests, the auto-tag gate on a release merge
+#                      and production-branch.yml do not.
 #   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
@@ -27,7 +29,7 @@
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
-#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate outside a release branch
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate on ordinary work, not a release
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 set -euo pipefail
@@ -62,7 +64,9 @@ usage() {
 #   --allow-newer-tag  With --check: a pin whose SHA is the commit of a release tag of the
 #                      same repository, newer than the tag in its comment, is reported as
 #                      NEWER and does not fail. Anything else that differs is still STALE.
-#                      Every gate passes it except the pull request of a release branch.
+#                      Ordinary pull requests, non-release pushes to main and the weekly scan
+#                      pass it. Release pull requests, the auto-tag gate on a release merge
+#                      and production-branch.yml do not.
 #   -h, --help         Show this help message.
 # REQUIREMENTS:
 #   - gh CLI authenticated (gh auth status)
@@ -75,7 +79,7 @@ usage() {
 # EXAMPLES:
 #   ./scripts/update_pinned_actions.sh             # update all stale pins
 #   ./scripts/update_pinned_actions.sh --check     # CI gate: fail if pins are stale
-#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate outside a release branch
+#   ./scripts/update_pinned_actions.sh --check --allow-newer-tag   # gate on ordinary work, not a release
 #   ./scripts/update_pinned_actions.sh --dir .github/workflows
 # ----------------------------------------------------
 EOF
@@ -357,9 +361,10 @@ for file in "${files[@]}"; do
       # The SHA is not the comment's ref, or the ref is gone upstream. Dependabot
       # moves a SHA to the next release and leaves the comment, so before calling
       # that stale, ask whether the SHA is a newer release tag of the same
-      # repository. A plain --check does not ask: it is the release branch gate,
-      # and there the comment must be right. Without --check the comment is the
-      # thing to correct; moving the SHA back to the comment's tag undid the bump.
+      # repository. A plain --check does not ask: it gates release pull requests,
+      # release merges and production-branch.yml, where the comment must be right.
+      # Without --check the comment is the thing to correct; moving the SHA back
+      # to the comment's tag undid the bump.
       newer_tag=""
       other_tag=""
       if $allow_newer_tag || ! $check_only; then

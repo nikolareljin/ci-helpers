@@ -43,13 +43,18 @@ jobs:
           fi
           answer=""
           if [[ -n "$pr" ]]; then
-            answer="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '"\(.merged_at != null) \(.merge_commit_sha) \(.head.ref)"')" || answer=""
+            answer="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq '"\(.merged_at != null) \(.merge_commit_sha) \(.head.ref // "")"')" || answer=""
           fi
           read -r merged merge_sha head_ref <<< "$answer"
           if [[ "$merged" == "true" && "$merge_sha" == "$GITHUB_SHA" && -n "$head_ref" && "$head_ref" != release/* ]]; then
             bash scripts/update_pinned_actions.sh --check --allow-newer-tag
           else
-            bash scripts/update_pinned_actions.sh --check
+            rc=0
+            bash scripts/update_pinned_actions.sh --check || rc=$?
+            if (( rc != 0 )); then
+              echo "::error::Strict pin check failed, so no tag is cut and a re-run fails the same. After a release merge, see 'A release merge fails the pin gate' in docs/RELEASE_RC_PR.md."
+            fi
+            exit "$rc"
           fi
         env:
           GH_TOKEN: ${{ github.token }}

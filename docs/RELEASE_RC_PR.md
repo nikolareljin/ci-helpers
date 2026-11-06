@@ -180,3 +180,26 @@ Two things to check by hand when a Dependabot pin looks wrong:
   look like a mismatch when it is correct.
 - The comment format is `# vX.Y.Z @ YYYY-MM-DD`, with the date of the bump, not
   the date of the upstream release.
+
+### A release merge fails the pin gate
+
+A Dependabot bump can land on `main` after the release pull request went green.
+The merge then fails the plain `--check` in `auto-tag-release-push.yml`, so no
+tag is cut. A re-run checks the same commit and fails the same way.
+
+Recover with a new pull request from the same head ref, while tag `X.Y.Z` does
+not exist. The `release` ruleset blocks deleting the branch, so reuse it:
+
+```bash
+git switch release/X.Y.Z
+git merge origin/main
+bash scripts/update_pinned_actions.sh          # moves the comments
+bash scripts/update_pinned_actions.sh --check  # must report 0 stale, 0 warnings
+git commit -am "Refresh action pin comments for X.Y.Z"
+git push
+gh pr create --base main --head release/X.Y.Z --fill
+```
+
+`auto-tag.yml` keys on the head ref of the pull request merged as the pushed
+commit and refuses only a tag that exists, so this merge cuts the tag, and for a
+final `X.Y.Z` moves `production`. A different branch name cuts nothing.

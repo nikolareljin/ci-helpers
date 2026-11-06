@@ -81,6 +81,7 @@ acme/solo v1.0.0 $sha_a
 acme/solo v1.1.0 $sha_b
 acme/line v1 $sha_b
 acme/line v1.0.2 $sha_a
+acme/spelled v1.2.3 $sha_b
 EOF
 cat > "$work/state/tags/acme/tool" <<EOF
 v2.0.0 $sha_m
@@ -117,6 +118,10 @@ EOF
 cat > "$work/state/tags/acme/line" <<EOF
 v1 $sha_b
 v1.0.2 $sha_a
+EOF
+# Only the `v` spelling exists: `# 1.2.3` and `# 1.2` name nothing upstream.
+cat > "$work/state/tags/acme/spelled" <<EOF
+v1.2.3 $sha_b
 EOF
 export STATE="$work/state"
 
@@ -321,6 +326,21 @@ unchanged other-shape "$before"
 run other-shape 1 dependabot
 expect other-shape "^WARN .*pinned at v3.0.0"
 
+# Equal versions spelled differently are not newer, so the comment stays wrong
+# and is reported, in the same shape and cut down from a longer tag.
+for spelled in 1.2.3 1.2; do
+  name="spelled-$spelled"
+  pin "$name" "$sha_b" "$spelled" spelled
+  before="$(tail -n 1 "$work/$name/.github/w.yml")"
+  run "$name" 1 dependabot
+  expect "$name" "^WARN .*could not fetch SHA for acme/spelled@$spelled"
+  refuse "$name" "^NEWER"
+  run "$name" 0 update
+  expect "$name" "^WARN .*could not fetch SHA for acme/spelled@$spelled"
+  refuse "$name" "^NEWER"
+  unchanged "$name" "$before"
+done
+
 # `# v1` at an old commit of that line (v1.0.2, while v1 moved on) is stale, not
 # another shape: the plain run still refreshes it.
 pin floating "$sha_a" v1 line
@@ -356,6 +376,7 @@ listed_tags "deleted, plain --check"
 mkdir -p "$work/gate/scripts"
 cat > "$work/gate/scripts/update_pinned_actions.sh" <<'SH'
 echo "$*" > "$GATE_ARGS"
+exit "${GATE_RC:-0}"
 SH
 python3 - "$root/.github/workflows/workflow-yaml-check.yml" > "$work/gate/step.sh" <<'PY_STEP'
 import sys, yaml
@@ -417,6 +438,27 @@ tag_gate "Release 1.2.3 (#12)" "true other fix/thing" "--check"
 tag_gate "fix: not merged (#15)" "false abc fix/thing" "--check"
 tag_gate "fix: lookup fails (#16)" "" "--check"
 tag_gate "direct push" "true abc fix/thing" "--check"
+# No head ref in the answer: not placed, so strict.
+tag_gate "fix: no head ref (#17)" "true abc" "--check"
+
+# A strict failure keeps its exit code and points at the recovery; a pass or a
+# relaxed failure prints no pointer.
+tag_rc() { # subject gh-answer script-rc expected-rc pointer(yes|no)
+  local rc=0
+  ( cd "$work/gate" && PATH="$work/tagbin:$PATH" GATE_ARGS="$work/gate/args" GH_LOG="$work/gate/gh.log" GATE_RC="$3" \
+      GITHUB_SHA=abc GITHUB_REPOSITORY=acme/lib SUBJECT="$1" GH_ANSWER="$2" bash -e -o pipefail tag_step.sh ) > "$work/out" 2>&1 || rc=$?
+  [ "$rc" = "$4" ] || { echo "FAIL tag gate rc '$1': exit $rc, expected $4"; fail=1; }
+  if [ "$5" = yes ]; then
+    expect "tag gate pointer" "^::error::.*docs/RELEASE_RC_PR.md"
+  else
+    refuse "tag gate pointer" "docs/RELEASE_RC_PR.md"
+  fi
+}
+tag_rc "Release 1.2.3 (#14)" "true abc release/1.2.3" 3 3 yes
+tag_rc "Release 1.2.3 (#14)" "true abc release/1.2.3" 0 0 no
+tag_rc "fix: a thing (#12)" "true abc fix/thing" 3 3 no
+grep -q "^### A release merge fails the pin gate$" "$root/docs/RELEASE_RC_PR.md" ||
+  { echo "FAIL docs/RELEASE_RC_PR.md lacks the section the pointer names"; fail=1; }
 
 (( fail == 0 )) && echo "update_pinned_actions: NEWER accepted, refused forms STALE, lookup failures warn, comment corrected, gates as documented"
 exit "$fail"
