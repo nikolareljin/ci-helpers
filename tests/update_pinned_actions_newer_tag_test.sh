@@ -78,7 +78,7 @@ EOF
 export STATE="$work/state"
 
 fail=0
-pin() { # name sha ref -> writes $work/<name>/.github/w.yml
+pin() { # name sha ref [repo, default tool] -> writes $work/<name>/.github/w.yml
   mkdir -p "$work/$1/.github"
   printf 'jobs:\n  a:\n    steps:\n      - uses: acme/%s@%s # %s @ 2026-01-01\n' "${4:-tool}" "$2" "$3" > "$work/$1/.github/w.yml"
 }
@@ -110,7 +110,7 @@ refuse() { # name pattern
   fi
 }
 listed_tags() { # name
-  if grep -q tags "$STATE/calls"; then
+  if grep -q "/tags" "$STATE/calls"; then
     echo "FAIL $1: listed tags"; fail=1
   fi
 }
