@@ -7,6 +7,7 @@
 
 ### Changed
 
+- **`ruby/setup-ruby` v1.334.0 -> v1.335.0** in `flutter-release.yml`, replacing https://github.com/nikolareljin/ci-helpers/pull/333, which moved the SHA but left the comment on v1.334.0, so `update_pinned_actions.sh --check` failed. Upstream adds Windows builds of Ruby 3.3.13, 3.4.12 and 4.0.9 only.
 - **The self-test runs real Plugin Check on a clean plugin and on one with an error.** The existing fixture has warnings, so the bare success report was never exercised and a clean plugin exited 5 until a consumer found it. `self-test-web.yml` now requires exit 0 with a `Success:` report for `tests/fixtures/wp-check-clean` and exit 4 for `tests/fixtures/wp-check-error`.
 
 ## 2026-11-06 — v0.47.1
