@@ -135,7 +135,7 @@ rust --bin-name _tool --targets linux-gnu; check "a name Cargo allows with a lea
 touch "$work/rust/target/x86_64-unknown-linux-gnu/release/my_tool+1.2"
 rust --bin-name my_tool+1.2 --linux-gnu-aliases deb,yum --targets linux-gnu
 check "a normal name and aliases build" 0 $?
-rust --bin-name my_tool+1.2 --linux-gnu-aliases "$(printf 'deb\n')x" --targets linux-gnu
+rust --bin-name my_tool+1.2 --linux-gnu-aliases $'deb\nx' --targets linux-gnu
 check "a second alias line is still refused" 2 $?
 [[ -f "$work/rust/artifacts/my_tool+1.2-linux" && -f "$work/rust/artifacts/my_tool+1.2-yum" ]]
 check "and land in the artifact directory" 0 $?
