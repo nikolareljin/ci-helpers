@@ -94,6 +94,11 @@ for suffix in windows.exe linux musl deb; do
   fi
 done
 
+# A locale whose bracket ranges admit e-acute, when one is installed: only there
+# does LC_ALL=C in plain_name make a difference.
+utf8_locale="$(locale -a 2>/dev/null | grep -i -E '^(en_[A-Z]{2}|el_GR)\.utf-?8$' | head -1 || true)"
+if [[ -n "$utf8_locale" ]]; then export LC_ALL="$utf8_locale"; else echo "note: no such locale installed"; fi
+
 # Refused before anything is built, and without running what they hold.
 for bad in "BIN_NAME=$value" "BIN_NAME=../evil" "BIN_NAME=-evil" "LINUX_GNU_ALIASES=../evil" "LINUX_GNU_ALIASES=deb,$value" "BIN_NAME=a..b" "LINUX_GNU_ALIASES=a..b" "LINUX_GNU_ALIASES=deb
 ../evil" "BIN_NAME=$(printf 'tool\303\251')"; do
@@ -116,7 +121,7 @@ for job in d["jobs"].values():
         if s.get("name") == "Build release binary":
             open(out, "w").write(s["run"])
 PY
-for bad in ../x -x a..b "a b" "$value"; do
+for bad in ../x -x a..b "a b" "$value" "$(printf 'tool\303\251')"; do
   if (cd "$work/wd" && BIN_NAME="$bad" RUST_TARGET="" bash "$work/tar.sh" >"$work/tar.out" 2>&1) \
     || ! grep -q 'plain file name' "$work/tar.out"; then
     echo "FAIL tarballs accepted bin_name: $bad"
@@ -126,6 +131,12 @@ done
 mkdir -p "$work/wd/target/release"; : > "$work/wd/target/release/tool"
 if ! (cd "$work/wd" && BIN_NAME=tool RUST_TARGET="" GITHUB_OUTPUT="$work/gh" bash "$work/tar.sh" >/dev/null 2>&1); then
   echo "FAIL tarballs refused a plain bin_name"
+  fail=1
+fi
+
+# A YAML `|` block ends in a newline, and that is still one line.
+if ! (cd "$work/wd" && set -a && . "$work/env1.sh" && INPUT_BIN_NAME=tool INPUT_LINUX_GNU_ALIASES=$'deb\n' && bash "$work/run1.sh" >/dev/null 2>&1); then
+  echo "FAIL a trailing newline in linux_gnu_aliases was refused"
   fail=1
 fi
 

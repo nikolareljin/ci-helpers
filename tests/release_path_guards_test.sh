@@ -114,14 +114,20 @@ rust --bin-name -evil --targets linux-gnu; check "--bin-name starting with - is 
 rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu; check "--bin-name outside ASCII is refused" 2 $?
 rust --bin-name; check "--bin-name with no value exits 2" 2 $?
 rust --bin-name tool --linux-gnu-aliases "$(printf 'deb\n../evil')" --targets linux-gnu; check "aliases over two lines are refused" 2 $?
-for loc in $(locale -a 2>/dev/null | grep -i -E '^(en_[A-Z]{2}|el_GR)\.utf-?8$' | head -1); do
-  (export LC_ALL="$loc"; rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu); check "and under $loc" 2 $?
-done
 rust --bin-name a..b --targets linux-gnu; check "--bin-name with .. is refused" 2 $?
 rust --bin-name tool --linux-gnu-aliases deb,../evil --targets linux-gnu; check "an alias with a path is refused" 2 $?
 
 rust --bin-name tool --linux-gnu-aliases deb,-x --targets linux-gnu; check "an alias starting with - is refused" 2 $?
 rust --bin-name tool --linux-gnu-aliases a..b --targets linux-gnu; check "an alias with .. is refused" 2 $?
+
+# Only a locale whose bracket ranges admit e-acute shows what LC_ALL=C does.
+loc="$(locale -a 2>/dev/null | grep -i -E '^(en_[A-Z]{2}|el_GR)\.utf-?8$' | head -1)"
+if [[ -n "$loc" ]]; then
+  (export LC_ALL="$loc"; rust --bin-name "$(printf 'tool\303\251')" --targets linux-gnu)
+  check "--bin-name outside ASCII is refused under $loc" 2 $?
+else
+  echo "skip the non-ASCII check under a UTF-8 locale: none installed"
+fi
 
 mkdir -p "$work/rust/target/x86_64-unknown-linux-gnu/release"
 touch "$work/rust/target/x86_64-unknown-linux-gnu/release/_tool"
@@ -129,6 +135,8 @@ rust --bin-name _tool --targets linux-gnu; check "a name Cargo allows with a lea
 touch "$work/rust/target/x86_64-unknown-linux-gnu/release/my_tool+1.2"
 rust --bin-name my_tool+1.2 --linux-gnu-aliases deb,yum --targets linux-gnu
 check "a normal name and aliases build" 0 $?
+rust --bin-name my_tool+1.2 --linux-gnu-aliases "$(printf 'deb\n')x" --targets linux-gnu
+check "a second alias line is still refused" 2 $?
 [[ -f "$work/rust/artifacts/my_tool+1.2-linux" && -f "$work/rust/artifacts/my_tool+1.2-yum" ]]
 check "and land in the artifact directory" 0 $?
 

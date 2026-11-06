@@ -63,6 +63,8 @@ if ! plain_name "$bin_name"; then
   echo "Invalid --bin-name: $bin_name" >&2
   exit 2
 fi
+# $(...) drops trailing newlines: a YAML `|` block ends in one.
+linux_gnu_aliases="$(printf '%s' "$linux_gnu_aliases")"
 if [[ "$linux_gnu_aliases" == *$'\n'* ]]; then
   # read takes the first line only, so the rest would vanish unchecked.
   echo "Invalid --linux-gnu-aliases: more than one line" >&2

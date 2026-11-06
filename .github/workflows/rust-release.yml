@@ -153,6 +153,8 @@ jobs:
             echo "::error::bin_name must be a plain file name"
             exit 1
           fi
+          # $(...) drops trailing newlines: a YAML `|` block ends in one.
+          INPUT_LINUX_GNU_ALIASES="$(printf '%s' "$INPUT_LINUX_GNU_ALIASES")"
           if [[ "$INPUT_LINUX_GNU_ALIASES" == *$'\n'* ]]; then
             echo "::error::linux_gnu_aliases must be one line"
             exit 1
