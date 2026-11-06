@@ -1,0 +1,40 @@
+# Stack for tests/wp_check_verdicts.sh.
+services:
+  db:
+    image: mariadb:10.11@sha256:0d0945c57f75b3a3b9ebe71aedaaad005fa5305054e8fca3d2e42a8c92b43b5e
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: wordpress
+
+  wordpress:
+    image: wordpress:7.1-php8.4-apache
+    depends_on:
+      - db
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_core:/var/www/html
+      - ${WP_CHECK_PLUGIN_SRC}:/var/www/html/wp-content/plugins/pc-fixture:rw
+
+  wpcli:
+    image: wordpress:cli@sha256:36243da432a0f0a3b56dc3240ecee9b159108d71305e7c064d987a20a465bfde
+    depends_on:
+      - wordpress
+    user: "33:33"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    working_dir: /var/www/html
+    volumes:
+      - wp_core:/var/www/html
+      - ${WP_CHECK_PLUGIN_SRC}:/var/www/html/wp-content/plugins/pc-fixture:rw
+
+volumes:
+  wp_core:

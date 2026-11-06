@@ -51,6 +51,32 @@ jobs:
       plugin_src: tests/fixtures/wp-plugin
       versions: '[{"wp":"7.1","php":"8.4"},{"wp":"7.0","php":"8.2"}]'
       fail_on_findings: true
+  # A plugin with no findings passes the workflow itself. The fixture above has
+  # warnings, so it never reached the bare success report, and a clean plugin
+  # exited 5 until a consumer found it.
+  wp-check-passes-a-clean-plugin:
+    uses: ./.github/workflows/wp-plugin-check.yml
+    with:
+      plugin_slug: pc-fixture/pc-fixture.php
+      plugin_src: tests/fixtures/wp-check-clean
+      plugin_dir: pc-fixture
+      versions: '[{"wp":"7.1","php":"8.4"}]'
+      artifact_name: wp-check-clean-results
+      fail_on_findings: true
+
+  # The same check in both directions, reading the exit code and the report:
+  # a job failing on purpose cannot be expressed with `uses:`.
+  wp-check-real-verdicts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: A clean plugin exits 0, a plugin with an error exits 4
+        shell: bash
+        run: bash tests/wp_check_verdicts.sh
+
   # Real WordPress tests against a real database: the fixture asserts
   # wp_insert_post exists, so a green run proves WordPress actually loaded
   # rather than the assertions passing in isolation.
@@ -868,6 +894,8 @@ jobs:
       - vue-scan-defaults-can-pass
       - python-install-survives-lint-override
       - wp-check-generates-its-own-stack
+      - wp-check-passes-a-clean-plugin
+      - wp-check-real-verdicts
       - wp-phpunit-runs-real-wordpress-tests
       - wp-build-packages-a-plugin
       - wp-build-can-skip-the-zip
