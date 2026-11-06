@@ -88,16 +88,16 @@ download_file() {
     wget -q --timeout=3600 -O "$part" "$url" || rc=$?
   fi
   if [[ "$rc" -ne 0 ]]; then
-    rm -f "$part"
+    rm -f -- "$part"
     return "$rc"
   fi
   if [[ -e "$output" || -L "$output" ]]; then
     # Written through the existing path, as curl -o always did: the file keeps
     # its mode (a downloaded script stays executable) and a symlink stays a link.
-    cat "$part" >"$output" || { rm -f "$part"; return 1; }
-    rm -f "$part"
+    cat -- "$part" >"$output" || { rm -f -- "$part"; return 1; }
+    rm -f -- "$part"
   else
-    mv -f "$part" "$output" || { rm -f "$part"; return 1; }
+    mv -f -- "$part" "$output" || { rm -f -- "$part"; return 1; }
   fi
   return 0
 }

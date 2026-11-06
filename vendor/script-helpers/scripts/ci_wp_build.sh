@@ -263,7 +263,7 @@ else
 fi
 
 stage="${abs_out}/${slug}"
-rm -rf "$stage"
+rm -rf -- "$stage"
 mkdir -p "$stage"
 
 # An out-dir inside the plugin is copied into the package by the rsync below:
@@ -346,7 +346,7 @@ fi
 # usual case, so this costs nothing for a plugin without symlinks.
 if [[ "$have_links" -eq 1 ]]; then
   log_info "Resolving internal symlinks into regular files"
-  rm -rf "$stage"
+  rm -rf -- "$stage"
   mkdir -p "$stage"
   rsync -aL ${excludes[@]+"${excludes[@]}"} "${abs_workdir}/" "${stage}/"
 fi
@@ -378,7 +378,7 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "$make_zip" == "true" ]]; then
   zip_path="${abs_out}/${slug}-${version}.zip"
-  rm -f "$zip_path"
+  rm -f -- "$zip_path"
   ( cd "$abs_out" && zip -qr "$zip_path" "$slug" )
   # du prints "4.0K<tab>path". Trimming it here rather than piping through cut
   # keeps one more tool off the dependency list, and a missing one would not

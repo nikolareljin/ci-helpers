@@ -448,7 +448,7 @@ _pf_tmp="$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX" 2>/dev/null)" && [[ -n "
 }
 chmod 700 "$_pf_tmp" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_pf_tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$_pf_tmp"; fi' EXIT
 
 # The projects whose dependencies the security step audits, kept before the
 # security-only mode empties PAIRS: a dependency audit reads a project's
@@ -485,8 +485,8 @@ run_step() {
   skip_file="$_pf_tmp/skip"
   : > "$skip_file"
   PREFLIGHT_SKIP_FILE="$skip_file" "$@" || rc=$?
-  reason="$(head -n 1 "$skip_file" 2>/dev/null || true)"
-  rm -f "$skip_file"
+  reason="$(head -n 1 -- "$skip_file" 2>/dev/null || true)"
+  rm -f -- "$skip_file"
   if [[ $rc -eq 0 ]]; then
     RESULTS+=("PASS  $label")
     return 0

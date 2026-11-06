@@ -24,7 +24,7 @@
 manifest_kind() {
   local file="${1:-}"
   [[ -n "$file" ]] || { log_error "manifest_kind: need <file>"; return 2; }
-  case "$(basename "$file")" in
+  case "${file##*/}" in
     pubspec.yaml)                 printf 'pubspec\n' ;;
     build.gradle|build.gradle.kts) printf 'gradle\n' ;;
     VERSION)                      printf 'version_file\n' ;;
@@ -109,6 +109,8 @@ manifest_read_version() {
   local file="${1:-}" kind version=""
   [[ -n "$file" ]] || { log_error "manifest_read_version: need <file>"; return 2; }
   [[ -f "$file" ]] || { log_error "manifest_read_version: not found: $file"; return 2; }
+  # A relative path that starts with "-" would be read as an option by sed.
+  [[ "$file" != -* ]] || file="./$file"
   kind="$(manifest_kind "$file")" || return 2
 
   case "$kind" in
@@ -120,7 +122,7 @@ manifest_read_version() {
       version="$(sed -n 's/.*versionName[[:space:]]*[=(]*[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
       ;;
     version_file)
-      version="$(head -n1 "$file" | tr -d '[:space:]')"
+      version="$(head -n1 -- "$file" | tr -d '[:space:]')"
       ;;
     package_json)
       version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n 1p)"
@@ -222,7 +224,7 @@ manifest_write_version() {
       sed "s|^version:[[:space:]]*.*|version: ${esc}|" "$file" > "$tmp"
       ;;
     gradle)
-      code="${build:-$(manifest_android_version_code "$version")}" || { rm -f "$tmp"; return 2; }
+      code="${build:-$(manifest_android_version_code "$version")}" || { rm -f -- "$tmp"; return 2; }
       esc="$(_manifest__sed_escape "$version")"
       sed -e "s|\(versionName[[:space:]]*[=(]*[[:space:]]*\)\"[^\"]*\"|\1\"${esc}\"|" \
           -e "s|\(versionCode[[:space:]]*[=(]*[[:space:]]*\)[0-9][0-9]*|\1${code}|" \
@@ -242,14 +244,14 @@ manifest_write_version() {
   esac
 
   if [[ ! -s "$tmp" ]]; then
-    rm -f "$tmp"
+    rm -f -- "$tmp"
     log_error "manifest_write_version: rewriting $file produced an empty file - refusing to replace it"
     return 1
   fi
   # Not `cat && rm || return 1`: that reports failure when the write succeeded
   # and only the cleanup failed.
-  if ! cat "$tmp" > "$file"; then
-    rm -f "$tmp"
+  if ! cat -- "$tmp" > "$file"; then
+    rm -f -- "$tmp"
     log_error "manifest_write_version: could not write $file"
     return 1
   fi
@@ -264,7 +266,7 @@ manifest_write_version() {
   # names Flutter. A versionCode literal is still rewritten in either case, so
   # the message must not claim nothing was written.
   if [[ "$kind" == gradle ]] && ! manifest_read_version "$file" >/dev/null 2>&1; then
-    rm -f "$tmp"
+    rm -f -- "$tmp"
     local code_note="$version was not written there"
     if grep -q 'versionCode[[:space:]]*[=(]*[[:space:]]*[0-9]' "$file" 2>/dev/null; then
       code_note="versionCode was set to $code, but versionName $version was not written"
@@ -276,7 +278,7 @@ manifest_write_version() {
     fi
     return 0
   fi
-  rm -f "$tmp"
+  rm -f -- "$tmp"
   log_info "manifest: $file -> $version"
 }
 

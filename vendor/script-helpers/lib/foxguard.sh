@@ -136,18 +136,18 @@ foxguard_install() {
   mkdir -p "$(dirname "$dest")" || return 1
   tmp="$(mktemp "$(dirname "$dest")/.download.XXXXXX")" || return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url" || { rm -f -- "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -T 60 -O "$tmp" "$url" || { rm -f "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
+    wget -q -T 60 -O "$tmp" "$url" || { rm -f -- "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
   else
-    rm -f "$tmp"; log_error "foxguard: curl or wget is needed to download it"; return 3
+    rm -f -- "$tmp"; log_error "foxguard: curl or wget is needed to download it"; return 3
   fi
-  got="$(foxguard_sha256 "$tmp")" || { rm -f "$tmp"; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
+  got="$(foxguard_sha256 "$tmp")" || { rm -f -- "$tmp"; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
-    rm -f "$tmp"
+    rm -f -- "$tmp"
     log_error "foxguard: $asset $CI_DEFAULT_FOXGUARD_VERSION does not match the pinned SHA-256 (got $got, want $want); not installed. A changed CI_DEFAULT_FOXGUARD_VERSION needs its CI_DEFAULT_FOXGUARD_SHA256_* values too."
     return 1
   fi
-  chmod +x "$tmp" && mv -f "$tmp" "$dest" || { rm -f "$tmp"; return 1; }
+  chmod +x "$tmp" && mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
   log_info "foxguard $CI_DEFAULT_FOXGUARD_VERSION installed at $dest"
 }

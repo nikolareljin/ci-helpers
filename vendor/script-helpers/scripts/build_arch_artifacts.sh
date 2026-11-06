@@ -59,4 +59,4 @@ fi
 (cd "$pkg_dir" && makepkg -s --noconfirm)
 
 mkdir -p "$artifact_dir"
-find "$pkg_dir" -maxdepth 1 -type f -name "*.pkg.tar.*" -exec cp -v {} "$artifact_dir" \;
+find "$pkg_dir" -maxdepth 1 -type f -name "*.pkg.tar.*" -exec cp -v -- {} "$artifact_dir" \;

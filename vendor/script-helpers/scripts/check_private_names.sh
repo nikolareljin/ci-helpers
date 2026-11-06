@@ -186,7 +186,7 @@ chmod 700 "$work" 2>/dev/null || true
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$work"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$work"; fi' EXIT
 hard="$work/hard"
 ambiguous="$work/ambiguous"
 context="$work/context"
@@ -464,12 +464,12 @@ worktree_allow_dir="$(git rev-parse --git-dir 2>/dev/null)" || worktree_allow_di
 if [[ -n "$repo_allow_dir" ]]; then
   repo_allow="$repo_allow_dir/private-names-allow"
   if [[ -f "$repo_allow" ]]; then
-    cat "$repo_allow" >> "$allowed"
+    cat -- "$repo_allow" >> "$allowed"
     echo >> "$allowed"
   fi
   if [[ -n "$worktree_allow_dir" && "$worktree_allow_dir" != "$repo_allow_dir" \
         && -f "$worktree_allow_dir/private-names-allow" ]]; then
-    cat "$worktree_allow_dir/private-names-allow" >> "$allowed"
+    cat -- "$worktree_allow_dir/private-names-allow" >> "$allowed"
     echo >> "$allowed"
   fi
 fi
@@ -489,25 +489,25 @@ if [[ -f "$default_allow" ]] && ! grep -qv '^[[:space:]]*\(#.*\)\{0,1\}$' "$mach
     # Written beside it and renamed: a second gate starting now reads the whole
     # list or none. Unwritable (read-only or no HOME): the default still applies.
     if mkdir -p "$(dirname "$machine_allow")" 2>/dev/null \
-      && cp "$default_allow" "$machine_allow.$$" 2>/dev/null \
-      && mv -f "$machine_allow.$$" "$machine_allow" 2>/dev/null; then
+      && cp -- "$default_allow" "$machine_allow.$$" 2>/dev/null \
+      && mv -f -- "$machine_allow.$$" "$machine_allow" 2>/dev/null; then
       log_info "allow list started at $machine_allow from the shipped default; add your own words there"
     else
-      rm -f "$machine_allow.$$" 2>/dev/null
-      cat "$default_allow" >> "$allowed"
+      rm -f -- "$machine_allow.$$" 2>/dev/null
+      cat -- "$default_allow" >> "$allowed"
       echo >> "$allowed"
     fi
   fi
 fi
 if [[ -f "$machine_allow" ]]; then
-  cat "$machine_allow" >> "$allowed"
+  cat -- "$machine_allow" >> "$allowed"
   echo >> "$allowed"
 fi
 # Blank lines are stripped before any use: a pattern file containing an empty
 # line makes grep match every line of input, which would turn either list into
 # "everything is a hit" or, worse, silently allow everything.
 sed -e 's/#.*//' -e 's/[[:space:]]//g' "$allowed" | grep -v '^$' > "$allowed.clean" 2>/dev/null
-mv "$allowed.clean" "$allowed"
+mv -- "$allowed.clean" "$allowed"
 
 drop_allowed() {  # drop_allowed <names-file>
   [[ -s "$allowed" || -s "$self_names" ]] || return 0
@@ -530,15 +530,15 @@ drop_allowed() {  # drop_allowed <names-file>
   while IFS= read -r name; do
     log_info "the repository's own name, not checked: $name"
   done < "$selfed"
-  rm -f "$selfed"
+  rm -f -- "$selfed"
   # Not dropped: moved. The word is free in prose; the name is still looked for
   # in the shape of a repository reference (see the header).
-  cat "$dropped" >> "$context"
+  cat -- "$dropped" >> "$context"
   while IFS="$(printf '\t')" read -r name _; do
     log_info "allowed by override as a word; checked as a repository reference: $name"
   done < "$dropped"
-  rm -f "$dropped"
-  mv "$kept" "$1"
+  rm -f -- "$dropped"
+  mv -- "$kept" "$1"
 }
 drop_allowed "$hard"
 [[ -s "$ambiguous" ]] && drop_allowed "$ambiguous"
@@ -548,7 +548,7 @@ if [[ -s "$self_names" && -s "$qualified" ]]; then
     BEGIN { while ((getline a < selff) > 0) own[tolower(a)] = 1 }
     { n = tolower($1); if (index(n, "/")) sub(/^.*\//, "", n); else n = ""; if (!(n in own)) print }
   ' "$qualified" > "$qualified.kept" || { log_error "could not apply PRIVATE_NAMES_SELF"; exit 2; }
-  mv "$qualified.kept" "$qualified"
+  mv -- "$qualified.kept" "$qualified"
 fi
 # Warn on published text, not on the tree. Measured: --tree gives 54 hit lines
 # here and 77 in ci-helpers, nearly all "search" and "anchor" in prose; the
@@ -632,7 +632,7 @@ case "$MODE" in
     ;;
   file)
     [[ -f "$FILE" ]] || { log_error "No such file: $FILE"; exit 2; }
-    cp "$FILE" "$subject"
+    cp -- "$FILE" "$subject"
     ;;
   stdin)
     cat > "$subject"
@@ -719,7 +719,7 @@ search() {        # search <names-file> <label> [token|context]
   ' | sed "s/^/      /" > "$work/stage2"
 
   [[ -s "$work/stage2" ]] || return 1
-  cat "$work/stage2"
+  cat -- "$work/stage2"
   return 0
 }
 
@@ -736,12 +736,12 @@ search "$hard"      "tracked text"    > "$hard_hits" || true
 search "$qualified" "qualified names" > "$qual_hits" || true
 search "$ambiguous" "ambiguous names" > "$amb_hits"  || true
 search "$context"   "allowed words"   context > "$ctx_hits" || true
-cat "$hard_hits" "$qual_hits" "$amb_hits" "$ctx_hits" > "$all_hits"
+cat -- "$hard_hits" "$qual_hits" "$amb_hits" "$ctx_hits" > "$all_hits"
 
 # ---- report ---------------------------------------------------------------
 if [[ -s "$hard_hits" ]]; then
   found=1
-  cat "$hard_hits" >&2
+  cat -- "$hard_hits" >&2
   log_error "A private repository is named above."
   # An organization's repository has no acceptable public form at all -- not its name and
   # not a code -- so offering a citation would be advising a quieter version of the
@@ -772,14 +772,14 @@ fi
 
 if [[ -s "$qual_hits" ]]; then
   found=1
-  cat "$qual_hits" >&2
+  cat -- "$qual_hits" >&2
   log_error "An organization, or a private repository named with its namespace, is above."
   log_error "There is no public form of it -- remove the reference."
   matched_names "$qualified" "$qual_hits" >&2
 fi
 
 if [[ -s "$amb_hits" ]]; then
-  cat "$amb_hits" >&2
+  cat -- "$amb_hits" >&2
   matched_names "$ambiguous" "$amb_hits" token >&2
   if [[ "$STRICT_AMBIGUOUS" == true ]]; then
     found=1
@@ -793,7 +793,7 @@ if [[ -s "$amb_hits" ]]; then
 fi
 
 if [[ -s "$ctx_hits" ]]; then
-  cat "$ctx_hits" >&2
+  cat -- "$ctx_hits" >&2
   matched_names "$context" "$ctx_hits" token >&2
   if [[ "$STRICT_AMBIGUOUS" == true ]]; then
     found=1; ctx_failed=1

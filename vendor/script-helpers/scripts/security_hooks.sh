@@ -262,12 +262,12 @@ sec_private_names() {
 
   if [[ "$log_failed" -eq 1 ]]; then
     # Distinct from both "clean" and "found something", because it is neither.
-    sec_unchecked pre-push "could not read every outgoing commit message (shallow clone, or a remote ref never fetched)" || { rm -f "$messages"; return 1; }
+    sec_unchecked pre-push "could not read every outgoing commit message (shallow clone, or a remote ref never fetched)" || { rm -f -- "$messages"; return 1; }
   fi
 
   bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
   rc=$?
-  rm -f "$messages"
+  rm -f -- "$messages"
   if [[ "$rc" -eq 1 ]]; then
     echo "[pre-push] A commit message names a private repository." >&2
     echo "[pre-push] To override:  PRIVATE_NAMES_ALLOW=<term> git push ..." >&2
@@ -281,15 +281,15 @@ sec_private_names() {
   # first push can carry hundreds of tags), then, only on a hit, one run per
   # tag so the refusal names the tag instead of blaming the commit messages.
   if ! sec_tag_messages "$refs" > "$messages"; then
-    rm -f "$messages"
+    rm -f -- "$messages"
     sec_unchecked pre-push "could not read every outgoing tag message" || return 1
     return 0
   fi
-  [[ -s "$messages" ]] || { rm -f "$messages"; return 0; }
+  [[ -s "$messages" ]] || { rm -f -- "$messages"; return 0; }
   bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}" >/dev/null 2>&1
   rc=$?
   if [[ "$rc" -ne 1 ]]; then
-    rm -f "$messages"
+    rm -f -- "$messages"
     [[ "$rc" -eq 0 ]] && return 0
     sec_unchecked pre-push "the private-name check could not run on the tag messages (exit $rc)" || return 1
     return 0
@@ -310,7 +310,7 @@ sec_private_names() {
       break
     fi
   done < "$refs"
-  rm -f "$one" "$messages"
+  rm -f -- "$one" "$messages"
   echo "[pre-push] $label names a private repository." >&2
   echo "[pre-push] To override:  PRIVATE_NAMES_ALLOW=<term> git push ..." >&2
   echo "[pre-push]              or git push --no-verify" >&2
@@ -546,10 +546,10 @@ sec_commit_msg() {
   fi
   if gate="$(sec_find check_sensitive.sh)"; then
     # git keeps the template's comment lines in the file until it strips them.
-    LC_ALL=C grep -v '^#' "$msg" > "$msg.sensitive" 2>/dev/null; [[ $? -le 1 ]] || cp "$msg" "$msg.sensitive"
+    LC_ALL=C grep -v '^#' "$msg" > "$msg.sensitive" 2>/dev/null; [[ $? -le 1 ]] || cp -- "$msg" "$msg.sensitive"
     bash "$gate" --file "$msg.sensitive"
     rc=$?
-    rm -f "$msg.sensitive"
+    rm -f -- "$msg.sensitive"
     case "$rc" in
       0) ;;
       1) echo "[commit-msg] Sensitive data in the message; commit refused." >&2; return 1 ;;

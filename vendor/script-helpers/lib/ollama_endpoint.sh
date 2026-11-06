@@ -622,7 +622,7 @@ _ollama_ep_gpu_list() {
     # card0, not card0-DP-1: a connector is not a GPU.
     case "${_oep_card##*/}" in card*[!0-9]*|card) continue ;; esac
     [[ -r "$_oep_card/device/mem_info_vram_total" ]] || continue
-    _oep_bytes="$(_ollama_ep_uint "$(cat "$_oep_card/device/mem_info_vram_total" 2>/dev/null)")" || continue
+    _oep_bytes="$(_ollama_ep_uint "$(cat -- "$_oep_card/device/mem_info_vram_total" 2>/dev/null)")" || continue
     printf '%s\n' "$_oep_bytes"
   done
 }
@@ -2512,13 +2512,13 @@ _ollama_ep_env_lock() {
       # lock to a name of its own (rename is atomic, so one of them gets it),
       # and only removes what it got if that is still the dead owner's lock.
       moved="$lock.$$.$RANDOM"
-      if mv "$lock" "$moved" 2>/dev/null; then
+      if mv -- "$lock" "$moved" 2>/dev/null; then
         if [[ "$(readlink "$moved" 2>/dev/null)" == "$owner" ]]; then
-          rm -f "$moved"
+          rm -f -- "$moved"
         else
           # A live lock taken by mistake: put it back unless a new one is there.
           ln -s "$(readlink "$moved" 2>/dev/null)" "$lock" 2>/dev/null || true
-          rm -f "$moved"
+          rm -f -- "$moved"
         fi
       fi
       continue
@@ -2543,7 +2543,7 @@ _ollama_ep_pid_alive() {
 # owns it. Returns: 0. Output: none.
 _ollama_ep_env_unlock() {
   [[ -n "${1:-}" ]] || return 0
-  [[ "$(readlink "$1" 2>/dev/null)" != "$$" ]] || rm -f "$1" 2>/dev/null || true
+  [[ "$(readlink "$1" 2>/dev/null)" != "$$" ]] || rm -f -- "$1" 2>/dev/null || true
   return 0
 }
 
@@ -2586,11 +2586,11 @@ _ollama_ep_env_set_now() {
     src="$target"
   elif [[ -e "$target" ]]; then
     # cp -p first: the temporary file takes the target's mode.
-    cp -p "$target" "$tmpf" 2>/dev/null || { rm -f "$tmpf"; return 1; }
+    cp -p -- "$target" "$tmpf" 2>/dev/null || { rm -f -- "$tmpf"; return 1; }
     src="$target"
   else
     src=/dev/null
-    chmod 600 "$tmpf" || { rm -f "$tmpf"; return 1; }
+    chmod 600 "$tmpf" || { rm -f -- "$tmpf"; return 1; }
     : >"$tmpf"
   fi
   # ENVIRON, not -v: awk -v would read backslashes in a value as escapes.
@@ -2621,23 +2621,23 @@ _ollama_ep_env_set_now() {
       }
       END { for (i = 1; i <= n; i++) if (!(i in done)) print name[i] "=" val[i] eol }' \
       "$src" >"$tmpf" 2>/dev/null </dev/null; then
-    rm -f "$tmpf"
+    rm -f -- "$tmpf"
     return 1
   fi
   if [[ "$inplace" -eq 1 ]]; then
     # One write of the whole content, then read back. A failed write puts the
     # old content back, as far as the file can still be written.
-    oldf="$(_ollama_ep_tmpfile .env-old)" || { rm -f "$tmpf"; return 1; }
-    cat "$target" >"$oldf" 2>/dev/null || { rm -f "$tmpf" "$oldf"; return 1; }
-    if ! cat "$tmpf" >"$target" 2>/dev/null || ! cmp -s "$tmpf" "$target"; then
-      cat "$oldf" >"$target" 2>/dev/null || true
-      rm -f "$tmpf" "$oldf"
+    oldf="$(_ollama_ep_tmpfile .env-old)" || { rm -f -- "$tmpf"; return 1; }
+    cat -- "$target" >"$oldf" 2>/dev/null || { rm -f -- "$tmpf" "$oldf"; return 1; }
+    if ! cat -- "$tmpf" >"$target" 2>/dev/null || ! cmp -s "$tmpf" "$target"; then
+      cat -- "$oldf" >"$target" 2>/dev/null || true
+      rm -f -- "$tmpf" "$oldf"
       return 1
     fi
-    rm -f "$tmpf" "$oldf"
+    rm -f -- "$tmpf" "$oldf"
     return 0
   fi
-  mv -f "$tmpf" "$target" || { rm -f "$tmpf"; return 1; }
+  mv -f -- "$tmpf" "$target" || { rm -f -- "$tmpf"; return 1; }
 }
 
 # Usage: _ollama_ep_tmpfile <prefix>; creates an empty mode-600 file under

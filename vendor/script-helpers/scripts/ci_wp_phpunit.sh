@@ -99,24 +99,55 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Both are handed to `rm -rf` below and both are caller input. Requiring an
-# absolute path, and refusing "/" and the working directory, is what stops
-# `--wp-tests-dir .` from deleting the plugin being tested.
+if [[ ! -d "$workdir" ]]; then
+  log_error "--workdir does not exist: ${workdir}"
+  exit 2
+fi
+
+# Physical path of an absolute path: symlinks resolved, repeated and trailing
+# slashes dropped. The part that does not exist yet is appended as written.
+scratch_physical() {
+  local p="$1" rest="" slash="/"
+  # The slash comes from a variable: bash 3.2 keeps the backslash of an
+  # escaped "/" in the replacement.
+  while [[ "$p" == *//* ]]; do p="${p//$slash$slash/$slash}"; done
+  [[ "$p" == "/" ]] || p="${p%/}"
+  while [[ ! -d "$p" ]]; do
+    [[ "$p" == /* ]] || return 1
+    rest="/${p##*/}${rest}"
+    p="${p%/*}"
+    [[ -n "$p" ]] || p="/"
+  done
+  p="$(cd -P -- "$p" 2>/dev/null && pwd -P)" || return 1
+  printf '%s%s\n' "${p%/}" "$rest"
+}
+
+# Both are handed to `rm -rf` below and both are caller input. Each must be an
+# absolute path that is not, and does not contain, the working directory, the
+# plugin (--workdir) or $HOME. Compared as physical paths, so `.`, `/`, a
+# parent of the plugin, a symlink to it or `plugin//` cannot delete the plugin
+# being tested.
+keep_dirs=("$(pwd -P)" "$(cd -P -- "$workdir" && pwd -P)")
+if [[ -n "${HOME:-}" && -d "${HOME}" ]]; then
+  keep_dirs+=("$(cd -P -- "$HOME" && pwd -P)")
+fi
 for d in "$wp_tests_dir" "$wp_core_dir"; do
   case "$d" in
     /?*) : ;;
     *) log_error "--wp-tests-dir and --wp-core-dir must be absolute paths; got '${d}'"; exit 2 ;;
   esac
-  if [[ "$d" == "/" || "$d" == "$PWD" ]]; then
-    log_error "Refusing to use '${d}' as a scratch directory."
-    exit 2
-  fi
+  case "/${d}/" in
+    */../*|*/./*) log_error "--wp-tests-dir and --wp-core-dir must not contain '.' or '..' components; got '${d}'"; exit 2 ;;
+  esac
+  d_phys="$(scratch_physical "$d")" || { log_error "Cannot resolve '${d}'."; exit 2; }
+  for keep in "${keep_dirs[@]}"; do
+    # True when keep is d_phys or lies inside it; an empty d_phys is "/".
+    if [[ "${keep%/}/" == "${d_phys}/"* ]]; then
+      log_error "Refusing to use '${d}' as a scratch directory: it is, or contains, ${keep}."
+      exit 2
+    fi
+  done
 done
-
-if [[ ! -d "$workdir" ]]; then
-  log_error "--workdir does not exist: ${workdir}"
-  exit 2
-fi
 
 # ---------------------------------------------------------------------------
 # Resolve the version to a real tag.
@@ -233,7 +264,7 @@ else
   wp_tag="$(resolve_wp_tag "$wp_version")"
   log_info "WordPress under test: ${wp_tag} (requested '${wp_version}')"
 
-  rm -rf "$wp_tests_dir" "$wp_core_dir"
+  rm -rf -- "$wp_tests_dir" "$wp_core_dir"
   mkdir -p "$wp_tests_dir" "$wp_core_dir"
 
   tmp="$(mktemp -d)"
@@ -243,7 +274,7 @@ else
   # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
   # and $$ is the top-level shell's pid in every subshell, so the comparison
   # degrades to always-true there rather than to always-false.
-  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; cleanup; fi' EXIT
+  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; cleanup; fi' EXIT
   curl -fsSL -o "${tmp}/wordpress-develop.tar.gz" \
     "https://github.com/WordPress/wordpress-develop/archive/refs/tags/${wp_tag}.tar.gz"
   tar -xzf "${tmp}/wordpress-develop.tar.gz" -C "$tmp"
@@ -254,14 +285,14 @@ else
     exit 1
   fi
 
-  cp -R "${root}/tests/phpunit/." "${wp_tests_dir}/"
-  cp -R "${root}/src/." "${wp_core_dir}/"
+  cp -R -- "${root}/tests/phpunit/." "${wp_tests_dir}/"
+  cp -R -- "${root}/src/." "${wp_core_dir}/"
 
   # Written from the sample, so a constant added upstream is carried rather
   # than dropped. Values arrive as environment and are escaped for a PHP
   # single-quoted string: the sample writes them between single quotes, so a
   # password containing one ends the string early and the config stops parsing.
-  cp "${root}/wp-tests-config-sample.php" "${wp_tests_dir}/wp-tests-config.php"
+  cp -- "${root}/wp-tests-config-sample.php" "${wp_tests_dir}/wp-tests-config.php"
   WP_CORE_DIR="$config_core_dir" \
   WP_DB_NAME="$db_name" \
   WP_DB_USER="$db_user" \

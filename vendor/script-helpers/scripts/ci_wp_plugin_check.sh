@@ -42,7 +42,8 @@
 #      with --fail-on-findings true.
 #   4  Plugin-check reported errors, or wp plugin check is unavailable, with
 #      --fail-on-findings true.
-#   5  The plugin-check or meta-check JSON could not be parsed.
+#   5  The plugin-check or meta-check JSON could not be parsed, or wp plugin
+#      check exited non-zero and reported no errors, with --fail-on-findings true.
 #   N  A failing --php-lint-command or --phpunit-command, or a failing
 #      docker compose or wp setup step, exits with its own code.
 # EXAMPLE:
@@ -234,7 +235,7 @@ mkdir -p "$out_dir"
 # Reports from a previous run, not this one. out_dir persists between runs, and
 # when `wp plugin check` produces nothing its output is discarded rather than
 # installed -- so without this the last run's findings are read as this run's.
-rm -f "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
+rm -f -- "${out_dir}/plugin-check.json" "${out_dir}/meta-check.json"
 wp_site_url="http://localhost:${host_port}"
 cat > "${out_dir}/wp-cli.yml" <<WPCLI
 path: /var/www/html
@@ -245,7 +246,7 @@ apache_modules:
   - mod_rewrite
 WPCLI
 
-wp_cli_config_contents="$(cat "${out_dir}/wp-cli.yml")"
+wp_cli_config_contents="$(cat -- "${out_dir}/wp-cli.yml")"
 container_wp_config_file="/var/www/html/wp-cli.yml"
 
 run_wp_shell() {
@@ -340,7 +341,7 @@ if docker_compose -f "$compose_file" run --rm \
   sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
-  rm -f "$plugin_check_tmp"
+  rm -f -- "$plugin_check_tmp"
   plugin_check_exit=0
   # Built as an array so an empty value passes no flag at all. Passing
   # `--exclude-files=` with nothing after it makes plugin-check treat the empty
@@ -350,9 +351,9 @@ if docker_compose -f "$compose_file" run --rm \
   [[ -n "$exclude_files" ]] && check_args+=("--exclude-files=$exclude_files")
   run_wp "${check_args[@]}" > "$plugin_check_tmp" || plugin_check_exit=$?
   if [[ -s "$plugin_check_tmp" ]]; then
-    mv "$plugin_check_tmp" "${out_dir}/plugin-check.json"
+    mv -- "$plugin_check_tmp" "${out_dir}/plugin-check.json"
   else
-    rm -f "$plugin_check_tmp"
+    rm -f -- "$plugin_check_tmp"
   fi
   if [[ "$plugin_check_exit" -ne 0 ]]; then
     log_info "wp plugin check exited with status ${plugin_check_exit}; evaluating captured JSON output when available."
@@ -377,7 +378,8 @@ if [[ "$fail_on_findings" == "true" ]]; then
     exit 2
   fi
 
-  OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" python3 - <<'PY'
+  OUT_DIR="$out_dir" PLUGIN_CHECK_AVAILABLE="$plugin_check_available" \
+    PLUGIN_CHECK_EXIT="${plugin_check_exit:-}" python3 - <<'PY'
 import json
 import os
 import re
@@ -487,8 +489,8 @@ if plugin_check.exists():
                 warning_count += warnings
         elif re.fullmatch(r"Success:[^\n]*\n?", raw):
             # No FILE sections and a bare wp-cli success line: the scan ran
-            # and found nothing. Zero findings is a pass, not a parse
-            # failure. Anything else still falls through below.
+            # and found nothing. Only the prefix is matched: the message after
+            # it is translated. The exit code is checked after this block.
             pass
         else:
             # Older wp-cli, or a build that emits a single document.
@@ -520,6 +522,14 @@ if meta_check.exists():
         for value in checks.values():
             if isinstance(value, dict) and value.get("ok") is False:
                 error_count += 1
+
+# Plugin Check exits 0 with findings as well as without, so anything else means
+# the run broke, and a report without errors from it proves nothing.
+if plugin_check_available and error_count == 0 and os.environ.get("PLUGIN_CHECK_EXIT") != "0":
+    parse_errors.append(
+        f"wp plugin check exited with status {os.environ.get('PLUGIN_CHECK_EXIT') or 'unknown'}; "
+        "the report cannot be trusted"
+    )
 
 if parse_errors:
     for message in parse_errors:

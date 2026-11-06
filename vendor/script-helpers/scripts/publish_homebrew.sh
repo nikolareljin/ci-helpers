@@ -104,7 +104,7 @@ tmp_dir="$(mktemp -d)"
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp_dir"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp_dir"; fi' EXIT
 
 # The token must not reach argv (visible in ps) or the tap clone's .git/config.
 # The clone URL therefore carries no credential -- so origin in .git/config
@@ -145,7 +145,7 @@ if [[ "$xtrace_was_on" -eq 1 ]]; then set -x; fi
 git clone "https://github.com/${tap_repo}.git" "$tmp_dir"
 
 mkdir -p "$tmp_dir/$tap_dir"
-cp "$formula_path" "$tmp_dir/$tap_dir/${formula_name}.rb"
+cp -- "$formula_path" "$tmp_dir/$tap_dir/${formula_name}.rb"
 
 cd "$tmp_dir"
 git config user.name "ci-bot"

@@ -7,6 +7,7 @@
 # Usage: http_probe_json URL PATH [TIMEOUT_SECONDS]; prints the response body.
 # Returns 1 when nothing answers, the status is not 2xx, or the body is empty.
 # One request with a short deadline: the service is serving or it is not.
+# Only http:// and https:// URLs are fetched; curl refuses file:// and the rest.
 # Returns: 0 a 2xx response with a non-empty body; 1 missing argument, bad TIMEOUT, no answer, non-2xx status or empty body.
 # Output: stdout the response body on success; stderr an error for bad arguments.
 http_probe_json() {
@@ -16,7 +17,7 @@ http_probe_json() {
   url="${url%/}"
   [[ "$path" == /* ]] || path="/$path"
   local body
-  if ! body="$(curl -fsS --connect-timeout "$timeout" --max-time "$timeout" "$url$path" 2>/dev/null)"; then
+  if ! body="$(curl -fsS --proto =http,https --connect-timeout "$timeout" --max-time "$timeout" "$url$path" 2>/dev/null)"; then
     return 1
   fi
   [[ -n "$body" ]] || return 1
@@ -31,7 +32,8 @@ http_probe_json() {
 # 200 counts only with a JSON body: a single-page app or a captive portal
 # answers every path with 200 and HTML, and that is not a key being accepted.
 # The key reaches curl on stdin as a config line (`-K -`), never in argv,
-# where every other user on the machine could read it with ps.
+# where every other user on the machine could read it with ps. Only http://
+# and https:// URLs are contacted.
 # Returns: 0 key accepted (200 with a JSON content type); 2 the service refused it (401/403); 1 bad arguments, no answer, or any other response.
 # Output: stdout nothing; stderr an error for bad arguments.
 http_check_key() {
@@ -49,7 +51,7 @@ http_check_key() {
   esc="${esc//\"/\\\"}"
   local out code ctype
   out="$(printf 'header = "%s: %s"\n' "$header" "$esc" \
-    | curl -sS -K - -o /dev/null -w '%{http_code} %{content_type}' --connect-timeout 5 --max-time 10 \
+    | curl -sS --proto =http,https -K - -o /dev/null -w '%{http_code} %{content_type}' --connect-timeout 5 --max-time 10 \
       -H 'Accept: application/json' "$url$path" 2>/dev/null)" || return 1
   code="${out%% *}"
   ctype="$(printf '%s' "${out#* }" | tr '[:upper:]' '[:lower:]')"

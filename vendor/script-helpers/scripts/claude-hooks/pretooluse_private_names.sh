@@ -140,9 +140,9 @@ on_exit() {
     echo "The publishing check failed (exit $rc), so this command was NOT checked; refused." >&2
     rc=2
   fi
-  cat "$err_file" >&3 2>/dev/null
+  cat -- "$err_file" >&3 2>/dev/null
   [[ "$rc" -eq 2 ]] && deny_json
-  rm -rf "$work_dir"
+  rm -rf -- "$work_dir"
   exit "$rc"
 }
 # shellcheck disable=SC2154  # _rc is assigned inside the trap string
@@ -544,8 +544,8 @@ if not urls or None in slugs or any("%s/%s" % s not in private or "%s/%s" % s in
     strict()
 print("yes")
 PY
-  [[ "$(cat "${payload_file}.contained" 2>/dev/null)" == yes ]] && contained_private=true
-  rm -f "${payload_file}.contained"
+  [[ "$(cat -- "${payload_file}.contained" 2>/dev/null)" == yes ]] && contained_private=true
+  rm -f -- "${payload_file}.contained"
 fi
 
 # One python pass: is this a publishing command, which repository is it aimed
@@ -863,7 +863,7 @@ else:
     sys.stdout.write("\n".join(walk(ti)))
 ' "$payload_file" > "$cmd_file" 2>/dev/null; then
     # Not readable as a payload: the raw bytes are the text to check.
-    cp "$payload_file" "$cmd_file" 2>/dev/null || { reason="could not copy the payload"; unchecked "Reading the command"; }
+    cp -- "$payload_file" "$cmd_file" 2>/dev/null || { reason="could not copy the payload"; unchecked "Reading the command"; }
     if [[ "$HAVE_PY" != true ]] && grep -qE "$PUBLISH_RE" "$payload_file"; then
       reason="python3 is missing, so the publishing command cannot be parsed"
       unchecked "Parsing the command"
@@ -890,20 +890,20 @@ else:
     }' "$cmd_file" > "$cmd_file.code" || { reason="could not prepare the command text"; unchecked "Reading the command"; }
   tr -d "'\"\\\\" < "$cmd_file.code" > "$cmd_file.codeplain" || { reason="could not prepare the command text"; unchecked "Reading the command"; }
   if grep -qE -- "$OVERRIDE_RE" "$cmd_file.code"; then
-    rm -f "$cmd_file" "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
+    rm -f -- "$cmd_file" "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
     echo "Refusing a command that sets the security gate's own overrides or configuration" >&2
     echo "(SECURITY_GATE_ALLOW_UNCHECKED, *_ALLOW, the owners, the name or terms lists)." >&2
     echo "Only the user sets those, outside the command. Ask them." >&2
     exit 2
   fi
   if grep -qiE -- "$VERB_RE" "$cmd_file.codeplain" && grep -qE -- "$INDIRECT_RE" "$cmd_file.codeplain"; then
-    rm -f "$cmd_file" "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
+    rm -f -- "$cmd_file" "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
     echo "Refusing a command that may publish through eval, xargs, source or a variable as" >&2
     echo "the command: this hook cannot read what it would run. Write the command out plainly." >&2
     exit 2
   fi
-  cat "$cmd_file.plain" >> "$cmd_file"
-  rm -f "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
+  cat -- "$cmd_file.plain" >> "$cmd_file"
+  rm -f -- "$cmd_file.plain" "$cmd_file.code" "$cmd_file.codeplain"
 }
 # names_check <text file> [gate args]: the private-name check. 0: clean.
 # 1: a hit. Else: could not check. reason is set on 1 and above. The
@@ -922,18 +922,18 @@ names_check() {
 if [[ -s "$cmd_file" ]]; then
     if grep -qiE -- '--no-ver|core\.hookspath|GIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS|GLOBAL|SYSTEM|NOSYSTEM)|GIT_CONFIG=|include\.path|includeif\.' "$cmd_file" \
        || grep -qE -- '(^|[^[:alnum:]_-])commit([[:space:]][^;&|]*)?[[:space:]]-[abeiopqsuvz]*n[a-zA-Z]*([[:space:]]|$)' "$cmd_file"; then
-      rm -f "$cmd_file"
+      rm -f -- "$cmd_file"
       echo "Refusing a command that skips or replaces the git hooks (--no-verify, git commit -n," >&2
       echo "a core.hooksPath override, or another git config source). If a hook is wrong, say which one and let the user decide." >&2
       exit 2
     fi
     broad_text="${payload_file}.text"
     # The same text the decision reads: nothing is removed before the scan.
-    cp "$cmd_file" "$broad_text" \
+    cp -- "$cmd_file" "$broad_text" \
       || { reason="could not prepare the command text"; unchecked "Reading the command"; }
     while IFS= read -r f; do
       f="${f#@}"; f="${f#\'}"; f="${f%\'}"; f="${f#\"}"; f="${f%\"}"   # "$(<f)" and "$(cat f)": the ")" and quotes went in sed
-      [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 "$f"; } >> "$broad_text"   # a body is never that large; a log might be
+      [[ -n "$f" && "$f" != "-" && -f "$f" && -r "$f" ]] && { printf '\n'; head -c 2000000 -- "$f"; } >> "$broad_text"   # a body is never that large; a log might be
     done < <(grep -oE -- '(--body-file|--notes-file|--input|--file|-F)[= ]+[^;&|[:space:]]+|@[^;&|[:space:]]+|<[[:space:]]*[^<;&|[:space:]]+|\$\([[:space:]]*cat[[:space:]]+[^;&|)[:space:]]+' "$cmd_file" \
                | sed -E 's/^\$\([[:space:]]*cat[[:space:]]+//; s/^(--body-file|--notes-file|--input|--file|-F)[= ]+//; s/^<[[:space:]]*//; s/^[^=@]*=@?//; s/[)"'"'"']+$//')
     rc=0
@@ -942,9 +942,9 @@ if [[ -s "$cmd_file" ]]; then
       { echo "This command names a private repository, and the destination is public."
         echo; printf '%s\n' "$reason"; echo
         echo "Cite the repository by its code instead. Ask the user before overriding."; } >&2
-      rm -f "$cmd_file" "$broad_text"; exit 2
+      rm -f -- "$cmd_file" "$broad_text"; exit 2
     elif [[ "$rc" -ne 0 ]]; then
-      rm -f "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
+      rm -f -- "$cmd_file" "$broad_text"; unchecked "The private-name check (exit $rc)"
     fi
     if [[ -f "$SENSITIVE" ]]; then
       # The whole command names local paths, so this machine's identifiers
@@ -955,17 +955,17 @@ if [[ -s "$cmd_file" ]]; then
         { echo "This command carries a credential, a personal identifier or PII."
           echo; printf '%s\n' "$reason"; echo
           echo "Remove it. If this is a false positive, ask the user before allowing it."; } >&2
-        rm -f "$cmd_file" "$broad_text"; exit 2
+        rm -f -- "$cmd_file" "$broad_text"; exit 2
       elif [[ "$rc" -ne 0 ]]; then
-        rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check (exit $rc)"
+        rm -f -- "$cmd_file" "$broad_text"; unchecked "The sensitive-data check (exit $rc)"
       fi
     else
       reason="check_sensitive.sh is missing next to this hook"
-      rm -f "$cmd_file" "$broad_text"; unchecked "The sensitive-data check"
+      rm -f -- "$cmd_file" "$broad_text"; unchecked "The sensitive-data check"
     fi
-    rm -f "$broad_text"
+    rm -f -- "$broad_text"
 fi
-rm -f "$cmd_file"
+rm -f -- "$cmd_file"
 
 # Allowed: the whole text passed above, and the parser found nothing it
 # publishes (or python3 is missing and nothing looked like publishing).
@@ -1004,7 +1004,7 @@ gate_args=()
 printf '%s' "$text" > "${payload_file}.parsed"
 rc=0
 names_check "${payload_file}.parsed" ${gate_args[@]+"${gate_args[@]}"} || rc=$?
-rm -f "${payload_file}.parsed"
+rm -f -- "${payload_file}.parsed"
 case "$rc" in
   0) ;;
   1)

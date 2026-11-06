@@ -36,7 +36,7 @@ self_wrapper="$install_dir/hooks/$hook"
 
 stdin_file=""
 stdin_dir=""
-cleanup() { [[ -n "$stdin_dir" ]] && rm -rf "$stdin_dir"; }
+cleanup() { [[ -n "$stdin_dir" ]] && rm -rf -- "$stdin_dir"; }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 case "$hook" in
   pre-push|post-rewrite|reference-transaction|pre-receive|post-receive|proc-receive)
@@ -196,7 +196,7 @@ if [[ "$local_mode" == true ]]; then
     # The machine-wide install of this dispatcher: its checks just ran here, so
     # chain to what it chains to (saved by setup-hooks.sh --global), not to it.
     if [[ -n "$prev" && -f "$prev/../scripts/global-hooks/dispatch.sh" ]]; then
-      prev="$(cat "$prev/../previous-hooksPath" 2>/dev/null || true)"
+      prev="$(cat -- "$prev/../previous-hooksPath" 2>/dev/null || true)"
       [[ "$prev" == "(unset)" ]] && prev=""
     fi
   fi
@@ -215,7 +215,7 @@ if [[ "$local_mode" == true ]]; then
 fi
 previous=""
 if [[ -f "$install_dir/previous-hooksPath" ]]; then
-  previous="$(cat "$install_dir/previous-hooksPath")"
+  previous="$(cat -- "$install_dir/previous-hooksPath")"
   [[ "$previous" == "(unset)" ]] && previous=""
   # shellcheck disable=SC2088  # a literal "~/" saved from git config
   case "$previous" in "~/"*) previous="${HOME:-}/${previous#\~/}" ;; esac

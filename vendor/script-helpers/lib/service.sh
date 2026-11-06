@@ -150,26 +150,26 @@ _svc_running() {
   run="$(_svc_root)/.run"; pidf="$run/$name.pid"; startf="$run/$name.started"
   _SVC_PID=""
   [[ -f "$pidf" ]] || return 1
-  pid="$(head -n 1 "$pidf" 2>/dev/null)"
+  pid="$(head -n 1 -- "$pidf" 2>/dev/null)"
   if ! _svc_is_uint "$pid" || [[ "$pid" -le 1 ]]; then
     log_warn "service: $name: removed stale pidfile (no valid pid in it)"
-    rm -f "$pidf" "$startf"; return 1
+    rm -f -- "$pidf" "$startf"; return 1
   fi
   if ! _svc_group_alive "$pid"; then
     log_warn "service: $name: removed stale pidfile (pid $pid is not running)"
-    rm -f "$pidf" "$startf"; return 1
+    rm -f -- "$pidf" "$startf"; return 1
   fi
   # The leader can exit while its group lives on; then the pid cannot have
   # been reused, so only a live leader needs its fingerprint checked.
   if kill -0 "$pid" 2>/dev/null; then
     if [[ ! -f "$startf" ]]; then
       log_warn "service: $name: removed pidfile for pid $pid with no start record; pid $pid left alone"
-      rm -f "$pidf"; return 1
+      rm -f -- "$pidf"; return 1
     fi
-    want="$(cat "$startf" 2>/dev/null)"; have="$(_svc_fingerprint "$pid")"
+    want="$(cat -- "$startf" 2>/dev/null)"; have="$(_svc_fingerprint "$pid")"
     if [[ "$want" != "$have" ]]; then
       log_warn "service: $name: removed stale pidfile (pid $pid is now another process; left alone)"
-      rm -f "$pidf" "$startf"; return 1
+      rm -f -- "$pidf" "$startf"; return 1
     fi
   fi
   _SVC_PID="$pid"
@@ -316,7 +316,7 @@ _svc_launch() {
   local name="$1" cmd="$2" root run pidf logf how="${_SVC_DETACH:-}"
   root="$(_svc_root)"; run="$root/.run"
   pidf="$run/$name.pid"; logf="$run/$name.log"
-  rm -f "$pidf" "$pidf.tmp" "$run/$name.started"
+  rm -f -- "$pidf" "$pidf.tmp" "$run/$name.started"
   if [[ -z "$how" ]]; then
     if command -v perl >/dev/null 2>&1; then how=perl
     elif command -v setsid >/dev/null 2>&1; then how=setsid
@@ -326,7 +326,7 @@ _svc_launch() {
     fi
   fi
   # shellcheck disable=SC2016
-  local boot='echo $$ >"$1.tmp" && mv -f "$1.tmp" "$1" && exec bash -c "$2"'
+  local boot='echo $$ >"$1.tmp" && mv -f -- "$1.tmp" "$1" && exec bash -c "$2"'
   printf '=== %s start %s ===\n' "$name" "$(date '+%Y-%m-%d %H:%M:%S')" >>"$logf"
   case "$how" in
     perl)
@@ -351,7 +351,7 @@ _svc_launch() {
     log_error "service: $name did not start (no pid after 10s); see .run/$name.log"
     return 1
   fi
-  _svc_fingerprint "$(head -n 1 "$pidf")" >"$run/$name.started"
+  _svc_fingerprint "$(head -n 1 -- "$pidf")" >"$run/$name.started"
   return 0
 }
 
@@ -362,7 +362,7 @@ _svc_any_running() {
   root="$(_svc_root)"
   _svc_parse_procs >/dev/null 2>&1 || return 1
   for name in "${_SVC_NAMES[@]}"; do
-    pid="$(head -n 1 "$root/.run/$name.pid" 2>/dev/null)"
+    pid="$(head -n 1 -- "$root/.run/$name.pid" 2>/dev/null)"
     _svc_is_uint "$pid" && [[ "$pid" -gt 1 ]] && _svc_group_alive "$pid" && return 0
   done
   return 1
@@ -474,7 +474,7 @@ _svc_proc_start_all() {
       _svc_log_tail
       return 1
     fi
-    log_info "service: started $name (pid $(head -n 1 "$root/.run/$name.pid")), log .run/$name.log"
+    log_info "service: started $name (pid $(head -n 1 -- "$root/.run/$name.pid")), log .run/$name.log"
     started=1
   done
   if [[ -n "${SVC_HEALTH_URL:-}" ]]; then
@@ -538,7 +538,7 @@ svc_stop() {
       rc=1
       continue
     fi
-    rm -f "$run/$name.pid" "$run/$name.started"
+    rm -f -- "$run/$name.pid" "$run/$name.started"
     log_info "service: stopped $name"
   done
   return $rc

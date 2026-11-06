@@ -374,7 +374,7 @@ _shlib_docker_install_mac() {
         return 1
       }
       hdiutil detach "$mnt" -quiet || true
-      rm -rf "$mnt" "$(dirname "$dmg")"
+      rm -rf -- "$mnt" "$(dirname "$dmg")"
     fi
   fi
 

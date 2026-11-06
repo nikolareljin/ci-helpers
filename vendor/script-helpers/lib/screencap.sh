@@ -159,17 +159,17 @@ screencap_shot() {
       # exec-out keeps the PNG binary-clean; `adb shell screencap -p` mangles
       # newlines on some devices.
       adb -s "$device" exec-out screencap -p > "$out" 2>/dev/null || {
-        rm -f "$out"; log_error "screencap_shot: capture failed on $device"; return 1
+        rm -f -- "$out"; log_error "screencap_shot: capture failed on $device"; return 1
       }
       ;;
     ios)
       xcrun simctl io "$device" screenshot "$out" >/dev/null 2>&1 || {
-        rm -f "$out"; log_error "screencap_shot: capture failed on $device"; return 1
+        rm -f -- "$out"; log_error "screencap_shot: capture failed on $device"; return 1
       }
       ;;
   esac
 
-  [[ -s "$out" ]] || { rm -f "$out"; log_error "screencap_shot: produced an empty file"; return 1; }
+  [[ -s "$out" ]] || { rm -f -- "$out"; log_error "screencap_shot: produced an empty file"; return 1; }
   log_info "screencap: wrote $out"
   printf '%s\n' "$out"
 }
@@ -225,7 +225,7 @@ screencap_record() {
     ios)     _screencap__record_ios "$device" "$out" "$seconds" || return $? ;;
   esac
 
-  [[ -s "$out" ]] || { rm -f "$out"; log_error "screencap_record: produced an empty file"; return 1; }
+  [[ -s "$out" ]] || { rm -f -- "$out"; log_error "screencap_record: produced an empty file"; return 1; }
   log_info "screencap: wrote $out"
 
   if [[ "$want_gif" -eq 1 ]]; then
@@ -294,7 +294,7 @@ _screencap__record_android() {
   if [[ "$rc" -eq 0 ]]; then
     ffmpeg -y -f concat -safe 0 -i "$list" -c copy "$out" >/dev/null 2>&1 || rc=1
   fi
-  rm -rf "$tmpdir"
+  rm -rf -- "$tmpdir"
   adb -s "$serial" shell rm -f "$remote" >/dev/null 2>&1 || true
   [[ "$rc" -eq 0 ]] || log_error "_screencap__record_android: chunked recording failed on $serial"
   return $rc
@@ -397,7 +397,7 @@ screencap_gif() {
     # BSD mktemp has no --suffix, and ffmpeg's palettegen infers the output
     # format from the extension, so it cannot simply be dropped.
     palette="$(mktemp)" || return 1
-    mv "$palette" "${palette}.png" || return 1
+    mv -- "$palette" "${palette}.png" || return 1
     palette="${palette}.png"
   fi
   ffmpeg -y -i "$video" \
@@ -406,7 +406,7 @@ screencap_gif() {
     ffmpeg -y -i "$video" -i "$palette" \
       -lavfi "fps=$fps,scale=$width:-1:flags=lanczos[x];[x][1:v]paletteuse" "$out" >/dev/null 2>&1 || rc=1
   fi
-  rm -f "$palette"
+  rm -f -- "$palette"
   [[ "$rc" -eq 0 ]] || { log_error "screencap_gif: conversion failed"; return 1; }
   log_info "screencap: wrote $out"
   printf '%s\n' "$out"

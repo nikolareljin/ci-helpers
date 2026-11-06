@@ -19,7 +19,7 @@ shlib_import help logging package_publish
 case "${1:-}" in -h|--help) print_help "${BASH_SOURCE[0]}"; exit 0 ;; esac
 
 tmp_dir="$(mktemp -d)"
-cleanup() { rm -rf "$tmp_dir"; }
+cleanup() { rm -rf -- "$tmp_dir"; }
 # Guarded: a subshell inherits an EXIT trap, and bash runs it there when the
 # subshell is signalled -- so this could tear down the caller's stack, or
 # delete a directory, while the run is still using it. ${BASHPID-$$} rather

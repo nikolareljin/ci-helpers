@@ -344,7 +344,7 @@ dialog_download_file() {
   local tmpfile="${output}.part"
   local errfile
   errfile=$(mktemp "/tmp/$(basename "$0").download_err.XXXXXXXX")
-  rm -f "$tmpfile"
+  rm -f -- "$tmpfile"
 
   # Fetch total size if possible for accurate percent/ETA
   local total_bytes; total_bytes=$(_dialog__fetch_content_length "$url")
@@ -442,8 +442,8 @@ dialog_download_file() {
       kill -9 "$pid" 2>/dev/null || true
     fi
     wait "$pid" 2>/dev/null || true
-    rm -f "$tmpfile"
-    rm -f "$errfile"
+    rm -f -- "$tmpfile"
+    rm -f -- "$errfile"
     return 1
   fi
 
@@ -451,11 +451,11 @@ dialog_download_file() {
   wait "$pid" 2>/dev/null
   local rc=$?
   if (( rc == 0 )); then
-    mv -f "$tmpfile" "$output" 2>/dev/null || { print_error "Failed to finalize download to $output"; return 1; }
-    rm -f "$errfile"
+    mv -f -- "$tmpfile" "$output" 2>/dev/null || { print_error "Failed to finalize download to $output"; return 1; }
+    rm -f -- "$errfile"
     return 0
   else
-    rm -f "$tmpfile"
+    rm -f -- "$tmpfile"
     # Show a dialog error with captured cause
     local err_preview
     if [[ -s "$errfile" ]]; then
@@ -470,7 +470,7 @@ dialog_download_file() {
         --msgbox "Download failed (exit $rc) for:\n$url\n\nDetails:\n$err_preview" \
         "$DIALOG_HEIGHT" "$DIALOG_WIDTH" 2>/dev/null || true
     fi
-    rm -f "$errfile"
+    rm -f -- "$errfile"
     return $rc
   fi
 }

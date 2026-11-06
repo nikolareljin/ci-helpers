@@ -92,7 +92,7 @@ for f in "${lib_files[@]+"${lib_files[@]}"}"; do
   funcs=()
   while IFS= read -r _sh_line; do funcs+=("$_sh_line"); done < <(
     # The whole file: several modules are longer than 2000 lines.
-    cat "$f" \
+    cat -- "$f" \
       | grep -E '^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\)[[:space:]]*\{' \
       | sed -E 's/^[[:space:]]*([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(\).*/\1/' \
       | sort -u
