@@ -450,6 +450,6 @@ https://nikolareljin.github.io/leak-lock/, and instruct the operator to run
 Scan Repository and repository tests locally before pushing. No scanner results,
 counts or report paths are logged.
 
-The Gitleaks action requires Python 3.11 or newer to parse reviewed TOML.
+The Gitleaks action installs Python 3.12 to parse reviewed TOML on every runner.
 Rule `path` filters are supported. External `[extend]` paths are refused so a
 reviewed root configuration cannot load rules from the unreviewed checkout.
