@@ -67,7 +67,7 @@ if [[ "$BRANCH_NAME" =~ ^release/v?([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.?[0-9]+)?$ 
     echo "[check_release_version] $VERSION_FILE not found; aborting." >&2
     exit 1
   fi
-  version_file="$(head -n1 "$VERSION_FILE" | xargs || true)"
+  version_file="$(head -n1 -- "$VERSION_FILE" | xargs || true)"
   if [[ -z "$version_file" ]]; then
     echo "[check_release_version] VERSION is empty; aborting." >&2
     exit 1

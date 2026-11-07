@@ -88,7 +88,7 @@ if [[ ! -f "$output" ]]; then
 fi
 
 if [[ -f "$output" && "$requested_output" != "$output" ]]; then
-  cp "$output" "$requested_output"
+  cp -- "$output" "$requested_output"
 fi
 
 if [[ ! -s "$requested_output" ]]; then

@@ -374,7 +374,7 @@ cloudflare_confirm_environment() {
 # Two separate assertions. Reachability proves something answers. The version
 # assertion proves it is the thing just deployed -- without it a smoke test
 # passes against the previous release, which is the failure it exists to catch.
-# Returns: 0 healthy (and the live version matches when a status path is given); 1 no answer, missing field, or version mismatch; 2 missing base URL, or a status path without an expected version; 3 curl missing.
+# Returns: 0 healthy (and the live version matches when a status path is given); 1 no answer, missing field, or version mismatch; 2 missing base URL, a base URL with a scheme other than http or https, or a status path without an expected version; 3 curl missing.
 # Output: stdout nothing; stderr errors and warnings.
 cloudflare_smoke_test() {
   local base="${1:-}" expected="${2:-}" status_path="${3:-}" field="${4:-version}"
@@ -383,6 +383,17 @@ cloudflare_smoke_test() {
     log_error "cloudflare_smoke_test: base URL required"
     return 2
   fi
+  # Only http and https are contacted. A base URL without a scheme is left to
+  # curl, which reads it as http; --proto below refuses every other scheme.
+  case "$base" in
+    *://*)
+      case "$(printf '%s' "${base%%://*}" | tr '[:upper:]' '[:lower:]')" in
+        http|https) : ;;
+        *) log_error "cloudflare_smoke_test: base URL must be http:// or https:// (got '${base}')"; return 2 ;;
+      esac
+      [[ -n "${base#*://}" ]] || { log_error "cloudflare_smoke_test: base URL has no host (got '${base}')"; return 2; }
+      ;;
+  esac
   command -v curl >/dev/null 2>&1 || { log_error "cloudflare_smoke_test: curl is required"; return 3; }
   base="${base%/}"
 
@@ -400,7 +411,8 @@ cloudflare_smoke_test() {
   fi
   local curl_err=""
   # shellcheck disable=SC2086  # retry_all is one optional flag, assembled here
-  if ! curl_err="$(curl -fsSL --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
+  if ! curl_err="$(curl -fsSL --proto =http,https --proto-redir =http,https \
+      --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
       -o /dev/null "${base}${health}" 2>&1)"; then
     log_error "cloudflare_smoke_test: ${base}${health} did not answer: ${curl_err}"
     return 1
@@ -416,7 +428,8 @@ cloudflare_smoke_test() {
   fi
 
   # shellcheck disable=SC2086  # retry_all is one optional flag, assembled above
-  if ! body="$(curl -fsSL --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
+  if ! body="$(curl -fsSL --proto =http,https --proto-redir =http,https \
+      --retry 5 --retry-delay 5 ${retry_all} --max-time 30 \
       "${base}${status_path}" 2>/dev/null)"; then
     log_error "cloudflare_smoke_test: ${base}${status_path} did not answer."
     return 1

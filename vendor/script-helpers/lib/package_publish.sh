@@ -100,7 +100,7 @@ pkg_build_source_package() {
     # out, including a failed build under `set -e` and an INT or TERM.
     local pass_file rc=0 sig="" old_int old_term
     pass_file="$(_pkg__pass_file)" || return 1
-    printf '%s' "${PPA_GPG_PASSPHRASE}" > "$pass_file" || { rm -f "$pass_file"; return 1; }
+    printf '%s' "${PPA_GPG_PASSPHRASE}" > "$pass_file" || { rm -f -- "$pass_file"; return 1; }
 
     # Any trap the caller had is saved and put back afterwards. The handler
     # removes the file at once and remembers the signal; it is re-delivered
@@ -114,7 +114,7 @@ pkg_build_source_package() {
     else
       rc=$?
     fi
-    rm -f "$pass_file"
+    rm -f -- "$pass_file"
 
     if [[ -n "$old_int" ]]; then eval "$old_int"; else trap - INT; fi
     if [[ -n "$old_term" ]]; then eval "$old_term"; else trap - TERM; fi
@@ -142,16 +142,16 @@ _pkg__pass_file() {
   f="$(mktemp 2>/dev/null)" || f=""
   case "$f" in
     ""|*[!A-Za-z0-9/._+-]*)
-      [[ -n "$f" ]] && rm -f "$f"
+      [[ -n "$f" ]] && rm -f -- "$f"
       f="$(mktemp /tmp/pkg-pass.XXXXXX 2>/dev/null)" || f=""
       case "$f" in
         ""|*[!A-Za-z0-9/._+-]*)
-          [[ -n "$f" ]] && rm -f "$f"
+          [[ -n "$f" ]] && rm -f -- "$f"
           _pkg_log_error "Could not create a passphrase file at a path the sign command can use (TMPDIR='${TMPDIR:-}')"
           return 1 ;;
       esac ;;
   esac
-  chmod 600 "$f" || { rm -f "$f"; return 1; }
+  chmod 600 "$f" || { rm -f -- "$f"; return 1; }
   printf '%s\n' "$f"
 }
 

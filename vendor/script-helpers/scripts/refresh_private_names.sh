@@ -101,7 +101,7 @@ NEVER_AMBIGUOUS_FILE="${PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE:-${XDG_CONFIG_HOME:-$
 NEVER_AMBIGUOUS="${PRIVATE_NAMES_NEVER_AMBIGUOUS:-}"
 if [[ -f "$NEVER_AMBIGUOUS_FILE" ]]; then
   NEVER_AMBIGUOUS="${NEVER_AMBIGUOUS}
-$(cat "$NEVER_AMBIGUOUS_FILE")"
+$(cat -- "$NEVER_AMBIGUOUS_FILE")"
 fi
 
 # need_value <opt> [value]: exit 2 (bad arguments) when the option has no value.
@@ -185,6 +185,22 @@ if [[ -z "$OWNERS" ]]; then
   log_error "  or set PRIVATE_NAMES_OWNERS=\"a,b\""
   exit 2
 fi
+# Each owner becomes a file name under the cache directory, which is replaced
+# and removed. A GitHub login is ASCII letters, digits and hyphens, plus "_"
+# in an Enterprise Managed User login; anything else (`--owner ../x`) would
+# write outside the cache. LC_ALL=C keeps the ranges to ASCII.
+owner_is_login() {
+  local LC_ALL=C
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
+}
+while IFS= read -r _owner; do
+  _owner="$(printf '%s' "$_owner" | tr -d '[:space:]')"
+  [[ -z "$_owner" ]] && continue
+  owner_is_login "$_owner" && continue
+  log_error "'${_owner}' is not a GitHub user or organization name."
+  exit 2
+done < <(printf '%s\n' "$OWNERS" | tr ',' '\n')
+unset _owner
 [[ -n "$SELF_LOGIN" ]] || SELF_LOGIN="$(gh api user -q .login 2>/dev/null || true)"
 
 tmp="$(mktemp)"
@@ -194,7 +210,7 @@ tmp="$(mktemp)"
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$tmp" "$tmp.body" "$tmp.raw" "${staged:-}"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp" "$tmp.body" "$tmp.raw" "${staged:-}"; fi' EXIT
 
 # One namespace per line, so several can be given. Each is fetched separately because
 # `gh repo list` takes one owner; the rows carry their namespace, which is what lets one
@@ -283,13 +299,13 @@ while IFS= read -r one; do
       _fetch_repo_list "$one" > "$cache.new" || fetch_rc=$?
     fi
     if [[ "$fetch_rc" -ne 0 ]]; then
-      rm -f "$cache.new"
+      rm -f -- "$cache.new"
       log_error "listing $one failed part-way (exit $fetch_rc); the cache was left alone."
       log_error "A partial list would drop names silently, so nothing was written."
       exit 3
     fi
     if [[ ! -s "$cache.new" ]]; then
-      rm -f "$cache.new"
+      rm -f -- "$cache.new"
       # Nothing came back. If the organization says it HAS repositories, this
       # token cannot see them -- SSO authorisation, most often -- and that is a
       # hole in the gate rather than an empty account. Loud either way, but a
@@ -310,7 +326,7 @@ while IFS= read -r one; do
       continue
     fi
     chmod 600 "$cache.new" 2>/dev/null || true
-    mv -f "$cache.new" "$cache"
+    mv -f -- "$cache.new" "$cache"
     fetched=$((fetched + 1))
   fi
 
@@ -337,8 +353,6 @@ if [[ "$assembled" -eq 0 ]]; then
   exit 3
 fi
 log_info "assembled from ${assembled} owner cache(s)"
-$owner_list
-EOF
 
 if [[ ! -s "$tmp.raw" ]]; then
   log_error "no namespace produced any repositories"
@@ -472,11 +486,11 @@ fi
   echo "# private-names v1 -- generated, never commit this to a public repository"
   echo "# generated: $(date -u +%Y-%m-%d) source: ${OWNERS}"
   printf '# visibility\tnamespace\tname\tcode\tflags\n'
-  cat "$tmp.body"
+  cat -- "$tmp.body"
 } > "$tmp"
 
 if [[ "$TO_STDOUT" == true ]]; then
-  cat "$tmp"
+  cat -- "$tmp"
   exit 0
 fi
 
@@ -540,9 +554,9 @@ staged="$(mktemp "${OUT}.XXXXXX")" || {
   log_error "could not create a temporary file beside $OUT"
   exit 2
 }
-cat "$tmp" > "$staged"
+cat -- "$tmp" > "$staged"
 chmod 600 "$staged"
-mv -f "$staged" "$OUT"
+mv -f -- "$staged" "$OUT"
 log_info "wrote $OUT: $private_count private, $public_count public"
 [[ -n "${ambiguous// /}" ]] && log_info "ambiguous, matched as whole tokens only: ${ambiguous% }"
 exit 0

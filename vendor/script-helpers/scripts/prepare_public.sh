@@ -61,7 +61,7 @@ say()  { echo "$TAG $*" >&2; }
 SCRATCH=()
 # Not through $(...): a subshell would record the directory and forget it.
 scratch() { SCRATCH_DIR="$(mktemp -d)"; SCRATCH+=("$SCRATCH_DIR"); }
-cleanup() { [[ ${#SCRATCH[@]} -eq 0 ]] || rm -rf "${SCRATCH[@]}"; }
+cleanup() { [[ ${#SCRATCH[@]} -eq 0 ]] || rm -rf -- "${SCRATCH[@]}"; }
 # Guarded: a subshell inherits the trap and must not delete the owner's scratch.
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
@@ -179,7 +179,7 @@ audit_repo() {
       if (m ~ /^\++$/) { print commit " " f ":" ln "\t" substr($0, np + 1); ln++ }
       else if (m !~ /-/) ln++
     }' "$t/log" >> "$t/units" 2> "$t/parse-errors" \
-    || { say "could not parse the history of $g:"; head -3 "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
+    || { say "could not parse the history of $g:"; head -3 -- "$t/parse-errors" | sed 's/^/    /' >&2; return 2; }
   # File names, which a line-based scan of contents never sees.
   git -C "$g" -c core.quotePath=false log --all --format='%x01%H' --name-only --no-renames \
     | awk -v sep="$(printf '\001')" 'index($0, sep) == 1 { c = substr($0, 2); next } NF { print c " path\t" $0 }' >> "$t/units" \
@@ -206,7 +206,7 @@ audit_repo() {
     | sed -E 's/^.*<(.{1,3})[^@]*@([^>]*)>$/sensitive\t- identity\tan email at a machine-local domain (\1***@\2)/' >> "$t/hits.tsv" || true
   # A NUL byte, or an encoding error outside the C locale, makes grep call the
   # whole input binary and match nothing in it: the check would pass blind.
-  { tr -d '\000' < "$t/units" > "$t/units.c" && mv "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
+  { tr -d '\000' < "$t/units" > "$t/units.c" && mv -- "$t/units.c" "$t/units"; } || { say "could not prepare the text"; return 2; }
   # A binary file version (a PDF, an image, an archive) can carry a name in its
   # text: its printable strings go to the name check. One larger than the limit
   # is not read, and the result is then incomplete.
@@ -482,11 +482,11 @@ case "$CMD" in
     printf 'source=%s\nself=%s\n' "$SOURCE" "$SELF" > "$WORK/$MARKER"
     say "mirror clone of $SOURCE"
     git clone -q --mirror --no-hardlinks -- "$SOURCE" "$WORK/source.git" \
-      || { rm -rf "$WORK"; die "could not clone $SOURCE"; }
+      || { rm -rf -- "$WORK"; die "could not clone $SOURCE"; }
     # The mirror must not be able to reach the source again: no remote.
     git -C "$WORK/source.git" remote remove origin 2>/dev/null || true
     stamp="$(date -u +%Y%m%d-%H%M%S)"
-    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || { rm -rf "$WORK"; die "could not archive the mirror"; }
+    tar -czf "$WORK/source-$stamp.tar.gz" -C "$WORK" source.git || { rm -rf -- "$WORK"; die "could not archive the mirror"; }
     say "archived: $WORK/source-$stamp.tar.gz"
     rc=0; audit_repo "$WORK/source.git" "$WORK/report" head || rc=$?
     [[ $rc -eq 0 ]] || say "next: write a plan (plan-example), then clean --work $WORK --plan <file>"
@@ -495,7 +495,7 @@ case "$CMD" in
   clean)
     require_work
     # verify accepts public.git only from a clean that finished.
-    rm -f "$WORK/$MARKER.clean"
+    rm -f -- "$WORK/$MARKER.clean"
     [[ -n "$PLAN" && -f "$PLAN" ]] || die "--plan <file> is required"
     git filter-repo --version >/dev/null 2>&1 \
       || die "git filter-repo is not installed (https://github.com/newren/git-filter-repo)"
@@ -528,7 +528,7 @@ case "$CMD" in
     [[ -s "$t/refs" ]] || die "the plan names no ref to keep (ref <pattern>)"
 
     pub="$WORK/public.git"
-    rm -rf "$pub"
+    rm -rf -- "$pub"
     git clone -q --mirror --no-hardlinks "$WORK/source.git" "$pub" || die "could not copy the mirror"
     git -C "$pub" remote remove origin 2>/dev/null || true
     kept=0
@@ -552,7 +552,7 @@ case "$CMD" in
     while IFS= read -r r; do args+=(--path-rename "$r"); done < "$t/rename"
     [[ -s "$t/replace" ]] && args+=(--replace-text "$t/replace" --replace-message "$t/replace")
     [[ -s "$t/mailmap" ]] && args+=(--mailmap "$t/mailmap")
-    cp "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
+    cp -- "$pub/filter-repo/commit-map" "$t/map1" 2>/dev/null || true
     git -C "$pub" filter-repo "${args[@]}" || die "git filter-repo failed"
     git -C "$pub" remote remove origin 2>/dev/null || true
     # A plan that drops every file leaves no commit, so no ref: nothing to copy.

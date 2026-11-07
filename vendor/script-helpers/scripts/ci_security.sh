@@ -138,7 +138,7 @@ _sec_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci_security.XXXXXX" 2>/dev/null)" && [[ -
 }
 chmod 700 "$_sec_tmp" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$_sec_tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$_sec_tmp"; fi' EXIT
 
 # Resolve images: --*-image overrides take precedence over --*-version defaults.
 if [[ -n "$PY_IMAGE_OVERRIDE" ]]; then
@@ -297,10 +297,10 @@ run_foxguard() {
     0) log_info "foxguard: no findings." ;;
     1) n="$(grep -o '"total": *[0-9]*' "$out" | tail -1 | grep -o '[0-9]*$' || true)"
        log_warn "foxguard: $n finding(s), reported, not counted: no foxguard config ($FOXGUARD_CONFIG_NAMES) in this repository. See them: (cd $dir && $bin .). A .foxguard.yml that disables noisy rules or sets a baseline makes them count." ;;
-    *) cat "$out.err" >&2
+    *) cat -- "$out.err" >&2
        log_warn "foxguard: could not scan (exit $rc); not counted without a foxguard config." ;;
   esac
-  rm -f "$out" "$out.err" "$out.cfg"
+  rm -f -- "$out" "$out.err" "$out.cfg"
 }
 
 declare -a GITLEAKS_ARGS=()

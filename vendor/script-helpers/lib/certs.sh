@@ -35,7 +35,7 @@ add_cert_to_trust_store() {
       if command -v update-ca-certificates >/dev/null 2>&1; then
         local dest="/usr/local/share/ca-certificates/${friendly_name}.crt"
         print_info "Installing cert to $dest (requires sudo)"
-        run_with_optional_sudo true cp "$cert_file" "$dest"
+        run_with_optional_sudo true cp -- "$cert_file" "$dest"
         run_with_optional_sudo true chmod 644 "$dest"
         run_with_optional_sudo true update-ca-certificates
         return $?
@@ -43,7 +43,7 @@ add_cert_to_trust_store() {
       if command -v update-ca-trust >/dev/null 2>&1; then
         local dest2="/etc/pki/ca-trust/source/anchors/${friendly_name}.crt"
         print_info "Installing cert to $dest2 (requires sudo)"
-        run_with_optional_sudo true cp "$cert_file" "$dest2"
+        run_with_optional_sudo true cp -- "$cert_file" "$dest2"
         run_with_optional_sudo true chmod 644 "$dest2"
         run_with_optional_sudo true update-ca-trust extract
         return $?

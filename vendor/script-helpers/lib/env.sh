@@ -274,7 +274,7 @@ env_set_value() {
     $0 ~ pat { if (!seen) print line; seen = 1; next }
     { print }
     END { if (!seen) print line }
-  ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
-  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
-  rm -f "$tmp"
+  ' "$file" >"$tmp" || { rm -f -- "$tmp"; return 1; }
+  cat -- "$tmp" >"$file" || { rm -f -- "$tmp"; return 1; }
+  rm -f -- "$tmp"
 }

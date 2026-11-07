@@ -537,7 +537,7 @@ adb_wireless_write_env() {
     /^[[:space:]]*DEV_DEVICE=/ { print "DEV_DEVICE=" addr; seen=1; next }
     { print }
     END { if (!seen) print "DEV_DEVICE=" addr }
-  ' "$file" >"$tmp" || { rm -f "$tmp"; return 1; }
+  ' "$file" >"$tmp" || { rm -f -- "$tmp"; return 1; }
 
   # Rewrite in place rather than `mv`, matching lib/changelog.sh and
   # lib/manifest.sh.
@@ -548,8 +548,8 @@ adb_wireless_write_env() {
   # real target keeps its old contents, so the write appears to succeed and
   # changes nothing anyone reads. `cat >` follows the link. It also keeps the
   # inode, and with it ownership, ACLs and any open handles.
-  cat "$tmp" >"$file" || { rm -f "$tmp"; return 1; }
-  rm -f "$tmp"
+  cat -- "$tmp" >"$file" || { rm -f -- "$tmp"; return 1; }
+  rm -f -- "$tmp"
   return 0
 }
 

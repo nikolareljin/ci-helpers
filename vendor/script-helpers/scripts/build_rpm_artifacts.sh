@@ -108,17 +108,17 @@ else
     "${excludes[@]}" \
     --transform "s,^,${APP_NAME:-app}-${APP_VERSION}/," \
     .; then
-    rm -f "$tmp_tar"
+    rm -f -- "$tmp_tar"
     exit 1
   fi
-  mv "$tmp_tar" "$source_path"
+  mv -- "$tmp_tar" "$source_path"
 fi
 
-cp "$spec_path" "$build_root/SPECS/"
+cp -- "$spec_path" "$build_root/SPECS/"
 
 rpmbuild -ba "$build_root/SPECS/$(basename "$spec_path")" \
   --define "_topdir $build_root" \
   --define "_sourcedir $build_root/SOURCES"
 
 mkdir -p "$artifact_dir"
-find "$build_root/RPMS" -type f -name "*.rpm" -exec cp -v {} "$artifact_dir" \;
+find "$build_root/RPMS" -type f -name "*.rpm" -exec cp -v -- {} "$artifact_dir" \;

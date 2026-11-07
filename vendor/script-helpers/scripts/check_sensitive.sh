@@ -131,7 +131,7 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/check_sensitive.XXXXXX" 2>/dev/null)" && [[ -n
   exit 2
 }
 chmod 700 "$tmp" 2>/dev/null || true
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; fi' EXIT
 
 # ---------------------------------------------------------------- public IP
 if [[ "$REFRESH_IP" == true ]]; then
@@ -144,7 +144,7 @@ if [[ "$REFRESH_IP" == true ]]; then
     grep -qxF "$ip" "$tmp/ip" || printf '%s\n' "$ip" >> "$tmp/ip"
   done
   [[ -s "$tmp/ip" ]] || { echo "$TAG could not fetch the public IP; cache unchanged" >&2; exit 2; }
-  (umask 077; cp "$tmp/ip" "$PUBLIC_IP_CACHE") || exit 2
+  (umask 077; cp -- "$tmp/ip" "$PUBLIC_IP_CACHE") || exit 2
   chmod 600 "$PUBLIC_IP_CACHE" 2>/dev/null
   echo "$TAG cached $(wc -l < "$tmp/ip" | tr -d ' ') public address(es) in $PUBLIC_IP_CACHE"
   exit 0
@@ -171,7 +171,7 @@ skip_value() {
 # machine_ids: "description<TAB>value", one per identifier of this machine.
 machine_ids() {
   if [[ -n "${SENSITIVE_MACHINE_IDS_FILE:-}" ]]; then
-    cat "$SENSITIVE_MACHINE_IDS_FILE" 2>/dev/null || { echo "$TAG cannot read $SENSITIVE_MACHINE_IDS_FILE" >&2; return 2; }
+    cat -- "$SENSITIVE_MACHINE_IDS_FILE" 2>/dev/null || { echo "$TAG cannot read $SENSITIVE_MACHINE_IDS_FILE" >&2; return 2; }
     return 0
   fi
   local ifc fam addr mac gw h short
@@ -354,7 +354,7 @@ add_revs() {
   log="$tmp/log.$RANDOM"; msgs="$tmp/msgs.$RANDOM"
   # shellcheck disable=SC2086  # revs is a list of git log arguments
   if ! git -C "$TOP" log -p --cc -M -U0 --no-color --no-ext-diff --format='%x01%h' $revs > "$log" 2>"$log.err"; then
-    echo "$TAG git could not read $revs: $(head -1 "$log.err")" >&2
+    echo "$TAG git could not read $revs: $(head -1 -- "$log.err")" >&2
     unchecked=1
     return 0
   fi
@@ -435,7 +435,7 @@ esac
 
 # A NUL byte or invalid UTF-8 makes grep call the whole file binary and print
 # nothing for it, which would drop every line. Strip NULs, read bytes as bytes.
-{ tr -d '\000' < "$units" > "$units.c" && mv "$units.c" "$units"; } || { echo "$TAG could not prepare the text to check" >&2; exit 2; }
+{ tr -d '\000' < "$units" > "$units.c" && mv -- "$units.c" "$units"; } || { echo "$TAG could not prepare the text to check" >&2; exit 2; }
 
 # ---------------------------------------------------------------- allows
 # Inline marker: the line is dropped, and said so.
@@ -449,7 +449,7 @@ elif [[ "${allowed_inline:-0}" -gt 0 ]]; then
   # grep -v exits 1 when every line was allowed; 2 is an error.
   rc=0; grep -av 'sensitive:allow' "$units" > "$units.kept" || rc=$?
   [[ "$rc" -le 1 ]] || { echo "$TAG could not apply the inline allows" >&2; exit 2; }
-  mv "$units.kept" "$units" || exit 2
+  mv -- "$units.kept" "$units" || exit 2
 fi
 
 allow_list="$tmp/allow"
@@ -510,7 +510,7 @@ run_gitleaks() {
       printf 'gitdir: %s\n' "$(git -C "$TOP" rev-parse --absolute-git-dir)" > "$src/.git"
       local common
       common="$(git -C "$TOP" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || git -C "$TOP" rev-parse --git-common-dir)"
-      [[ -f "$common/gitleaksignore" ]] && cp "$common/gitleaksignore" "$src/.gitleaksignore"
+      [[ -f "$common/gitleaksignore" ]] && cp -- "$common/gitleaksignore" "$src/.gitleaksignore"
     fi
   fi
   [[ "$kind" == file && "$target" != /* ]] && target="$PWD/$target"

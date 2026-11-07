@@ -244,7 +244,7 @@ _ollama_prepare_models_index_work() {
   # it used to leave a stray .tmp behind and still report success.
   if ! jq -S 'if type == "array" then sort_by(.name) else .models |= sort_by(.name) end' \
       "$json_path" >"$json_path.tmp"; then
-    rm -f "$json_path.tmp"
+    rm -f -- "$json_path.tmp"
     print_error "Failed to sort models index: $json_path"
     return 1
   fi
@@ -252,9 +252,9 @@ _ollama_prepare_models_index_work() {
   # the index is newer than it, and an index rewritten on every call was
   # always newer: the cache was never reused.
   if cmp -s "$json_path.tmp" "$json_path"; then
-    rm -f "$json_path.tmp"
+    rm -f -- "$json_path.tmp"
   else
-    mv "$json_path.tmp" "$json_path" || { rm -f "$json_path.tmp"; return 1; }
+    mv -- "$json_path.tmp" "$json_path" || { rm -f -- "$json_path.tmp"; return 1; }
   fi
 }
 
@@ -457,7 +457,7 @@ ollama_prepare_model_menu_cache() {
       ]
     | join("\u001f")
   ' "$json_file")" || {
-    rm -f "$tmp_file"
+    rm -f -- "$tmp_file"
     return 1
   }
 
@@ -483,19 +483,19 @@ ollama_prepare_model_menu_cache() {
       count=$((count + 1))
     done <<<"$rows"
   } >"$tmp_file" || {
-    rm -f "$tmp_file"
+    rm -f -- "$tmp_file"
     return 1
   }
 
   if [[ "$count" -eq 0 ]]; then
-    rm -f "$tmp_file"
+    rm -f -- "$tmp_file"
     print_error "Generated empty Ollama model menu cache: $cache_file" >&2
     return 1
   fi
 
-  if ! mv "$tmp_file" "$cache_file"; then
+  if ! mv -- "$tmp_file" "$cache_file"; then
     print_error "Failed to move temporary Ollama model menu cache '$tmp_file' to '$cache_file'" >&2
-    rm -f "$tmp_file"
+    rm -f -- "$tmp_file"
     return 1
   fi
 
@@ -1060,7 +1060,7 @@ PY
         fi
         wait "$pid" >/dev/null 2>&1 || true
       fi
-      rm -f "$log_file"
+      rm -f -- "$log_file"
     }
 
     # The command below runs in the background, and a background job inherits this
@@ -1272,7 +1272,7 @@ ollama_runtime_export_model() {
     container="$(ollama_runtime_container_name "$env_file")"
     print_info "Exporting ${model_ref} from Docker to ${output_path}"
     if ! docker exec "$container" ollama export "$model_ref" > "$output_path"; then
-      rm -f "$output_path"
+      rm -f -- "$output_path"
       return 1
     fi
     return 0
@@ -1280,7 +1280,7 @@ ollama_runtime_export_model() {
 
   print_info "Exporting ${model_ref} locally to ${output_path}"
   if ! ollama_runtime_local_cmd "$env_file" export "$model_ref" > "$output_path"; then
-    rm -f "$output_path"
+    rm -f -- "$output_path"
     return 1
   fi
   return 0
@@ -1428,15 +1428,15 @@ ollama_update_env() {
     if ! _OLLAMA_ENV_KEY="$key" _OLLAMA_ENV_VALUE="$value" \
         awk 'BEGIN{FS=OFS="="; k=ENVIRON["_OLLAMA_ENV_KEY"]; v=ENVIRON["_OLLAMA_ENV_VALUE"]} $1==k{$0=k"="v} {print}' \
         "$env_file" >"$tmp"; then
-      rm -f "$tmp"
+      rm -f -- "$tmp"
       return 1
     fi
     # Written back through the path rather than mv'd over it, as hub_write_env
     # does: mv replaced a symlinked .env with a regular file, and copying the
     # mode read off the link made that file 0777. `cat >` follows the link and
     # keeps the inode, so the link, the target and its mode all stay.
-    cat "$tmp" >"$env_file" || { rm -f "$tmp"; return 1; }
-    rm -f "$tmp"
+    cat -- "$tmp" >"$env_file" || { rm -f -- "$tmp"; return 1; }
+    rm -f -- "$tmp"
   else
     printf "%s=%s\n" "$key" "$value" >>"$env_file"
   fi

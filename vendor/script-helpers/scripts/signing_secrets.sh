@@ -237,7 +237,7 @@ cleanup() {
   if [[ -d "$work/gnupg" ]]; then
     gpgconf --homedir "$work/gnupg" --kill gpg-agent >/dev/null 2>&1 || true
   fi
-  rm -rf "$work"
+  rm -rf -- "$work"
 }
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
 trap 'exit 130' INT
@@ -275,7 +275,7 @@ p12() { openssl pkcs12 -in "$p12_in" -passin "file:$p12_pw" ${p12_legacy:+"$p12_
 pkcs12_open() {
   local opt="$3" pwname="$2" err="$work/p12.err"
   p12_in="$1" p12_pw="$work/$2" p12_legacy=""
-  if [[ "$(cat "$p12_pw"; echo x)" == *$'\n'* ]]; then
+  if [[ "$(cat -- "$p12_pw"; echo x)" == *$'\n'* ]]; then
     log_error "$pwname contains a newline; openssl cannot read it"
     exit 2
   fi
@@ -290,7 +290,7 @@ pkcs12_open() {
       exit 2
     fi
     if ! grep -qi 'unsupported' "$err"; then
-      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 -- "$err")"
       exit 2
     fi
     p12_legacy="-legacy"
@@ -298,7 +298,7 @@ pkcs12_open() {
       if grep -qi 'mac verify' "$err"; then
         log_error "$opt does not open: wrong $pwname"
       else
-        log_error "$opt uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 "$err")"
+        log_error "$opt uses a legacy algorithm (RC2/3DES) and the OpenSSL legacy provider is not available: $(grep -i -m 1 -E 'unsupported|provider|legacy' "$err" || head -n 1 -- "$err")"
       fi
       exit 2
     fi
@@ -309,7 +309,7 @@ pkcs12_open() {
     if grep -qi -E 'mac verify|bad decrypt|wrong password' "$err"; then
       log_error "$opt does not open: wrong $pwname"
     else
-      log_error "openssl cannot read $opt: $(head -n 1 "$err")"
+      log_error "openssl cannot read $opt: $(head -n 1 -- "$err")"
     fi
     exit 2
   }
@@ -444,7 +444,7 @@ if has_group gpg; then
   printf '%s' "$gpg_key" > "$work/GPG_KEY_ID"
   if [[ -n "$lp_ssh_key" ]]; then
     [[ -s "$lp_ssh_key" && -r "$lp_ssh_key" ]] || { log_error "--launchpad-ssh-key $lp_ssh_key is missing, empty or unreadable"; exit 2; }
-    cp "$lp_ssh_key" "$work/LAUNCHPAD_SSH_PRIVATE_KEY"
+    cp -- "$lp_ssh_key" "$work/LAUNCHPAD_SSH_PRIVATE_KEY"
   fi
 fi
 
@@ -482,7 +482,7 @@ if has_group windows; then
     [[ -s "$windows_pw_file" && -r "$windows_pw_file" ]] || { log_error "--windows-password-file is missing, empty or unreadable"; exit 2; }
     # One trailing line end (LF or CRLF), as an editor writes it, is not
     # part of the password.
-    WINDOWS_CERTIFICATE_PASSWORD="$(cat "$windows_pw_file"; echo x)"
+    WINDOWS_CERTIFICATE_PASSWORD="$(cat -- "$windows_pw_file"; echo x)"
     WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%x}"
     if [[ "$WINDOWS_CERTIFICATE_PASSWORD" == *$'\n' ]]; then
       WINDOWS_CERTIFICATE_PASSWORD="${WINDOWS_CERTIFICATE_PASSWORD%$'\n'}"

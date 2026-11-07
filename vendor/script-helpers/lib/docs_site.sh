@@ -179,7 +179,7 @@ docs_site_stray_files() {
 # plugins: list is given without it.
 _docs_site__wants_search() {
   local cfg
-  cfg="$(cat "$1"/mkdocs.y*ml 2>/dev/null)" || return 0
+  cfg="$(cat -- "$1"/mkdocs.y*ml 2>/dev/null)" || return 0
   grep -q '^plugins:' <<<"$cfg" || return 0
   grep -qE '^[[:space:]]*-[[:space:]]*search([[:space:]:]|$)' <<<"$cfg"
 }
@@ -219,7 +219,7 @@ docs_site_check() {
   if [[ "$rc" -eq 0 ]]; then
     log_info "docs_site: site builds clean, every link answers ($(find "$out" -type f | wc -l | tr -d ' ') files)"
   fi
-  [[ "$gen" != "mkdocs" ]] || rm -rf "$out"
+  [[ "$gen" != "mkdocs" ]] || rm -rf -- "$out"
   return "$rc"
 }
 

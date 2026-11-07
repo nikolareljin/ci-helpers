@@ -52,7 +52,7 @@ mkdir -p "$repo_dir/packaging"
 
 if [[ ! -f "$config_path" ]]; then
   if [[ -f "$template_dir/packaging.env" ]]; then
-    cp "$template_dir/packaging.env" "$config_path"
+    cp -- "$template_dir/packaging.env" "$config_path"
     log_info "Created packaging metadata: $config_path"
     log_info "Edit it, then rerun packaging_init.sh to render templates."
     if $init_only; then

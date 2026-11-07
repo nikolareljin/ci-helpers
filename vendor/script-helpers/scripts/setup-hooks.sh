@@ -281,7 +281,7 @@ for _c in python3 python; do
 done
 
 version_stamp() {
-  printf '%s %s\n' "$(git -C "$src_root" describe --tags --always 2>/dev/null || cat "$src_root/VERSION" 2>/dev/null || echo unknown)" "$(date -u +%Y-%m-%d)"
+  printf '%s %s\n' "$(git -C "$src_root" describe --tags --always 2>/dev/null || cat -- "$src_root/VERSION" 2>/dev/null || echo unknown)" "$(date -u +%Y-%m-%d)"
 }
 
 # stage_and_swap <dest> <stage>: move the staged scripts/, lib/, hooks/ (when
@@ -289,14 +289,14 @@ version_stamp() {
 # install must never be what runs.
 stage_and_swap() {
   local dest="$1" stage="$2" name
-  rm -rf "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
+  rm -rf -- "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
   for name in scripts hooks lib config; do
     [[ -e "$stage/$name" ]] || continue
-    [[ -e "$dest/$name" ]] && mv "$dest/$name" "$dest/$name.old"
-    mv "$stage/$name" "$dest/$name"
+    [[ -e "$dest/$name" ]] && mv -- "$dest/$name" "$dest/$name.old"
+    mv -- "$stage/$name" "$dest/$name"
   done
-  mv -f "$stage/helpers.sh" "$dest/helpers.sh"; mv -f "$stage/VERSION" "$dest/VERSION"
-  rm -rf "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
+  mv -f -- "$stage/helpers.sh" "$dest/helpers.sh"; mv -f -- "$stage/VERSION" "$dest/VERSION"
+  rm -rf -- "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
 }
 
 # stage_common <dest>: a new stage directory with helpers.sh, lib/ and the check
@@ -306,13 +306,13 @@ stage_common() {
   mkdir -p "$1" || return 1
   stage="$(mktemp -d "$1/.stage.XXXXXX")" || return 1
   mkdir -p "$stage/scripts" || return 1
-  cp "$src_root/helpers.sh" "$stage/" && cp -R "$src_root/lib" "$stage/lib" || { rm -rf "$stage"; return 1; }
+  cp -- "$src_root/helpers.sh" "$stage/" && cp -R -- "$src_root/lib" "$stage/lib" || { rm -rf -- "$stage"; return 1; }
   # The default allow list check_private_names.sh seeds a machine's list from.
   if [[ -f "$src_root/config/private-names-allow" ]]; then
-    mkdir -p "$stage/config" && cp "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf "$stage"; return 1; }
+    mkdir -p "$stage/config" && cp -- "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf -- "$stage"; return 1; }
   fi
   for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh foxguard_report.sh; do
-    cp "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf "$stage"; return 1; }
+    cp -- "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf -- "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
   printf '%s\n' "$stage"
@@ -463,8 +463,8 @@ show_global_status() {
   cur="$(git config --global --get core.hooksPath 2>/dev/null || true)"
   echo "[setup-hooks] global core.hooksPath: ${cur:-(unset)}"
   if [[ -n "$cur" && "$cur" == "$global_hooks" ]]; then
-    echo "[setup-hooks] global hooks: installed at $global_dir ($(cat "$global_dir/VERSION" 2>/dev/null || echo unknown version))"
-    echo "[setup-hooks] previous global value: $(cat "$backup_file" 2>/dev/null || echo '(none saved)')"
+    echo "[setup-hooks] global hooks: installed at $global_dir ($(cat -- "$global_dir/VERSION" 2>/dev/null || echo unknown version))"
+    echo "[setup-hooks] previous global value: $(cat -- "$backup_file" 2>/dev/null || echo '(none saved)')"
   else
     echo "[setup-hooks] global hooks: not active"
   fi
@@ -534,9 +534,9 @@ copy_agent_hooks() {
   local home="$1" stage
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
   mkdir -p "$stage/scripts/claude-hooks" "$stage/scripts/agent-hooks" \
-    && cp "$src_root/$HOOK_REL" "$stage/$HOOK_REL" && cp "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
-    && cp "$src_root/$AGENT_HOOK_REL" "$stage/$AGENT_HOOK_REL" && cp "$src_root/$AGENT_MERGE_REL" "$stage/$AGENT_MERGE_REL" \
-    || { rm -rf "$stage"; echo "[setup-hooks] ERROR: could not copy the agent hooks" >&2; exit 1; }
+    && cp -- "$src_root/$HOOK_REL" "$stage/$HOOK_REL" && cp -- "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
+    && cp -- "$src_root/$AGENT_HOOK_REL" "$stage/$AGENT_HOOK_REL" && cp -- "$src_root/$AGENT_MERGE_REL" "$stage/$AGENT_MERGE_REL" \
+    || { rm -rf -- "$stage"; echo "[setup-hooks] ERROR: could not copy the agent hooks" >&2; exit 1; }
   stage_and_swap "$home" "$stage"
 }
 # agent_command <home> <agent>: the command the agent runs. On Windows, Git
@@ -581,7 +581,7 @@ uninstall_agents_user() {
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && left=true
   done
   if [[ "$left" == false ]]; then
-    rm -rf "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/config" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
+    rm -rf -- "${agent_user_home:?}/scripts" "${agent_user_home:?}/lib" "${agent_user_home:?}/config" "${agent_user_home:?}/helpers.sh" "${agent_user_home:?}/VERSION"
     rmdir "$agent_user_home" 2>/dev/null || true
   fi
   echo "[setup-hooks] agent hooks removed: $(echo $AGENTS_USER)"
@@ -660,7 +660,7 @@ show_claude_status() {
     entry="$(claude_entry "$file")"
     if [[ -n "$entry" ]]; then
       echo "[setup-hooks] claude hook ($kind): $file -> $entry"
-      echo "[setup-hooks]   installed copy: $home ($(cat "$home/VERSION" 2>/dev/null || echo 'MISSING: the hook cannot run'))"
+      echo "[setup-hooks]   installed copy: $home ($(cat -- "$home/VERSION" 2>/dev/null || echo 'MISSING: the hook cannot run'))"
       state="$(claude_state "$file" "$home")"
       case "$state" in
         broken) echo "[setup-hooks]   BROKEN: $(claude_hook_path "$entry") does not exist; the hook cannot run. Fix: setup-hooks.sh --$([[ "$kind" == user ]] && echo claude || echo managed)" ;;
@@ -695,11 +695,11 @@ install_claude() {
 
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
   mkdir -p "$stage/scripts/claude-hooks" \
-    && cp "$src_root/$HOOK_REL" "$stage/$HOOK_REL" \
-    && cp "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
-    || { rm -rf "$stage"; echo "[setup-hooks] ERROR: could not copy the hook" >&2; exit 1; }
+    && cp -- "$src_root/$HOOK_REL" "$stage/$HOOK_REL" \
+    && cp -- "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
+    || { rm -rf -- "$stage"; echo "[setup-hooks] ERROR: could not copy the hook" >&2; exit 1; }
   stage_and_swap "$home" "$stage"
-  echo "[setup-hooks] hook copied to $home ($(cat "$home/VERSION"))"
+  echo "[setup-hooks] hook copied to $home ($(cat -- "$home/VERSION"))"
 
   cmd="bash \"$(native_path "$home")/$HOOK_REL\""
   onfailure=""
@@ -723,7 +723,7 @@ uninstall_claude() {
     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
     [[ "$rc" -eq 0 ]] || exit "$rc"
   fi
-  rm -rf "${home:?}/scripts" "${home:?}/lib" "${home:?}/config" "${home:?}/helpers.sh" "${home:?}/VERSION"
+  rm -rf -- "${home:?}/scripts" "${home:?}/lib" "${home:?}/config" "${home:?}/helpers.sh" "${home:?}/VERSION"
   rmdir "$home" 2>/dev/null || true
   echo "[setup-hooks] claude hook removed from $settings and $home"
 }
@@ -754,9 +754,9 @@ require_managed_access() {
 install_hook_copy() {
   local dir="$1" flag="$2" stage name
   stage="$(stage_common "$dir")" || return 1
-  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf "$stage"; return 1; }
-  cp "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
-    && cp "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { rm -rf "$stage"; return 1; }
+  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf -- "$stage"; return 1; }
+  cp -- "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
+    && cp -- "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { rm -rf -- "$stage"; return 1; }
   for name in $GLOBAL_HOOK_NAMES; do
     printf '#!/usr/bin/env bash\nexec bash "%s/scripts/global-hooks/dispatch.sh" %s%s "$@"\n' "$dir" "${flag:+$flag }" "$name" > "$stage/hooks/$name"
     chmod +x "$stage/hooks/$name"
@@ -792,7 +792,7 @@ uninstall_global() {
   if [[ "$cur" != "$global_hooks" ]]; then
     echo "[setup-hooks] global core.hooksPath is '${cur:-(unset)}', not $global_hooks; left as is." >&2
   else
-    prev="$(cat "$backup_file" 2>/dev/null || echo '(unset)')"
+    prev="$(cat -- "$backup_file" 2>/dev/null || echo '(unset)')"
     if [[ "$prev" == "(unset)" || -z "$prev" ]]; then
       git config --global --unset core.hooksPath
       echo "[setup-hooks] global core.hooksPath unset (as before --global)"
@@ -801,7 +801,7 @@ uninstall_global() {
       echo "[setup-hooks] global core.hooksPath restored to $prev"
     fi
   fi
-  rm -rf "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/config" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
+  rm -rf -- "${global_dir:?}/hooks" "${global_dir:?}/scripts" "${global_dir:?}/lib" "${global_dir:?}/config" "${global_dir:?}/helpers.sh" "${global_dir:?}/VERSION" "$backup_file"
   rmdir "$global_dir" 2>/dev/null || true
   echo "[setup-hooks] global hooks removed"
 }
@@ -818,7 +818,7 @@ probe_name() {
   local list="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
   local allow="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names-allow"
   [[ -s "$list" ]] || return 1
-  { printf '%s\n' "${PRIVATE_NAMES_ALLOW:-}" | tr ',' '\n'; if [[ -f "$allow" ]]; then cat "$allow"; fi; echo ' --end-of-allow-- '; } \
+  { printf '%s\n' "${PRIVATE_NAMES_ALLOW:-}" | tr ',' '\n'; if [[ -f "$allow" ]]; then cat -- "$allow"; fi; echo ' --end-of-allow-- '; } \
     | tr -d ' \t\r' | tr '[:upper:]' '[:lower:]' | awk -F'\t' '
     !inlist { if ($0 == "--end-of-allow--") inlist = 1; else if ($0 != "") skip[$0] = 1; next }
     /^# *visibility/ && !hh { for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i }; hh = 1; next }
@@ -845,11 +845,11 @@ probe() {
   dir="$(mktemp -d)" || { printf '  FAIL  %-44s could not create a temp directory\n' "$label"; return 1; }
   mkdir "$dir/repo" && git init -q "$dir/repo" 2>/dev/null \
     && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
-    || { rm -rf "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
+    || { rm -rf -- "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
   # JSON-encoded by Python: a path may hold a quote or a backslash.
   "$PY" -I -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
     "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
-    || { rm -rf "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
+    || { rm -rf -- "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
   (cd "$dir/repo" && bash "$hook" < "$dir/payload" > "$dir/out" 2> "$dir/err") || rc=$?
   t1="$(now_ms)"
@@ -867,7 +867,7 @@ probe() {
     # The hook's first lines say why. Never the probe text: it may be a private name.
     [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | sed -n 1,4p | sed 's/^/          hook: /'
   fi
-  rm -rf "$dir"
+  rm -rf -- "$dir"
   [[ -z "$why" ]]
 }
 
@@ -934,7 +934,7 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true && "$CLAUDE_FLAG" == true ]]; th
   # The user's Claude hook, for scripts; works outside a repository.
   entry="$(claude_entry "$claude_settings")"
   printf 'claude_user=%s\thook=%s\tinstalled=%s\n' "$(claude_state "$claude_settings" "$claude_home")" \
-    "$([[ -n "$entry" ]] && claude_hook_path "$entry")" "$(cat "$claude_home/VERSION" 2>/dev/null || true)"
+    "$([[ -n "$entry" ]] && claude_hook_path "$entry")" "$(cat -- "$claude_home/VERSION" 2>/dev/null || true)"
   exit 0
 fi
 if [[ "$STATUS" == true && "$PORCELAIN" != true ]]; then
@@ -1191,12 +1191,12 @@ wt_state="$(git rev-parse --absolute-git-dir 2>/dev/null)/script-helpers"
 in_main_worktree() { [[ "$(git rev-parse --absolute-git-dir)" == "$(cd "$common_dir" && pwd -P)" || "$(git rev-parse --absolute-git-dir)" == "$common_dir" ]]; }
 mark_set() { mkdir -p "$wt_state" && printf '%s\n' "$2" > "$wt_state/$1"; }
 mark_get() {
-  if [[ -f "$wt_state/$1" ]]; then cat "$wt_state/$1"
+  if [[ -f "$wt_state/$1" ]]; then cat -- "$wt_state/$1"
   elif in_main_worktree; then git config --local --get "script-helpers.$1" 2>/dev/null || true
   fi
 }
 mark_clear() {
-  rm -f "$wt_state/$1"
+  rm -f -- "$wt_state/$1"
   in_main_worktree && unset_local "script-helpers.$1"
   rmdir "$wt_state" 2>/dev/null || true
 }
@@ -1219,13 +1219,13 @@ remove_exclude() {
   awk -v m="$1" -v l="$2" '
     skip { skip = 0; if ($0 == l) next }
     $0 == m { skip = 1; next }
-    { print }' "$f" > "$f.tmp" && mv -f "$f.tmp" "$f"
+    { print }' "$f" > "$f.tmp" && mv -f -- "$f.tmp" "$f"
 }
 move_agent_backups() {
   local b dest="$common_dir/script-helpers/$1-backups"
   for b in "$2".bak-*; do
     [[ -f "$b" ]] || continue
-    mkdir -p "$dest" && mv -f "$b" "$dest/" || return 1
+    mkdir -p "$dest" && mv -f -- "$b" "$dest/" || return 1
   done
 }
 
@@ -1255,7 +1255,7 @@ if [[ -n "$AGENTS_REPO" ]]; then
            "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for k, v in d.items() if k != "version") else 1)' "$(native_path "$f")" 2>/dev/null; then
-          rm -f "$f"
+          rm -f -- "$f"
           # Up to the first directory this script made, each only when empty.
           top_made="$(mark_get "$a-created-dir")"
           if [[ -n "$top_made" ]]; then
@@ -1321,7 +1321,7 @@ move_claude_backups() {
   local b dest="$common_dir/script-helpers/claude-backups"
   for b in "$claude_local".bak-*; do
     [[ -f "$b" ]] || continue
-    mkdir -p "$dest" && mv -f "$b" "$dest/" || return 1
+    mkdir -p "$dest" && mv -f -- "$b" "$dest/" || return 1
   done
 }
 
@@ -1345,7 +1345,7 @@ if [[ "$CLAUDE_REPO" == true ]]; then
          "$PY" -I -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_local")" 2>/dev/null; then
-        rm -f "$claude_local"
+        rm -f -- "$claude_local"
         rmdir "$repo_root/.claude" 2>/dev/null || true
       fi
     fi
@@ -1357,7 +1357,7 @@ sys.exit(0 if all(not v for v in d.values()) else 1)' "$(native_path "$claude_lo
       awk -v m="$EXCLUDE_MARK" -v l="$EXCLUDE_LINE" '
         skip { skip = 0; if ($0 == l) next }
         $0 == m { skip = 1; next }
-        { print }' "$exclude_file" > "$exclude_file.tmp" && mv -f "$exclude_file.tmp" "$exclude_file"
+        { print }' "$exclude_file" > "$exclude_file.tmp" && mv -f -- "$exclude_file.tmp" "$exclude_file"
     fi
     if [[ -z "$(git config --local --get-regexp '^script-helpers\.' 2>/dev/null || true)" ]]; then
       git config --local --remove-section script-helpers 2>/dev/null || true
@@ -1426,9 +1426,9 @@ elif [[ -n "$cur_local" ]]; then
   set_by_us "$cur_local" || [[ "$cur_local" == "$hooks_dir" ]] || foreign="$cur_local"
 elif [[ -n "$cur_global" && "$cur_global" != "$global_hooks" ]]; then
   foreign="global core.hooksPath $cur_global"
-elif [[ "$cur_global" == "$global_hooks" && -s "$backup_file" && "$(cat "$backup_file")" != "(unset)" ]]; then
+elif [[ "$cur_global" == "$global_hooks" && -s "$backup_file" && "$(cat -- "$backup_file")" != "(unset)" ]]; then
   # --global is ours; the hooks it chains to (saved when it was installed) are not.
-  foreign="global core.hooksPath before --global: $(cat "$backup_file")"
+  foreign="global core.hooksPath before --global: $(cat -- "$backup_file")"
 elif native_hooks; then
   foreign="$common_dir/hooks"
 fi
