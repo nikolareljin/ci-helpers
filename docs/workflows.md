@@ -551,7 +551,7 @@ avoid -- the count is there to be read.
 
 Workflow: `.github/workflows/gitleaks-scan.yml`
 
-Purpose: Run Gitleaks and emit a report.
+Purpose: Enforce Gitleaks checks without exporting scanner results.
 
 Note: When findings are detected, the workflow prints a link to Leak-Lock for help
 removing leaked credentials.
@@ -571,7 +571,12 @@ Inputs:
 
 Notes:
 
-- `scan_path`, `config_path` and `report_format` are all honoured. The scan
+- `report_format`, `output` and `artifact_name` are deprecated and create no report.
+  `upload_artifact: true` and `fail_on_findings: false` are refused.
+- Failures identify Gitleaks and the branch and link
+  https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
+  Results and report paths never appear in CI output.
+- `scan_path` and `config_path` are honored. The scan
   runs a pinned `gitleaks` binary, verified against a sha256 held in the
   action (or `gitleaks_sha256`), not one fetched from the same release.
 - **In a git work tree the scan reads the repository's history**, so naming a
@@ -591,7 +596,7 @@ jobs:
     with:
       scan_path: "."
       fail_on_findings: true
-      upload_artifact: true
+      upload_artifact: false
 ```
 
 ## ppa-deb.yml

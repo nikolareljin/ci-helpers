@@ -42,7 +42,7 @@ inputs:
     default: "false"
     required: false
   artifact_name:
-    description: Artifact name when uploading the report.
+    description: Deprecated compatibility input; uploads are refused.
     default: gitleaks-report
     required: false
 outputs:

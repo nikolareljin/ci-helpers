@@ -134,6 +134,7 @@ jobs:
 - `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
+- `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
 - `.github/actions/pimcore-bundle-check`: composite action for Pimcore bundle checks
 - `.github/actions/data-safety-scan`: composite action for JSON data-safety scans
@@ -606,5 +607,3 @@ Use this when you want to update workflows, actions, or sync vendored helpers.
 ![Clone traffic](https://raw.githubusercontent.com/nikolareljin/stats/main/charts/ci-helpers.svg)
 
 _Updated daily. Total and unique cloners over the last 14 days._
-
-- `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.

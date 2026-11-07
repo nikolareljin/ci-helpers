@@ -10,11 +10,11 @@ on:
         type: string
         default: "."
       report_format:
-        description: "Report format: sarif (default) or json"
+        description: Deprecated compatibility input; no report is exported
         type: string
         default: sarif
       output:
-        description: Report output file path
+        description: Deprecated compatibility input; no report is exported
         type: string
         default: results.sarif
       config_path:
@@ -42,7 +42,7 @@ on:
         type: boolean
         default: false
       artifact_name:
-        description: Artifact name when uploading the report
+        description: Deprecated compatibility input; uploads are refused
         type: string
         default: gitleaks-report
 
