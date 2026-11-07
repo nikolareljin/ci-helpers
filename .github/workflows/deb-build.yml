@@ -658,7 +658,7 @@ jobs:
       # Only files the step above allows are left: new ones and unsigned
       # replacements.
       - name: Upload .deb to GitHub release
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3 @ 2026-11-06
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           target_commitish: ${{ needs.build.outputs.commit }}

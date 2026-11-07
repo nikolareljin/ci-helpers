@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Update the Ruby setup action and compatible action pins. Use maintained Ruby 3.4 by default for Flutter store deployment; callers can override `ruby_version`.
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 
 ## 2026-11-06 — v0.48.0
