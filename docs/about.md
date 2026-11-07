@@ -88,7 +88,7 @@ utilities, and local-first AI. Everything listed here is public.
 | [denial-shield](https://nikolareljin.github.io/denial-shield/) | Automated medical denial rebuttal assistant. |
 | [scancontext](https://nikolareljin.github.io/scancontext/) | Local-first medical image and report viewer with optional AI. Not a medical device. |
 | [nr-post-exporter](https://nikolareljin.github.io/nr-post-exporter/) | Moves a single WordPress post between sites with fields, terms and revisions. |
-| [nr-stocks](https://nikolareljin.github.io/nr-stocks/) | Stock, forex, and crypto charts for the WordPress block editor (formerly gutenberg-stocks). |
+| [nr-stocks](https://nikolareljin.github.io/nr-stocks/) | Stock, forex, and crypto charts for the WordPress block editor. |
 | [home-monitor](https://github.com/nikolareljin/home-monitor) | Django, React and a local model watching air, weather and sensors; Home Assistant sync. |
 | [nomisma](https://github.com/nikolareljin/nomisma) | Coin analysis and cataloguing with a digital microscope, valuation and eBay integration. |
 
