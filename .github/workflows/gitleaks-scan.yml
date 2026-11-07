@@ -108,7 +108,4 @@ jobs:
           upload_artifact: ${{ inputs.upload_artifact }}
           artifact_name: ${{ inputs.artifact_name }}
 
-      - name: Remove ci-helpers actions checkout
-        if: ${{ always() }}
-        shell: bash
-        run: rm -rf .ci-helpers-actions
+      # setup-python needs this action's files during its post-job cleanup.

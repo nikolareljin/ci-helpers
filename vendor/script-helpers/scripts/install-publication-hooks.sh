@@ -47,12 +47,13 @@ if [[ -z "$bin" ]]; then
   # Pinned installation is explicit here; no caller code controls its rules.
   export SCRIPT_HELPERS_DIR="$stage"
   if ! bin="$(
+    exec 2>"$log"
     # shellcheck source=/dev/null
     source "$stage/helpers.sh"
-    shlib_import logging gitleaks
+    shlib_import logging foxguard gitleaks
     gitleaks_bin >/dev/null 2>&1 || gitleaks_install >&2
     gitleaks_bin
-  )" 2>"$log"; then fail; fi
+  )"; then fail; fi
 fi
 [[ -x "$bin" ]] || fail
 real_gh="$(command -v gh)" || fail
