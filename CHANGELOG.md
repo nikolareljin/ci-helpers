@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Update the Ruby setup action and compatible action pins. Use maintained Ruby 3.4 by default for Flutter store deployment; callers can override `ruby_version`.
 - Use the current 0.62.0 helper base with private diagnostic markers and native report format checks.
 - Check artifact files, release assets and release notes before upload. Upload only validated snapshots; failed checks cannot be bypassed by `always()`.
 
