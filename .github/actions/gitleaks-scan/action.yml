@@ -168,6 +168,7 @@ runs:
       shell: bash
       env:
         GL_BIN: ${{ steps.install.outputs.gl_bin }}
+        GITLEAKS_BIN: ${{ steps.install.outputs.gl_bin }}
         SCAN_PATH: ${{ inputs.scan_path }}
         CONFIG_PATH: ${{ inputs.config_path }}
         UPLOAD_ARTIFACT: ${{ inputs.upload_artifact }}

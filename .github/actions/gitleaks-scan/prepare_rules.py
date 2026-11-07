@@ -8,9 +8,11 @@ import subprocess
 import sys
 import tomllib
 
+REVIEW_ROOT = os.environ.get("SCAN_PATH", ".")
+
 
 def git(*args):
-    return subprocess.run(["git", "-C", os.environ.get("SCAN_PATH", "."), *args], capture_output=True)
+    return subprocess.run(["git", "-C", REVIEW_ROOT, *args], capture_output=True)
 
 
 def content(ref):
@@ -21,10 +23,13 @@ def content(ref):
 
 
 def main():
+    global REVIEW_ROOT
     target = Path(sys.argv[1])
     configured = os.environ.get("CONFIG_PATH", "")
     if configured and (configured.startswith(("/", "\\")) or ".." in Path(configured).parts or ":" in configured):
         return 1
+    if configured and git("rev-parse", "--show-toplevel").returncode:
+        REVIEW_ROOT = os.getcwd()
     config = b"[extend]\nuseDefault = true\n"
     ignore = b""
     repo = git("rev-parse", "--show-toplevel")

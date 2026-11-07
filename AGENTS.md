@@ -121,3 +121,5 @@ Run the vendored `scripts/check_publication.sh --file <text>` before publishing
 metadata. Keep reviewed false-positive ignores, never real credentials.
 Mandatory commit and push checks refuse when they cannot run. Ignore rules do
 not replace inspection of staged files and every outgoing commit.
+Include filenames and ref names in credential and PII checks. CI displays branch
+text only after it passes the publication checks.

@@ -13,6 +13,8 @@ Run `scripts/check_publication.sh --file <text>` before publishing metadata.
 Keep reviewed false-positive ignores; do not add a suppression for a real secret.
 The mandatory commit and push checks must refuse when they cannot run. Ignore
 rules are defense in depth: force-added files and intermediate commits are checked.
+Include filenames and ref names in credential and PII checks. CI displays branch
+text only after it passes the publication checks.
 
 Scope
 -----

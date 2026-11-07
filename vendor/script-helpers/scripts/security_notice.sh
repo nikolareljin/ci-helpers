@@ -24,11 +24,31 @@ security_python() {
 
 security_notice() {
   local tool="${1:-Security}" branch="${SH_SECURITY_BRANCH:-${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}}"
+  local notice_dir notice_py branch_safe=false
   case "$tool" in Gitleaks|Foxguard|Security) ;; *) tool=Security ;; esac
   if [[ -z "$branch" ]]; then
     branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || true)"
   fi
   [[ -n "$branch" ]] || branch='your working branch'
+  if [[ -n "${CI:-}${GITHUB_ACTIONS:-}" ]]; then
+    notice_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    notice_py="$(security_python || true)"
+    if [[ ${#branch} -le 256 && -n "$notice_py" ]] &&
+       printf '%s' "$branch" | "$notice_py" -I -B -c '
+import importlib.util, re, sys
+try:
+    spec = importlib.util.spec_from_file_location("guard", sys.argv[1])
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    guard.inspect("branch", re.sub(r"[/_.-]", " ", sys.stdin.read()).encode())
+except Exception:
+    sys.exit(1)
+' "$notice_dir/check_scan_output.py" >/dev/null 2>&1 &&
+       printf '%s' "$branch" | bash "$notice_dir/check_sensitive.sh" --stdin --no-inline-allow >/dev/null 2>&1; then
+      branch_safe=true
+    fi
+    [[ "$branch_safe" == true ]] || branch='your working branch'
+  fi
   printf '%s check failed.\nBranch: %s\n' "$tool" "$branch" >&2
   printf 'Leak-Lock: https://nikolareljin.github.io/leak-lock/\n' >&2
   printf 'Check out this branch locally and run Scan Repository in Leak-Lock. Fix the issues, then rerun the repository tests on this branch before pushing.\n' >&2

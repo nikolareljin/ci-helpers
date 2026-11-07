@@ -321,6 +321,8 @@ units="$tmp/units"          # label<TAB>text, one added line per row
 : > "$units"
 REV_SETS=()                 # git log argument strings, for gitleaks
 TEXT_FILES=()               # whole files (messages, --file, --stdin), for gitleaks
+metadata="$tmp/git-metadata.txt"
+: > "$metadata"
 
 # diff_to_units <label prefix>: unified diff on stdin -> added lines as units.
 # A "+++ " line is a file header only between "diff --git" and the first hunk,
@@ -368,6 +370,13 @@ add_revs() {
     unchecked=1
   fi
   REV_SETS+=("$revs")
+  # Names cross the same boundary as blob contents, including empty files.
+  # shellcheck disable=SC2086
+  if git -C "$TOP" log --format= --name-only --no-renames --diff-filter=ACMT -z $revs > "$tmp/names" 2>/dev/null; then
+    tr '\000' '\n' < "$tmp/names" >> "$metadata" || fail "could not read outgoing names"
+  else
+    fail "could not read outgoing names"
+  fi
 }
 
 case "$MODE" in
@@ -377,6 +386,9 @@ case "$MODE" in
     while read -r lref lsha rref rsha; do
       [[ -n "${lsha:-}" ]] || continue
       [[ "$lsha" =~ ^0+$ ]] && continue                  # a deletion adds nothing
+      if [[ "$lsha" != "$rsha" ]]; then
+        printf '%s\n%s\n' "$lref" "$rref" >> "$metadata"
+      fi
       # An annotated tag publishes its message too (a tag of a tag: each one).
       # The signature block is not text anybody wrote.
       t="$lsha"
@@ -384,6 +396,7 @@ case "$MODE" in
         tagobj="$tmp/tag.$RANDOM"
         git -C "$TOP" cat-file tag "$t" > "$tagobj" 2>/dev/null || { fail "could not read tag $t"; break; }
         if [[ "$rsha" != "$t" ]]; then
+          sed -n 's/^tag //p' "$tagobj" >> "$metadata"
           awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }' "$tagobj" > "$tagobj.msg"
           awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' "$tagobj.msg" >> "$units"
           [[ -s "$tagobj.msg" ]] && TEXT_FILES+=("$tagobj.msg")
@@ -418,12 +431,18 @@ case "$MODE" in
       echo "$TAG git could not read the index" >&2; exit 2
     fi
     diff_to_units "staged " < "$tmp/staged" >> "$units" || fail "could not read the staged diff"
+    if git -C "$TOP" diff --cached --name-only --no-renames --diff-filter=ACMT -z > "$tmp/names" 2>/dev/null; then
+      tr '\000' '\n' < "$tmp/names" >> "$metadata" || fail "could not read staged names"
+    else
+      fail "could not read staged names"
+    fi
     ;;
   file)
     for f in "${FILES[@]}"; do
       [[ -r "$f" ]] || { echo "$TAG cannot read $f" >&2; unchecked=1; continue; }
       awk -v f="$f" '{ print f ":" FNR "\t" $0 }' "$f" >> "$units" || fail "could not read $f"
       TEXT_FILES+=("$f")
+      basename -- "$f" >> "$metadata"
     done
     ;;
   stdin)
@@ -432,6 +451,11 @@ case "$MODE" in
     TEXT_FILES+=("$tmp/stdin.txt")
     ;;
 esac
+
+if [[ -s "$metadata" ]]; then
+  awk '{ print "Git metadata:" FNR "\t" $0 }' "$metadata" >> "$units" || fail "could not read Git metadata"
+  TEXT_FILES+=("$metadata")
+fi
 
 # A NUL byte or invalid UTF-8 makes grep call the whole file binary and print
 # nothing for it, which would drop every line. Strip NULs, read bytes as bytes.
