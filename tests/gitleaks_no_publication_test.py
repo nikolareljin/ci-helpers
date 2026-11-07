@@ -62,6 +62,11 @@ if json.loads(os.environ['REPORT']): sys.exit(3)
     def test_clean_is_silent(self):
         self.run_scan(0)
 
+    def test_external_directory_does_not_require_the_callers_pr_base(self):
+        event = self.base / "event.json"
+        event.write_text(json.dumps({"pull_request": {"base": {"sha": "1" * 40}}}))
+        self.run_scan(0, GITHUB_EVENT_PATH=str(event))
+
     def test_findings_only_emit_generic_message(self):
         self.run_scan(1, REPORT=json.dumps([{"rule": "synthetic"}]))
 

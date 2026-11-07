@@ -74,7 +74,9 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .ci-helpers-actions
-          sparse-checkout: .github/actions
+          sparse-checkout: |
+            .github/actions
+            vendor/script-helpers
           fetch-depth: 1
           persist-credentials: false
 

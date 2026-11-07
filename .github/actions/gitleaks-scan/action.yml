@@ -57,12 +57,18 @@ runs:
       env:
         UPLOAD_ARTIFACT: ${{ inputs.upload_artifact }}
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         if [[ "$UPLOAD_ARTIFACT" != false || "$FAIL_ON_FINDINGS" != true ]]; then
-          echo 'Security issues found. Run the security checks locally first.' >&2
+          source "$ACTION_PATH/../../../vendor/script-helpers/scripts/security_notice.sh"
+          security_notice Gitleaks
           exit 1
         fi
+    - name: Set up scanner configuration interpreter
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
+      with:
+        python-version: '3.12'
     - name: Install gitleaks binary
       id: install
       shell: bash

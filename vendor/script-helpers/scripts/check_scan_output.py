@@ -264,9 +264,10 @@ def push(repo, refs, remote, seen):
             revs = [target, "^" + base]
         else:
             revs = [target]
-            remotes = git(repo, "remote").decode().splitlines()
-            if remote in remotes:
-                revs.extend(["--not", "--remotes=" + remote])
+        # Commits already on this destination do not cross the transport boundary.
+        remotes = git(repo, "remote").decode().splitlines()
+        if remote in remotes:
+            revs.extend(["--not", "--remotes=" + remote])
         check_commits(repo, revs, seen)
 
 

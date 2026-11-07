@@ -10,7 +10,7 @@ import tomllib
 
 
 def git(*args):
-    return subprocess.run(["git", *args], capture_output=True)
+    return subprocess.run(["git", "-C", os.environ.get("SCAN_PATH", "."), *args], capture_output=True)
 
 
 def content(ref):
