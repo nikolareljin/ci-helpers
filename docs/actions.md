@@ -139,6 +139,7 @@ Notes:
   held in this repository (or `gitleaks_sha256`), never against a checksums
   file fetched from the same release; a mismatch or a missing digest fails
   the step.
+
 The Gitleaks action exports no report. `upload_artifact: true` and
 `fail_on_findings: false` are refused before scanning. `output`, `report_format`
 and `artifact_name` remain deprecated compatibility inputs and create no caller
@@ -150,7 +151,6 @@ counts or report paths are logged.
 The Gitleaks action installs Python 3.12 to parse reviewed TOML on every runner.
 Rule `path` filters are supported. External `[extend]` paths are refused so a
 reviewed root configuration cannot load rules from the unreviewed checkout.
-
 
 PR scans read configuration and ignores from the base commit. Missing base commits
 and external configuration extensions refuse the scan. Other Git scans use HEAD.
