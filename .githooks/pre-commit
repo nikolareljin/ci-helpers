@@ -7,7 +7,8 @@ library="$root/vendor/script-helpers/scripts/security_hooks.sh"
 [[ -f "$library" ]] || { echo 'Security check unavailable; reinstall the vendored hooks.' >&2; exit 1; }
 # shellcheck source=/dev/null
 source "$library" || exit 1
-sec_pre_commit
+sec_pre_commit || exit $?
+set -e
 
 repo_root="$root"
 "$repo_root/scripts/check_release_version.sh" --repo "$repo_root"

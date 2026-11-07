@@ -45,6 +45,7 @@ jobs:
           python3 tests/scan_publication_policy_test.py
           python3 scripts/check_scan_publication.py
           bash tests/sync_script_helpers_notes_test.sh
+          bash tests/pre_commit_security_test.sh
           umask 077
           check_rc=0
           bash tests/gitleaks_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
