@@ -27,11 +27,3 @@ jobs:
           report_format: sarif
           output: results.sarif
           fail_on_findings: true
-
-      - name: Upload artifact
-        if: ${{ always() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
-        with:
-          name: gitleaks-report
-          path: results.sarif
-          if-no-files-found: warn

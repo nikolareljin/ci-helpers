@@ -34,11 +34,11 @@ on:
         type: string
         default: ""
       fail_on_findings:
-        description: Exit non-zero when findings are detected
+        description: Mandatory enforcement; false is refused
         type: boolean
-        default: false
+        default: true
       upload_artifact:
-        description: Upload the report as a workflow artifact
+        description: Deprecated; true is refused
         type: boolean
         default: false
       artifact_name:

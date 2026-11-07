@@ -14,7 +14,8 @@ if [[ -f "$_hook_dir/../security_hooks.sh" ]]; then
   source "$_hook_dir/../security_hooks.sh"
   sec_pre_commit || exit 1
 else
-  echo "[pre-commit] security_hooks.sh not found next to this hook; staged lines NOT checked." >&2
+  echo "[pre-commit] security_hooks.sh missing; reinstall the hooks; refused." >&2
+  exit 1
 fi
 
 # Allow a repo-local pre-commit hook to replace the shared hook when present.

@@ -6,7 +6,7 @@
 #   --base <ref>     Scan the files changed between <ref> and HEAD (the pre-push
 #                    hook prints this with the remote's commit). Default when no
 #                    paths are given: the upstream branch, else origin/HEAD.
-#   --output <file>  Where to write the JSON (default: foxguard-report.json).
+#   --output <file>  New local file outside any checkout; default private state.
 #   <path>...        Scan these files instead of a range.
 # EXIT_CODES:
 #   0  No findings.
@@ -15,12 +15,19 @@
 #      be scanned (listed under "errors").
 #   3  foxguard not installed and not installable here.
 # EXAMPLE:
-#   bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main --output foxguard-report.json
+#   bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main
 # ----------------------------------------------------
 set -euo pipefail
 
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security_notice.sh"
+
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+  case "${1:-}" in -h|--help) ;; *) security_notice Foxguard; exit 2 ;; esac
+fi
+
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-base="" output="foxguard-report.json"
+base="" output=""
 paths=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,8 +73,15 @@ if [[ ${#paths[@]} -eq 0 ]]; then
   exit 0
 fi
 
-py="$(command -v python3 || command -v python || true)"
+py="$(security_python || true)"
 [[ -n "$py" ]] || { echo "[foxguard_report] python3 is needed to write the JSON." >&2; exit 2; }
+report_args=(--name foxguard.json)
+[[ -z "$output" ]] || report_args+=(--output "$output")
+output="$("$py" -I "$src_root/scripts/local_security_report.py" "${report_args[@]}")" || {
+  echo '[foxguard_report] Choose a new local report file outside every Git checkout.' >&2
+  exit 2
+}
+
 # foxguard takes one path per run, and exits 0 with -f json whatever it finds:
 # run it per file and count the findings from its output.
 rc=0
@@ -100,9 +114,9 @@ try:
 except OSError as e:
     print("[foxguard_report] could not write %s: %s" % (out, e), file=sys.stderr)
     sys.exit(2)
-print("[foxguard_report] %d file(s) scanned, %d finding(s), %d error(s); results in %s"
-      % (len(report["files"]), len(report["findings"]), len(report["errors"]), out))
+print("Local security report: %s" % out)
 # A file that could not be scanned is not a clean one.
 sys.exit(2 if report["errors"] else (1 if report["findings"] else 0))
 ' "$bin" "$output" "${paths[@]}" || rc=$?
+[[ "$rc" -eq 0 ]] || security_notice Foxguard
 exit "$rc"

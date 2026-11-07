@@ -498,6 +498,7 @@ run_gitleaks() {
   # .gitleaks.toml (it would by default) and committed content cannot allow itself.
   printf 'title = "script-helpers default"\n[extend]\nuseDefault = true\n' > "$tmp/gitleaks.toml"
   cfg=(--config "$tmp/gitleaks.toml")
+  [[ "$INLINE_ALLOW" == true ]] || cfg+=(--ignore-gitleaks-allow --max-archive-depth 3)
   # Nor a committed .gitleaksignore: gitleaks reads one from the source
   # directory (and, in newer releases, from the current one), so a commit
   # could list its own fingerprint. gitleaks runs in an empty directory whose

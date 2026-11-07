@@ -1,4 +1,4 @@
-![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 9 composite actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 10 composite actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -606,3 +606,5 @@ Use this when you want to update workflows, actions, or sync vendored helpers.
 ![Clone traffic](https://raw.githubusercontent.com/nikolareljin/stats/main/charts/ci-helpers.svg)
 
 _Updated daily. Total and unique cloners over the last 14 days._
+
+- `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.

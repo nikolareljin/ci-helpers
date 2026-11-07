@@ -131,13 +131,8 @@ if [[ -n "$_security_lib" ]]; then
   fi
 else
   # A check that cannot run is not a clean one.
-  if [[ "${SECURITY_GATE_ALLOW_UNCHECKED:-${SENSITIVE_ALLOW_UNCHECKED:-}}" == 1 ]]; then
-    echo "[pre-push] WARNING: security_hooks.sh not found next to this hook; SECURITY_GATE_ALLOW_UNCHECKED=1, security checks skipped." >&2
-  else
-    echo "[pre-push] security_hooks.sh not found next to this hook; security checks cannot run; refused." >&2
-    echo "[pre-push] Reinstall the hooks, or push once with SECURITY_GATE_ALLOW_UNCHECKED=1." >&2
-    exit 1
-  fi
+  echo "[pre-push] security_hooks.sh missing; reinstall the hooks; refused." >&2
+  exit 1
 fi
 
 # Hygiene and lint of what the push changes (scripts/push_checks.sh). Not

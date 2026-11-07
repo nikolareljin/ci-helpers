@@ -56,6 +56,11 @@
 # ----------------------------------------------------
 set -euo pipefail
 
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security_notice.sh"
+
+
+report_args=("$@")
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -111,14 +116,17 @@ while [[ $# -gt 0 ]]; do
     --node-image) require_value "$@" || exit 2; NODE_IMAGE_OVERRIDE="$2"; shift 2;;
     --gitleaks-image) require_value "$@" || exit 2; GITLEAKS_IMAGE_OVERRIDE="$2"; shift 2;;
     -h|--help) show_help "${BASH_SOURCE[0]}"; exit 0;;
-    *) echo "Unknown arg: $1" >&2; exit 1;;
+    *)
+      if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then security_notice Security;
+      else echo "Unknown arg: $1" >&2; fi
+      exit 1;;
   esac
 done
 
 # After the options, so -h/--help and a bad argument answer the same in CI as
 # anywhere, and before any verb, so install and check stay local-only.
-if [[ "${CI:-}" == "true" ]]; then
-  echo "This script is intended for local use only." >&2
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+  security_notice Security
   exit 1
 fi
 if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; exit 3; fi
@@ -129,13 +137,27 @@ if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
   exit $?
 fi
 
+# Detailed scans are local files; parent commands receive only their location.
+if [[ "${SCRIPT_HELPERS_REPORT_ACTIVE:-}" != 1 ]]; then
+  report_python="$(security_python || true)"
+  local_report="$("$report_python" -I "$SCRIPT_DIR/local_security_report.py")" || {
+    echo 'Could not create a private local report; security check refused.' >&2
+    exit 2
+  }
+  report_rc=0
+  SCRIPT_HELPERS_REPORT_ACTIVE=1 bash "${BASH_SOURCE[0]}" "${report_args[@]+"${report_args[@]}"}" >"$local_report" 2>&1 || report_rc=$?
+  printf 'Local security report: %s\n' "$local_report"
+  [[ "$report_rc" -eq 0 ]] || security_notice Security
+  exit "$report_rc"
+fi
+
 # One private directory per run (mktemp -d, mode 700), removed on any exit:
 # under set -e a failed step would otherwise leave its files under $TMPDIR.
 # Made after the options, so --help and the install verbs need no temp space.
-_sec_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci_security.XXXXXX" 2>/dev/null)" && [[ -n "$_sec_tmp" && -d "$_sec_tmp" && ! -L "$_sec_tmp" ]] || {
+if ! _sec_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci_security.XXXXXX" 2>/dev/null)" || [[ -z "$_sec_tmp" || ! -d "$_sec_tmp" || -L "$_sec_tmp" ]]; then
   echo "[ci_security] could not create a private temp directory (TMPDIR=${TMPDIR:-unset})." >&2
   exit 1
-}
+fi
 chmod 700 "$_sec_tmp" 2>/dev/null || true
 # Guarded: a subshell inherits an EXIT trap (see the pre-push hook).
 trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$_sec_tmp"; fi' EXIT
@@ -211,7 +233,7 @@ gitleaks_args() {
     printf '%s\n' detect --source . --redact -v
     [[ -n "$GITLEAKS_LOG_OPTS" ]] && printf '%s\n' --log-opts "$GITLEAKS_LOG_OPTS"
   else
-    printf '%s\n' detect --source . --no-git
+    printf '%s\n' detect --source . --no-git --redact
   fi
 }
 # node_auditable <dir>; npm audit needs a package.json and a lockfile. Without

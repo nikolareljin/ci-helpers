@@ -38,6 +38,23 @@ jobs:
         shell: bash
         run: python3 scripts/check_workflow_yaml.py
 
+      - name: Security publication policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/scan_publication_policy_test.py
+          python3 scripts/check_scan_publication.py
+          bash tests/sync_script_helpers_notes_test.sh
+          umask 077
+          check_rc=0
+          bash tests/gitleaks_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Gitleaks
+            exit "$check_rc"
+          fi
+
       # Parsing proves a file is YAML; it says nothing about an input going
       # missing one hop down. See the script's header for what drifted.
       - name: Engine inputs are threaded through every caller

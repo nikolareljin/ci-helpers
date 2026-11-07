@@ -563,7 +563,7 @@ Inputs:
 - `report_format` (string, default `sarif`)
 - `output` (string, default `results.sarif`)
 - `config_path` (string, default `""`)
-- `fail_on_findings` (boolean, default `false`)
+- `fail_on_findings` (boolean, default `true`)
 - `upload_artifact` (boolean, default `false`)
 - `artifact_name` (string, default `gitleaks-report`)
 - `gitleaks_version` (string, default `v8.30.1`) - release tag to download. Pin it for reproducible scans.

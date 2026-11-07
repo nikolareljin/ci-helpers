@@ -107,3 +107,17 @@ A green actionlint is not evidence that a script is portable.
 
 The reasoning, the full list, and what to write instead of each construct:
 <https://nikolareljin.github.io/script-helpers/bash-compatibility/>
+
+## Local security results
+
+Never commit, push, upload, or quote Gitleaks or Foxguard results to any remote,
+including private repositories, GitHub artifacts, logs, summaries and comments.
+Reports belong outside Git worktrees in owner-only local storage. Local commands
+show the report path for inspection. CI may name the failing tool (Gitleaks or Foxguard) and branch.
+Link https://nikolareljin.github.io/leak-lock/ and instruct the operator to check
+out that branch locally, run Scan Repository in Leak-Lock, fix the issues and
+rerun the repository tests before pushing. Never show results or report paths in CI.
+Run the vendored `scripts/check_publication.sh --file <text>` before publishing
+metadata. Keep reviewed false-positive ignores, never real credentials.
+Mandatory commit and push checks refuse when they cannot run. Ignore rules do
+not replace inspection of staged files and every outgoing commit.

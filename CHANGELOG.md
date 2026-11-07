@@ -1,3 +1,7 @@
+## Unreleased
+
+- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
+
 ## 2026-11-06 — v0.48.0
 
 ### Fixed
@@ -24,7 +28,6 @@
   workflow pins move with the vendored copy, as the pin check requires.
 - **Refresh stale third-party action pins** (`trivy-action`,
   `action-gh-release`) to their current upstream SHAs.
-
 ## 2026-10-28 — v0.47.0
 
 ### Changed
@@ -820,7 +823,7 @@
   scanning.** `detect` reads git history. Pointed at an unpacked archive, a
   build output, a generated directory -- anything with no history -- gitleaks
   logs `git error encountered`, writes an empty report and exits 0, and the
-  action then printed "No Gitleaks findings detected." A secret scan that
+  action then reported success without inspecting files. A secret scan that
   scanned nothing read exactly like one that found nothing.
 
   The action now scans the files instead when there is no history to read, and

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Mandatory local checks run before Git records or transports repository data.
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$root" || exit 1
+library="$root/vendor/script-helpers/scripts/security_hooks.sh"
+[[ -f "$library" ]] || { echo 'Security check unavailable; reinstall the vendored hooks.' >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$library" || exit 1
+sec_commit_msg "${1:?commit message file required}"

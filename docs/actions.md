@@ -433,3 +433,23 @@ Example:
 `plugin_src` is resolved from the workspace (not from the compose file's
 directory) to an absolute path and exported as `plugin_src_env` for the rest of
 the job, so every later `docker compose` call, including Cleanup, sees it.
+
+## publication-guard
+
+The publication guard installs job-wide outbound Git checks from the trusted
+workflow revision. Writer jobs run it before publishing. It refuses sensitive
+content and scanner results before Git sends objects, even in secondary clones.
+Missing checkers or tools refuse publication. GitHub receives only a verdict;
+detailed diagnostics must be reproduced and examined locally.
+
+The Gitleaks action exports no report. `upload_artifact: true` and
+`fail_on_findings: false` are refused before scanning. `output`, `report_format`
+and `artifact_name` remain deprecated compatibility inputs and create no caller
+report. Scanner errors and findings name Gitleaks and the branch, link
+https://nikolareljin.github.io/leak-lock/, and instruct the operator to run
+Scan Repository and repository tests locally before pushing. No scanner results,
+counts or report paths are logged.
+
+The Gitleaks action requires Python 3.11 or newer to parse reviewed TOML.
+Rule `path` filters are supported. External `[extend]` paths are refused so a
+reviewed root configuration cannot load rules from the unreviewed checkout.
