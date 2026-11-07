@@ -700,3 +700,31 @@ jobs:
   tag:
     uses: nikolareljin/ci-helpers/.github/workflows/auto-tag-release.yml@production
 ```
+
+## Security diagnostics stay local
+
+Previous scanner workflows uploaded reports and echoed diagnostic output. A
+redacted report still exposes finding metadata, regardless of remote visibility.
+Scanner results must never leave a local machine through Git, artifacts, job
+logs, summaries, comments, releases, or security-tab uploads.
+
+Use the shared local security commands to inspect private reports outside the
+checkout. Do not paste their contents remotely. CI may name the failing tool
+and branch, with the instruction: "Gitleaks check failed" or "Foxguard check failed",
+the branch, and
+https://nikolareljin.github.io/leak-lock/. Check out the branch locally, run
+Scan Repository in Leak-Lock, fix the issues, then rerun repository tests before pushing.
+
+Remove Gitleaks upload opt-ins and advisory credential settings from callers.
+The reusable action refuses them; it creates no report at the old `output` path.
+Writer jobs install outbound checks before publishing, in addition to secondary
+checks on received changes. Intentional hook bypass requires a controlled-writer
+deployment to prevent; it is not closed by a post-push merge check.
+
+Run `python3 scripts/check_scan_publication.py` before committing workflow changes.
+
+When syncing script-helpers, generated pin notes must pass the mandatory
+publication check before replacement. Commit-to-commit pins copy only the
+changelog delta; they do not copy the complete release history. Upstream copies
+without the publication checker are refused. Run the local checks first if the
+sync cannot complete.

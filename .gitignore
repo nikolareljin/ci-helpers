@@ -54,3 +54,14 @@ CLAUDE.md
 tests/fixtures/django-install/probe/build/
 tests/fixtures/django-install/probe-dev/build/
 *.egg-info/
+
+# Local security results must never be published.
+/scans/
+/scan-results/
+/security-reports/
+*.sarif
+/gitleaks*.json
+/foxguard*.json
+
+/.ci-helpers-security/
+__pycache__/

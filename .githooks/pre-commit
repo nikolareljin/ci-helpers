@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Mandatory local checks run before Git records or transports repository data.
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$root" || exit 1
+library="$root/vendor/script-helpers/scripts/security_hooks.sh"
+[[ -f "$library" ]] || { echo 'Security check unavailable; reinstall the vendored hooks.' >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$library" || exit 1
+sec_pre_commit || exit $?
+set -e
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$repo_root" ]]; then
-  exit 0
-fi
-
+repo_root="$root"
 "$repo_root/scripts/check_release_version.sh" --repo "$repo_root"
 
 # Every workflow and composite action here is consumed by other

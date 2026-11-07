@@ -24,8 +24,8 @@ if [[ -f "$_security_lib" ]]; then
   sec_commit_msg "$msg_file" || exit 1
   set -e
 else
-  # The repo-local hook below still runs; the push refuses until it is found.
-  echo "[commit-msg] security_hooks.sh not found next to this hook; checks skipped." >&2
+  echo "[commit-msg] security_hooks.sh missing; reinstall the hooks; refused." >&2
+  exit 1
 fi
 
 # A repo-local hook replaces the rest, after the checks above, as in pre-push.

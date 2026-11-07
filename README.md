@@ -1,4 +1,4 @@
-![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 9 composite actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 10 composite actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -134,6 +134,7 @@ jobs:
 - `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
+- `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check
 - `.github/actions/pimcore-bundle-check`: composite action for Pimcore bundle checks
 - `.github/actions/data-safety-scan`: composite action for JSON data-safety scans

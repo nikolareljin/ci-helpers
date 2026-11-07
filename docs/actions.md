@@ -110,7 +110,7 @@ on findings, so a failing run still shows its results in the Security tab.
 
 Path: `.github/actions/gitleaks-scan`
 
-Purpose: Run Gitleaks scan and generate a report.
+Purpose: Enforce Gitleaks checks without exporting scanner results.
 
 Note: When findings are detected, the action prints a link to Leak-Lock for help
 removing leaked credentials.
@@ -118,14 +118,14 @@ removing leaked credentials.
 Inputs:
 
 - `scan_path` (default `"."`)
-- `report_format` (default `sarif`)
-- `output` (default `results.sarif`)
+- `report_format` (default `sarif`, deprecated, no report is exported)
+- `output` (default `results.sarif`, deprecated, no file is created)
 - `gitleaks_version` (default `v8.30.1`)
 - `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action
 - `config_path` (default `""`)
-- `fail_on_findings` (default `"false"`)
+- `fail_on_findings` (default `"true"`)
 - `upload_artifact` (default `"false"`)
-- `artifact_name` (default `gitleaks-report`)
+- `artifact_name` (default `gitleaks-report`, deprecated, no artifact is created)
 
 Outputs:
 
@@ -139,14 +139,21 @@ Notes:
   held in this repository (or `gitleaks_sha256`), never against a checksums
   file fetched from the same release; a mismatch or a missing digest fails
   the step.
-- Reports are written with `--redact`: findings, rule IDs, files, lines and
-  fingerprints are kept, secret values are not.
-- With `config_path` empty, gitleaks reads `.gitleaks.toml` (and, always,
-  `.gitleaksignore`) from the checked-out tree. On `pull_request` events those
-  files come from the PR, so the action emits a warning when the PR changes a
-  `.gitleaks.toml`, `.gitleaksignore` or the `config_path` file. The check never
-  fails the step; on a shallow checkout where the base cannot be diffed it emits
-  a notice instead.
+
+The Gitleaks action exports no report. `upload_artifact: true` and
+`fail_on_findings: false` are refused before scanning. `output`, `report_format`
+and `artifact_name` remain deprecated compatibility inputs and create no caller
+report. Scanner errors and findings name Gitleaks and the branch, link
+https://nikolareljin.github.io/leak-lock/, and instruct the operator to run
+Scan Repository and repository tests locally before pushing. No scanner results,
+counts or report paths are logged.
+
+The Gitleaks action installs Python 3.12 to parse reviewed TOML on every runner.
+Rule `path` filters are supported. External `[extend]` paths are refused so a
+reviewed root configuration cannot load rules from the unreviewed checkout.
+
+PR scans read configuration and ignores from the base commit. Missing base commits
+and external configuration extensions refuse the scan. Other Git scans use HEAD.
 
 Example:
 
@@ -156,7 +163,7 @@ Example:
   with:
     scan_path: "."
     fail_on_findings: "true"
-    upload_artifact: "true"
+    upload_artifact: "false"
 ```
 
 ## data-safety-scan
@@ -433,3 +440,11 @@ Example:
 `plugin_src` is resolved from the workspace (not from the compose file's
 directory) to an absolute path and exported as `plugin_src_env` for the rest of
 the job, so every later `docker compose` call, including Cleanup, sees it.
+
+## publication-guard
+
+The publication guard installs job-wide outbound Git checks from the trusted
+workflow revision. Writer jobs run it before publishing. It refuses sensitive
+content and scanner results before Git sends objects, even in secondary clones.
+Missing checkers or tools refuse publication. GitHub receives only a verdict;
+detailed diagnostics must be reproduced and examined locally.

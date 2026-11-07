@@ -1,0 +1,10 @@
+name: Guard outbound publication
+description: Refuse sensitive Git objects before a runner sends them to a remote.
+runs:
+  using: composite
+  steps:
+    - name: Install mandatory outbound hooks
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/../../../vendor/script-helpers/scripts/install-publication-hooks.sh" --ci

@@ -192,6 +192,16 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
   echo
   if [[ ! -f "$notes_src" ]]; then
     echo "_Upstream has no CHANGELOG.md at this ref._"
+  elif [[ "$current_ref" =~ ^[0-9a-fA-F]{7,40}$ && "$current_ref" != "$REF_LABEL" ]]; then
+    # Commit pins have no release heading. Copy only their changelog delta.
+    echo "## Changelog changes in this pin"
+    echo
+    if git -C "$TMP_DIR/script-helpers" cat-file -e "${current_sha}^{commit}" 2>/dev/null; then
+      git -C "$TMP_DIR/script-helpers" diff --no-ext-diff --unified=0 "$current_sha" "$COMMIT_HASH" -- CHANGELOG.md \
+        | sed -n '/^+++/d; s/^+//p'
+    else
+      echo "Previous commit unavailable; inspect the upstream changelog locally."
+    fi
   elif [[ -n "$current_ref" && "$current_ref" != "$REF_LABEL" ]]; then
     echo "## Entries since \`${current_ref}\`"
     echo
@@ -248,6 +258,13 @@ if [[ -f "$notes_gate" ]]; then
       ;;
     2) log_warn "Could not check the notes for private names; continuing." ;;
   esac
+fi
+
+publication_gate="$STAGE_DIR/scripts/check_publication.sh"
+if [[ ! -f "$publication_gate" ]] || ! bash "$publication_gate" --file "${notes_file}.new" > "$TMP_DIR/publication-check.log" 2>&1; then
+  log_error "Vendor notes could not pass the mandatory publication check; sync refused."
+  rm -f "${notes_file}.new"
+  exit 1
 fi
 
 mv -f "${notes_file}.new" "$notes_file"

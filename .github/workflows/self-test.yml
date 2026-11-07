@@ -634,6 +634,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Check out trusted outbound guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-security
+          sparse-checkout: |
+            .github/actions/publication-guard
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify outbound guard revision
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+
+      - name: Guard outbound Git writes
+        uses: ./.ci-helpers-security/.github/actions/publication-guard
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
@@ -1223,74 +1246,29 @@ jobs:
           openssl genrsa -out "$leaky/id_rsa" 2048
           echo "LEAKY=$leaky" >> "$GITHUB_ENV"
 
-      - name: Findings fail the scan when asked
+      - name: Security failures remain local
         id: fails
         continue-on-error: true
         uses: ./.github/actions/gitleaks-scan
         with:
           scan_path: ${{ env.LEAKY }}
-          output: ${{ runner.temp }}/strict.sarif
-          fail_on_findings: "true"
 
-      - name: Findings are reported without failing, by default
-        id: lenient
-        uses: ./.github/actions/gitleaks-scan
-        with:
-          scan_path: ${{ env.LEAKY }}
-          output: ${{ runner.temp }}/lenient.sarif
-
-      - name: Both scans found the key, and only one of them failed
+      - name: Refusal and publication boundary tests
         shell: bash
         env:
-          FAILS_OUTCOME: ${{ steps.fails.outcome }}
+          OUTCOME: ${{ steps.fails.outcome }}
         run: |
           set -euo pipefail
-          if [[ "$FAILS_OUTCOME" != "failure" ]]; then
-            echo "::error::fail_on_findings: true did not fail on a planted key"
-            exit 1
+          [[ "$OUTCOME" == failure ]] || exit 1
+          umask 077
+          check_rc=0
+          bash tests/gitleaks_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Gitleaks
+            exit "$check_rc"
           fi
-          for report in strict lenient; do
-            count=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(sum(len(r.get('results',[])) for r in d['runs']))" "${RUNNER_TEMP}/$report.sarif")
-            if [[ "$count" -ne 1 ]]; then
-              echo "::error::$report.sarif holds $count finding(s), expected 1"
-              exit 1
-            fi
-          done
-          echo "the key is in both reports; fail_on_findings decides the exit, not whether it was found"
-
-      - name: Without the fix, this directory passed without being scanned
-        shell: bash
-        env:
-          GL_BIN: ${{ steps.lenient.outputs.gl_bin }}
-        run: |
-          set -uo pipefail
-          # Why the action has a `--no-git` branch at all. `detect` reads git
-          # history; pointed at a directory that is not a work tree it logs a
-          # git error, writes an empty report and exits 0 -- a secret scan that
-          # scanned nothing, reported as one that found nothing. If that ever
-          # stops being true the branch is untested and should go.
-          #
-          # Run with the binary the action downloaded: gitleaks is not on a
-          # runner by default, and any other copy could be another version.
-          out="${RUNNER_TEMP}/plain.sarif"
-          rc=0
-          "$GL_BIN" detect --source "$LEAKY" --report-format sarif \
-            --report-path "$out" --exit-code 0 --redact > /tmp/plain.log 2>&1 || rc=$?
-          if [[ "$rc" -ne 0 ]]; then
-            echo "::notice::plain gitleaks exited $rc here; the silent-pass probe does not apply"
-            exit 0
-          fi
-          found=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(sum(len(r.get('results',[])) for r in d['runs']))" "$out")
-          if [[ "$found" -ne 0 ]]; then
-            echo "::error::plain gitleaks now reports $found finding(s) on a non-work-tree; the --no-git branch is no longer what makes the scan happen"
-            exit 1
-          fi
-          grep -qE "git error encountered|fatal: not a git repository|scanned ~0 bytes" /tmp/plain.log || {
-            echo "::error::nothing in the log says the scan read nothing, so this is not the case the branch was written for"
-            cat /tmp/plain.log
-            exit 1
-          }
-          echo "plain gitleaks: exit 0, 0 findings, and a log saying it read nothing -- the silent pass this action now refuses"
 
   # trivy-scan.yml against the fixture pinned to an advisory for the
   # govulncheck leg. `upload_sarif` is off: a self-test that uploaded would
