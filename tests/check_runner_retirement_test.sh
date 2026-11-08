@@ -7,7 +7,8 @@
 #              a failed lookup fails; a title naming two versions counts for
 #              both; the search must still find GitHub's 20.04 retirement
 #              or nothing is trusted; --list asks nothing. Also: this tree's
-#              pins are found, and security-weekly runs the check.
+#              pins are found, security-weekly runs the check, and Report
+#              Failure opens the tracking issue when it fails.
 # USAGE: bash tests/check_runner_retirement_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -133,12 +134,17 @@ rm "$work/state/22.04.tsv"
 expect 1 "failed lookup"
 has "::error::Could not ask actions/runner-images about ubuntu-22.04"
 
-# This tree: its pins are found, and security-weekly runs the check.
+# This tree: its pins are found, security-weekly runs the check, and Report
+#              Failure opens the tracking issue when it fails.
 (cd "$root" && bash "$script" --list) > "$work/out" 2>&1 || { echo "FAIL --list on this tree"; fail=1; }
 has "ubuntu-22.04:"
 has ".github/workflows/rust-release-tarballs.yml"
 grep -q 'bash scripts/check_runner_retirement.sh' "$root/.github/workflows/security-weekly.yml" \
   || { echo "FAIL security-weekly.yml does not run the check"; fail=1; }
+grep -qE '^    needs: \[.*runner-retirement.*\]' "$root/.github/workflows/security-weekly.yml" \
+  || { echo "FAIL Report Failure does not wait on runner-retirement, so no issue opens"; fail=1; }
+grep -q 'needs.runner-retirement.result' "$root/.github/workflows/security-weekly.yml" \
+  || { echo "FAIL Report Failure does not read the runner-retirement result"; fail=1; }
 
 if [ "$fail" -ne 0 ]; then
   exit 1

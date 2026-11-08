@@ -14,7 +14,8 @@
 #   -h, --help     Show this help message.
 # EXIT CODES:
 #   0  No pinned image has a retirement announcement (or --list).
-#   1  A pinned image is announced for retirement, or the lookup failed.
+#   1  A pinned image is announced for retirement, a lookup failed, or the
+#      search no longer finds the known 20.04 announcement.
 # ----------------------------------------------------
 set -euo pipefail
 
