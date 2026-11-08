@@ -68,16 +68,38 @@ fi
 # "removed" is not a retirement.
 retire_re='deprecat|fully unsupported|environment will be removed|retire|brownout'
 
+# search <query>: url<TAB>title per matching issue, or exit non-zero.
+search() {
+  gh api -X GET search/issues -f q="$1" -f per_page=50 \
+    --jq '.items[] | [.html_url, .title] | @tsv'
+}
+
+# A search that finds nothing looks the same as an image nobody is retiring.
+# If GitHub renamed the label or reworded these titles, every run would pass
+# for good, so first prove the search still finds a retirement it already
+# announced: 20.04's.
+canary_q='repo:actions/runner-images label:Announcement in:title "Ubuntu 20.04" deprecation'
+if ! canary="$(search "$canary_q" 2>&1)"; then
+  echo "::error::Could not search actions/runner-images: $canary"
+  exit 1
+fi
+if ! grep -iE 'ubuntu' <<< "$canary" | grep -qiE "$retire_re"; then
+  echo "::error::The search no longer finds GitHub's Ubuntu 20.04 retirement announcement (actions/runner-images#11101), so it cannot be trusted to find the next one. Check the label and title wording there and update this script."
+  exit 1
+fi
+
 status=0
 for v in $versions; do
   query="repo:actions/runner-images label:Announcement in:title \"$v\""
-  if ! found="$(gh api -X GET search/issues -f q="$query" -f per_page=50 \
-      --jq '.items[] | [.html_url, .title] | @tsv' 2>&1)"; then
+  if ! found="$(search "$query" 2>&1)"; then
     echo "::error::Could not ask actions/runner-images about ubuntu-$v: $found"
     status=1
     continue
   fi
-  hits="$(grep -iE "ubuntu[ -]${v//./\\.}" <<< "$found" | grep -iE "$retire_re" || true)"
+  # "Ubuntu 22.04 and 24.04 images ..." names 24.04 without "Ubuntu" before
+  # it, so the title needs both, not one next to the other.
+  hits="$(grep -iE 'ubuntu' <<< "$found" | grep -E "(^|[^0-9.])${v//./\\.}([^0-9]|$)" \
+    | grep -iE "$retire_re" || true)"
   if [[ -z "$hits" ]]; then
     echo "OK ubuntu-$v: no retirement announcement."
     continue
