@@ -81,6 +81,10 @@ jobs:
         shell: bash
         run: bash tests/update_pinned_actions_newer_tag_test.sh
 
+      - name: The runner retirement check fires on an announcement and only then
+        shell: bash
+        run: bash tests/check_runner_retirement_test.sh
+
       # Images by digest, downloads by sha256, SSH host keys checked. The
       # test runs the gate against cases it must refuse and cases it must
       # pass, then the gate runs against this tree.
