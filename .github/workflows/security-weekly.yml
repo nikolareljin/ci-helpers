@@ -38,6 +38,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  runner-retirement:
+    name: Runner Image Retirement
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      # rust-release-tarballs builds Linux binaries on ubuntu-22.04 for an
+      # old glibc, and the Tauri workflows default to ubuntu-24.04. Only
+      # GitHub can retire those images; this fails the week it announces it,
+      # rather than on the first release that cannot start.
+      - name: Pinned Ubuntu images have no retirement announcement
+        shell: bash
+        run: bash scripts/check_runner_retirement.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   floating-ref-scan:
     name: Floating Reference Scan
     runs-on: ubuntu-latest

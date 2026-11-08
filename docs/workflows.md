@@ -860,6 +860,13 @@ the release, generate a Homebrew formula and publish it through
 
 `bin_name` must be a plain name: letters, digits and `_`, then also `.`, `+` and `-`; no `..`.
 
+The Linux build is pinned to `ubuntu-22.04` on purpose: the binary links against
+the build host's glibc. GitHub retires runner images on its own schedule, so
+`security-weekly.yml` runs `scripts/check_runner_retirement.sh` every Monday and
+fails once `actions/runner-images` announces that image's deprecation. That is
+the signal to move this build, for example into an older-glibc container on
+`ubuntu-latest`.
+
 Required inputs: `bin_name`, `desc`, `homepage`. Optional:
 `formula_class` (default derived from `bin_name`), `license` (default `MIT`),
 `release_tag` (default: the pushed tag; set it for a backfill run from

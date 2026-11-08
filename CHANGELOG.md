@@ -1,3 +1,9 @@
+## 2026-11-07 — v0.49.0
+
+### Added
+
+- **`security-weekly.yml` fails when GitHub announces the retirement of a pinned Ubuntu runner image.** `rust-release-tarballs.yml` builds its Linux binary on `ubuntu-22.04` for an old glibc, and the Tauri workflows default to `ubuntu-24.04`. GitHub retires images on its own schedule, and nothing here noticed until a job could not start. New `scripts/check_runner_retirement.sh` finds every `ubuntu-NN.NN` (and `-arm`) label in the workflow and action YAML, outside comments, and searches `actions/runner-images` for an Announcement issue that names the version and says the image is being deprecated, unsupported, retired or removed as an environment. One that does fails the new `Runner Image Retirement` job with the announcement and each `file:line` that pins it. An announcement that removes one tool from the image does not count; a failed lookup fails. `--list` prints the pins and asks nothing. Test: `tests/check_runner_retirement_test.sh`, run by `workflow-yaml-check.yml`.
+
 ## 2026-11-06 — v0.48.0
 
 ### Fixed
