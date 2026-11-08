@@ -204,7 +204,7 @@ jobs:
     name: Report Failure
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift]
+    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift, runner-retirement]
     if: failure()
     permissions:
       issues: write
@@ -218,6 +218,7 @@ jobs:
           TRIVY_RESULT: ${{ needs.trivy-fs.result }}
           GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
           VENDOR_RESULT: ${{ needs.vendor-drift.result }}
+          RUNNER_RESULT: ${{ needs.runner-retirement.result }}
         run: |
           set -euo pipefail
 
@@ -227,6 +228,7 @@ jobs:
           [[ "$TRIVY_RESULT"        == "failure" ]] && failed+=("- ❌ Trivy Filesystem Scan")
           [[ "$GITLEAKS_RESULT"     == "failure" ]] && failed+=("- ❌ Gitleaks Secret Scan")
           [[ "$VENDOR_RESULT"       == "failure" ]] && failed+=("- ❌ Vendor Drift Check")
+          [[ "$RUNNER_RESULT"       == "failure" ]] && failed+=("- ❌ Runner Image Retirement (a pinned Ubuntu image is being retired; the job log names the announcement and the pins)")
 
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           today=$(date -u +%Y-%m-%d)
