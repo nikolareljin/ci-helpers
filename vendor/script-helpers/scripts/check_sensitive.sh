@@ -665,6 +665,14 @@ if [[ -s "$tmp/text" ]]; then
       }
       function email_ok(v,   lv, at, local, dom, tld) {
         lv = tolower(v); at = index(lv, "@"); local = substr(lv, 1, at - 1); dom = substr(lv, at + 1)
+        # A document suffix must not hide the email address in its filename.
+        tld = dom; sub(/^.*\./, "", tld)
+        while (tld ~ /^(png|jpe?g|gif|svg|webp|ico|pdf|js|mjs|cjs|ts|tsx|jsx|css|scss|json|ya?ml|md|txt|sh|py|rb|go|rs|java|kt|zip|gz|tgz|tar|lock|xml|html?|map|wasm|so|dll|exe|bin|log)$/) {
+          sub(/\.[^.]*$/, "", dom)
+          if (dom !~ /\./) return 1
+          tld = dom; sub(/^.*\./, "", tld)
+        }
+        v = substr(v, 1, at + length(dom)); lv = tolower(v)
         for (i = 1; i <= ni; i++) if (lv == id[i]) return 1
         if (local ~ /^(git|noreply|no-reply|no_reply|donotreply|do-not-reply|notifications|mailer-daemon)$/ || local ~ /^noreply/) return 1
         if (dom ~ /(^|\.)(example\.(com|org|net)|example|test|invalid|localhost|local)$/) return 1

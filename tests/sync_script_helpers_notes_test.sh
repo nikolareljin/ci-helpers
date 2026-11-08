@@ -44,6 +44,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result.returncode == 0, result.stderr.decode()
     notes = (consumer / "vendor/.script-helpers-notes.md").read_text()
     assert "NEW_ENTRY" in notes
+    assert not notes.endswith("\n\n"), "generated notes contain trailing blank lines"
     assert "ARCHIVE_SENTINEL" not in notes, "SHA pin recopied old history"
     print("PASS commit pins copy only the changelog delta")
 

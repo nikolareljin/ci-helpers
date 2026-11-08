@@ -222,7 +222,7 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
     echo
     awk '/^## /{ if (seen) exit; seen = 1 } seen { print }' "$notes_src"
   fi
-} > "${notes_file}.new"
+} | awk 'NF { printf "%s", blank; blank = ""; print; next } { blank = blank $0 ORS }' > "${notes_file}.new"
 
 # Immediately, and before the up-to-date short circuit below. These notes are
 # upstream prose copied verbatim into a public repository, so a private name in

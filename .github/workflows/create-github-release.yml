@@ -62,7 +62,7 @@ jobs:
           tag="${tag//$'\n'/}"
           tag="${tag//$'\r'/}"
           if ! printf '%s' "$tag" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.?[0-9]+)?$'; then
-            echo "::error::release_tag '${tag}' is not a valid semver (expected X.Y.Z, X.Y.Z-rcN, or X.Y.Z-rc.N)"
+            echo "::error::release_tag is not a valid semver (expected X.Y.Z, X.Y.Z-rcN, or X.Y.Z-rc.N)"
             exit 1
           fi
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
@@ -96,6 +96,7 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.resolve_tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           body=""
@@ -122,39 +123,71 @@ jobs:
               }
             ' CHANGELOG.md)
           fi
-          if [[ -n "$body" ]]; then
-            # A random delimiter: a fixed one ends the body at any CHANGELOG line
-            # that happens to spell it, and the rest is parsed as more outputs.
-            delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
-            while [[ "$body" == *"$delimiter"* ]]; do
-              delimiter="GH_OUTPUT_${RANDOM}_${RANDOM}_$(date +%s)"
-            done
-            {
-              printf 'body<<%s\n' "$delimiter"
-              printf '%s\n' "$body"
-              printf '%s\n' "$delimiter"
-            } >> "$GITHUB_OUTPUT"
-          else
-            # No CHANGELOG section found; fall back to GitHub auto-generated notes
-            printf 'body=\n' >> "$GITHUB_OUTPUT"
+          umask 077
+          notes=$(mktemp "$RUNNER_TEMP/release-notes.XXXXXX")
+          printf '%s\n' "$body" > "$notes"
+          if [[ -z "$body" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              --raw-field "tag_name=$RELEASE_TAG" --jq .body > "$notes"
+          fi
+          printf 'body_path=%s\n' "$notes" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
           fi
 
-      - name: Create GitHub Release (CHANGELOG notes)
-        if: steps.notes.outputs.body != ''
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3 @ 2026-11-06
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
-          tag_name: ${{ steps.resolve_tag.outputs.tag }}
-          name: ${{ steps.resolve_tag.outputs.tag }}
-          body: ${{ steps.notes.outputs.body }}
-          prerelease: ${{ steps.resolve_tag.outputs.is_prerelease }}
-          make_latest: ${{ steps.resolve_tag.outputs.make_latest }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
 
-      - name: Create GitHub Release (auto-generated notes)
-        if: steps.notes.outputs.body == ''
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$(git rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            tag_name: ${{ steps.resolve_tag.outputs.tag }}
+            name: ${{ steps.resolve_tag.outputs.tag }}
+          mode: release
+          body_path: ${{ steps.notes.outputs.body_path }}
+
+      - name: Create GitHub Release
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3 @ 2026-11-06
         with:
           tag_name: ${{ steps.resolve_tag.outputs.tag }}
           name: ${{ steps.resolve_tag.outputs.tag }}
-          generate_release_notes: true
+          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
           prerelease: ${{ steps.resolve_tag.outputs.is_prerelease }}
           make_latest: ${{ steps.resolve_tag.outputs.make_latest }}

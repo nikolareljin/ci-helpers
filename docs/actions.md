@@ -1,6 +1,6 @@
-# Composite Actions
+# Actions
 
-These composite actions are intended for reuse inside your workflows.
+These actions are intended for reuse inside your workflows.
 
 Related docs:
 
@@ -448,3 +448,31 @@ workflow revision. Writer jobs run it before publishing. It refuses sensitive
 content and scanner results before Git sends objects, even in secondary clones.
 Missing checkers or tools refuse publication. GitHub receives only a verdict;
 detailed diagnostics must be reproduced and examined locally.
+
+## publication-check
+
+Checks artifact and release files before an upload action runs. The reusable
+workflows check out this action at the workflow revision, validate the selected
+files and pass private snapshots to the uploader. A failed check stops uploads,
+including steps with `always()` or `failure()`.
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `mode` | required | `artifact` or `release` pattern semantics |
+| `paths` | empty | Original uploader patterns, including artifact exclusions |
+| `metadata` | empty | Artifact name, release name, tag and target commit |
+| `include_hidden_files` | `false` | Include hidden artifact files |
+| `working_directory` | empty | Base directory for release patterns |
+| `body_path` | empty | Release notes file |
+| `fail_on_unmatched_files` | `false` | Refuse unmatched release patterns |
+
+Outputs `paths` and `body_path` refer only to validated snapshots outside the
+workspace. Post-job cleanup removes them. Files above 64 MiB, more than 2,000
+selected files, Git metadata and colliding published names fail closed. Archives
+use the shared checker's size and nesting limits. Release notes are checked
+before publication; server-generated notes are fetched and checked first.
+
+CI prints only the failing tool and safe branch instructions with
+https://nikolareljin.github.io/leak-lock/. Inspect findings locally. This action
+checks the workflows' standard upload steps. An exclusive publication writer is
+still required to prevent deliberate client or credential bypasses.

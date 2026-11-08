@@ -32,6 +32,24 @@ class PolicyTests(unittest.TestCase):
             {"run": "git push origin HEAD"}, {"uses": "./publication-guard"},
         ]}}}))
 
+    def test_artifact_action_without_payload_check_refused(self):
+        self.assertTrue(self.check([{"uses": "actions/upload-artifact@fixture", "with": {"path": "dist/*"}}]))
+
+    def test_always_cannot_bypass_a_failed_payload_check(self):
+        guard = {"id": "checked", "uses": "./trusted/.github/actions/publication-check", "with": {"mode": "artifact"}}
+        upload = {"uses": "actions/upload-artifact@fixture", "with": {"path": "${{ steps.checked.outputs.paths }}"}}
+        for condition in ("always()", "${{ steps.checked.outcome == 'success' || always() }}", "${{ !(steps.checked.outcome == 'success') }}"):
+            upload["if"] = condition
+            self.assertTrue(self.check([guard, upload]))
+        upload["if"] = "${{ always() && steps.checked.outcome == 'success' }}"
+        self.assertFalse(self.check([guard, upload]))
+
+    def test_original_payload_path_cannot_bypass_snapshot(self):
+        self.assertTrue(self.check([
+            {"id": "checked", "uses": "./trusted/.github/actions/publication-check", "with": {"mode": "artifact"}},
+            {"uses": "actions/upload-artifact@fixture", "if": "${{ always() && steps.checked.outcome == 'success' }}", "with": {"path": "dist/*"}},
+        ]))
+
 
 if __name__ == "__main__":
     unittest.main()

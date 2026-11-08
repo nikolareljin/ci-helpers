@@ -150,7 +150,7 @@ nav:
   - Reference:
       - Reusable workflows: workflows.md
       - Presets: presets.md
-      - Composite actions: actions.md
+      - Actions: actions.md
   - Guides:
       - Private-repo CI strategy: private-repo-ci-strategy.md
       - Packaging and signing (DEB, PPA, macOS): packaging.md

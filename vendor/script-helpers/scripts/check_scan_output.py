@@ -50,10 +50,10 @@ BASH = shutil.which("bash") or "bash"
 
 def inspect_archive_member(name, raw, depth):
     inspect(name, raw, depth)
-    # Binary diffs do not expose archive members to the ordinary PII check.
+    # Binary diffs and archive scanners can omit member names and link targets.
     proc = subprocess.run(
         [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(),
-         "--stdin", "--no-gitleaks", "--no-inline-allow"],
+         "--stdin", "--no-inline-allow"],
         input=os.fsencode(name) + b"\n" + raw.replace(b"\0", b" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if proc.returncode == 1:
@@ -132,12 +132,14 @@ def _inspect(name, raw, depth=0):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 total = 0
-                for member in archive.infolist():
+                members = archive.infolist()
+                if len(members) > 2000:
+                    raise Unchecked()
+                for member in members:
                     total += member.file_size
                     if total > LIMIT or member.flag_bits & 1:
                         raise Unchecked()
-                    if not member.is_dir():
-                        inspect_archive_member(member.filename, archive.read(member), depth + 1)
+                    inspect_archive_member(member.filename, b"" if member.is_dir() else archive.read(member), depth + 1)
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
         return
@@ -145,7 +147,12 @@ def _inspect(name, raw, depth=0):
         try:
             with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
                 total = 0
-                for member in archive:
+                members = []
+                for index, member in enumerate(archive):
+                    if index >= 2000:
+                        raise Unchecked()
+                    members.append(member)
+                for member in members:
                     total += member.size
                     if total > LIMIT:
                         raise Unchecked()
@@ -154,6 +161,8 @@ def _inspect(name, raw, depth=0):
                         if stream is None:
                             raise Unchecked()
                         inspect_archive_member(member.name, stream.read(LIMIT + 1), depth + 1)
+                    else:
+                        inspect_archive_member(member.name, os.fsencode(member.linkname), depth + 1)
         except (OSError, ValueError, tarfile.TarError):
             raise Unchecked() from None
         return
@@ -165,7 +174,9 @@ def _inspect(name, raw, depth=0):
     try:
         if structured(json.loads(text)):
             raise Refused()
-    except (ValueError, RecursionError):
+    except RecursionError:
+        raise Unchecked() from None
+    except ValueError:
         pass
     decoder = json.JSONDecoder()
     for match in re.finditer(r'(?m)^[ \t>]*(?P<json>[{\[])(?=[\s"{])', text):
@@ -173,7 +184,9 @@ def _inspect(name, raw, depth=0):
             value, _ = decoder.raw_decode(text, match.start("json"))
             if structured(value):
                 raise Refused()
-        except (ValueError, RecursionError):
+        except RecursionError:
+            raise Unchecked() from None
+        except ValueError:
             continue
     text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
     if re.search(r"(?m)^\s*Local(?: security)? report:\s+(?:/|[A-Za-z]:[\\/])", text):

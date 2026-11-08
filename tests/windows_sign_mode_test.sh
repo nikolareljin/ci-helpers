@@ -46,7 +46,7 @@ else:
         if uses.startswith("actions/checkout@"):
             w = st.get("with", {})
             if w.get("repository") != "${{ job.workflow_repository }}" or w.get("ref") != "${{ job.workflow_sha }}" \
-               or w.get("sparse-checkout") != ".github/actions":
+               or w.get("sparse-checkout") not in (".github/actions", ".github/actions/publication-check\nvendor/script-helpers\n"):
                 fail.append("sign-windows checks out something other than the ci-helpers actions")
         run = st.get("run", "")
         for tool in ("cargo", "npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):

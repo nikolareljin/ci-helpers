@@ -14,6 +14,8 @@ Thumbs.db
 
 # Python bytecode caches (created when a script is imported, e.g. in tests)
 __pycache__/
+/.github/actions/publication-check/node_modules/
+/.ci-helpers-publication/
 *.pyc
 
 # Temporary files

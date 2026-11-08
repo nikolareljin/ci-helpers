@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - `.github/workflows/`: reusable workflows (`ci.yml`, `pr-gate.yml`, `deploy.yml`) and top-level preset workflows (for GitHub reusable workflow requirements).
-- `.github/actions/`: composite actions (`semver-compare`, `check-release-tag`).
+- `.github/actions/`: reusable composite and native actions.
 - `scripts/`: Bash helpers used by actions and maintenance tasks.
 - `vendor/script-helpers/`: vendored Bash utilities. Sync with
   `scripts/sync_script_helpers.sh`, then prove it with `scripts/verify_vendor.sh`,
@@ -41,10 +41,11 @@ There is no `Makefile` and no `lib/` in this repository; every entry point is
 
 ## Testing Guidelines
 
-- There is no unit-test suite here. The gates are static: `actionlint` (which
-  shellchecks every `run:` block at warning level), the YAML parse check, the
-  floating-ref scan, and the SHA-pin audit.
-- Run the four commands above before opening a PR; note anything skipped.
+- Run the shell and Python regression tests in `tests/`. Install the locked
+  dependencies in `.github/actions/publication-check` and run
+  `node --test tests/publication_files_test.cjs` with Node 24.
+- Run actionlint, the YAML parse check, the floating-ref scan and the SHA-pin
+  audit before opening a PR.
 
 ## Commit & Pull Request Guidelines
 

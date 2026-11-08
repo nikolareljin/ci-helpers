@@ -9,6 +9,35 @@ import sys
 import yaml
 
 
+def mandatory_outcome(condition, key):
+    match = re.fullmatch(
+        r"\$\{\{\s*(.+?)\s+&&\s+steps\." + re.escape(key)
+        + r"\.outcome\s*==\s*'success'\s*\}\}", condition,
+    )
+    if not match:
+        return False
+    prefix = match.group(1).strip()
+    if prefix == "always()":
+        return True
+    if not prefix.startswith("(") or not prefix.endswith(")"):
+        return False
+    depth, quote = 0, ""
+    for index, char in enumerate(prefix):
+        if quote:
+            if char == quote:
+                quote = ""
+            continue
+        if char in "\"'":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if depth == 0 and index != len(prefix) - 1:
+            return False
+    return depth == 0 and not quote
+
+
 def violations(doc):
     problems = []
     trigger = doc.get("on", doc.get(True, {}))
@@ -17,6 +46,30 @@ def violations(doc):
         if not isinstance(job, dict):
             continue
         steps = job.get("steps", [])
+        checked = {}
+        for step in steps:
+            uses = str(step.get("uses", ""))
+            options = step.get("with") or {}
+            if uses.endswith("/.github/actions/publication-check"):
+                checked[step.get("id")] = options
+            if re.search(r"(?:actions/upload-artifact|softprops/action-gh-release)@", uses):
+                release = "action-gh-release" in uses
+                condition = str(step.get("if", ""))
+                matches = re.findall(r"steps\.([A-Za-z_][\w-]*)\.outcome\s*==\s*'success'", condition)
+                guards = [key for key in matches if key in checked]
+                if len(guards) != 1 or not mandatory_outcome(condition, guards[0]):
+                    problems.append("file upload lacks mandatory payload check")
+                    continue
+                key = guards[0]
+                if checked[key].get("mode") != ("release" if release else "artifact"):
+                    problems.append("file upload uses wrong payload check")
+                field = "files" if release else "path"
+                if (not release or field in options) and options.get(field) != "${{ steps." + key + ".outputs.paths }}":
+                    problems.append("file upload bypasses checked snapshot")
+                if "body_path" in options and options["body_path"] != "${{ steps." + key + ".outputs.body_path }}":
+                    problems.append("release notes bypass checked snapshot")
+                if options.get("body") or options.get("generate_release_notes"):
+                    problems.append("release generates unchecked notes")
         scanner_job = bool(re.search(r"gitleaks|foxguard", str(job.get("uses", "")), re.I))
         for step in steps + [job]:
             uses = str(step.get("uses", ""))

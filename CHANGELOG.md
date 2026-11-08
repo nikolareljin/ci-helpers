@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Check artifact files, release assets and release notes before upload. Upload only validated snapshots; failed checks cannot be bypassed by `always()`.
+
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 
 ## 2026-11-06 — v0.48.0
