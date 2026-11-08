@@ -99,6 +99,13 @@ test('unmatched release patterns fail closed when requested', async () => {
   await assert.rejects(snapshot(input('release', 'missing/*', {workingDirectory: dir, failUnmatched: true}), stage, check));
 });
 
+test('ordinary artifact uploads cannot publish SARIF', async () => {
+  const {dir, stage} = fixture();
+  const file = path.join(dir, 'data.json');
+  fs.writeFileSync(file, JSON.stringify({version: '2.1.0', runs: []}));
+  await assert.rejects(snapshot(input('artifact', file), stage, check));
+});
+
 test('release notes and artifact metadata are checked without asset files', async () => {
   for (const metadata of [false, true]) {
     const {dir, stage} = fixture();

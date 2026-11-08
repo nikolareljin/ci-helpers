@@ -1283,7 +1283,7 @@ jobs:
     with:
       scan_path: tests/fixtures/go-vuln
       upload_sarif: false
-      upload_artifact: true
+      upload_artifact: false
       artifact_name: trivy-selftest
 
   trivy-refuses-what-it-must:
