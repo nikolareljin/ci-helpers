@@ -174,12 +174,14 @@ function writeOutput(name, value) {
 async function main() {
   process.umask(0o077);
   let stage, log, bash, gl = '';
+  let privateEnv = process.env;
   const originalOut = process.stdout.write, originalErr = process.stderr.write;
   const restore = () => { process.stdout.write = originalOut; process.stderr.write = originalErr; };
   try {
     bash = findBash();
     if (!bash) throw new Error('Git Bash unavailable');
     stage = allocateStage();
+    privateEnv = {...process.env, TMPDIR: bashPath(stage), TMP: stage, TEMP: stage};
     if (!process.env.GITHUB_STATE) throw new Error('state storage unavailable');
     fs.appendFileSync(process.env.GITHUB_STATE, `publication_stage=${stage}\n`);
     log = fs.openSync(path.join(stage, 'private.log'), 'wx', 0o600);
@@ -192,7 +194,7 @@ async function main() {
     const npm = npmCli();
     if (!npm) throw new Error('npm unavailable');
     const install = cp.spawnSync(process.execPath, [npm, 'ci', '--prefix', __dirname, '--ignore-scripts', '--workspaces=false', '--no-audit', '--no-fund'], {
-      cwd: __dirname, env: {...process.env, NPM_CONFIG_USERCONFIG: os.devNull}, stdio: ['ignore', log, log],
+      cwd: __dirname, env: {...privateEnv, NPM_CONFIG_USERCONFIG: os.devNull}, stdio: ['ignore', log, log],
     });
     if (install.status !== 0) throw new Error('dependency installation failed');
     const binaryFile = path.join(stage, 'scanner-path');
@@ -206,13 +208,13 @@ if [[ -n "\${GITLEAKS_BIN:-}" ]]; then
 else
   gitleaks_bin >/dev/null 2>&1 || gitleaks_install
   gitleaks_bin > "$2"
-fi`, '_', bashPath(helpers), bashPath(binaryFile)], {stdio: ['ignore', log, log]});
+fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['ignore', log, log]});
     if (bootstrap.status !== 0) throw new Error('credential scanner unavailable');
     gl = fs.readFileSync(binaryFile, 'utf8').trim();
     const check = (file, text, relative, cwd) => {
       const args = [bashPath(path.join(helpers, 'scripts/check_publication.sh')), ...(file ? ['--file', bashPath(relative || file)] : ['--stdin'])];
       const result = cp.spawnSync(bash, args, {cwd: cwd || process.cwd(), input: text || undefined,
-        env: {...process.env, GITLEAKS_BIN: gl}, stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
+        env: {...privateEnv, GITLEAKS_BIN: gl}, stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
       if (result.status !== 0) throw new Error('publication refused');
     };
     const result = await snapshot({mode: process.env.INPUT_MODE, paths: process.env.INPUT_PATHS || '',
@@ -227,7 +229,7 @@ fi`, '_', bashPath(helpers), bashPath(binaryFile)], {stdio: ['ignore', log, log]
     restore();
     if (log !== undefined) { try { fs.closeSync(log); } catch {} }
     if (bash) cp.spawnSync(bash, ['-c', 'source "$1/security_notice.sh"; security_notice "$(security_notice_tool "$2")"', '_',
-      bashPath(path.join(helpers, 'scripts')), stage ? bashPath(path.join(stage, 'private.log')) : ''], {env: {...process.env, GITLEAKS_BIN: gl}, stdio: 'inherit'});
+      bashPath(path.join(helpers, 'scripts')), stage ? bashPath(path.join(stage, 'private.log')) : ''], {env: {...privateEnv, GITLEAKS_BIN: gl}, stdio: 'inherit'});
     else process.stderr.write('Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/\n');
     if (stage) { try { fs.rmSync(stage, {recursive: true, force: true}); } catch {} }
     process.exitCode = 1;

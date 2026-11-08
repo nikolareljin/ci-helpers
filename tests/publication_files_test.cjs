@@ -119,3 +119,27 @@ test('Git metadata and inspection limits refuse publication', async () => {
     await assert.rejects(snapshot(input('artifact', file, {includeHidden: true}), stage, check));
   }
 });
+
+test('temporary storage stays private when caller TMPDIR is unusable', () => {
+  const {dir} = fixture();
+  const workspace = path.join(dir, 'workspace'), runner = path.join(dir, 'runner');
+  fs.mkdirSync(workspace); fs.mkdirSync(runner);
+  const file = path.join(workspace, 'ordinary.txt');
+  fs.writeFileSync(file, 'ordinary package');
+  const state = path.join(dir, 'state'), output = path.join(dir, 'output');
+  fs.writeFileSync(state, ''); fs.writeFileSync(output, '');
+  const action = path.resolve(__dirname, '../.github/actions/publication-check');
+  const env = {...process.env, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_WORKSPACE: workspace,
+    RUNNER_TEMP: runner, GITHUB_STATE: state, GITHUB_OUTPUT: output, GITLEAKS_BIN: fake,
+    INPUT_MODE: 'artifact', INPUT_PATHS: file, INPUT_METADATA: '', INPUT_BODY_PATH: '',
+    TMPDIR: path.join(dir, 'missing/tmp')};
+  try {
+    const result = cp.spawnSync(process.execPath, [path.join(action, 'index.cjs')], {cwd: workspace, env, encoding: 'utf8'});
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout + result.stderr, '');
+    assert.deepEqual(fs.readdirSync(workspace), ['ordinary.txt']);
+  } finally {
+    const stage = fs.readFileSync(state, 'utf8').trim().split('=')[1];
+    if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
+  }
+});
