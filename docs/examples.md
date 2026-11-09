@@ -175,7 +175,7 @@ jobs:
       php_version: "8.4"
 ```
 
-## Docker scan (Trivy + Snyk)
+## Docker scan (Trivy)
 
 ```yaml
 jobs:
@@ -183,8 +183,6 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
     with:
       image_name: "app:ci"
-    secrets:
-      snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
 ## Composite actions (Gitleaks + Trivy)

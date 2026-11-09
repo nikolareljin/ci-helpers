@@ -159,7 +159,7 @@ jobs:
       node_version: "22"
 ```
 
-Docker scan (Trivy + Snyk):
+Docker scan (Trivy):
 
 ```yaml
 name: Docker Scan
@@ -172,8 +172,6 @@ jobs:
     uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
     with:
       image_name: "app:ci"
-    secrets:
-      snyk_token: ${{ secrets.SNYK_TOKEN }}
 ```
 
 ## Composite actions

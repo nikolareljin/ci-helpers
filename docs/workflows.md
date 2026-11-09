@@ -429,6 +429,13 @@ Workflow: `.github/workflows/trivy-scan.yml`
 
 Purpose: Run Trivy filesystem scan with optional SARIF upload.
 
+Trivy is the release binary pinned by version and sha256 in the library's
+`scanner-pins.env`, downloaded and verified in the job; no third-party action.
+The vulnerability database is fetched in its own step and the scan runs with
+`--skip-db-update --skip-check-update --offline-scan`, and every Trivy call
+passes `--disable-telemetry --skip-version-check`, so nothing is reported to
+Aqua. The report holds the requested `severity` only.
+
 Inputs:
 
 - `runner` (string, default `ubuntu-latest`)
@@ -1162,6 +1169,10 @@ Workflow: `.github/workflows/go-scan.yml`
 
 Purpose: Run Go lint, tests, and gosec scanning.
 
+gosec is built with `go install` at the version pinned in the library's
+`scanner-pins.env`, so the Go module checksum database verifies it; no
+container action. It runs in `working_directory`, as lint and tests do.
+
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
@@ -1397,9 +1408,12 @@ jobs:
 
 Workflow: `.github/workflows/docker-scan.yml`
 
-Purpose: Build a Docker image and scan with Trivy and Snyk.
+Purpose: Build a Docker image and scan it with Trivy.
 
-Note: Snyk requires a `SNYK_TOKEN` secret.
+Trivy is the release binary pinned by version and sha256 in the library's
+`scanner-pins.env`, downloaded and verified in the job; no third-party action.
+The vulnerability database is fetched in its own step and the scan runs with
+`--skip-db-update --offline-scan --disable-telemetry --skip-version-check`.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
@@ -1409,33 +1423,23 @@ Inputs:
 - `context` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `trivy_ignore_unfixed` (string, default `true`) - skip findings with no fixed version.
-- `snyk_severity_threshold` (string, default `high`)
 - `trivy_severity` (string, default `CRITICAL,HIGH`)
 - `fail_on_findings` (boolean, default `true`)
-- `run_snyk` (boolean, default `false`). Snyk needs an account and an API token
-  -- there is no anonymous mode, and the free plan still issues a key -- so it
-  is opt-in. The Snyk CLI image is pinned by digest (`snyk/snyk:docker@sha256:...`):
-
-  ```yaml
-  with:
-    run_snyk: true
-  secrets:
-    snyk_token: ${{ secrets.SNYK_TOKEN }}
-  ```
-
-  Turned on **without** the secret, the scan is skipped with a warning in the
-  run log and a line in the job summary, rather than failing the build or
-  passing in silence:
+- `run_snyk` (boolean, default `false`). Snyk is disabled: it is a cloud
+  service that receives the image's dependency graph and metadata, and a scan
+  job here sends code and data to nobody. The input stays so existing callers
+  keep parsing. With `run_snyk: true` the job warns and writes a summary line,
+  and nothing else happens:
 
   ```
-  Warning: Snyk scan skipped: run_snyk is on but no snyk_token was passed...
+  Warning: Snyk scan disabled: run_snyk is on, but Snyk is disabled in docker-scan...
   ```
 
-  Trivy runs on every call, needs no credential, and covers the same CVE ground
-  for container images.
+- `snyk_severity_threshold` (string, default `high`) - unused; Snyk is disabled.
 
 Secrets:
-- `snyk_token` - required only when `run_snyk` is `true`.
+- `snyk_token` - unused; Snyk is disabled. Never read. Kept so a caller
+  passing it keeps parsing.
 
 Example:
 
@@ -1443,8 +1447,8 @@ Example:
 jobs:
   docker_scan:
     uses: nikolareljin/ci-helpers/.github/workflows/docker-scan.yml@production
-    secrets:
-      snyk_token: ${{ secrets.SNYK_TOKEN }}
+    with:
+      image_name: "app:ci"
 ```
 
 ## pimcore.yml

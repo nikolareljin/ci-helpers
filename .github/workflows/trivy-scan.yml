@@ -91,31 +91,12 @@ jobs:
             exit 1
           fi
 
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.scan_path }}
-          format: ${{ inputs.format }}
-          output: ${{ inputs.output }}
-          severity: ${{ inputs.severity }}
-          ignore-unfixed: ${{ inputs.ignore_unfixed }}
-          vuln-type: ${{ inputs.vuln_type }}
-          scanners: ${{ inputs.scanners }}
-          skip-dirs: ${{ inputs.skip_dirs }}
-          exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
-
-      # Also after a failed scan (findings are what fail it), but only when a
-      # report was written and the run was not cancelled.
-      - name: Upload SARIF
-        if: ${{ !cancelled() && hashFiles(inputs.output) != '' && inputs.upload_sarif && inputs.format == 'sarif' }}
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1 @ 2026-10-21
-        with:
-          sarif_file: ${{ inputs.output }}
-
+      # The library's own files at the commit of this workflow file: the
+      # Trivy installer, its pins and the publication check. `./scripts` would
+      # resolve in the caller's checkout, so the library is checked out beside
+      # it. Before the scan, because the scan needs the installer.
       - name: Reserve trusted publication action directory
         id: ci_publication_prepare
-        if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -126,7 +107,6 @@ jobs:
 
       - name: Check out trusted publication action
         id: ci_publication_checkout
-        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: ${{ job.workflow_repository }}
@@ -134,12 +114,12 @@ jobs:
           path: .ci-helpers-publication
           sparse-checkout: |
             .github/actions/publication-check
+            scripts
             vendor/script-helpers
           persist-credentials: false
 
       - name: Verify publication action revision
         id: ci_publication_verify
-        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
         shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
@@ -151,6 +131,49 @@ jobs:
             exclude=$(git rev-parse --git-path info/exclude)
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
+
+      # The Trivy binary, not the vendor's action: a release pinned by version
+      # and sha256 in the library's scanner-pins.env, downloaded and checked
+      # here. The vulnerability database is fetched in this step, so the scan
+      # below has no network call of its own.
+      - name: Install Trivy
+        id: trivy
+        shell: bash
+        run: bash .ci-helpers-publication/scripts/install_trivy.sh --download-db
+
+      - name: Trivy scan
+        shell: bash
+        env:
+          TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
+          CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
+          SCAN_PATH: ${{ inputs.scan_path }}
+          FORMAT: ${{ inputs.format }}
+          OUTPUT: ${{ inputs.output }}
+          SEVERITY: ${{ inputs.severity }}
+          IGNORE_UNFIXED: ${{ inputs.ignore_unfixed }}
+          PKG_TYPES: ${{ inputs.vuln_type }}
+          SCANNERS: ${{ inputs.scanners }}
+          SKIP_DIRS: ${{ inputs.skip_dirs }}
+          EXIT_CODE: ${{ inputs.fail_on_findings && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          args=(--skip-db-update --skip-check-update --offline-scan
+                --format "$FORMAT" --output "$OUTPUT" --severity "$SEVERITY"
+                --pkg-types "$PKG_TYPES" --scanners "$SCANNERS" --exit-code "$EXIT_CODE")
+          if [[ "$IGNORE_UNFIXED" == "true" ]]; then args+=(--ignore-unfixed); fi
+          if [[ -n "$SKIP_DIRS" ]]; then args+=(--skip-dirs "$SKIP_DIRS"); fi
+          # The library checkout is untracked in the caller's tree and would
+          # otherwise be scanned as part of it.
+          args+=(--skip-dirs .ci-helpers-publication)
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check fs "${args[@]}" "$SCAN_PATH"
+
+      # Also after a failed scan (findings are what fail it), but only when a
+      # report was written and the run was not cancelled.
+      - name: Upload SARIF
+        if: ${{ !cancelled() && hashFiles(inputs.output) != '' && inputs.upload_sarif && inputs.format == 'sarif' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1 @ 2026-10-21
+        with:
+          sarif_file: ${{ inputs.output }}
 
       - name: Check publication files
         id: ci_publication_check_1
