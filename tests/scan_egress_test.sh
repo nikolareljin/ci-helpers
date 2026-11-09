@@ -15,6 +15,8 @@ check="$root/scripts/check_scan_egress.py"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 fail=0
+# The fork owner comes from the environment; each case sets it or not.
+unset GITHUB_REPOSITORY_OWNER
 
 if ! python3 "$check" --root "$root" > "$work/out" 2>&1; then
   echo "FAIL this tree has findings:"; cat "$work/out"; fail=1
@@ -147,6 +149,34 @@ runs:
   image: docker://ghcr.io/x/scanner:latest
 YAML
 
+expect "trivy reporting usage" 1 "telemetry: Trivy runs without --disable-telemetry" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --skip-version-check image \
+            --offline-scan "$IMAGE"
+YAML
+
+expect "trivy without the version check flag" 1 "telemetry: Trivy runs without --skip-version-check" .github/actions/x-scan/action.yml <<'YAML'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: trivy --disable-telemetry fs .
+YAML
+
+expect "ci-helpers under another owner" 1 "uses: 'evil/ci-helpers/.github/workflows/x.yml@main' is not" <<'YAML'
+on: push
+jobs:
+  caller:
+    permissions:
+      contents: read
+    uses: evil/ci-helpers/.github/workflows/x.yml@main
+YAML
+
 expect "what is allowed stays quiet" 0 "" <<'YAML'
 on: push
 jobs:
@@ -161,10 +191,18 @@ jobs:
           persist-credentials: false
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/trivy-scan
-      - uses: someowner/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
+      - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: |
           # docker run snyk/snyk:docker was the old form
           docker run --rm ghcr.io/zizmorcore/zizmor@sha256:f09cee55087d54e7a162fc255ffe82ef942f68e683f967c8a6471ffe35e7ec64 --offline .
+          echo "never docker run an image by tag"  # docker run x:latest
+          "$TRIVY_BIN" --cache-dir c --disable-telemetry --skip-version-check \
+            fs --offline-scan .
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: "false"
+      - uses: Swatinem/rust-cache@0000000000000000000000000000000000000000
+      - uses: NikolaReljin/ci-helpers/.github/actions/trivy-scan@0000000000000000000000000000000000000000
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
   report:
     needs: scan
@@ -198,6 +236,19 @@ jobs:
 YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
+
+# In a fork, the library at the fork's owner is this library.
+mkdir -p "$work/f/.github/workflows"
+cat > "$work/f/.github/workflows/x-scan.yml" <<'YAML'
+on: push
+jobs:
+  caller:
+    permissions:
+      contents: read
+    uses: someowner/ci-helpers/.github/workflows/x.yml@main
+YAML
+rc=0; GITHUB_REPOSITORY_OWNER=SomeOwner python3 "$check" --root "$work/f" > "$work/out" 2>&1 || rc=$?
+if [ "$rc" != 0 ]; then echo "FAIL the fork's own ci-helpers was refused:"; cat "$work/out"; fail=1; fi
 
 [ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, passes what is allowed and this tree"
 exit "$fail"

@@ -9,17 +9,23 @@ and security-weekly.yml, and .github/actions/*-scan/action.yml. Each is read
 with PyYAML and fails on:
 
   uses        a `uses:` outside the allowlist: actions/*, github/*, this
-              library (<owner>/ci-helpers/...), a local path (./...), or one
+              library (nikolareljin/ci-helpers/..., or the ci-helpers of
+              $GITHUB_REPOSITORY_OWNER in a fork), a local path (./...), or one
               of the named toolchain installers below, which must be pinned
               to a 40-hex commit. A third-party scanner action runs with the
               caller's checkout and token; the Trivy actions were hijacked in
               March 2026 to read exactly those.
   docker      a `docker run` in a run block whose image is not pinned by
               `@sha256:`. A tag is re-resolved on every run.
-  checkout    an actions/checkout step without `persist-credentials: false`.
+  checkout    an actions/checkout step without `persist-credentials: false`
+              (a YAML boolean or the string "false").
               The default writes the job's token into .git/config, where a
               scanner reads it.
   secrets     a job with `secrets: inherit`. A scan job gets no secrets.
+  telemetry   a run block in any workflow or action under .github that starts
+              Trivy without both --disable-telemetry and --skip-version-check.
+              Trivy otherwise reports usage to Aqua on every scan, even with
+              --offline-scan.
   permissions a job (or the workflow, when the job sets none) without a
               `permissions:` block, or with `contents` other than `read`
               (absent is none, which is fine); any `write` other than
@@ -35,6 +41,7 @@ EXIT_CODES:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -49,7 +56,16 @@ SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"
 
 # `uses:` an action here may name without a finding. A local path and this
 # library at any owner are fine; so are GitHub's own actions.
-ALLOWED_USES = re.compile(r"^(\./|actions/|github/|[A-Za-z0-9-]+/ci-helpers/)")
+ALLOWED_USES = re.compile(r"^(\./|actions/|github/)")
+# This library, at its home owner or at the owner of the repository the check
+# runs in (a fork). Any other `<owner>/ci-helpers` is someone else's code.
+LIBRARY_OWNERS = {"nikolareljin"}
+LIBRARY_USES = re.compile(r"^([a-z0-9-]+)/ci-helpers/")
+
+# A command that starts Trivy: the binary by name, or the path the installer
+# hands over in TRIVY_BIN / trivy_bin.
+TRIVY_CALL = re.compile(r'(^|[;&|(]\s*|\$\(\s*)("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
+TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 
 # Toolchain installers the language scans still use. They install a compiler
 # or a package manager, not a scanner, and each must be pinned to a commit.
@@ -73,10 +89,15 @@ def steps_of(job: dict):
 
 
 def check_uses(ref: str, where: str, out: list[str]) -> None:
-    if ALLOWED_USES.match(ref):
+    # Owner and repository names are case-insensitive on GitHub.
+    low = ref.lower()
+    if ALLOWED_USES.match(low):
+        return
+    lib = LIBRARY_USES.match(low)
+    if lib and lib.group(1) in LIBRARY_OWNERS:
         return
     name, _, pin = ref.partition("@")
-    base = "/".join(name.split("/")[:2])
+    base = "/".join(name.lower().split("/")[:2])
     if base in TOOLCHAIN_EXCEPTIONS:
         if not COMMIT.match(pin):
             out.append(f"{where}: uses: toolchain exception '{base}' is not pinned to a commit ('{ref}')")
@@ -84,14 +105,30 @@ def check_uses(ref: str, where: str, out: list[str]) -> None:
     out.append(f"{where}: uses: '{ref}' is not actions/*, github/*, this library or a local path")
 
 
+def commands(run: str) -> list[str]:
+    """The run block as one string per command line: comment lines and
+    trailing ` # ...` comments dropped, continuation lines joined."""
+    lines = [re.sub(r"\s#.*$", "", ln) for ln in run.splitlines() if not ln.lstrip().startswith("#")]
+    return "\n".join(lines).replace("\\\n", " ").splitlines()
+
+
+# `docker run` where a command starts: at the start of a line, after a
+# separator or inside `$(`, optionally behind sudo. `echo "docker run"` is not.
+DOCKER_RUN = re.compile(r"(^|[;&|(]|\$\()\s*(sudo\s+)?docker\s+(container\s+)?run\b")
+
+
 def check_run(run: str, where: str, out: list[str]) -> None:
-    # Join continuation lines so the image of a multi-line `docker run` is
-    # read with its command; drop comment lines first.
-    lines = [ln for ln in run.splitlines() if not ln.lstrip().startswith("#")]
-    text = "\n".join(lines).replace("\\\n", " ")
-    for line in text.splitlines():
-        if re.search(r"\bdocker\s+(container\s+)?run\b", line) and "@sha256:" not in line:
+    for line in commands(run):
+        if DOCKER_RUN.search(line) and "@sha256:" not in line:
             out.append(f"{where}: docker: `docker run` without an @sha256: image")
+
+
+def check_trivy(run: str, where: str, out: list[str]) -> None:
+    for line in commands(run):
+        if TRIVY_CALL.search(line.strip() + " "):
+            missing = [f for f in TRIVY_QUIET_FLAGS if f not in line.split()]
+            if missing:
+                out.append(f"{where}: telemetry: Trivy runs without {' '.join(missing)}")
 
 
 def check_steps(steps, where: str, out: list[str]) -> bool:
@@ -106,7 +143,8 @@ def check_steps(steps, where: str, out: list[str]) -> bool:
                 uploads = True
             if uses.startswith("actions/checkout"):
                 with_ = step.get("with") or {}
-                if not isinstance(with_, dict) or with_.get("persist-credentials") is not False:
+                keep = with_.get("persist-credentials") if isinstance(with_, dict) else None
+                if keep is not False and str(keep).lower() != "false":
                     out.append(f"{here}: checkout: actions/checkout without persist-credentials: false")
         run = step.get("run")
         if isinstance(run, str):
@@ -151,6 +189,18 @@ def check_workflow(doc: dict, rel: str) -> list[str]:
     return out
 
 
+def all_steps(doc):
+    """Every step of a workflow's jobs or a composite action's runs."""
+    if not isinstance(doc, dict):
+        return
+    for job in (doc.get("jobs") or {}).values():
+        if isinstance(job, dict):
+            yield from steps_of(job)
+    runs = doc.get("runs")
+    if isinstance(runs, dict):
+        yield from steps_of(runs)
+
+
 def check_action(doc: dict, rel: str) -> list[str]:
     out: list[str] = []
     runs = doc.get("runs") or {}
@@ -167,12 +217,15 @@ def main() -> int:
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent))
     args = ap.parse_args()
     root = Path(args.root)
+    fork_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "").strip().lower()
+    if fork_owner:
+        LIBRARY_OWNERS.add(fork_owner)
     workflows = sorted(
         p for p in (root / ".github/workflows").glob("*.yml")
         if p.name.endswith("-scan.yml") or p.name in SCAN_WORKFLOWS
     )
     actions = sorted((root / ".github/actions").glob("*-scan/action.yml"))
-    if not workflows and not actions:
+    if not workflows and not actions and not any((root / ".github").glob("**/*.yml")):
         print(f"no scan workflow or action under {root}", file=sys.stderr)
         return 2
     findings: list[str] = []
@@ -186,6 +239,16 @@ def main() -> int:
         if not isinstance(doc, dict):
             continue
         findings += check_action(doc, rel) if path.name == "action.yml" else check_workflow(doc, rel)
+    for path in sorted((root / ".github").glob("**/*.yml")):
+        rel = str(path.relative_to(root))
+        try:
+            doc = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError) as exc:
+            print(f"{rel}: cannot read: {exc}", file=sys.stderr)
+            return 2
+        for i, step in enumerate(all_steps(doc)):
+            if isinstance(step.get("run"), str):
+                check_trivy(step["run"], f"{rel}: step {i}", findings)
     for line in sorted(set(findings)):
         print(line)
     if findings:

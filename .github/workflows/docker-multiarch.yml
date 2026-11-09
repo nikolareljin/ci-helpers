@@ -180,7 +180,7 @@ jobs:
           EXIT_CODE: ${{ inputs.fail_on_scan_findings && '1' || '0' }}
         run: |
           set -euo pipefail
-          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" image \
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check image \
             --skip-db-update --offline-scan --format table \
             --severity "$SEVERITY" --ignore-unfixed --exit-code "$EXIT_CODE" \
             "$IMAGE_REF"

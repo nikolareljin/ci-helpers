@@ -87,8 +87,8 @@ grep -q "releases/download/v9.9.9/trivy_9.9.9_Linux-64bit.tar.gz" "$work/calls" 
 # 3. --download-db fetches the database into the run's cache, and nothing else.
 rc=0; out="$(run_install --pins "$work/pins.env" --download-db)" || rc=$?
 if (( rc != 0 )); then echo "FAIL: --download-db gave exit $rc: $out"; fail=1; fi
-grep -q -- "--cache-dir $work/dest/cache --quiet image --download-db-only" "$work/trivy_calls" \
-  || { echo "FAIL: database not downloaded into the cache: $(cat "$work/trivy_calls")"; fail=1; }
+grep -q -- "--cache-dir $work/dest/cache --disable-telemetry --skip-version-check --quiet image --download-db-only" "$work/trivy_calls" \
+  || { echo "FAIL: database not downloaded into the cache, or Trivy left to report usage: $(cat "$work/trivy_calls")"; fail=1; }
 [[ "$(wc -l < "$work/trivy_calls")" -eq 1 ]] || { echo "FAIL: trivy ran more than once: $(cat "$work/trivy_calls")"; fail=1; }
 
 # 4. A pin that is not 64 hex characters is refused before any download.

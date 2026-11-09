@@ -100,7 +100,7 @@ runs:
               --pkg-types "$PKG_TYPES" --scanners "$SCANNERS" --exit-code "$EXIT_CODE")
         if [[ "$IGNORE_UNFIXED" == "true" ]]; then args+=(--ignore-unfixed); fi
         if [[ -n "$SKIP_DIRS" ]]; then args+=(--skip-dirs "$SKIP_DIRS"); fi
-        "$TRIVY_BIN" --cache-dir "$CACHE_DIR" fs "${args[@]}" "$SCAN_PATH"
+        "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check fs "${args[@]}" "$SCAN_PATH"
     # Not only on success: with fail_on_findings the scan step fails exactly when
     # there are findings, and those are the results the Security tab needs. But
     # only when a report was written -- a scan that failed before producing one

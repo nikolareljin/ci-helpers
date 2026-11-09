@@ -165,7 +165,7 @@ jobs:
           # The library checkout is untracked in the caller's tree and would
           # otherwise be scanned as part of it.
           args+=(--skip-dirs .ci-helpers-publication)
-          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" fs "${args[@]}" "$SCAN_PATH"
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check fs "${args[@]}" "$SCAN_PATH"
 
       # Also after a failed scan (findings are what fail it), but only when a
       # report was written and the run was not cancelled.

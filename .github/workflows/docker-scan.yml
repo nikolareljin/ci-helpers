@@ -122,7 +122,7 @@ jobs:
           args=(--skip-db-update --offline-scan --format table
                 --severity "$SEVERITY" --exit-code "$EXIT_CODE")
           if [[ "$IGNORE_UNFIXED" == "true" ]]; then args+=(--ignore-unfixed); fi
-          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" image "${args[@]}" "$IMAGE_NAME"
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check image "${args[@]}" "$IMAGE_NAME"
 
       # Snyk is disabled. It is a cloud service: its container scan sends the
       # image's dependency graph and metadata to snyk.io, and the call ran a

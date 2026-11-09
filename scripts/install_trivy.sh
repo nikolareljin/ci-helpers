@@ -111,7 +111,7 @@ if [[ "$download_db" == true ]]; then
   # The one network step of a scan: the database comes from Aqua's registry
   # (ghcr.io, with Trivy's own mirror fallback) into this run's cache. The
   # scan itself then runs with --skip-db-update --offline-scan.
-  "$trivy_bin" --cache-dir "$cache_dir" --quiet image --download-db-only
+  "$trivy_bin" --cache-dir "$cache_dir" --disable-telemetry --skip-version-check --quiet image --download-db-only
 fi
 
 printf 'trivy_bin=%s\ncache_dir=%s\n' "$trivy_bin" "$cache_dir"

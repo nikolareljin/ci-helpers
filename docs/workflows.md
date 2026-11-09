@@ -432,8 +432,9 @@ Purpose: Run Trivy filesystem scan with optional SARIF upload.
 Trivy is the release binary pinned by version and sha256 in the library's
 `scanner-pins.env`, downloaded and verified in the job; no third-party action.
 The vulnerability database is fetched in its own step and the scan runs with
-`--skip-db-update --skip-check-update --offline-scan`, so the scan step makes
-no network call. The report holds the requested `severity` only.
+`--skip-db-update --skip-check-update --offline-scan`, and every Trivy call
+passes `--disable-telemetry --skip-version-check`, so nothing is reported to
+Aqua. The report holds the requested `severity` only.
 
 Inputs:
 
@@ -1412,7 +1413,7 @@ Purpose: Build a Docker image and scan it with Trivy.
 Trivy is the release binary pinned by version and sha256 in the library's
 `scanner-pins.env`, downloaded and verified in the job; no third-party action.
 The vulnerability database is fetched in its own step and the scan runs with
-`--skip-db-update --offline-scan`.
+`--skip-db-update --offline-scan --disable-telemetry --skip-version-check`.
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
