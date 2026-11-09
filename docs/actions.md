@@ -127,7 +127,7 @@ Inputs:
 - `report_format` (default `sarif`, deprecated, no report is exported)
 - `output` (default `results.sarif`, deprecated, no file is created)
 - `gitleaks_version` (default `v8.30.1`)
-- `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action
+- `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action; with `v8.30.1` it may only repeat the pinned digest, a different one is refused
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"true"`)
 - `upload_artifact` (default `"false"`)
@@ -170,6 +170,77 @@ Example:
     scan_path: "."
     fail_on_findings: "true"
     upload_artifact: "false"
+```
+
+## foxguard-scan
+
+Path: `.github/actions/foxguard-scan`
+
+Purpose: Enforce Foxguard static-analysis checks without exporting scanner results.
+
+Note: When findings are detected, the action prints a link to Leak-Lock for help
+reproducing and fixing them locally.
+
+Inputs:
+
+- `scan_path` (default `"."`)
+- `severity` (default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
+- `config_path` (default `""`) - foxguard config file, relative to the scanned repository; read from the pull request's base commit
+- `fail_on_findings` (default `"true"`) - `false` is refused
+- `foxguard_version` (default `v0.14.1`)
+- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in the action; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+
+Requires `actions/checkout` with `fetch-depth: 0` on pull requests: the action reads the config from the base commit and refuses the scan when that commit is missing.
+
+Outputs:
+
+- `fg_bin`: path of the foxguard binary the action downloaded and verified.
+  The action sets no environment variable for later steps; a step that runs
+  the same binary reads this output.
+
+Notes:
+
+- The foxguard release binary is verified before it runs against a sha256
+  held in this repository (or `foxguard_sha256`), never against a checksums
+  file fetched from the same release; a mismatch or a missing digest fails
+  the step. foxguard publishes no Windows arm64 binary; that runner is refused.
+
+The Foxguard action exports no report, SARIF or artifact. `fail_on_findings: false`
+is refused before scanning. Scanner errors and findings name Foxguard and the
+branch, link https://nikolareljin.github.io/leak-lock/, and instruct the operator
+to run Scan Repository and repository tests locally before pushing. No scanner
+results, counts, rule ids, file paths or report paths are logged. The scan
+runs with `--quiet` and writes its JSON report to a private temporary directory
+that is removed before the step ends.
+
+PR scans read configuration from the base commit (`config_path`, or
+`.foxguard.yml` when present), so the checkout must hold it: use
+`fetch-depth: 0`, as `foxguard-scan.yml` does; a missing base commit refuses
+the scan. Other Git scans use `HEAD`, and a directory outside a work tree gets
+an empty config. A config added by the pull request is
+not read, a named `config_path` missing at the base refuses the scan, and a
+config with a `baseline` key at any depth is refused. The config is parsed
+with PyYAML, which the GitHub-hosted Ubuntu runners ship; a config that does
+not parse, or a runner without PyYAML when a config exists, refuses the scan. The explicit config also stops
+foxguard from discovering a `.foxguard.yml` planted in the scanned tree.
+The vetted copy is written beside the caller's config, under a temporary
+`.foxguard-reviewed-*.yml` name, and removed when the step ends. foxguard
+resolves `scan.ignore_rules[].path` and `secrets.exclude_paths` against the
+config's directory, so they match as they would in place. A config directory
+that resolves outside the repository refuses the scan.
+
+A scan that reads no file fails. The action refuses to run when its own
+checkout lies under `scan_path`, where the library's scripts would be read as
+the caller's; `foxguard-scan.yml` keeps the two checkouts side by side.
+
+Example:
+
+```yaml
+- name: Foxguard scan
+  uses: nikolareljin/ci-helpers/.github/actions/foxguard-scan@production
+  with:
+    scan_path: "."
+    severity: medium
 ```
 
 ## data-safety-scan

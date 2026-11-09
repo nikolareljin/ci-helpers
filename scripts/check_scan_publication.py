@@ -86,8 +86,8 @@ def violations(doc):
                     )
                     if str(value).lower() not in ("false", "") and not forwarded:
                         problems.append("scanner upload enabled")
-                if "gitleaks" in uses.lower() and str(options.get("fail_on_findings", True)).lower() == "false":
-                    problems.append("credential enforcement disabled")
+                if str(options.get("fail_on_findings", True)).lower() == "false":
+                    problems.append("scanner enforcement disabled")
         if scanner_job:
             for step in steps:
                 if re.search(r"upload-artifact|upload-sarif", str(step.get("uses", ""))):

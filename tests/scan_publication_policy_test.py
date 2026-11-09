@@ -21,6 +21,11 @@ class PolicyTests(unittest.TestCase):
     def test_external_uploader_after_scan_refused(self):
         self.assertTrue(self.check([{"uses": "fixture/gitleaks"}, {"uses": "actions/upload-artifact"}]))
 
+    def test_advisory_scanner_refused(self):
+        for tool in ("gitleaks", "foxguard"):
+            self.assertTrue(self.check([{"uses": "fixture/" + tool, "with": {"fail_on_findings": False}}]))
+            self.assertTrue(self.check([{"uses": "fixture/" + tool, "with": {"fail_on_findings": "false"}}]))
+
     def test_silent_enforced_scan_allowed(self):
         self.assertFalse(self.check([{"uses": "fixture/gitleaks", "with": {"upload_artifact": False}}]))
 
