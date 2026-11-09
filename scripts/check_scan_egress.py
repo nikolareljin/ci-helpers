@@ -65,7 +65,9 @@ LIBRARY_USES = re.compile(r"^([a-z0-9-]+)/ci-helpers/")
 # A command that starts Trivy: the binary by name, or the path the installer
 # hands over in TRIVY_BIN / trivy_bin.
 # Where a command starts: line start, a separator, `$(`, or a shell keyword.
-CMD_START = r"(?:^|[;&|(]\s*|\$\(\s*|(?:\b(?:if|then|else|do|exec|time|sudo)|!)\s+)"
+# Then any `VAR=value` assignments or `env [-opts] VAR=value` in front.
+CMD_START = (r"(?:^|[;&|(]\s*|\$\(\s*|(?:\b(?:if|then|else|do|exec|time|sudo|command|while|until)|!)\s+)"
+             r"(?:env\s+(?:-\S+\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")
 TRIVY_CALL = re.compile(CMD_START + r'("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
 TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 
@@ -90,16 +92,26 @@ def steps_of(job: dict):
             yield step
 
 
+def normalise_uses(ref: str) -> tuple[str, str]:
+    """`uses:` as (name, pin): lowercased, since GitHub resolves owner and
+    repository case-insensitively, with empty and `.` path segments dropped,
+    so `Actions/Checkout/.@x` is `actions/checkout`. Every check uses this."""
+    name, _, pin = ref.strip().partition("@")
+    if name.startswith("./"):
+        return name.lower(), pin
+    parts = [seg for seg in name.lower().split("/") if seg not in ("", ".")]
+    return "/".join(parts), pin
+
+
 def check_uses(ref: str, where: str, out: list[str]) -> None:
-    # Owner and repository names are case-insensitive on GitHub.
-    low = ref.lower()
+    norm, pin = normalise_uses(ref)
+    low = f"{norm}@{pin}" if pin else norm
     if ALLOWED_USES.match(low):
         return
     lib = LIBRARY_USES.match(low)
     if lib and lib.group(1) in LIBRARY_OWNERS:
         return
-    name, _, pin = ref.partition("@")
-    base = "/".join(name.lower().split("/")[:2])
+    base = "/".join(norm.split("/")[:2])
     if base in TOOLCHAIN_EXCEPTIONS:
         if not COMMIT.match(pin):
             out.append(f"{where}: uses: toolchain exception '{base}' is not pinned to a commit ('{ref}')")
@@ -111,7 +123,9 @@ def commands(run: str) -> list[str]:
     """The run block as one string per command line: comment lines and
     trailing ` # ...` comments dropped, continuation lines joined."""
     lines = [re.sub(r"\s#.*$", "", ln) for ln in run.splitlines() if not ln.lstrip().startswith("#")]
-    return "\n".join(lines).replace("\\\n", " ").splitlines()
+    joined = re.sub(r"\\\n", " ", "\n".join(lines))
+    # Indented commands in if/for/while bodies start a line too.
+    return [ln.strip() for ln in joined.splitlines()]
 
 
 # `docker run` where a command starts: at the start of a line, after a
@@ -143,7 +157,7 @@ def check_steps(steps, where: str, out: list[str]) -> bool:
             check_uses(uses, here, out)
             # GitHub resolves owner and repository case-insensitively, so
             # every match below is on the lowercased name.
-            name = uses.partition("@")[0].lower()
+            name = normalise_uses(uses)[0]
             if SARIF_UPLOADERS.search(name):
                 uploads = True
             if name == "actions/checkout":
@@ -183,7 +197,7 @@ def check_workflow(doc: dict, rel: str) -> list[str]:
         uploads = False
         if isinstance(job.get("uses"), str):
             check_uses(job["uses"], where, out)
-            uploads = bool(SARIF_UPLOADERS.search(job["uses"].partition("@")[0].lower()))
+            uploads = bool(SARIF_UPLOADERS.search(normalise_uses(job["uses"])[0]))
         uploads = check_steps(list(steps_of(job)), where, out) or uploads
         perms = job.get("permissions", wf_perms)
         if "uses" in job and "permissions" not in job and wf_perms is None:

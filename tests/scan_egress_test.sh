@@ -111,6 +111,93 @@ jobs:
       - uses: Github/CodeQL-Action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
 YAML
 
+expect "indented docker run in if" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if true; then
+            docker run --rm alpine:3 true
+          fi
+YAML
+
+expect "indented docker run in for" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for i in 1 2; do
+            docker run --rm alpine:3 true
+          done
+YAML
+
+expect "command docker run" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          command docker run --rm alpine:3 true
+YAML
+
+expect "env docker run" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          env X=1 docker run --rm alpine:3 true
+YAML
+
+expect "docker run split by a continuation" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          docker \
+            run --rm alpine:3 true
+YAML
+
+expect "checkout as actions/checkout/" 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout/@3d3c42e5aac5ba805825da76410c181273ba90b1
+YAML
+
+expect "checkout as actions/checkout/." 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout/.@3d3c42e5aac5ba805825da76410c181273ba90b1
+YAML
+
 expect "secrets: inherit" 1 "secrets: inherit hands every secret" <<'YAML'
 on: push
 jobs:
