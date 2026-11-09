@@ -74,8 +74,8 @@ for name in ("deb-build.yml", "rpm-build.yml"):
     assert first_checkout < steps.index(built[0]), f"{name}: built commit recorded before checkout"
 
 d, on = load("deb-build.yml")
-up = [s for s in d["jobs"]["release"]["steps"] if s.get("uses", "").startswith("softprops/action-gh-release")]
-assert len(up) == 1 and up[0]["with"].get("target_commitish") == "${{ needs.build.outputs.commit }}", "deb-build: upload does not pass target_commitish"
+up = [s for s in d["jobs"]["release"]["steps"] if "scripts/github_release.sh" in str(s.get("run", ""))]
+assert len(up) == 1 and up[0]["env"].get("TARGET_COMMITISH") == "${{ needs.build.outputs.commit }}", "deb-build: upload does not pass TARGET_COMMITISH"
 assert on["workflow_call"]["inputs"]["release_notes"]["default"] is True
 for s in d["jobs"]["build"]["steps"]:
     if s.get("id") == "notes" or s.get("name") == "Checkout script-helpers for release notes":
@@ -92,11 +92,11 @@ for k in ("artifact_id", "tag", "commit", "skip"):
     assert k in outs, f"rpm-build: no workflow output {k}"
 assert on["workflow_call"]["inputs"]["upload_to_release"]["default"] == "false"
 d, on = load("release-upload.yml")
-up = [s for j in d["jobs"].values() for s in j["steps"] if s.get("uses", "").startswith("softprops/action-gh-release")]
+up = [s for j in d["jobs"].values() for s in j["steps"] if "scripts/github_release.sh" in str(s.get("run", ""))]
 assert len(up) == 1, "release-upload: want one upload step"
-w = up[0]["with"]
-assert w.get("target_commitish") == "${{ inputs.commit }}", "release-upload: no target_commitish"
-assert "body" not in w and "body_path" not in w, "release-upload must not change the release body"
+w = up[0]["env"]
+assert w.get("TARGET_COMMITISH") == "${{ inputs.commit }}", "release-upload: no TARGET_COMMITISH"
+assert "BODY" not in w and "BODY_PATH" not in w, "release-upload must not change the release body"
 print("ok: rpm-build is read-only with release outputs; release-upload leaves notes alone and tags the built commit")
 PY
 

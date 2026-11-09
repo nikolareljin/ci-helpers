@@ -382,11 +382,11 @@ jobs:
           # output, so no heredoc and no delimiter to collide with.
           echo "notes_file=$notes_file" >> "$GITHUB_OUTPUT"
 
-      # Exactly what softprops/action-gh-release would publish for these
-      # patterns: regular files only, no dotfiles, nothing under a matched
-      # directory, one asset per basename (softprops splits on
-      # newlines and commas, as here). Uploading the patterns as-is would
-      # also publish the contents of subdirectories.
+      # What a release upload publishes for these patterns: regular files
+      # only, no dotfiles, nothing under a matched directory, one asset per
+      # basename; patterns split on newlines and commas, as the release
+      # action did. Uploading the patterns as-is would also publish the
+      # contents of subdirectories.
       - name: Stage release files
         id: stage
         shell: bash
@@ -574,6 +574,7 @@ jobs:
           sparse-checkout: |
             .github/actions/publication-check
             vendor/script-helpers
+            scripts
           persist-credentials: false
 
       - name: Verify publication action revision
@@ -605,16 +606,14 @@ jobs:
 
       - name: Create GitHub release
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
-        with:
-          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
-          # The action's input is `name`; it never had a `release_name`, so this
-          # was ignored and every release was named after its tag. An empty
-          # release_name keeps that (the action falls back to the existing
-          # release's name, then the tag).
-          name: ${{ inputs.release_name }}
-          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
-          files: ${{ steps.ci_publication_check_1.outputs.paths }}
-          overwrite_files: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref }}
+          # Empty: a new release is named after its tag and an existing one
+          # keeps its name, as before.
+          RELEASE_NAME: ${{ inputs.release_name }}
+          BODY_PATH: ${{ steps.ci_publication_check_1.outputs.body_path }}
+          FILES: ${{ steps.ci_publication_check_1.outputs.paths }}
+          OVERWRITE_FILES: "true"
+        run: bash .ci-helpers-publication/scripts/github_release.sh

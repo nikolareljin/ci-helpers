@@ -8,6 +8,8 @@ import sys
 
 import yaml
 
+RELEASE_SCRIPT = re.compile(r"scripts/github_release\.sh")
+
 
 def mandatory_outcome(condition, key):
     match = re.fullmatch(
@@ -52,8 +54,17 @@ def violations(doc):
             options = step.get("with") or {}
             if uses.endswith("/.github/actions/publication-check"):
                 checked[step.get("id")] = options
-            if re.search(r"(?:actions/upload-artifact|softprops/action-gh-release)@", uses):
-                release = "action-gh-release" in uses
+            # A release step is scripts/github_release.sh with its inputs in
+            # env (the release action it replaced took them in `with`; a step
+            # that still uses the action is checked the same way).
+            script = RELEASE_SCRIPT.search(str(step.get("run", ""))) is not None
+            if script or re.search(r"(?:actions/upload-artifact|softprops/action-gh-release)@", uses):
+                release = script or "action-gh-release" in uses
+                if script:
+                    options = step.get("env") or {}
+                    files_key, body_key, notes_keys = "FILES", "BODY_PATH", ("BODY", "GENERATE_RELEASE_NOTES")
+                else:
+                    files_key, body_key, notes_keys = ("files" if release else "path"), "body_path", ("body", "generate_release_notes")
                 condition = str(step.get("if", ""))
                 matches = re.findall(r"steps\.([A-Za-z_][\w-]*)\.outcome\s*==\s*'success'", condition)
                 guards = [key for key in matches if key in checked]
@@ -63,12 +74,11 @@ def violations(doc):
                 key = guards[0]
                 if checked[key].get("mode") != ("release" if release else "artifact"):
                     problems.append("file upload uses wrong payload check")
-                field = "files" if release else "path"
-                if (not release or field in options) and options.get(field) != "${{ steps." + key + ".outputs.paths }}":
+                if (not release or files_key in options) and options.get(files_key) != "${{ steps." + key + ".outputs.paths }}":
                     problems.append("file upload bypasses checked snapshot")
-                if "body_path" in options and options["body_path"] != "${{ steps." + key + ".outputs.body_path }}":
+                if body_key in options and options[body_key] != "${{ steps." + key + ".outputs.body_path }}":
                     problems.append("release notes bypass checked snapshot")
-                if options.get("body") or options.get("generate_release_notes"):
+                if any(options.get(k) for k in notes_keys):
                     problems.append("release generates unchecked notes")
         scanner_job = bool(re.search(r"gitleaks|foxguard", str(job.get("uses", "")), re.I))
         for step in steps + [job]:
@@ -101,7 +111,7 @@ def violations(doc):
             for step in steps:
                 if "publication-guard" in str(step.get("uses", "")):
                     break
-                if re.search(r"git (?:[^\n]* )?push|gh (?:pr|issue|release|gist) (?:create|edit|comment|upload)|action-gh-release|upload-release-asset", yaml.safe_dump(step)):
+                if re.search(r"git (?:[^\n]* )?push|gh (?:pr|issue|release|gist) (?:create|edit|comment|upload)|action-gh-release|upload-release-asset|github_release\.sh", yaml.safe_dump(step)):
                     problems.append("writer publishes before its guard")
     return problems
 

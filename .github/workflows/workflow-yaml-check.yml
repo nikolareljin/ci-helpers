@@ -274,15 +274,26 @@ jobs:
         shell: bash
         run: bash tests/install_trivy_test.sh
 
+      # Releases go through gh from scripts/github_release.sh, behind the
+      # publication check, and test summaries through scripts/junit_summary.py.
+      - name: github_release.sh creates, updates and uploads as the action did
+        shell: bash
+        run: bash tests/github_release_test.sh
+
+      - name: junit_summary.py counts, lists failures and refuses a DOCTYPE
+        shell: bash
+        run: python3 tests/junit_summary_test.py
+
       # A scan job runs only allowlisted actions, digest-pinned containers and
       # token-free checkouts, inherits no secrets and writes nothing but
-      # SARIF. The test runs the gate against what it must refuse, then the
-      # gate runs against this tree.
+      # SARIF; no workflow runs a third-party action outside the kept list.
+      # The test runs the gate against what it must refuse, then the gate
+      # runs against this tree.
       - name: Scan-egress check reports what it must
         shell: bash
         run: bash tests/scan_egress_test.sh
 
-      - name: Scan workflows send nothing out
+      - name: Scan workflows send nothing out and no workflow runs an unlisted third-party action
         shell: bash
         run: python3 scripts/check_scan_egress.py
 

@@ -68,6 +68,12 @@ for action in foxguard-scan foxguard-diff; do
     echo "FAIL: $action still carries a digest of its own; scanner-pins.env is the one place"; fail=1
   fi
 done
+# The action reads the file; it holds no digest of its own, so a bump edits
+# one file and the test above cannot pass on a stale copy.
+if grep -qE 'pinned=[0-9a-f]{64}' "$ACTION"; then
+  echo "FAIL: action.yml still holds a digest table; the pins belong in scanner-pins.env"; fail=1
+fi
+grep -q 'scanner-pins.env' "$ACTION" || { echo "FAIL: action.yml does not read scanner-pins.env"; fail=1; }
 
 rc=0; out="$(run_step "$default" "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: a binary that is not the pinned one ran"; fail=1; fi
@@ -125,5 +131,5 @@ rc=0; out="$(STUB_OS=MINGW64_NT-10.0 STUB_ARCH=aarch64 run_step v9.9.9 "$fake_sh
 if (( rc == 0 )); then echo "FAIL: Windows arm64, which has no release binary, ran"; fail=1; fi
 if [[ -s "$work/calls" ]]; then echo "FAIL: Windows arm64 downloaded something"; fail=1; fi
 
-(( fail == 0 )) && echo "foxguard_pinned_digest: pinned digest checked, unpinned version needs foxguard_sha256"
+(( fail == 0 )) && echo "foxguard_pinned_digest: digest from scanner-pins.env checked, unpinned version needs foxguard_sha256"
 exit "$fail"

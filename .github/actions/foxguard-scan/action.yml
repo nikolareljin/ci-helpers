@@ -31,8 +31,9 @@ inputs:
   foxguard_sha256:
     description: >
       sha256 of the release binary for this runner, required with a
-      foxguard_version other than v0.14.1, whose digests are pinned in scanner-pins.env; a different
-      digest for that version is refused.
+      foxguard_version other than the one pinned in scanner-pins.env (v0.14.1),
+      whose digests are pinned there; a different digest for that version is
+      refused.
     default: ""
     required: false
 outputs:
