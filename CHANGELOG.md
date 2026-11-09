@@ -1,12 +1,22 @@
-## Unreleased
+## 2026-11-09 — v0.50.0
+
+### Changed
 
 - **Scanners run from pinned binaries, and scan jobs send nothing out.** `aquasecurity/trivy-action` is gone from `trivy-scan.yml`, `.github/actions/trivy-scan`, `docker-scan.yml` and `docker-multiarch.yml`: each downloads the Trivy release pinned by version and sha256 in the new `scanner-pins.env` (`scripts/install_trivy.sh`, digests checked against the release checksums, GitHub's asset digests and cosign), fetches the vulnerability database in its own step and scans with `--skip-db-update --offline-scan --disable-telemetry --skip-version-check` (Trivy otherwise reports usage to Aqua on every run). The reusable workflows check the library out at `job.workflow_sha` for the installer, as `gitleaks-scan.yml` already did. A SARIF report now holds the requested `severity` only (the action dropped the filter for SARIF). `go-scan.yml` builds gosec with `go install` at the version in `scanner-pins.env` and runs it in `working_directory`, in place of the `securego/gosec` container action. `gitleaks-scan` reads its digests from `scanner-pins.env` instead of a table of its own. Snyk is disabled in `docker-scan.yml`: it is a cloud service, so `run_snyk: true` now warns and writes a summary line, the `snyk_token` secret is never read, and the `docker run` of `snyk/snyk` is gone; the inputs stay so callers keep parsing. New gate `scripts/check_scan_egress.py`, run by `workflow-yaml-check.yml`, fails a scan workflow or action on a `uses:` that is not canonical (lowercase, no empty, `.` or `..` segment, 40-hex pin; mixed case and odd paths are refused, not normalised) or is outside `actions/*`, `github/*`, this library (`nikolareljin`, or the fork's owner) and local paths (four named toolchain installers excepted), a run line that starts a docker, podman or nerdctl container without an `@sha256:` image, an `actions/checkout` without `persist-credentials: false`, `secrets: inherit`, a write permission other than `security-events` or `issues`, or `security-events: write` with no SARIF upload; and any workflow or action under `.github` that starts Trivy without `--disable-telemetry --skip-version-check`. Tests: `tests/install_trivy_test.sh`, `tests/scan_egress_test.sh`, `tests/gitleaks_pinned_digest_test.sh`.
-
-- Update the Ruby setup action and compatible action pins. Use maintained Ruby 3.4 by default for Flutter store deployment; callers can override `ruby_version`.
+- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
 - Use the current 0.62.0 helper base with private diagnostic markers and native report format checks.
+- Update the Ruby setup action and compatible action pins. Use maintained Ruby 3.4 by default for Flutter store deployment; callers can override `ruby_version`.
+
+### Added
+
 - Check artifact files, release assets and release notes before upload. Upload only validated snapshots; failed checks cannot be bypassed by `always()`.
 
-- Keep security diagnostics local and refuse scanner output before commit, push, or publication.
+### Notes
+
+- Upgrade notes for consumers of the scan workflows:
+  - `docker-scan.yml` ignores `run_snyk: true` and `snyk_token`, and warns. Snyk is a cloud service and no longer runs here; drop the input or keep it for a later version, either parses.
+  - `trivy-scan.yml` and `.github/actions/trivy-scan` write a SARIF report that holds only the findings at the requested `severity`. A code-scanning view that counted lower severities from the SARIF shows fewer alerts.
+  - The Trivy vulnerability database is downloaded from ghcr.io on every run and is not cached between runs, so a scan job takes longer by that download. A runner that cannot reach ghcr.io fails at the download step, not inside the scan.
 
 ## 2026-11-07 — v0.49.0
 
