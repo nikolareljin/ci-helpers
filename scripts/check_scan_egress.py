@@ -5,7 +5,7 @@ credentials and findings to nobody.
     python3 scripts/check_scan_egress.py              # check this repository
     python3 scripts/check_scan_egress.py --root DIR   # check a tree elsewhere
 
-Every workflow and action under .github is read with PyYAML. Each `uses:`
+Every workflow and action under .github (.yml or .yaml) is read with PyYAML. Each `uses:`
 must be canonical (lowercase owner/repo[/path], no empty, `.` or `..`
 segment, pinned to a 40-hex commit; a local `./path` with no such segment;
 or this library at `@production`) and one of: actions/*, github/*, this
@@ -291,6 +291,12 @@ def check_action(doc: dict, rel: str) -> list[str]:
     return out
 
 
+def yaml_files(base: Path, pattern: str) -> list[Path]:
+    """`pattern` with either extension: GitHub runs .yaml workflows and
+    action.yaml actions as it runs .yml ones."""
+    return [p for ext in (".yml", ".yaml") for p in base.glob(pattern + ext)]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=str(Path(__file__).resolve().parent.parent))
@@ -300,11 +306,11 @@ def main() -> int:
     if fork_owner:
         LIBRARY_OWNERS.add(fork_owner)
     workflows = sorted(
-        p for p in (root / ".github/workflows").glob("*.yml")
-        if p.name.endswith("-scan.yml") or p.name in SCAN_WORKFLOWS
+        p for p in yaml_files(root / ".github/workflows", "*")
+        if p.stem.endswith("-scan") or p.with_suffix(".yml").name in SCAN_WORKFLOWS
     )
-    actions = sorted((root / ".github/actions").glob("*-scan/action.yml"))
-    if not workflows and not actions and not any((root / ".github").glob("**/*.yml")):
+    actions = sorted(yaml_files(root / ".github/actions", "*-scan/action"))
+    if not workflows and not actions and not yaml_files(root / ".github", "**/*"):
         print(f"no scan workflow or action under {root}", file=sys.stderr)
         return 2
     findings: list[str] = []
@@ -317,10 +323,10 @@ def main() -> int:
             return 2
         if not isinstance(doc, dict):
             continue
-        findings += check_action(doc, rel) if path.name == "action.yml" else check_workflow(doc, rel)
+        findings += check_action(doc, rel) if path.stem == "action" else check_workflow(doc, rel)
     scan_files = {str(p.relative_to(root)) for p in workflows + actions}
     kept = frozenset(KEPT_THIRD_PARTY)
-    for path in sorted((root / ".github").glob("**/*.yml")):
+    for path in sorted(yaml_files(root / ".github", "**/*")):
         rel = str(path.relative_to(root))
         try:
             doc = yaml.safe_load(path.read_text())

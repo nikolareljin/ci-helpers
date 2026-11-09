@@ -1051,7 +1051,7 @@ script-helpers must be at `vendor/script-helpers` (used first when present) or `
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
-- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `ref` (string, default `""`): git ref to build (tag, branch or commit); empty builds the ref the workflow runs on. Set it to the tag to rebuild an older release. Without `release_tag`, the release is named after `ref`: `auto` uploads only when `ref` is a version tag, and `true` fails for any other `ref`.
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -1836,7 +1836,7 @@ The build runs with `contents: read`; a separate `release` job holds `contents: 
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
-- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)

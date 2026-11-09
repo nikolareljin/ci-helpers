@@ -108,6 +108,15 @@ class JunitSummaryTests(unittest.TestCase):
         self.assertIn("b.xml:", res.stdout)
         self.assertIn("| 1 | 1 | 0 | 0 | 0 |", res.stdout, "the readable file is still counted")
 
+    def test_doctype_refused_in_any_encoding(self):
+        # UTF-16 hides the ASCII bytes of `<!DOCTYPE`; the parser still reads it.
+        path = self.dir / "u16.xml"
+        path.write_bytes(DOCTYPE.replace('version="1.0"', 'version="1.0" encoding="UTF-16"').encode("utf-16"))
+        res = self.run_script()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("aaaa", res.stdout)
+        self.assertIn("u16.xml: DOCTYPE refused", res.stdout)
+
     def test_appends_to_step_summary(self):
         self.write("a.xml", NESTED)
         target = self.dir / "summary.md"

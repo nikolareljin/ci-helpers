@@ -1041,7 +1041,7 @@ Optional test result upload:
 
 - `upload_test_results`: `false` — set to `true` to upload the JUnit XML as an artifact and write a test summary (totals and failures) to the job summary
 - `test_results_path`: `test-results/**/*.xml` — glob for JUnit files; configure your test runner to emit XML here
-- `artifact_suffix`: `""` — appended to the `junit-xml-pnpm` artifact name and the `Tests` check run; set to e.g. `-node20` when invoking this preset multiple times in a matrix to avoid name collisions
+- `artifact_suffix`: `""`: appended to the `junit-xml-pnpm` artifact name and the `Tests` heading of the job summary; set to e.g. `-node20` when invoking this preset multiple times in a matrix to avoid name collisions
 
 Notes:
 

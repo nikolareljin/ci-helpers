@@ -30,6 +30,8 @@ set -euo pipefail
 
 fail() { echo "::error::github_release: $*" >&2; exit 1; }
 
+command -v gh >/dev/null 2>&1 \
+  || fail "the GitHub CLI (gh) is not on PATH; the release job's runner needs it"
 [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ] || fail "GH_TOKEN (or GITHUB_TOKEN) is not set"
 repo="${GITHUB_REPOSITORY:-}"
 printf '%s' "$repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
@@ -38,11 +40,14 @@ printf '%s' "$repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
 tag="${TAG_NAME:-}"
 tag="${tag#refs/tags/}"
 [ -n "$tag" ] || fail "TAG_NAME is empty"
-# A tag is a ref name: no leading '-', '.', or '/', no whitespace, no '..'.
-if ! printf '%s' "$tag" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._/+-]*$' \
-  || printf '%s' "$tag" | grep -qF '..'; then
-  fail "TAG_NAME '$tag' is not a tag name"
-fi
+# A tag is a ref name as `git check-ref-format` reads it, and must not start
+# with '-' (gh would take it for a flag). `pkg@1.2.3` is a tag; `a b` is not.
+bad_tag=0
+case "$tag" in
+  -*|/*|*/|*.|*//*|*..*|*@\{*|@|*.lock|*.lock/*|.*|*/.*) bad_tag=1 ;;
+esac
+if printf '%s' "$tag" | LC_ALL=C grep -q '[[:cntrl:][:space:]~^:?*[\\]'; then bad_tag=1; fi
+[ "$bad_tag" = 0 ] || fail "TAG_NAME '$tag' is not a tag name"
 
 # true, false or empty; anything else is a typo, refused rather than read as false.
 flag() {  # name -> prints true|false|"" or fails

@@ -489,6 +489,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: some/new-action@0000000000000000000000000000000000000000
 YAML
+# GitHub runs .yaml workflows and action.yaml actions too.
+expect "a third-party action in a .yaml workflow" 1 "uses: 'evil/thing@0123456789012345678901234567890123456789' is not" .github/workflows/release.yaml <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: evil/thing@0123456789012345678901234567890123456789
+YAML
+expect "a third-party action in an action.yaml" 1 "uses: 'evil/thing@0123456789012345678901234567890123456789' is not" .github/actions/x/action.yaml <<'YAML'
+runs:
+  using: composite
+  steps:
+    - uses: evil/thing@0123456789012345678901234567890123456789
+YAML
+expect "a .yaml scan workflow keeps the scan rules" 1 "secrets: inherit" .github/workflows/x-scan.yaml <<'YAML'
+on: push
+jobs:
+  a:
+    uses: ./.github/workflows/other.yml
+    secrets: inherit
+YAML
 expect "the replaced release action in a release workflow" 1 "uses: 'softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3' is not" .github/workflows/release.yml <<'YAML'
 on: push
 jobs:

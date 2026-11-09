@@ -24,6 +24,7 @@ import html
 import os
 import sys
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from pathlib import Path
 
 MAX_FAILURES = 50
@@ -34,10 +35,16 @@ def parse(path: Path, max_bytes: int) -> ET.Element:
     if path.stat().st_size > max_bytes:
         raise ValueError(f"over {max_bytes} bytes")
     data = path.read_bytes()
-    # A test report declares no entities. The C parser exposes no doctype
-    # handler, so the declaration is refused before anything is parsed.
-    if b"<!doctype" in data.lower():
+    # A test report declares no entities. A first expat pass stops at a
+    # DOCTYPE in whatever encoding the file declares (UTF-16 hides the ASCII
+    # bytes), before any entity is expanded.
+    probe = expat.ParserCreate()
+
+    def refuse(*_args):
         raise ValueError("DOCTYPE refused")
+
+    probe.StartDoctypeDeclHandler = refuse
+    probe.Parse(data, True)
     return ET.fromstring(data)
 
 
@@ -80,7 +87,7 @@ def summary(title: str, files: list[Path], max_bytes: int) -> str:
     for path in files:
         try:
             collect(parse(path, max_bytes), path.name, totals, failures)
-        except (OSError, ET.ParseError, ValueError) as exc:
+        except (OSError, ET.ParseError, expat.ExpatError, ValueError) as exc:
             problems.append(f"{path.name}: {exc}")
     out = [f"## {cell(title)}", ""]
     if not files:

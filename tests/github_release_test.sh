@@ -143,10 +143,27 @@ rc=0; run TAG_NAME=6.0.0 FILES="$work/dist/*.rpm" FAIL_ON_UNMATCHED_FILES=true |
 ok "unmatched pattern fails when asked (rc=$rc)" [ "$rc" != 0 ]
 ok "unmatched failure happens before any gh call" [ "$(calls)" = 0 ]
 
+# A tag git accepts is accepted: `pkg@1.2.3` (monorepo release tools) and
+# `release_2026` reach gh as given.
+rc=0; run TAG_NAME=pkg@1.2.3 || rc=$?
+ok "a tag with @ accepted (rc=$rc)" [ "$rc" = 0 ]
+ok "a tag with @ created" has_call "release create pkg@1.2.3 -R"
+
+# No gh on the runner (a self-hosted release_runner): a named error, not
+# "command not found" halfway through.
+mkdir -p "$work/nogh"
+for t in bash env grep head mktemp rm printf basename cat; do
+  p="$(command -v "$t" 2>/dev/null)" && [ -x "$p" ] && ln -sf "$p" "$work/nogh/$t"
+done
+rc=0; env -i PATH="$work/nogh" GH_TOKEN=stub GITHUB_REPOSITORY=owner/repo TAG_NAME=1.0.0 \
+  "$work/nogh/bash" "$script" > "$work/out" 2>&1 || rc=$?
+ok "missing gh refused (rc=$rc)" [ "$rc" != 0 ]
+ok "missing gh named" grep -q "::error::github_release: the GitHub CLI" "$work/out"
+
 # Refusals, each before any gh call.
 rc=0; run "TAG_NAME=a b" || rc=$?
 ok "a tag with a space refused (rc=$rc)" [ "$rc" != 0 ]
-for case in "TAG_NAME=" "TAG_NAME=-x" "TAG_NAME=a..b" "TAG_NAME=1.0.0 DRAFT=yes" \
+for case in "TAG_NAME=" "TAG_NAME=-x" "TAG_NAME=a..b" "TAG_NAME=a~1" "TAG_NAME=a:b" "TAG_NAME=a@{1}" "TAG_NAME=x.lock" "TAG_NAME=a/" "TAG_NAME=a\\b" "TAG_NAME=1.0.0 DRAFT=yes" \
             "TAG_NAME=1.0.0 MAKE_LATEST=maybe" "TAG_NAME=1.0.0 OVERWRITE_FILES=1" "TAG_NAME=1.0.0 BODY_PATH=$work/missing.md"; do
   rc=0; run $case || rc=$?
   ok "'$case' refused (rc=$rc)" [ "$rc" != 0 ]
