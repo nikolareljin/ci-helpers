@@ -1,3 +1,9 @@
+## Unreleased
+
+### Changed
+
+- `tests/fpc_appimage_verify_test.sh` runs its probe from a script file and passes the digest and the two paths through the environment, instead of splicing them into `bash -c` text. `scripts/check_docs_coverage.py` names its backticked search string `backticked`, not `token`. No behaviour change.
+
 ## 2026-11-09 — v0.50.0
 
 ### Changed
