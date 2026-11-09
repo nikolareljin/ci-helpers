@@ -23,6 +23,16 @@
 # ----------------------------------------------------
 set -euo pipefail
 
+# shellcheck source=/dev/null
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/security_notice.sh"
+
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+  case "${1:-}" in -h|--help) ;; *)
+    security_notice Gitleaks
+    exit 2 ;;
+  esac
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
@@ -33,7 +43,7 @@ shlib_import logging help
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
 output="results.sarif"
-requested_output="results.sarif"
+requested_output=""
 report_format="sarif"
 scan_path="."
 config_path=""
@@ -63,13 +73,21 @@ if [[ -z "$output" ]]; then
   exit 2
 fi
 
+requested_output="${requested_output:-$output}"
 if [[ -z "$requested_output" ]]; then
   log_error "Invalid value for --requested-output: path must be non-empty."
   usage
   exit 2
 fi
 
-mkdir -p "$(dirname "$requested_output")"
+report_python="$(security_python)" || exit 2
+"$report_python" -I "$SCRIPT_DIR/local_security_report.py" --existing --output "$output" >/dev/null || {
+  echo 'Choose an existing local report outside every Git checkout.' >&2
+  exit 2
+}
+if [[ "$requested_output" != "$output" ]]; then
+  "$report_python" -I "$SCRIPT_DIR/local_security_report.py" --output "$requested_output" >/dev/null || exit 2
+fi
 
 if [[ "$scan_path" != "." ]]; then
   log_warn "gitleaks-action ignores scan_path; it scans git history by default."
@@ -96,12 +114,13 @@ if [[ ! -s "$requested_output" ]]; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
+if [[ -z "$report_python" ]]; then
   log_error "python3 is required to parse Gitleaks SARIF reports."
   exit 2
 fi
 
-REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" python3 - <<'PY'
+report_rc=0
+REPORT_FORMAT="$report_format" OUTPUT="$requested_output" FAIL_ON_FINDINGS="$fail_on_findings" "$report_python" - <<'PY' || report_rc=$?
 import json
 import os
 import sys
@@ -161,13 +180,10 @@ for run in runs:
 
     count += len(results)
 
-if count > 0:
-    print(f"Gitleaks findings detected: {count}")
-    print("Tip: remove leaked secrets with Leak-Lock:")
-    print("  https://marketplace.visualstudio.com/items?itemName=NikolaReljin.leak-lock")
-    print("  https://open-vsx.org/extension/nikolareljin/leak-lock")
-    if fail_on_findings:
-        sys.exit(3)
-else:
-    print("No Gitleaks findings detected.")
+print("Local security report: %s" % output)
+if count > 0 and fail_on_findings:
+    sys.exit(3)
 PY
+
+[[ "$report_rc" -eq 0 ]] || security_notice Gitleaks
+exit "$report_rc"

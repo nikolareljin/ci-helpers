@@ -1,5 +1,5 @@
 name: Gitleaks Scan
-description: Run Gitleaks scan and emit a report.
+description: Enforce credential checks without publishing scanner output.
 inputs:
   scan_path:
     description: >
@@ -10,14 +10,11 @@ inputs:
     default: "."
     required: false
   report_format:
-    description: "Report format: sarif (default) or json."
+    description: "Deprecated compatibility input; no report is exported."
     default: sarif
     required: false
   output:
-    description: >
-      Output report file path. Defaults to results.sarif for sarif format.
-      When using report_format=json, set this to a .json path (e.g. results.json)
-      to avoid a misleading file extension.
+    description: Deprecated compatibility input; no report is exported.
     default: results.sarif
     required: false
   gitleaks_version:
@@ -37,15 +34,15 @@ inputs:
     default: ""
     required: false
   fail_on_findings:
-    description: Fail when findings are detected.
-    default: "false"
+    description: Mandatory enforcement; false is refused.
+    default: "true"
     required: false
   upload_artifact:
-    description: Upload the report as an artifact.
+    description: Deprecated; true is refused. Reports must stay local.
     default: "false"
     required: false
   artifact_name:
-    description: Artifact name when uploading the report.
+    description: Deprecated compatibility input; uploads are refused.
     default: gitleaks-report
     required: false
 outputs:
@@ -55,13 +52,23 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Prepare report path
+    - name: Enforce local-only results
       shell: bash
       env:
-        OUTPUT: ${{ inputs.output }}
+        UPLOAD_ARTIFACT: ${{ inputs.upload_artifact }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        mkdir -p "$(dirname "${OUTPUT}")"
+        if [[ "$UPLOAD_ARTIFACT" != false || "$FAIL_ON_FINDINGS" != true ]]; then
+          source "$ACTION_PATH/../../../vendor/script-helpers/scripts/security_notice.sh"
+          security_notice Gitleaks
+          exit 1
+        fi
+    - name: Set up scanner configuration interpreter
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
+      with:
+        python-version: '3.12'
     - name: Install gitleaks binary
       id: install
       shell: bash
@@ -157,139 +164,14 @@ runs:
         # of the caller's job.
         echo "gl_bin=${GL_BIN}" >> "${GITHUB_OUTPUT}"
 
-    # Without config_path, gitleaks loads .gitleaks.toml and .gitleaksignore
-    # from the checked-out tree, so on a pull request those files come from the
-    # PR itself and can allowlist the very secret it adds. Flag such changes for
-    # the reviewer. Advisory only: this step never fails the job, including when
-    # a shallow checkout lacks the base commit to diff against.
-    - name: Check pull request for scanner config changes
-      if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
-      shell: bash
-      env:
-        CONFIG_PATH: ${{ inputs.config_path }}
-      run: |
-        set -uo pipefail
-        base=$(python3 -c 'import json, os; print(((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("pull_request") or {}).get("base") or {}).get("sha") or "")' 2>/dev/null) || base=""
-        if [ -z "${base}" ] || ! git rev-parse --git-dir >/dev/null 2>&1; then
-          echo "Scanner config check skipped: no pull request base or no git checkout."
-          exit 0
-        fi
-        if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-          GIT_TERMINAL_PROMPT=0 git fetch --no-tags --depth=1 origin "${base}" >/dev/null 2>&1 || true
-        fi
-        if ! changed=$(git diff --name-only "${base}...HEAD" 2>/dev/null) \
-          && ! changed=$(git diff --name-only "${base}" HEAD 2>/dev/null); then
-          echo "::notice::Could not diff against the pull request base (shallow checkout?); scanner config changes were not checked."
-          exit 0
-        fi
-        hits=""
-        while IFS= read -r f; do
-          [ -z "${f}" ] && continue
-          case "${f##*/}" in
-            .gitleaks.toml|.gitleaksignore) hits="${hits}${hits:+, }${f}" ;;
-            *) if [ -n "${CONFIG_PATH}" ] && [ "${f}" = "${CONFIG_PATH#./}" ]; then hits="${hits}${hits:+, }${f}"; fi ;;
-          esac
-        done <<< "${changed}"
-        if [ -n "${hits}" ]; then
-          echo "::warning::This pull request changes gitleaks configuration read by this scan (${hits}). Allowlist or ignore entries added here apply to the scan of this same pull request; review them before trusting a clean result."
-        fi
-        exit 0
-
-    - name: Run gitleaks scan
+    - name: Security checks
       shell: bash
       env:
         GL_BIN: ${{ steps.install.outputs.gl_bin }}
+        GITLEAKS_BIN: ${{ steps.install.outputs.gl_bin }}
         SCAN_PATH: ${{ inputs.scan_path }}
-        OUTPUT: ${{ inputs.output }}
         CONFIG_PATH: ${{ inputs.config_path }}
-        REPORT_FMT: ${{ inputs.report_format }}
-      run: |
-        set -euo pipefail
-        # --redact keeps secret values out of the report, which is uploaded as an
-        # artifact or SARIF; findings and their count are unchanged.
-        args=(detect --source "${SCAN_PATH}" --report-format "${REPORT_FMT}" --report-path "${OUTPUT}" --exit-code 0 --redact)
-        [ -n "${CONFIG_PATH}" ] && args+=(--config "${CONFIG_PATH}")
-
-        # `detect` reads git history. Pointed at a directory that is not a work
-        # tree -- an unpacked archive, a build output, anything generated -- it
-        # logs `git error encountered`, writes an empty report and exits 0, and
-        # this action then says "No Gitleaks findings detected." A secret scan
-        # that scanned nothing must not read as a scan that found nothing, so
-        # the files are scanned instead when there is no history to read.
-        if ! git -C "${SCAN_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-          echo "::notice title=Gitleaks::${SCAN_PATH} is not inside a git work tree; scanning its files rather than the history."
-          args+=(--no-git)
-        fi
-
-        log="$(mktemp)"
-        "${GL_BIN}" "${args[@]}" 2>&1 | tee "${log}"
-
-        # The other half of the same failure: a work tree whose history cannot
-        # be read also ends in a partial scan and exit 0. Two spellings,
-        # because the wording is not stable across gitleaks releases -- 8.30.1
-        # logs `fatal: not a git repository`, other builds log `git error
-        # encountered`.
-        if grep -qE "git error encountered|fatal: not a git repository" "${log}"; then
-          echo "::error::gitleaks could not read the git history of ${SCAN_PATH}; the scan was partial and its result means nothing." >&2
-          exit 1
-        fi
-
-        # And the version-independent form of the same question: a scan that
-        # examined nothing must not report that it found nothing.
-        if grep -qE "scanned ~0 bytes" "${log}"; then
-          echo "::error::gitleaks examined 0 bytes under ${SCAN_PATH}; it found nothing because it read nothing." >&2
-          exit 1
-        fi
-    - name: Evaluate findings
-      shell: bash
-      env:
-        REPORT_FORMAT: ${{ inputs.report_format }}
-        OUTPUT: ${{ inputs.output }}
+        UPLOAD_ARTIFACT: ${{ inputs.upload_artifact }}
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
-      run: |
-        set -euo pipefail
-        python3 - <<'PY'
-        import json
-        import os
-        import sys
-
-        report_format = os.environ["REPORT_FORMAT"]
-        output = os.environ["OUTPUT"]
-        fail_on_findings = os.environ["FAIL_ON_FINDINGS"] == "true"
-
-        count = 0
-        if report_format == "sarif":
-            with open(output, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            runs = data.get("runs", [])
-            for run in runs:
-                results = run.get("results", [])
-                if isinstance(results, list):
-                    count += len(results)
-        else:
-            with open(output, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if isinstance(data, list):
-                count = len(data)
-            elif isinstance(data, dict):
-                for key in ("findings", "leaks", "results", "issues"):
-                    value = data.get(key)
-                    if isinstance(value, list):
-                        count += len(value)
-
-        if count > 0:
-            print(f"Gitleaks findings detected: {count}")
-            print("Tip: remove leaked secrets with Leak-Lock:")
-            print("  https://nikolareljin.github.io/leak-lock/")
-            if fail_on_findings:
-                sys.exit(3)
-        else:
-            print("No Gitleaks findings detected.")
-        PY
-    - name: Upload artifact
-      if: ${{ inputs.upload_artifact == 'true' && always() }}
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
-      with:
-        name: ${{ inputs.artifact_name }}
-        path: ${{ inputs.output }}
-        if-no-files-found: warn
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/run.sh"

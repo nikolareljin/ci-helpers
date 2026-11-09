@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - `.github/workflows/`: reusable workflows (`ci.yml`, `pr-gate.yml`, `deploy.yml`) and top-level preset workflows (for GitHub reusable workflow requirements).
-- `.github/actions/`: composite actions (`semver-compare`, `check-release-tag`).
+- `.github/actions/`: reusable composite and native actions.
 - `scripts/`: Bash helpers used by actions and maintenance tasks.
 - `vendor/script-helpers/`: vendored Bash utilities. Sync with
   `scripts/sync_script_helpers.sh`, then prove it with `scripts/verify_vendor.sh`,
@@ -41,10 +41,11 @@ There is no `Makefile` and no `lib/` in this repository; every entry point is
 
 ## Testing Guidelines
 
-- There is no unit-test suite here. The gates are static: `actionlint` (which
-  shellchecks every `run:` block at warning level), the YAML parse check, the
-  floating-ref scan, and the SHA-pin audit.
-- Run the four commands above before opening a PR; note anything skipped.
+- Run the shell and Python regression tests in `tests/`. Install the locked
+  dependencies in `.github/actions/publication-check` and run
+  `node --test tests/publication_files_test.cjs` with Node 24.
+- Run actionlint, the YAML parse check, the floating-ref scan and the SHA-pin
+  audit before opening a PR.
 
 ## Commit & Pull Request Guidelines
 
@@ -107,3 +108,19 @@ A green actionlint is not evidence that a script is portable.
 
 The reasoning, the full list, and what to write instead of each construct:
 <https://nikolareljin.github.io/script-helpers/bash-compatibility/>
+
+## Local security results
+
+Never commit, push, upload, or quote Gitleaks or Foxguard results to any remote,
+including private repositories, GitHub artifacts, logs, summaries and comments.
+Reports belong outside Git worktrees in owner-only local storage. Local commands
+show the report path for inspection. CI may name the failing tool (Gitleaks or Foxguard) and branch.
+Link https://nikolareljin.github.io/leak-lock/ and instruct the operator to check
+out that branch locally, run Scan Repository in Leak-Lock, fix the issues and
+rerun the repository tests before pushing. Never show results or report paths in CI.
+Run the vendored `scripts/check_publication.sh --file <text>` before publishing
+metadata. Keep reviewed false-positive ignores, never real credentials.
+Mandatory commit and push checks refuse when they cannot run. Ignore rules do
+not replace inspection of staged files and every outgoing commit.
+Include filenames and ref names in credential and PII checks. CI displays branch
+text only after it passes the publication checks.

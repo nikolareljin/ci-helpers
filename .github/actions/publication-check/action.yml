@@ -1,0 +1,34 @@
+name: Check publication files
+description: Validate and snapshot artifact or release files before any upload.
+inputs:
+  metadata:
+    description: Artifact or release names and refs to check before publication
+    default: ''
+  mode:
+    description: artifact or release
+    required: true
+  paths:
+    description: Original uploader path patterns
+    default: ''
+  include_hidden_files:
+    description: Include hidden files when resolving artifact patterns
+    default: 'false'
+  working_directory:
+    description: Base directory for release file patterns
+    default: ''
+  body_path:
+    description: Optional release notes file to check and snapshot
+    default: ''
+  fail_on_unmatched_files:
+    description: Refuse release patterns that match no files
+    default: 'false'
+outputs:
+  paths:
+    description: Checked snapshot paths for the uploader
+  body_path:
+    description: Checked release notes snapshot
+runs:
+  using: node24
+  main: index.cjs
+  post: cleanup.cjs
+  post-if: always()

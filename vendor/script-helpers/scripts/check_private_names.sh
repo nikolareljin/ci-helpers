@@ -422,6 +422,10 @@ if [[ "$ONLY_PUBLIC" == true && -z "$NAMES" ]]; then
         {
           vi = (hdr && ("visibility" in col)) ? col["visibility"] : 1
           mi = (hdr && ("name" in col))       ? col["name"]       : 3
+          fi = (hdr && ("flags" in col))      ? col["flags"]      : 5
+          # A former name says nothing about the repository that has the name
+          # now; reading one here would switch the whole check off.
+          if (" " $fi " " ~ / alias /) next
           if (tolower($mi) == want) { print $vi; exit }
         }' "$LIST")"
       if [[ "$visibility" == "private" ]]; then
@@ -786,7 +790,8 @@ if [[ -s "$amb_hits" ]]; then
     log_error "That is both an everyday word and a private repository, so it needs a person."
   else
     log_warn "That is both an everyday word and a private repository, so it needs a person."
-    log_warn "Read the lines above. If any of them means the repository, cite it by code."
+    log_warn "Read the lines above. If any of them means the repository, cite it by code"
+    log_warn "(an organization's repository, code -, has none: remove the reference)."
     log_warn "This does not fail on its own; --strict-ambiguous makes it."
     ambiguous_seen=1
   fi
@@ -802,7 +807,8 @@ if [[ -s "$ctx_hits" ]]; then
   else
     log_warn "An allowed word is written above in the shape of a repository reference (.git, repo,"
     log_warn "a clone or cd target, a projects path, host/owner/name), so it needs a person."
-    log_warn "Read the lines above. If any of them means the repository, cite it by code."
+    log_warn "Read the lines above. If any of them means the repository, cite it by code"
+    log_warn "(an organization's repository, code -, has none: remove the reference)."
     log_warn "This does not fail on its own; --strict-ambiguous makes it."
     ambiguous_seen=1
   fi

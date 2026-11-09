@@ -994,6 +994,15 @@ if [[ "$verdict" == "unreadable" ]]; then
   exit 0
 fi
 
+# Results stay local regardless of the publication destination's visibility.
+if [[ -n "$text" ]]; then
+  scan_gate="${SCRIPT_DIR}/../check_scan_output.sh"
+  if [[ ! -f "$scan_gate" ]] || ! printf '%s' "$text" | bash "$scan_gate" --stdin; then
+    echo 'Security issues found. Run the security checks locally first.' >&2
+    exit 2
+  fi
+fi
+
 [[ "$verdict" == "check" || "$verdict" == "check-unparsed" ]] || exit 0
 
 # Strict here, warn elsewhere: nothing reads a warning from a hook that then

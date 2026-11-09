@@ -1,5 +1,21 @@
 # Agent Notes — Documentation Discipline
 
+## Local security results
+
+Never commit, push, upload, or quote Gitleaks or Foxguard results to any remote,
+including private repositories, GitHub artifacts, logs, summaries and comments.
+Reports belong outside Git worktrees in owner-only local storage. Local commands
+show the report path for inspection. CI may name the failing tool (Gitleaks or Foxguard) and branch.
+Link https://nikolareljin.github.io/leak-lock/ and instruct the operator to check
+out that branch locally, run Scan Repository in Leak-Lock, fix the issues and
+rerun the repository tests before pushing. Never show results or report paths in CI.
+Run `scripts/check_publication.sh --file <text>` before publishing metadata.
+Keep reviewed false-positive ignores; do not add a suppression for a real secret.
+The mandatory commit and push checks must refuse when they cannot run. Ignore
+rules are defense in depth: force-added files and intermediate commits are checked.
+Include filenames and ref names in credential and PII checks. CI displays branch
+text only after it passes the publication checks.
+
 Scope
 -----
 

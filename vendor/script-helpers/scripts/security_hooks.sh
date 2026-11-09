@@ -6,11 +6,7 @@
 #   SCRIPT_HELPERS_SECURITY_DIR  Directory holding check_private_names.sh and
 #                                check_sensitive.sh. Set by the global hooks;
 #                                otherwise they are looked up in the repository.
-#   SECURITY_GATE_ALLOW_UNCHECKED=1  Let a push through when a check could not
-#                                run (exit 2, script missing, scope unknown), with
-#                                a warning. Narrow on purpose: --no-verify skips
-#                                every check, this skips none that can run.
-#                                SENSITIVE_ALLOW_UNCHECKED=1 is the same.
+#   Mandatory publication checks cannot be disabled with environment overrides.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
 #                                binary in the cache, else foxguard on PATH).
 # EXIT_CODES:
@@ -37,20 +33,63 @@ fi
 # the checks could be set by any parent process. A hook chained after these
 # steps runs them again; that costs time, never coverage.
 
-# sec_unchecked <hook> <reason>: a check could not run. Return 1 (refuse) unless
-# SECURITY_GATE_ALLOW_UNCHECKED=1, which lets it through with a warning. A check
-# that did not run is not a clean one.
+# sec_unchecked <hook> <reason>: a mandatory check could not run; refuse.
 sec_unchecked() {
-  if [[ "${SECURITY_GATE_ALLOW_UNCHECKED:-${SENSITIVE_ALLOW_UNCHECKED:-}}" == 1 ]]; then
-    echo "[$1] WARNING: $2; SECURITY_GATE_ALLOW_UNCHECKED=1, allowed unchecked." >&2
-    return 0
-  fi
   echo "[$1] $2; refused." >&2
-  echo "[$1] Fix the cause, or run once with SECURITY_GATE_ALLOW_UNCHECKED=1." >&2
   return 1
 }
 
+# sec_scan_output <mode> [args]: results never leave a public or private clone.
+sec_scan_output() {
+  local gate
+  gate="$(sec_find check_scan_output.sh)" || {
+    sec_unchecked security "publication checker missing; reinstall the hooks"
+    return 1
+  }
+  bash "$gate" "$@"
+}
+
+# sec_guard <check> [args]: diagnostics stay local; CI only receives a verdict.
+sec_guard() (
+  local report py rc=0 report_owner="${BASHPID-$$}" report_level="${BASH_SUBSHELL:-0}"
+  trap - EXIT HUP INT TERM
+  py="$(security_python || true)"
+  [[ -n "$py" ]] || { security_notice Security; return 1; }
+  if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
+    report="$("$py" -I "$_SEC_LIB_DIR/local_security_report.py" --temporary)" || {
+      security_notice Security
+      return 1
+    }
+    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf "${report%/*}"; fi' EXIT
+    trap 'exit 1' HUP INT TERM
+    if ! { printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report"; } 2>/dev/null; then
+      security_notice Security
+      return 1
+    fi
+    { "$@" >>"$report" 2>&1; } 2>/dev/null || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      security_notice "$(security_notice_tool "$report")"
+    fi
+  else
+    report="$("$py" -I "$_SEC_LIB_DIR/local_security_report.py")" || {
+      echo 'Security checks could not create a private local report; refused.' >&2
+      return 1
+    }
+    printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report" || return 1
+    "$@" >>"$report" 2>&1 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+      printf 'Security checks passed. Local report: %s\n' "$report"
+    else
+      printf 'Security issues found. Local report: %s\n' "$report" >&2
+      security_notice "$(security_notice_tool "$report")" "$report"
+    fi
+  fi
+  return "$rc"
+)
+
 _SEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$_SEC_LIB_DIR/security_notice.sh"
 
 # sec_find <script>: path of a security script, or return 127.
 sec_find() {
@@ -300,7 +339,9 @@ sec_private_names() {
   while read -r lref lsha rref rsha; do
     # Every ref, not only refs/tags/: a tag object can be pushed to any ref.
     printf '%s %s %s %s\n' "$lref" "$lsha" "$rref" "${rsha:-}" > "$one"
-    sec_tag_messages "$one" > "$messages" && [[ -s "$messages" ]] || continue
+    if ! sec_tag_messages "$one" > "$messages" || [[ ! -s "$messages" ]]; then
+      continue
+    fi
     bash "$gate" --file "$messages" --only-public "${target[@]+"${target[@]}"}"
     if [[ $? -eq 1 ]]; then
       case "$rref" in
@@ -386,7 +427,7 @@ sec_sensitive_push() {
     echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
     sec_offer_install gitleaks "the credential scan" || true
   fi
-  bash "$gate" --push-refs "$refs" --remote "$remote"
+  bash "$gate" --no-inline-allow --push-refs "$refs" --remote "$remote"
   rc=$?
   case "$rc" in
     0) return 0 ;;
@@ -438,8 +479,7 @@ sec_loud() {
 # foxguard on the files this push changes. Never blocks: a missing foxguard
 # (installed when it can be), a failed scan and every finding are
 # loud warnings, and the push goes on.
-# Measured 2026-09-29: its shell taint rules flagged 93 lines of this library,
-# none exploitable, so as a gate it would fail correct code.
+# Inspect advisory findings in the private local report.
 sec_foxguard_push() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
   if ! cmd="$(sec_foxguard_cmd)"; then
@@ -458,7 +498,7 @@ sec_foxguard_push() {
     [[ -f "$f" ]] && files+=("$f")
   done < <(sec_changed_files "$refs" "$remote" | cut -f2- | LC_ALL=C sort -u)
   [[ ${#files[@]} -gt 0 ]] || return 0
-  # foxguard scans one path per run: 0 clean, 1 findings, anything else failed.
+  # Distinguish reported findings from scanner execution errors.
   for f in "${files[@]}"; do
     rc=0
     # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
@@ -487,44 +527,49 @@ sec_foxguard_push() {
     base="$(awk '$4 !~ /^0+$/ && $2 !~ /^0+$/ { print $4; exit }' "$refs" 2>/dev/null || true)"
     echo "[pre-push] Keep them as JSON (evidence, or to compare later):" >&2
     if [[ -n "$base" ]]; then
-      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh --base $base --output foxguard-report.json" >&2
+      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh --base $base" >&2
     else
-      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh --output foxguard-report.json -- <files above>" >&2
+      echo "[pre-push]   bash $(sec_lib_root 2>/dev/null || echo scripts/script-helpers)/scripts/foxguard_report.sh -- <files above>" >&2
     fi
-    echo "[pre-push] To review them, and secrets across the whole history, in VS Code: leak-lock, https://github.com/nikolareljin/leak-lock" >&2
+    echo "[pre-push] To review them, and secrets across the whole history, in VS Code: leak-lock, https://nikolareljin.github.io/leak-lock/" >&2
   fi
   return 0
 }
 
 # sec_pre_push <refs-file> <remote-name> <url>: every security step of a push
 # (git's two pre-push arguments). 1 refuses it.
-sec_pre_push() {
+sec_pre_push() { sec_guard _sec_pre_push "$@"; }
+_sec_pre_push() {
+  sec_scan_output --push-refs "$1" --remote "${2:-}" || return 1
   sec_private_names "$1" "${2:-}" "${3:-}" || return 1
   sec_sensitive_push "$1" "${2:-}" || return 1
   sec_foxguard_push "$1" "${2:-}"
   return 0
 }
 
-# sec_pre_commit: sensitive data in the staged lines. Exit 2 warns here and does
-# not block: the push runs the same check and refuses then.
-sec_pre_commit() {
+# sec_pre_commit: refuse prohibited output or an incomplete mandatory check.
+sec_pre_commit() { sec_guard _sec_pre_commit "$@"; }
+_sec_pre_commit() {
   local gate rc
+  sec_scan_output --staged || return 1
   gate="$(sec_find check_sensitive.sh)" || {
-    echo "[pre-commit] check_sensitive.sh not found; staged lines NOT checked (the push refuses until it is found)." >&2
-    return 0
+    sec_unchecked pre-commit "sensitive-data checker missing; reinstall the hooks"
+    return 1
   }
-  bash "$gate" --staged
+  bash "$gate" --no-inline-allow --staged
   rc=$?
   case "$rc" in
     0) return 0 ;;
     1) echo "[pre-commit] Sensitive data in the staged lines; commit refused." >&2; return 1 ;;
-    *) echo "[pre-commit] sensitive-data check could not run (exit $rc); commit allowed, the push will check again." >&2; return 0 ;;
+    *) sec_unchecked pre-commit "sensitive-data check could not run"; return 1 ;;
   esac
 }
 
 # sec_commit_msg <file>: a private name or sensitive data in the message.
-sec_commit_msg() {
+sec_commit_msg() { sec_guard _sec_commit_msg "$@"; }
+_sec_commit_msg() {
   local msg="$1" gate rc
+  sec_scan_output --file "$msg" || return 1
   if gate="$(sec_find check_private_names.sh)"; then
     bash "$gate" --file "$msg" --only-public
     rc=$?
@@ -534,27 +579,27 @@ sec_commit_msg() {
       echo "[commit-msg]              or git commit --no-verify" >&2
       return 1
     elif [[ "$rc" -ne 0 ]]; then
-      # Could not check. A missing list is a setup problem, not a clean message,
-      # and the distinction is the whole point of the separate exit code.
-      echo "[commit-msg] the private-name check could not run (exit $rc); commit allowed." >&2
-      echo "[commit-msg] Generate the name list to enable it." >&2
+      sec_unchecked commit-msg "private-name check could not run"
+      return 1
     fi
   else
-    # 127 territory: the check is not installed here. Saying so beats both a
-    # silent pass and a refusal the author cannot act on.
-    echo "[commit-msg] check_private_names.sh not found; private-name check skipped." >&2
+    sec_unchecked commit-msg "private-name checker missing; reinstall the hooks"
+    return 1
   fi
   if gate="$(sec_find check_sensitive.sh)"; then
     # git keeps the template's comment lines in the file until it strips them.
     LC_ALL=C grep -v '^#' "$msg" > "$msg.sensitive" 2>/dev/null; [[ $? -le 1 ]] || cp -- "$msg" "$msg.sensitive"
-    bash "$gate" --file "$msg.sensitive"
+    bash "$gate" --no-inline-allow --file "$msg.sensitive"
     rc=$?
     rm -f -- "$msg.sensitive"
     case "$rc" in
       0) ;;
       1) echo "[commit-msg] Sensitive data in the message; commit refused." >&2; return 1 ;;
-      *) echo "[commit-msg] sensitive-data check could not run (exit $rc); commit allowed." >&2 ;;
+      *) sec_unchecked commit-msg "sensitive-data check could not run"; return 1 ;;
     esac
+  else
+    sec_unchecked commit-msg "sensitive-data checker missing; reinstall the hooks"
+    return 1
   fi
   return 0
 }

@@ -354,20 +354,82 @@ jobs:
           echo "repo=$BREW_UPLOAD_REPO" >> "$GITHUB_OUTPUT"
           echo "tarball=$(basename "$BREW_TARBALL_PATH")" >> "$GITHUB_OUTPUT"
 
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$(git rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (steps.asset.outcome == 'success') && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: ${{ inputs.artifact_name }}-tarball
+          mode: artifact
+          paths: ${{ env.BREW_TARBALL_PATH }}
+
       - name: Upload tarball for the release
-        if: ${{ steps.asset.outcome == 'success' }}
+        if: ${{ (steps.asset.outcome == 'success') && steps.ci_publication_check_1.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: ${{ inputs.artifact_name }}-tarball
-          path: ${{ env.BREW_TARBALL_PATH }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
           if-no-files-found: error
 
+      - name: Check publication files
+        id: ci_publication_check_2
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: ${{ inputs.artifact_name }}
+          mode: artifact
+          paths: ${{ env.BREW_ARTIFACT_GLOB }}
+
+
       - name: Upload Homebrew artifacts
+        if: ${{ (success()) && steps.ci_publication_check_2.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: ${{ inputs.artifact_name }}
-          path: ${{ env.BREW_ARTIFACT_GLOB }}
-
+          path: ${{ steps.ci_publication_check_2.outputs.paths }}
       # Only the formula goes to the tap; the artifact above also carries the
       # tarballs.
       - name: Stage formula for the tap
@@ -381,12 +443,23 @@ jobs:
           echo "file=$(basename "$BREW_FORMULA_PATH")" >> "$GITHUB_OUTPUT"
           echo "dir=$RUNNER_TEMP/brew-formula" >> "$GITHUB_OUTPUT"
 
+      - name: Check publication files
+        id: ci_publication_check_3
+        if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: ${{ inputs.artifact_name }}-formula
+          mode: artifact
+          paths: ${{ steps.formula.outputs.dir }}/${{ steps.formula.outputs.file }}
+
       - name: Upload formula for the tap
-        if: ${{ inputs.publish == 'true' }}
+        if: ${{ (inputs.publish == 'true') && steps.ci_publication_check_3.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: ${{ inputs.artifact_name }}-formula
-          path: ${{ steps.formula.outputs.dir }}/${{ steps.formula.outputs.file }}
+          path: ${{ steps.ci_publication_check_3.outputs.paths }}
           if-no-files-found: error
 
   # The push lives in one language-agnostic workflow shared with every other
@@ -401,6 +474,29 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out trusted outbound guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-security
+          sparse-checkout: |
+            .github/actions/publication-guard
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify outbound guard revision
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+
+      - name: Guard outbound Git writes
+        uses: ./.ci-helpers-security/.github/actions/publication-guard
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:
           name: ${{ inputs.artifact_name }}-tarball

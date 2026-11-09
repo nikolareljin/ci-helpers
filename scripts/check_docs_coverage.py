@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every reusable workflow and composite action is documented, and correctly.
+"""Every reusable workflow and action is documented, and correctly.
 
 `check_workflow_coverage.py` asks whether a workflow is exercised. It never
 asked whether one is documented, so `wp-build.yml`, `laravel.yml` and
@@ -17,7 +17,7 @@ line. Fails when:
   * a presets section lists `- `name`: `X`` and X is not the declared default
   * a section documents a workflow input as `- `name` (type, default `X`)` and
     the type or X is not what the workflow declares, or the input does not exist
-  * a composite action has no `## <name>` section in docs/actions.md, or such
+  * an action has no `## <name>` section in docs/actions.md, or such
     a section names an action that does not exist
   * an action input is not named in its section
   * README.md does not name a reusable workflow or an action
@@ -25,7 +25,7 @@ line. Fails when:
     this repository with a `with:` or `secrets:` key it does not declare, or
     names one that does not exist, or the example is not valid YAML
   * the counts in README.md and docs/assets/hero.svg ("N reusable workflows,
-    N stack presets, N composite actions") are not the counts in the tree; a
+    N stack presets, N actions") are not the counts in the tree; a
     preset is a reusable workflow whose `name:` starts with `preset-`
 
 Usage: check_docs_coverage.py [--root <dir>] [--quiet]
@@ -100,7 +100,7 @@ def unquote(value: str) -> str:
 
 
 COUNTS_RE = re.compile(
-    r"(\d+) reusable workflows, (\d+) stack presets, (\d+) composite actions"
+    r"(\d+) reusable workflows, (\d+) stack presets, (\d+) (?:composite )?actions"
 )
 COUNTED_FILES = ("README.md", "docs/assets/hero.svg")
 
@@ -128,7 +128,7 @@ def check_readme(
                 problems.append(
                     f"{rel} says {match.group(0)}; the tree has "
                     f"{actual[0]} reusable workflows, {actual[1]} stack presets, "
-                    f"{actual[2]} composite actions"
+                    f"{actual[2]} actions"
                 )
 
 

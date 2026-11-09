@@ -97,6 +97,8 @@ jobs:
       working_directory: tests/fixtures/wp-build
       slug: wp-plugin
       php_version: '8.3'
+      # Composer's published author contacts are still PII under this policy.
+      upload_artifact: false
       verify_command: |
         set -euo pipefail
         list="$(unzip -Z1 "$PACKAGE_ZIP")"
@@ -125,6 +127,7 @@ jobs:
       slug: wp-plugin
       php_version: '8.3'
       zip: false
+      upload_artifact: false
       # A name of its own: two jobs uploading under one name collide.
       artifact_name: wp-plugin-tree
       verify_command: |

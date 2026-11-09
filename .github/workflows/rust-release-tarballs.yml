@@ -186,7 +186,7 @@ jobs:
         with:
           persist-credentials: false
           repository: nikolareljin/script-helpers
-          ref: 6e9c264e02c33ac5d927983dc50154e44a12c193 # 0.61.2
+          ref: aa819e9fc9197e3f6941222ecd5141cdd152c11b # aa819e9fc9197e3f6941222ecd5141cdd152c11b
           path: .script-helpers
           fetch-depth: 1
 
@@ -219,20 +219,82 @@ jobs:
             echo "::warning::release notes generation failed; publishing without a body."
           fi
 
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$(git rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: release-tarball-${{ inputs.bin_name }}-${{ matrix.platform }}
+          mode: artifact
+          paths: ${{ steps.package.outputs.tarball }}
+
       - name: Hand the tarball to upload-release
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: release-tarball-${{ inputs.bin_name }}-${{ matrix.platform }}
-          path: ${{ steps.package.outputs.tarball }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
           if-no-files-found: error
           overwrite: true
 
+      - name: Check publication files
+        id: ci_publication_check_2
+        if: ${{ (steps.notes.outputs.notes_file != '') && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: release-notes-${{ inputs.bin_name }}
+          mode: artifact
+          paths: ${{ steps.notes.outputs.notes_file }}
+
       - name: Hand the release notes to upload-release
-        if: ${{ steps.notes.outputs.notes_file != '' }}
+        if: ${{ (steps.notes.outputs.notes_file != '') && steps.ci_publication_check_2.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: release-notes-${{ inputs.bin_name }}
-          path: ${{ steps.notes.outputs.notes_file }}
+          path: ${{ steps.ci_publication_check_2.outputs.paths }}
           if-no-files-found: error
           overwrite: true
 
@@ -245,13 +307,25 @@ jobs:
           set -euo pipefail
           printf "%s  %s\n" "$SHA256" "$TARBALL" > "sha256-${PLATFORM}.txt"
 
+      - name: Check publication files
+        id: ci_publication_check_3
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: sha256-${{ matrix.platform }}
+          mode: artifact
+          paths: sha256-${{ matrix.platform }}.txt
+
+
       - name: Upload sha artifact
+        if: ${{ (success()) && steps.ci_publication_check_3.outcome == 'success' }}
         # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           name: sha256-${{ matrix.platform }}
-          path: sha256-${{ matrix.platform }}.txt
-
+          path: ${{ steps.ci_publication_check_3.outputs.paths }}
   upload-release:
     name: Upload release assets
     needs: build-tarballs
@@ -263,6 +337,29 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out trusted outbound guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-security
+          sparse-checkout: |
+            .github/actions/publication-guard
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify outbound guard revision
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+
+      - name: Guard outbound Git writes
+        uses: ./.ci-helpers-security/.github/actions/publication-guard
+
       - name: Download tarballs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:
@@ -280,12 +377,64 @@ jobs:
           name: release-notes-${{ inputs.bin_name }}
           path: release-notes
 
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$(git rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            tag_name: ${{ needs.build-tarballs.outputs.tag }}
+          mode: release
+          paths: tarballs/*.tar.gz
+          body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
+          fail_on_unmatched_files: true
+
       - name: Upload release assets
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3 @ 2026-11-06
         with:
           tag_name: ${{ needs.build-tarballs.outputs.tag }}
-          body_path: ${{ steps.notes.outcome == 'success' && 'release-notes/release-notes.md' || '' }}
-          files: tarballs/*.tar.gz
+          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
+          files: ${{ steps.ci_publication_check_1.outputs.paths }}
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
@@ -417,14 +566,65 @@ jobs:
           BIN_NAME: ${{ inputs.bin_name }}
         run: ruby -c "formula/${BIN_NAME}.rb"
 
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$(git rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        with:
+          metadata: |
+            name: homebrew-formula-${{ inputs.bin_name }}
+          mode: artifact
+          paths: formula/${{ inputs.bin_name }}.rb
+
       - name: Upload formula
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
         # NOTE: upload-artifact@v7 runs on Node.js 24; self-hosted runners must be >= 2.327.1
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
+          include-hidden-files: true
           # Named per binary: artifact names are shared by every job of the
           # caller's run, which may upload its own.
           name: homebrew-formula-${{ inputs.bin_name }}
-          path: formula/${{ inputs.bin_name }}.rb
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
           if-no-files-found: error
 
   # The push lives in one language-agnostic workflow shared with every other

@@ -311,7 +311,7 @@ stage_common() {
   if [[ -f "$src_root/config/private-names-allow" ]]; then
     mkdir -p "$stage/config" && cp -- "$src_root/config/private-names-allow" "$stage/config/" || { rm -rf -- "$stage"; return 1; }
   fi
-  for name in owner_scope.sh check_sensitive.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh foxguard_report.sh; do
+  for name in owner_scope.sh check_sensitive.sh check_scan_output.sh check_scan_output.py local_security_report.py check_publication.sh guard_gh.py security_notice.sh check_private_names.sh refresh_private_names.sh ssh_keepalive.sh push_checks.sh run_repo_tests.sh foxguard_report.sh; do
     cp -- "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf -- "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"

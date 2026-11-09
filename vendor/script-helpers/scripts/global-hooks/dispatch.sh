@@ -90,6 +90,11 @@ EOF_URLS
   fi
 fi
 
+owner_in_scope="$in_scope"
+
+# Per-repository installs enforce the rule even before a remote is configured.
+[[ "$local_mode" == true ]] && in_scope=true
+
 # The SSH keepalive note, before the checks and the repository's own pre-push
 # (a first or large push can take a while): once per push, SSH remotes only.
 if [[ "$hook" == pre-push && -f "$base/ssh_keepalive.sh" ]] && grep -qv '^[^ ]* 0* ' "$stdin_file" 2>/dev/null; then
@@ -122,7 +127,7 @@ if [[ "$in_scope" == true ]]; then
       if [[ "$deletions_only" == false ]]; then
         (cd "$top" && sec_pre_push "$checks_file" "${1:-}" "${2:-}") || exit 1
         # Hygiene and lint of what the push changes, as the bundled pre-push does.
-        if [[ -f "$base/push_checks.sh" ]]; then
+        if [[ "$owner_in_scope" == true && -f "$base/push_checks.sh" ]]; then
           # shellcheck source=/dev/null
           (cd "$top" && source "$base/push_checks.sh" && push_checks "$checks_file" "${1:-}" "${2:-}" && push_tests) || exit 1
           # A chained script-helpers pre-push skips the same checks for this
@@ -143,7 +148,7 @@ fi
 # An opt-in the global hooks will not act on is said, not dropped: outside the
 # repositories of your account and organisations they run none of their checks,
 # tests included.
-if [[ "$hook" == pre-push && "$in_scope" != true ]] && \
+if [[ "$hook" == pre-push && "$owner_in_scope" != true ]] && \
    [[ -n "$(git config --get script-helpers.push-tests 2>/dev/null || true)" ]]; then
   echo "[script-helpers] script-helpers.push-tests is set, but this repository is not yours (script-helpers.github-user, script-helpers.owners); tests not run." >&2
 fi

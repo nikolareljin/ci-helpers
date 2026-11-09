@@ -38,6 +38,47 @@ jobs:
         shell: bash
         run: python3 scripts/check_workflow_yaml.py
 
+      - name: Set up publication checker tests
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
+        with:
+          node-version: '24'
+
+      - name: Publication checks refuse unsafe upload payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          log=$(mktemp "$RUNNER_TEMP/publication-tests.XXXXXX")
+          check_rc=0
+          npm ci --prefix .github/actions/publication-check --ignore-scripts --no-audit --no-fund > "$log" 2>&1 || check_rc=$?
+          if [[ "$check_rc" -eq 0 ]]; then
+            node --test tests/publication_files_test.cjs >> "$log" 2>&1 || check_rc=$?
+          fi
+          rm -f "$log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Security
+            exit "$check_rc"
+          fi
+
+      - name: Security publication policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/scan_publication_policy_test.py
+          python3 scripts/check_scan_publication.py
+          bash tests/sync_script_helpers_notes_test.sh
+          bash tests/pre_commit_security_test.sh
+          umask 077
+          check_rc=0
+          bash tests/gitleaks_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Gitleaks
+            exit "$check_rc"
+          fi
+
       # Parsing proves a file is YAML; it says nothing about an input going
       # missing one hop down. See the script's header for what drifted.
       - name: Engine inputs are threaded through every caller

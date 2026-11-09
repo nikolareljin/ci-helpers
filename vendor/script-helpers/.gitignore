@@ -26,3 +26,12 @@ CLAUDE.md
 /site/
 /.cache/
 /.venv-docs/
+
+# Scanner diagnostics stay outside the checkout. Hooks also reject force-adds.
+/scans/
+/scan-results/
+/security-reports/
+__pycache__/
+*.sarif
+/gitleaks*.json
+/foxguard*.json

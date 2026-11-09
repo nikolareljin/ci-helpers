@@ -321,6 +321,8 @@ units="$tmp/units"          # label<TAB>text, one added line per row
 : > "$units"
 REV_SETS=()                 # git log argument strings, for gitleaks
 TEXT_FILES=()               # whole files (messages, --file, --stdin), for gitleaks
+metadata="$tmp/git-metadata.txt"
+: > "$metadata"
 
 # diff_to_units <label prefix>: unified diff on stdin -> added lines as units.
 # A "+++ " line is a file header only between "diff --git" and the first hunk,
@@ -368,6 +370,13 @@ add_revs() {
     unchecked=1
   fi
   REV_SETS+=("$revs")
+  # Names cross the same boundary as blob contents, including empty files.
+  # shellcheck disable=SC2086
+  if git -C "$TOP" log --format= --name-only --no-renames --diff-filter=ACMT -z $revs > "$tmp/names" 2>/dev/null; then
+    tr '\000' '\n' < "$tmp/names" >> "$metadata" || fail "could not read outgoing names"
+  else
+    fail "could not read outgoing names"
+  fi
 }
 
 case "$MODE" in
@@ -377,6 +386,9 @@ case "$MODE" in
     while read -r lref lsha rref rsha; do
       [[ -n "${lsha:-}" ]] || continue
       [[ "$lsha" =~ ^0+$ ]] && continue                  # a deletion adds nothing
+      if [[ "$lsha" != "$rsha" ]]; then
+        printf '%s\n%s\n' "$lref" "$rref" >> "$metadata"
+      fi
       # An annotated tag publishes its message too (a tag of a tag: each one).
       # The signature block is not text anybody wrote.
       t="$lsha"
@@ -384,6 +396,7 @@ case "$MODE" in
         tagobj="$tmp/tag.$RANDOM"
         git -C "$TOP" cat-file tag "$t" > "$tagobj" 2>/dev/null || { fail "could not read tag $t"; break; }
         if [[ "$rsha" != "$t" ]]; then
+          sed -n 's/^tag //p' "$tagobj" >> "$metadata"
           awk '/^-----BEGIN (PGP|SSH) SIGNATURE-----/ { exit } p { print } /^$/ { p = 1 }' "$tagobj" > "$tagobj.msg"
           awk -v t="${t:0:7}" '{ print "tag " t ":" FNR "\t" $0 }' "$tagobj.msg" >> "$units"
           [[ -s "$tagobj.msg" ]] && TEXT_FILES+=("$tagobj.msg")
@@ -418,12 +431,18 @@ case "$MODE" in
       echo "$TAG git could not read the index" >&2; exit 2
     fi
     diff_to_units "staged " < "$tmp/staged" >> "$units" || fail "could not read the staged diff"
+    if git -C "$TOP" diff --cached --name-only --no-renames --diff-filter=ACMT -z > "$tmp/names" 2>/dev/null; then
+      tr '\000' '\n' < "$tmp/names" >> "$metadata" || fail "could not read staged names"
+    else
+      fail "could not read staged names"
+    fi
     ;;
   file)
     for f in "${FILES[@]}"; do
       [[ -r "$f" ]] || { echo "$TAG cannot read $f" >&2; unchecked=1; continue; }
       awk -v f="$f" '{ print f ":" FNR "\t" $0 }' "$f" >> "$units" || fail "could not read $f"
       TEXT_FILES+=("$f")
+      basename -- "$f" >> "$metadata"
     done
     ;;
   stdin)
@@ -432,6 +451,11 @@ case "$MODE" in
     TEXT_FILES+=("$tmp/stdin.txt")
     ;;
 esac
+
+if [[ -s "$metadata" ]]; then
+  awk '{ print "Git metadata:" FNR "\t" $0 }' "$metadata" >> "$units" || fail "could not read Git metadata"
+  TEXT_FILES+=("$metadata")
+fi
 
 # A NUL byte or invalid UTF-8 makes grep call the whole file binary and print
 # nothing for it, which would drop every line. Strip NULs, read bytes as bytes.
@@ -498,6 +522,7 @@ run_gitleaks() {
   # .gitleaks.toml (it would by default) and committed content cannot allow itself.
   printf 'title = "script-helpers default"\n[extend]\nuseDefault = true\n' > "$tmp/gitleaks.toml"
   cfg=(--config "$tmp/gitleaks.toml")
+  [[ "$INLINE_ALLOW" == true ]] || cfg+=(--ignore-gitleaks-allow --max-archive-depth 3)
   # Nor a committed .gitleaksignore: gitleaks reads one from the source
   # directory (and, in newer releases, from the current one), so a commit
   # could list its own fingerprint. gitleaks runs in an empty directory whose
@@ -640,6 +665,14 @@ if [[ -s "$tmp/text" ]]; then
       }
       function email_ok(v,   lv, at, local, dom, tld) {
         lv = tolower(v); at = index(lv, "@"); local = substr(lv, 1, at - 1); dom = substr(lv, at + 1)
+        # A document suffix must not hide the email address in its filename.
+        tld = dom; sub(/^.*\./, "", tld)
+        while (tld ~ /^(png|jpe?g|gif|svg|webp|ico|pdf|js|mjs|cjs|ts|tsx|jsx|css|scss|json|ya?ml|md|txt|sh|py|rb|go|rs|java|kt|zip|gz|tgz|tar|lock|xml|html?|map|wasm|so|dll|exe|bin|log)$/) {
+          sub(/\.[^.]*$/, "", dom)
+          if (dom !~ /\./) return 1
+          tld = dom; sub(/^.*\./, "", tld)
+        }
+        v = substr(v, 1, at + length(dom)); lv = tolower(v)
         for (i = 1; i <= ni; i++) if (lv == id[i]) return 1
         if (local ~ /^(git|noreply|no-reply|no_reply|donotreply|do-not-reply|notifications|mailer-daemon)$/ || local ~ /^noreply/) return 1
         if (dom ~ /(^|\.)(example\.(com|org|net)|example|test|invalid|localhost|local)$/) return 1
