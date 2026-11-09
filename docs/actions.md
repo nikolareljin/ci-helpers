@@ -80,6 +80,11 @@ Path: `.github/actions/trivy-scan`
 
 Purpose: Run Trivy filesystem scans with optional SARIF upload.
 
+Trivy is the release binary pinned by version and sha256 in this repository's
+`scanner-pins.env`, downloaded and verified by the action; no third-party
+action. The vulnerability database is fetched in its own step and the scan runs
+with `--skip-db-update --skip-check-update --offline-scan`.
+
 Inputs:
 
 - `scan_path` (default `"."`)

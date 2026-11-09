@@ -129,12 +129,58 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The library's own files at the commit of this workflow file: the
+      # Trivy installer and its pins. `./scripts` would resolve in the
+      # caller's checkout, so the library is checked out beside it.
+      - name: Check out ci-helpers scripts at this workflow's commit
+        if: ${{ inputs.scan_after_build }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's scripts after all; refuse instead.
+      - name: Verify ci-helpers scripts commit
+        if: ${{ inputs.scan_after_build }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers scripts at $WF_SHA"
+
+      # The Trivy binary, not the vendor's action: a release pinned by version
+      # and sha256 in the library's scanner-pins.env, downloaded and checked
+      # here. The vulnerability database is fetched in this step; the scan
+      # below talks only to the registry the image was just pushed to.
+      - name: Install Trivy
+        if: ${{ inputs.scan_after_build }}
+        id: trivy
+        shell: bash
+        run: bash .ci-helpers-actions/scripts/install_trivy.sh --download-db
+
       - name: Trivy scan (post-push)
         if: ${{ inputs.scan_after_build }}
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
-        with:
-          image-ref: ${{ steps.tags.outputs.primary }}
-          format: table
-          severity: ${{ inputs.trivy_severity }}
-          ignore-unfixed: "true"
-          exit-code: ${{ inputs.fail_on_scan_findings && '1' || '0' }}
+        shell: bash
+        env:
+          TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
+          CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
+          IMAGE_REF: ${{ steps.tags.outputs.primary }}
+          SEVERITY: ${{ inputs.trivy_severity }}
+          EXIT_CODE: ${{ inputs.fail_on_scan_findings && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" image \
+            --skip-db-update --offline-scan --format table \
+            --severity "$SEVERITY" --ignore-unfixed --exit-code "$EXIT_CODE" \
+            "$IMAGE_REF"
