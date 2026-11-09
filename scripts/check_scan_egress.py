@@ -8,15 +8,20 @@ Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
 and security-weekly.yml, and .github/actions/*-scan/action.yml. Each is read
 with PyYAML and fails on:
 
-  uses        a `uses:` outside the allowlist: actions/*, github/*, this
-              library (nikolareljin/ci-helpers/..., or the ci-helpers of
-              $GITHUB_REPOSITORY_OWNER in a fork), a local path (./...), or one
-              of the named toolchain installers below, which must be pinned
-              to a 40-hex commit. A third-party scanner action runs with the
-              caller's checkout and token; the Trivy actions were hijacked in
-              March 2026 to read exactly those.
-  docker      a `docker run` in a run block whose image is not pinned by
-              `@sha256:`. A tag is re-resolved on every run.
+  uses        a `uses:` that is not canonical (lowercase owner/repo[/path],
+              no empty, `.` or `..` segment, pinned to a 40-hex commit; a
+              local `./path` with no such segment; or this library at
+              `@production`), or one outside the allowlist: actions/*,
+              github/*, this library (nikolareljin/ci-helpers, or the
+              ci-helpers of $GITHUB_REPOSITORY_OWNER in a fork), a local path,
+              or one of the named toolchain installers below. Other spellings
+              are refused, not normalised. A third-party scanner action runs
+              with the caller's checkout and token; the Trivy actions were
+              hijacked in March 2026 to read exactly those.
+  docker      a run-block line, comments skipped and continuations joined,
+              with a docker, podman or nerdctl token followed by `run` or
+              `create`, and no `@sha256:` image. Fails closed: an echo of such
+              a line is flagged too.
   checkout    an actions/checkout step without `persist-credentials: false`
               (a YAML boolean or the string "false").
               The default writes the job's token into .git/config, where a
@@ -56,19 +61,19 @@ SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"
 
 # `uses:` an action here may name without a finding. A local path and this
 # library at any owner are fine; so are GitHub's own actions.
-ALLOWED_USES = re.compile(r"^(\./|actions/|github/)")
+# A `uses:` must be in canonical form or it is refused, never normalised:
+# lowercase, no empty, `.` or `..` segment, no trailing `/`, a 40-hex pin.
+# GitHub resolves owner and repository case-insensitively and walks odd
+# paths, so any other spelling could name an allowed action and dodge a check.
+SEG = r"(?!\.\.?(?:/|@|$))[a-z0-9._-]+"
+CANONICAL_USES = re.compile(rf"^[a-z0-9-]+/{SEG}(/{SEG})*@[0-9a-f]{{40}}$")
+LOCAL_USES = re.compile(r"^\./[A-Za-z0-9._/-]+$")
+ALLOWED_OWNERS = {"actions", "github"}
 # This library, at its home owner or at the owner of the repository the check
-# runs in (a fork). Any other `<owner>/ci-helpers` is someone else's code.
+# runs in (a fork), may also ride the `production` ref.
 LIBRARY_OWNERS = {"nikolareljin"}
-LIBRARY_USES = re.compile(r"^([a-z0-9-]+)/ci-helpers/")
+LIBRARY_PRODUCTION = re.compile(rf"^([a-z0-9-]+)/ci-helpers(/{SEG})+@production$")
 
-# A command that starts Trivy: the binary by name, or the path the installer
-# hands over in TRIVY_BIN / trivy_bin.
-# Where a command starts: line start, a separator, `$(`, or a shell keyword.
-# Then any `VAR=value` assignments or `env [-opts] VAR=value` in front.
-CMD_START = (r"(?:^|[;&|(]\s*|\$\(\s*|(?:\b(?:if|then|else|do|exec|time|sudo|command|while|until)|!)\s+)"
-             r"(?:env\s+(?:-\S+\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")
-TRIVY_CALL = re.compile(CMD_START + r'("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
 TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 
 # Toolchain installers the language scans still use. They install a compiler
@@ -80,7 +85,6 @@ TOOLCHAIN_EXCEPTIONS = {
     "dtolnay/rust-toolchain",
     "swatinem/rust-cache",
 }
-COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
 WRITE_OK = {"security-events", "issues"}
@@ -92,56 +96,67 @@ def steps_of(job: dict):
             yield step
 
 
-def normalise_uses(ref: str) -> tuple[str, str]:
-    """`uses:` as (name, pin): lowercased, since GitHub resolves owner and
-    repository case-insensitively, with empty and `.` path segments dropped,
-    so `Actions/Checkout/.@x` is `actions/checkout`. Every check uses this."""
-    name, _, pin = ref.strip().partition("@")
-    if name.startswith("./"):
-        return name.lower(), pin
-    parts = [seg for seg in name.lower().split("/") if seg not in ("", ".")]
-    return "/".join(parts), pin
+def uses_name(ref: str) -> str:
+    """The action part of a `uses:` (no pin). Callers match it only after
+    check_uses has accepted the ref as canonical."""
+    return ref.partition("@")[0]
 
 
 def check_uses(ref: str, where: str, out: list[str]) -> None:
-    norm, pin = normalise_uses(ref)
-    low = f"{norm}@{pin}" if pin else norm
-    if ALLOWED_USES.match(low):
+    if LOCAL_USES.match(ref):
+        if any(seg in ("", ".", "..") for seg in ref.split("/")[1:]):
+            out.append(f"{where}: uses: local path '{ref}' has an empty, '.' or '..' segment")
         return
-    lib = LIBRARY_USES.match(low)
-    if lib and lib.group(1) in LIBRARY_OWNERS:
+    prod = LIBRARY_PRODUCTION.match(ref)
+    if prod and prod.group(1) in LIBRARY_OWNERS:
         return
-    base = "/".join(norm.split("/")[:2])
+    if not CANONICAL_USES.match(ref):
+        out.append(f"{where}: uses: '{ref}' is not canonical (lowercase owner/repo[/path] "
+                   "with no empty, '.' or '..' segment, pinned to a 40-hex commit)")
+        return
+    parts = uses_name(ref).split("/")
+    base = "/".join(parts[:2])
+    if parts[0] in ALLOWED_OWNERS:
+        return
+    if parts[1] == "ci-helpers" and parts[0] in LIBRARY_OWNERS:
+        return
     if base in TOOLCHAIN_EXCEPTIONS:
-        if not COMMIT.match(pin):
-            out.append(f"{where}: uses: toolchain exception '{base}' is not pinned to a commit ('{ref}')")
         return
     out.append(f"{where}: uses: '{ref}' is not actions/*, github/*, this library or a local path")
 
 
 def commands(run: str) -> list[str]:
-    """The run block as one string per command line: comment lines and
-    trailing ` # ...` comments dropped, continuation lines joined."""
-    lines = [re.sub(r"\s#.*$", "", ln) for ln in run.splitlines() if not ln.lstrip().startswith("#")]
+    """The run block as one string per command line: comment lines dropped,
+    continuation lines joined, surrounding blanks stripped."""
+    lines = [ln for ln in run.splitlines() if not ln.lstrip().startswith("#")]
     joined = re.sub(r"\\\n", " ", "\n".join(lines))
-    # Indented commands in if/for/while bodies start a line too.
     return [ln.strip() for ln in joined.splitlines()]
 
 
-# `docker run` where a command starts: at the start of a line, after a
-# separator, inside `$(` or behind a keyword or sudo. `echo "docker run"` is not.
-DOCKER_RUN = re.compile(CMD_START + r"docker\s+(container\s+)?run\b")
+# Fail closed: a line with a container engine token followed later by a
+# token that starts a container is flagged unless it carries an @sha256:
+# image. Prefixes such as sudo -E, env -u X, command -p cannot hide it; an
+# echo of such a line is a false positive, accepted.
+ENGINES = {"docker", "podman", "nerdctl"}
+STARTS = {"run", "create"}
+
+
+def tokens(line: str) -> list[str]:
+    return [t.rsplit("/", 1)[-1] for t in re.split(r"[\s;&|()=`'\"$<>{}]+", line) if t]
 
 
 def check_run(run: str, where: str, out: list[str]) -> None:
     for line in commands(run):
-        if DOCKER_RUN.search(line) and "@sha256:" not in line:
-            out.append(f"{where}: docker: `docker run` without an @sha256: image")
+        toks = tokens(line)
+        hits = [i for i, t in enumerate(toks) if t in ENGINES]
+        if hits and any(t in STARTS for t in toks[hits[0] + 1:]) and "@sha256:" not in line:
+            out.append(f"{where}: docker: container run or create without an @sha256: image")
 
 
 def check_trivy(run: str, where: str, out: list[str]) -> None:
     for line in commands(run):
-        if TRIVY_CALL.search(line.strip() + " "):
+        toks = tokens(line)
+        if any(t == "trivy" or "TRIVY_BIN" in t or "trivy_bin" in t for t in toks):
             missing = [f for f in TRIVY_QUIET_FLAGS if f not in line.split()]
             if missing:
                 out.append(f"{where}: telemetry: Trivy runs without {' '.join(missing)}")
@@ -157,10 +172,10 @@ def check_steps(steps, where: str, out: list[str]) -> bool:
             check_uses(uses, here, out)
             # GitHub resolves owner and repository case-insensitively, so
             # every match below is on the lowercased name.
-            name = normalise_uses(uses)[0]
+            name = uses_name(uses)
             if SARIF_UPLOADERS.search(name):
                 uploads = True
-            if name == "actions/checkout":
+            if name.lower().split("/")[:2] == ["actions", "checkout"]:
                 with_ = step.get("with") or {}
                 keep = with_.get("persist-credentials") if isinstance(with_, dict) else None
                 if keep is not False and str(keep).lower() != "false":
@@ -197,7 +212,7 @@ def check_workflow(doc: dict, rel: str) -> list[str]:
         uploads = False
         if isinstance(job.get("uses"), str):
             check_uses(job["uses"], where, out)
-            uploads = bool(SARIF_UPLOADERS.search(normalise_uses(job["uses"])[0]))
+            uploads = bool(SARIF_UPLOADERS.search(uses_name(job["uses"])))
         uploads = check_steps(list(steps_of(job)), where, out) or uploads
         perms = job.get("permissions", wf_perms)
         if "uses" in job and "permissions" not in job and wf_perms is None:

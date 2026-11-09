@@ -50,7 +50,7 @@ jobs:
       - uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
 YAML
 
-expect "toolchain exception without a commit pin" 1 "toolchain exception 'shivammathur/setup-php' is not pinned to a commit" <<'YAML'
+expect "toolchain exception without a commit pin" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -61,7 +61,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
 YAML
 
-expect "docker run by tag" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "docker run by tag" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -88,7 +88,7 @@ jobs:
           fetch-depth: 0
 YAML
 
-expect "mixed-case checkout keeps its token" 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+expect "mixed-case checkout is refused" 1 "uses: 'Actions/Checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -99,7 +99,7 @@ jobs:
       - uses: Actions/Checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 YAML
 
-expect "mixed-case SARIF upload counts as an upload" 0 "" <<'YAML'
+expect "mixed-case SARIF uploader is refused" 1 "is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -111,7 +111,7 @@ jobs:
       - uses: Github/CodeQL-Action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
 YAML
 
-expect "indented docker run in if" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "indented docker run in if" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -125,7 +125,7 @@ jobs:
           fi
 YAML
 
-expect "indented docker run in for" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "indented docker run in for" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -139,7 +139,7 @@ jobs:
           done
 YAML
 
-expect "command docker run" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "command docker run" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -151,7 +151,7 @@ jobs:
           command docker run --rm alpine:3 true
 YAML
 
-expect "env docker run" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "env docker run" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -163,7 +163,7 @@ jobs:
           env X=1 docker run --rm alpine:3 true
 YAML
 
-expect "docker run split by a continuation" 1 "docker: \`docker run\` without an @sha256: image" <<'YAML'
+expect "docker run split by a continuation" 1 "docker: container run or create without an @sha256: image" <<'YAML'
 on: push
 jobs:
   scan:
@@ -176,7 +176,7 @@ jobs:
             run --rm alpine:3 true
 YAML
 
-expect "checkout as actions/checkout/" 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+expect "checkout as actions/checkout/" 1 "is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -187,7 +187,7 @@ jobs:
       - uses: actions/checkout/@3d3c42e5aac5ba805825da76410c181273ba90b1
 YAML
 
-expect "checkout as actions/checkout/." 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+expect "checkout as actions/checkout/." 1 "is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -196,6 +196,134 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout/.@3d3c42e5aac5ba805825da76410c181273ba90b1
+YAML
+
+expect "uses: checkout via .." 1 "uses: 'actions/checkout/../checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout/../checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+YAML
+
+expect "uses: tag pin" 1 "uses: 'actions/checkout@v4'" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+YAML
+
+expect "uses: local path out of the repo" 1 "local path './../other/.github/actions/x' has an empty" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./../other/.github/actions/x
+YAML
+
+expect "uses: other owner production" 1 "uses: 'evil/ci-helpers/.github/workflows/x.yml@production'" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: evil/ci-helpers/.github/workflows/x.yml@production
+YAML
+
+expect "docker behind env -u" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          env -u HOME docker run --rm alpine:3 true
+YAML
+
+expect "docker behind command -p" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          command -p docker run --rm alpine:3 true
+YAML
+
+expect "docker behind sudo -E" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          sudo -E docker run --rm alpine:3 true
+YAML
+
+expect "docker behind podman" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          podman run --rm alpine:3 true
+YAML
+
+expect "docker behind docker compose run" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          docker compose run app
+YAML
+
+expect "docker behind docker create" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          x=$(docker create alpine:3)
+YAML
+
+expect "docker behind docker container run" 1 "docker: container run or create" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          docker container run alpine:3
 YAML
 
 expect "secrets: inherit" 1 "secrets: inherit hands every secret" <<'YAML'
@@ -306,14 +434,13 @@ jobs:
       - run: |
           # docker run snyk/snyk:docker was the old form
           docker run --rm ghcr.io/zizmorcore/zizmor@sha256:f09cee55087d54e7a162fc255ffe82ef942f68e683f967c8a6471ffe35e7ec64 --offline .
-          echo "never docker run an image by tag"  # docker run x:latest
           "$TRIVY_BIN" --cache-dir c --disable-telemetry --skip-version-check \
             fs --offline-scan .
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: "false"
-      - uses: Swatinem/rust-cache@0000000000000000000000000000000000000000
-      - uses: NikolaReljin/ci-helpers/.github/actions/trivy-scan@0000000000000000000000000000000000000000
+      - uses: swatinem/rust-cache@0000000000000000000000000000000000000000
+      - uses: nikolareljin/ci-helpers/.github/workflows/x.yml@production
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
   report:
     needs: scan
@@ -356,7 +483,7 @@ jobs:
   caller:
     permissions:
       contents: read
-    uses: someowner/ci-helpers/.github/workflows/x.yml@main
+    uses: someowner/ci-helpers/.github/workflows/x.yml@0000000000000000000000000000000000000000
 YAML
 rc=0; GITHUB_REPOSITORY_OWNER=SomeOwner python3 "$check" --root "$work/f" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL the fork's own ci-helpers was refused:"; cat "$work/out"; fail=1; fi
