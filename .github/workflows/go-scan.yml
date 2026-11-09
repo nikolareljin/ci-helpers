@@ -146,13 +146,14 @@ jobs:
           fi
           # Build with the module's Go, or with the oldest Go gosec accepts
           # (v2.30.0: go 1.26.0) when the module's is older; see govulncheck
-          # below for why not GOTOOLCHAIN=auto.
-          floor=go1.26.0
+          # below for why not GOTOOLCHAIN=auto. Not named `floor=`: the
+          # self-test reads govulncheck's floor from this file by that name.
+          gosec_floor=go1.26.0
           tc=local
-          if [ "$(printf '%s\n' "${floor#go}" "$(go env GOVERSION | sed 's/^go//')" | sort -V | head -n1)" != "${floor#go}" ]; then
-            tc="$floor"
+          if [ "$(printf '%s\n' "${gosec_floor#go}" "$(go env GOVERSION | sed 's/^go//')" | sort -V | head -n1)" != "${gosec_floor#go}" ]; then
+            tc="$gosec_floor"
           fi
-          echo "building gosec ${version} with GOTOOLCHAIN=${tc} ($(go env GOVERSION) installed, floor ${floor})"
+          echo "building gosec ${version} with GOTOOLCHAIN=${tc} ($(go env GOVERSION) installed, floor ${gosec_floor})"
           GOTOOLCHAIN="$tc" go install "github.com/securego/gosec/v2/cmd/gosec@${version}"
           # Word-split on purpose: the input is gosec's argument list, as the
           # container action's `args` was.
