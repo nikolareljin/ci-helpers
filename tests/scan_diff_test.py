@@ -78,11 +78,17 @@ class RenameBaseTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         return out.stdout.strip()
 
+    def made_git(self, *args):
+        """git in the repository, reading the objects rename_base.py wrote."""
+        env = {**os.environ, "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.path.join(self.tmp.name, "objects")}
+        return subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True,
+                              check=True, env=env).stdout.strip()
+
     def test_pure_rename_moves_the_base_path(self):
         commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
         made = self.run_it()
         self.assertNotEqual(made, self.base)
-        self.assertEqual(git(self.repo, "ls-tree", "--name-only", made), "new.py\nsub")
+        self.assertEqual(self.made_git("ls-tree", "--name-only", made), "new.py\nsub")
 
     def test_edited_rename_is_a_new_file(self):
         # 40 of 41 lines kept: git calls it a rename, but the added line is new.
@@ -98,6 +104,36 @@ class RenameBaseTests(unittest.TestCase):
         self.config.write_text("scan:\n  exclude_paths:\n    - old.py\n")
         commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
         self.assertEqual(self.run_it(), self.base)
+
+    def test_swap_keeps_both_files_old(self):
+        commit(self.repo, "swap", **{"old.py": "x = 1\n", "sub/keep.py": self.BODY})
+        made = self.run_it()
+        self.assertEqual(self.made_git("rev-parse", made + ":old.py"), git(self.repo, "rev-parse", "HEAD:old.py"))
+        self.assertEqual(self.made_git("rev-parse", made + ":sub/keep.py"),
+                         git(self.repo, "rev-parse", "HEAD:sub/keep.py"))
+
+    def test_copy_over_an_edited_file_is_new(self):
+        # old.py keeps its path with new text; its old text at a second path
+        # is not a move, since the source is still there.
+        commit(self.repo, "copy", **{"old.py": "x = 2\n", "copy.py": self.BODY})
+        self.assertEqual(self.run_it(), self.base)
+
+    def test_nothing_is_written_to_the_repository(self):
+        commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
+        objects = self.repo / ".git" / "objects"
+        before = sorted(str(p) for p in objects.rglob("*"))
+        for path in [objects, *objects.rglob("*")]:
+            path.chmod(path.stat().st_mode & ~0o222)
+        try:
+            out = subprocess.run(["python3", "-I", str(RENAME_BASE), str(self.repo), self.base,
+                                  self.tmp.name, str(self.config)], capture_output=True, text=True)
+        finally:
+            for path in [objects, *objects.rglob("*")]:
+                path.chmod(path.stat().st_mode | 0o200)
+        self.assertEqual(out.returncode, 0)
+        self.assertEqual(sorted(str(p) for p in objects.rglob("*")), before)
+        made = out.stdout.strip()
+        self.assertEqual(self.made_git("ls-tree", "--name-only", made), "new.py\nsub")
 
 
 class ResolveBaseTests(unittest.TestCase):
@@ -472,6 +508,22 @@ sys.exit(rc)
         git(self.fx.clone, "rebase", "-q", "origin/main")
         self.run_script(FOXGUARD_RUN, 1)
         self.assertIsNone(self.record())
+
+    def test_foxguard_refuses_a_changed_file_the_tree_ignores(self):
+        # foxguard skips what .gitignore or .ignore names, and both come from
+        # the tree under review.
+        for name in (".gitignore", ".ignore"):
+            with self.subTest(name=name):
+                (self.fx.clone / name).write_text("evil.py\n")
+                (self.fx.clone / "evil.py").write_text("z = 3\n")
+                git(self.fx.clone, "add", "-f", name, "evil.py")
+                git(self.fx.clone, "commit", "-q", "-m", "hide")
+                self.run_script(FOXGUARD_RUN, 1)
+                self.assertIsNone(self.record())
+                git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
+        # An ignore file that names nothing the review changed is fine.
+        commit(self.fx.clone, "ignore build output", **{".gitignore": "out/\n"})
+        self.run_script(FOXGUARD_RUN, 0)
 
     def test_foxguard_refuses_without_a_base(self):
         self.run_script(FOXGUARD_RUN, 1, BASE_REF="nosuch")

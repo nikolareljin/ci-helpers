@@ -693,7 +693,8 @@ Notes:
   compared with the repository's default branch, so the first push of the
   default branch itself has an empty range. `pull_request_target` is
   refused: its checkout is the base branch, so the range would hold none of
-  the pull request's commits. Any other event needs `base_ref`. A base that is not in the repository, no merge base, or an
+  the pull request's commits. Call the workflow from a `pull_request`
+  trigger instead. Any other event needs `base_ref`. A base that is not in the repository, no merge base, or an
   empty range (`HEAD` is the base, or behind it) fails the run: nothing
   passes because the base could not be found.
 - `base_ref` is a full commit sha, or a branch of the remote written as

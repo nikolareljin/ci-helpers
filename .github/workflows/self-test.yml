@@ -1429,6 +1429,14 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/deleted
           base_ref: main
 
+      - name: A new file its own .gitignore names fails
+        id: ignored
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/ignored
+          base_ref: main
+
       - name: A new command injection in a renamed file fails
         id: renamed_new
         continue-on-error: true
@@ -1478,13 +1486,14 @@ jobs:
         env:
           NEW_SHELL: ${{ steps.new_shell.outcome }}
           RENAMED_NEW: ${{ steps.renamed_new.outcome }}
+          IGNORED: ${{ steps.ignored.outcome }}
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
           NO_BASE: ${{ steps.no_base.outcome }}
           FULL_SCAN: ${{ steps.full_scan.outcome }}
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"

@@ -60,8 +60,23 @@ fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$co
 # A review that adds or changes nothing under scan_path (a deletion) may leave
 # foxguard nothing to read; only then is a scan of no files a pass.
 changed="$(git -C "$scan_path" diff --name-only --diff-filter=ACMRT "$merge_base" HEAD -- . 2>"$tmp/base.log")" || fail
+# foxguard skips what .gitignore, .git/info/exclude or .ignore names, and the
+# review controls those files: a changed file they name is refused, not read.
+if ! "$py" -I -c '
+import os, subprocess, sys
+env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+def files(*args):
+    p = subprocess.run(["git", "-C", sys.argv[1], *args, "--", "."], capture_output=True, env=env)
+    if p.returncode:
+        sys.exit(1)
+    return set(p.stdout.split(b"\0")) - {b""}
+changed = files("diff", "--name-only", "-z", "--relative", "--diff-filter=ACMRT", sys.argv[2], "HEAD")
+ignored = (files("ls-files", "-z", "-c", "-i", "--exclude-standard")
+           | files("ls-files", "-z", "-c", "-i", "--exclude-per-directory=.ignore"))
+sys.exit(1 if changed & ignored else 0)
+' "$scan_path" "$merge_base" >"$tmp/check.log" 2>&1; then fail; fi
 rc=0
-"$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
+GIT_ALTERNATE_OBJECT_DIRECTORIES="$tmp/objects" "$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
   --output "$tmp/report.json" "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
 # 0 is clean, 1 is new findings, anything else a scanner error.
 [[ "$rc" -eq 0 ]] || fail

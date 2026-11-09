@@ -23,6 +23,8 @@
 #   renamed        moves both old files to new paths: both diffs pass
 #   renamed-new    renames old.py and adds shell=True to it: foxguard-diff fails
 #   deleted        deletes old.py, leaving no file foxguard reads: it passes
+#   ignored        adds shell=True in a file its own .gitignore names:
+#                  foxguard-diff fails (foxguard would skip the file)
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -114,8 +116,13 @@ branch deleted
 g rm -q old.py
 g commit -q -m "the only file foxguard reads, deleted"
 
+branch ignored
+injection hidden.py
+echo hidden.py > "$src/.gitignore"
+g add -A -f; g commit -q -m "a new command injection its .gitignore names"
+
 g checkout -q main
-for b in renamed renamed-new deleted clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in renamed renamed-new deleted ignored clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

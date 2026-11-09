@@ -312,10 +312,17 @@ Notes:
   `foxguard-scan` uses, against the digest in `scanner-pins.env`.
 - The scan is `foxguard diff <merge-base>`: only findings the merge base's
   tree does not have are reported, and a finding whose lines move is not new.
-  A rename of identical content inside `scan_path` is applied to that base
-  first, so a renamed file keeps its old findings old; an edited rename, one
-  from outside `scan_path`, or any rename under a non-empty config is a new
-  file. The report must name that base and have read
+  A move of identical content inside `scan_path` (a rename, or a swap of two
+  files) is applied to that base first, so a moved file keeps its old
+  findings old; an edited move, a copy whose source stays, one from outside
+  `scan_path`, or any move under a non-empty config is a new file. The base
+  with the moves is written to the runner's temporary directory, not to the
+  caller's repository. foxguard skips files that `.gitignore`,
+  `.git/info/exclude` or `.ignore` name, and the tree under review controls
+  those: a changed file they name fails the step. foxguard also skips hidden
+  paths (such as `.github/`) and directories it treats as vendored
+  (`node_modules`, `vendor`, `dist`, `build`), in this scan and in
+  `foxguard-scan`. The report must name that base and have read
   at least one file, unless the review adds or changes no file under
   `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it
   from the pull request base; a `baseline` entry is refused.

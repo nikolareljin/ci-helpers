@@ -5,13 +5,19 @@ reports every old finding in it as new. This writes a commit object whose
 tree is the merge base's with the review's renames applied, and prints it;
 with no renames it prints the merge base itself.
 
-Only a rename of identical content (R100) with both paths under scan_path
-counts, and none when the reviewed config is not empty: an edited rename, or
-one from a path the scan or the config leaves out, would let a new finding
-pass as old. Those files are compared as new. The commit is an unreferenced
-object in the caller's repository: no ref, index or work-tree file changes.
+A file counts as moved only when its blob and mode at the new path are the
+merge base's at an old path that the review deletes or itself fills from
+another moved file (a swap, a->b and b->a), both paths under scan_path, and
+none when the reviewed config is not empty: an edited move, a copy whose
+source stays, or one from a path the scan or the config leaves out would let
+a new finding pass as old. Those files are compared as new. The commit and
+its tree are written to <tmp-dir>/objects, which reads the caller's objects
+as an alternate; foxguard is given it the same way. Nothing in the caller's
+repository changes, and a read-only object store works.
 
 Usage: rename_base.py <work-tree> <merge-base> <tmp-dir> <config>
+
+Run foxguard with GIT_ALTERNATE_OBJECT_DIRECTORIES=<tmp-dir>/objects.
 """
 
 import os
@@ -41,46 +47,71 @@ def main():
             return 0
     prefix = git(root, "rev-parse", "--show-prefix").strip()
     top = git(root, "rev-parse", "--show-toplevel").decode().strip()
-    status = git(top, "diff", "-M100%", "--name-status", "-z", base, "HEAD")
-    fields = status.split(b"\0")
-    renames = []
+    raw = git(top, "diff", "--no-renames", "--raw", "--abbrev=64", "-z", base, "HEAD").split(b"\0")
+    gone = {}    # old path -> (mode, blob) the review deletes or changes
+    added = {}   # new path -> (mode, blob) the review adds or changes
+    deleted = set()
     i = 0
-    while i < len(fields) and fields[i]:
-        kind = fields[i]
-        if kind.startswith(b"R") or kind.startswith(b"C"):
-            if (kind == b"R100" and fields[i + 1].startswith(prefix)
-                    and fields[i + 2].startswith(prefix)):
-                renames.append((fields[i + 1], fields[i + 2]))
-            i += 3
-        else:
-            i += 2
-    if not renames:
+    while i + 1 < len(raw) and raw[i]:
+        old_mode, new_mode, old_sha, new_sha, kind = raw[i].lstrip(b":").split(b" ")
+        path = raw[i + 1]
+        i += 2
+        if not path.startswith(prefix):
+            continue
+        if kind in (b"D", b"M", b"T"):
+            gone[path] = (old_mode, old_sha)
+        if kind in (b"A", b"M", b"T"):
+            added[path] = (new_mode, new_sha)
+        if kind == b"D":
+            deleted.add(path)
+    by_blob = {}
+    for path in sorted(gone):
+        by_blob.setdefault(gone[path], []).append(path)
+    # Each old path moves at most once; the first new path (sorted) takes it.
+    moves = {}
+    for path in sorted(added):
+        for old in by_blob.get(added[path], []):
+            if old != path and old not in moves.values():
+                moves[path] = old
+                break
+    # A source the review keeps with other content is a copy, not a move:
+    # drop it until every source is deleted or is itself a moved-to path.
+    while True:
+        bad = [new for new, old in moves.items() if old not in deleted and old not in moves]
+        if not bad:
+            break
+        for new in bad:
+            del moves[new]
+    if not moves:
         sys.stdout.write(base + "\n")
         return 0
-    index = {"GIT_INDEX_FILE": os.path.join(tmp, "rename-base.index")}
-    git(top, "read-tree", base, env_extra=index)
+    objects = os.path.join(tmp, "objects")
+    os.makedirs(objects, exist_ok=True)
+    store = {
+        "GIT_INDEX_FILE": os.path.join(tmp, "rename-base.index"),
+        "GIT_OBJECT_DIRECTORY": objects,
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": git(top, "rev-parse", "--git-path", "objects").decode().strip(),
+    }
+    if not os.path.isabs(store["GIT_ALTERNATE_OBJECT_DIRECTORIES"]):
+        store["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.path.join(top, store["GIT_ALTERNATE_OBJECT_DIRECTORIES"])
+    git(top, "read-tree", base, env_extra=store)
     # Every removal before any addition: a swap (a->b, b->a) would otherwise
     # remove an entry it had just written.
     removals = b""
     additions = b""
-    for old, new in renames:
-        entry = git(top, "ls-tree", "-z", base, "--", old.decode("utf-8", "surrogateescape")).rstrip(b"\0")
-        meta, _, path = entry.partition(b"\t")
-        if path != old:
-            raise ValueError("rename source not in the base tree")
-        mode, _, sha = meta.split(b" ")
-        zero = b"0" * len(sha)
-        removals += b"0 " + zero + b"\t" + old + b"\0"
+    for new, old in sorted(moves.items()):
+        mode, sha = gone[old]
+        removals += b"0 " + b"0" * len(sha) + b"\t" + old + b"\0"
         additions += mode + b" " + sha + b"\t" + new + b"\0"
-    git(top, "update-index", "-z", "--index-info", env_extra=index, stdin=removals + additions)
-    tree = git(top, "write-tree", env_extra=index).decode().strip()
+    git(top, "update-index", "-z", "--index-info", env_extra=store, stdin=removals + additions)
+    tree = git(top, "write-tree", env_extra=store).decode().strip()
     ident = {
         "GIT_AUTHOR_NAME": "foxguard-diff", "GIT_AUTHOR_EMAIL": "foxguard-diff@example.invalid",
         "GIT_COMMITTER_NAME": "foxguard-diff", "GIT_COMMITTER_EMAIL": "foxguard-diff@example.invalid",
         "GIT_AUTHOR_DATE": "@0 +0000", "GIT_COMMITTER_DATE": "@0 +0000",
     }
     made = git(top, "commit-tree", tree, "-p", base, "-m", "merge base with renames applied",
-               env_extra=ident).decode().strip()
+               env_extra={**store, **ident}).decode().strip()
     if not SHA.match(made):
         raise ValueError("commit-tree printed no sha")
     sys.stdout.write(made + "\n")
