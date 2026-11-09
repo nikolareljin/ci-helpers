@@ -217,6 +217,11 @@ config with a `baseline` key at any depth is refused. The config is parsed
 with PyYAML, which the GitHub-hosted Ubuntu runners ship; a config that does
 not parse, or a runner without PyYAML when a config exists, refuses the scan. The explicit config also stops
 foxguard from discovering a `.foxguard.yml` planted in the scanned tree.
+The vetted copy is written beside the caller's config, under a temporary
+`.foxguard-reviewed-*.yml` name, and removed when the step ends. foxguard
+resolves `scan.ignore_rules[].path` and `secrets.exclude_paths` against the
+config's directory, so they match as they would in place. A config directory
+that resolves outside the repository refuses the scan.
 
 A scan that reads no file fails. The action refuses to run when its own
 checkout lies under `scan_path`, where the library's scripts would be read as

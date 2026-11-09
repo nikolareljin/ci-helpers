@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 
@@ -50,6 +51,32 @@ def content(ref):
     return result.stdout
 
 
+def place_beside(target, toplevel, relative, config):
+    """Write the vetted config in the caller's config directory, at a new name.
+
+    foxguard resolves path keys (`scan.ignore_rules[].path`,
+    `secrets.exclude_paths`) against the config's own directory and refuses
+    paths outside the scanned tree, so a copy elsewhere silently stops
+    matching or errors. The directory must resolve inside the repository; the
+    file is created exclusively, never followed through a link.
+    """
+    root = Path(toplevel).resolve()
+    folder = (root / relative).parent
+    real = folder.resolve()
+    if real != root and root not in real.parents:
+        raise ValueError("config directory leaves the repository")
+    if not real.is_dir():
+        raise ValueError("config directory missing")
+    path = real / (".foxguard-reviewed-" + secrets.token_hex(8) + ".yml")
+    # Recorded before the file exists, so run.sh removes it even if the
+    # write fails part-way.
+    (target / "config.path").write_text(str(path))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(config)
+    return path
+
+
 def main():
     global REVIEW_ROOT
     target = Path(sys.argv[1])
@@ -59,6 +86,7 @@ def main():
     if configured and git("rev-parse", "--show-toplevel").returncode:
         REVIEW_ROOT = os.getcwd()
     config = b""
+    placed = None
     repo = git("rev-parse", "--show-toplevel")
     if repo.returncode == 0:
         base = "HEAD"
@@ -77,11 +105,16 @@ def main():
             config = content(config_ref)
             if names_a_baseline(config):
                 return 1
+            toplevel = repo.stdout.decode().strip()
+            placed = place_beside(target, toplevel, configured or ".foxguard.yml", config)
         elif configured:
             return 1
     elif configured:
         return 1
-    (target / "config.yml").write_bytes(config)
+    if placed is None:
+        placed = target / "config.yml"
+        placed.write_bytes(config)
+        (target / "config.path").write_text(str(placed))
     return 0
 
 

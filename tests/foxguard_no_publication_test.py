@@ -31,7 +31,9 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 record = {"args": args}
 if '--config' in args:
-    record["config"] = pathlib.Path(args[args.index('--config') + 1]).read_text()
+    cfg = pathlib.Path(args[args.index('--config') + 1])
+    record["config"] = cfg.read_text()
+    record["config_dir"] = str(cfg.resolve().parent)
 pathlib.Path(os.environ['CALLED']).write_text(json.dumps(record))
 print(os.environ['CANARY'])
 print(os.environ['CANARY'], file=sys.stderr)
@@ -109,7 +111,7 @@ sys.exit(1 if total else 0)
         # layout that would read the library's scripts as the caller's.
         self.run_scan(1, SCAN_PATH=str(ROOT.parent))
         self.assertIsNone(self.called())
-        # The action run from its own repository, as security-weekly.yml does:
+        # The action run from its own repository:
         # the checkout is the scan root, not under it.
         self.run_scan(0, SCAN_PATH=str(ROOT))
         self.assertIsNotNone(self.called())
@@ -164,6 +166,31 @@ sys.exit(1 if total else 0)
         self.configure("scan:\n  disable_rules: [fixture/rule]\n")
         self.run_scan(0)
         self.assertEqual(self.called()["config"], "scan:\n  disable_rules: [fixture/rule]\n")
+
+    def test_reviewed_config_sits_where_the_caller_keeps_it(self):
+        # foxguard resolves scan.ignore_rules[].path and secrets.exclude_paths
+        # against the config's directory and refuses paths outside the scanned
+        # tree, so the vetted copy must sit beside the caller's config.
+        self.configure("scan:\n  ignore_rules: [{path: app.py, rules: [x]}]\n")
+        self.run_scan(0)
+        self.assertEqual(self.called()["config_dir"], str(self.workspace.resolve()))
+        (self.workspace / "ci").mkdir()
+        self.configure("# nested\n", name="ci/foxguard.yml")
+        self.run_scan(0, CONFIG_PATH="ci/foxguard.yml")
+        self.assertEqual(self.called()["config_dir"], str((self.workspace / "ci").resolve()))
+
+    def test_config_directory_linked_outside_the_tree_is_refused(self):
+        # The reviewed config is at ci/ in the base; the tree under review
+        # swaps ci/ for a link out of the workspace. Nothing is written there.
+        (self.workspace / "ci").mkdir()
+        self.configure("# reviewed\n", name="ci/foxguard.yml")
+        subprocess.run(["rm", "-rf", str(self.workspace / "ci")], check=True)
+        outside = self.base / "outside"
+        outside.mkdir()
+        (self.workspace / "ci").symlink_to(outside)
+        self.run_scan(1, CONFIG_PATH="ci/foxguard.yml")
+        self.assertIsNone(self.called())
+        self.assertEqual(list(outside.iterdir()), [])
 
     def test_uncommitted_config_in_the_tree_is_not_used(self):
         self.configure("scan:\n  disable_rules: [fixture/rule]\n", commit=False)

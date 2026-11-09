@@ -14,7 +14,15 @@ case "$severity" in low|medium|high|critical) ;; *) fail ;; esac
 scan_path="${SCAN_PATH:-.}"
 [[ -e "$scan_path" ]] || fail
 tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/security.XXXXXX")" || fail
-trap 'rm -rf "$tmp"' EXIT
+# The vetted config may sit in the caller's tree (see prepare_config.py);
+# its path is in $tmp/config.path and it goes when the action does.
+cleanup() {
+  local placed=""
+  [[ -s "$tmp/config.path" ]] && placed="$(cat "$tmp/config.path")"
+  [[ -n "$placed" ]] && rm -f -- "$placed"
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 if ! "$py" -I -c '
 import os, subprocess, sys
@@ -33,13 +41,14 @@ sys.exit(p.returncode == 0 and p.stdout.strip() == b"true")
 # The reviewed config, or an empty one: an explicit --config stops foxguard
 # discovering a .foxguard.yml planted in the scanned tree.
 if ! "$py" -I "$dir/prepare_config.py" "$tmp" >"$tmp/check.log" 2>&1; then fail; fi
+config="$(cat "$tmp/config.path")" || fail
 # Never scan the action's own checkout as the caller's: foxguard-scan.yml
 # checks the library out beside the caller's tree, never under it, and a
 # layout that puts it under scan_path is refused rather than excluded.
 own="$(cd "$dir/../../.." && pwd -P)"
 if root="$(cd "$scan_path" 2>/dev/null && pwd -P)" && [[ "$own" == "$root"/* ]]; then fail; fi
 rc=0
-"$FG_BIN" --config "$tmp/config.yml" -f json -q -s "$severity" \
+"$FG_BIN" --config "$config" -f json -q -s "$severity" \
   --output "$tmp/report.json" "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
 # 0 is clean, 1 is findings, anything else a scanner error.
 [[ "$rc" -eq 0 ]] || fail
