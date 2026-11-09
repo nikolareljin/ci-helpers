@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-"""A scan workflow sends code, credentials and findings to nobody.
+"""No workflow runs a third-party action, and a scan workflow sends code,
+credentials and findings to nobody.
 
     python3 scripts/check_scan_egress.py              # check this repository
     python3 scripts/check_scan_egress.py --root DIR   # check a tree elsewhere
 
-Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
-and security-weekly.yml, and .github/actions/*-scan/action.yml. Each is read
-with PyYAML and fails on:
+Every workflow and action under .github is read with PyYAML. Each `uses:`
+must be canonical (lowercase owner/repo[/path], no empty, `.` or `..`
+segment, pinned to a 40-hex commit; a local `./path` with no such segment;
+or this library at `@production`) and one of: actions/*, github/*, this
+library (nikolareljin/ci-helpers, or the ci-helpers of
+$GITHUB_REPOSITORY_OWNER in a fork), a local path, or an entry of
+KEPT_THIRD_PARTY below, each with the reason it is still here. Other
+spellings are refused, not normalised. A third-party action runs inside the
+caller's job with the checkout, the token and whatever secrets it is given;
+the Trivy actions were hijacked in March 2026 to read exactly those. A new
+third-party action fails here until it is replaced by a first-party step or
+added to the list on purpose.
 
-  uses        a `uses:` that is not canonical (lowercase owner/repo[/path],
-              no empty, `.` or `..` segment, pinned to a 40-hex commit; a
-              local `./path` with no such segment; or this library at
-              `@production`), or one outside the allowlist: actions/*,
-              github/*, this library (nikolareljin/ci-helpers, or the
-              ci-helpers of $GITHUB_REPOSITORY_OWNER in a fork), a local path,
-              or one of the named toolchain installers below. Other spellings
-              are refused, not normalised. A third-party scanner action runs
-              with the caller's checkout and token; the Trivy actions were
-              hijacked in March 2026 to read exactly those.
+Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
+and security-weekly.yml, and .github/actions/*-scan/action.yml. They allow
+only the named toolchain installers, not the kept list, and also fail on:
+
   docker      a run-block line, comments skipped and continuations joined,
               with a docker, podman or nerdctl token followed by `run` or
               `create`, and no `@sha256:` image. Fails closed: an echo of such
@@ -86,6 +90,41 @@ TOOLCHAIN_EXCEPTIONS = {
     "swatinem/rust-cache",
 }
 
+# Third-party actions the other workflows still run, each on its way out:
+# one pull request per entry replaces it with a first-party step and deletes
+# the line. The comment says what the action receives in the job, so a
+# reader knows what is at stake until then. Nothing is added here without a
+# replacement task; an empty set is the goal.
+KEPT_THIRD_PARTY = {
+    # Installs PHP and Composer; runs with the checkout (composer.json) and
+    # the job token for API rate limits; downloads tools from its own CDN.
+    "shivammathur/setup-php",
+    # Installs pnpm; reads package.json's packageManager from the checkout.
+    "pnpm/action-setup",
+    # Installs Rust; runs with the checkout.
+    "dtolnay/rust-toolchain",
+    # Caches cargo; reads Cargo.lock and the target directory.
+    "swatinem/rust-cache",
+    # Installs the Flutter SDK; reads pubspec.yaml from the checkout.
+    "subosito/flutter-action",
+    # Installs Godot and its export templates; runs with the checkout.
+    "chickensoft-games/setup-godot",
+    # Installs Ruby for fastlane; reads Gemfile.lock, beside store credentials.
+    "ruby/setup-ruby",
+    # Runs Unity tests in a container with the checkout mounted and the
+    # licence secrets passed in.
+    "game-ci/unity-test-runner",
+    # Signs Windows installers; receives the Azure tenant, client id and
+    # client secret and the installers.
+    "azure/trusted-signing-action",
+    # Multi-arch Docker builds: binfmt setup, buildx, the registry
+    # credential, and the whole build context.
+    "docker/setup-qemu-action",
+    "docker/setup-buildx-action",
+    "docker/login-action",
+    "docker/build-push-action",
+}
+
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
 WRITE_OK = {"security-events", "issues"}
 
@@ -102,7 +141,9 @@ def uses_name(ref: str) -> str:
     return ref.partition("@")[0]
 
 
-def check_uses(ref: str, where: str, out: list[str]) -> None:
+def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset()) -> None:
+    """One `uses:` reference. `kept` is the extra allowlist for the file:
+    empty for a scan file, KEPT_THIRD_PARTY for every other workflow."""
     if LOCAL_USES.match(ref):
         if any(seg in ("", ".", "..") for seg in ref.split("/")[1:]):
             out.append(f"{where}: uses: local path '{ref}' has an empty, '.' or '..' segment")
@@ -122,7 +163,11 @@ def check_uses(ref: str, where: str, out: list[str]) -> None:
         return
     if base in TOOLCHAIN_EXCEPTIONS:
         return
-    out.append(f"{where}: uses: '{ref}' is not actions/*, github/*, this library or a local path")
+    if base in kept:
+        return
+    out.append(f"{where}: uses: '{ref}' is not actions/*, github/*, this library or a local path"
+               + ("" if kept else " (a scan workflow allows only the toolchain installers)")
+               + "; replace it with a first-party step, or add it to KEPT_THIRD_PARTY with its replacement task")
 
 
 def commands(run: str) -> list[str]:
@@ -273,6 +318,8 @@ def main() -> int:
         if not isinstance(doc, dict):
             continue
         findings += check_action(doc, rel) if path.name == "action.yml" else check_workflow(doc, rel)
+    scan_files = {str(p.relative_to(root)) for p in workflows + actions}
+    kept = frozenset(KEPT_THIRD_PARTY)
     for path in sorted((root / ".github").glob("**/*.yml")):
         rel = str(path.relative_to(root))
         try:
@@ -280,6 +327,17 @@ def main() -> int:
         except (OSError, yaml.YAMLError) as exc:
             print(f"{rel}: cannot read: {exc}", file=sys.stderr)
             return 2
+        if not isinstance(doc, dict):
+            continue
+        # Every workflow and action: no third-party `uses:` beyond the kept
+        # list. Scan files were held to the narrower rule above.
+        if rel not in scan_files:
+            for name, job in (doc.get("jobs") or {}).items():
+                if isinstance(job, dict) and isinstance(job.get("uses"), str):
+                    check_uses(job["uses"], f"{rel}: jobs.{name}", findings, kept)
+            for i, step in enumerate(all_steps(doc)):
+                if isinstance(step.get("uses"), str):
+                    check_uses(step["uses"], f"{rel}: step {i}", findings, kept)
         for i, step in enumerate(all_steps(doc)):
             if isinstance(step.get("run"), str):
                 check_trivy(step["run"], f"{rel}: step {i}", findings)
@@ -290,7 +348,8 @@ def main() -> int:
               "digest-pinned containers, token-free checkouts, no inherited secrets "
               "and read-only permissions", file=sys.stderr)
         return 1
-    print(f"ok: {len(workflows)} scan workflows and {len(actions)} scan actions send nothing out")
+    print(f"ok: {len(workflows)} scan workflows and {len(actions)} scan actions send nothing out; "
+          f"no workflow runs a third-party action outside the {len(KEPT_THIRD_PARTY)} kept")
     return 0
 
 
