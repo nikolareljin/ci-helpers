@@ -206,14 +206,19 @@ runs with `--quiet` and writes its JSON report to a private temporary directory
 that is removed before the step ends.
 
 PR scans read configuration from the base commit (`config_path`, or
-`.foxguard.yml` when present); other Git scans use `HEAD`, and a directory
-outside a work tree gets an empty config. A config added by the pull request is
+`.foxguard.yml` when present), so the checkout must hold it: use
+`fetch-depth: 0`, as `foxguard-scan.yml` does; a missing base commit refuses
+the scan. Other Git scans use `HEAD`, and a directory outside a work tree gets
+an empty config. A config added by the pull request is
 not read, a named `config_path` missing at the base refuses the scan, and a
-config with a `baseline` entry is refused. The explicit config also stops
+config with a `baseline` key at any depth is refused. The config is parsed
+with PyYAML, which the GitHub-hosted Ubuntu runners ship; a config that does
+not parse, or a runner without PyYAML when a config exists, refuses the scan. The explicit config also stops
 foxguard from discovering a `.foxguard.yml` planted in the scanned tree.
 
-A scan that reads no file fails. The action excludes its own checkout when it
-lies under `scan_path`, which is how `foxguard-scan.yml` runs it.
+A scan that reads no file fails. The action refuses to run when its own
+checkout lies under `scan_path`, where the library's scripts would be read as
+the caller's; `foxguard-scan.yml` keeps the two checkouts side by side.
 
 Example:
 

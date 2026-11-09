@@ -1239,9 +1239,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
+      # The fixture is inside the checkout, so a pull request scan reads its
+      # config from the base commit, which a depth-1 checkout does not hold.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install against the pinned digest and scan
         id: scan
@@ -1269,6 +1272,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: A directory with a command injection in it
         shell: bash

@@ -625,8 +625,9 @@ Notes:
   Results, counts, rule ids, file paths and report paths never appear in CI output.
 - The scan runs a pinned `foxguard` binary, verified against a sha256 held in
   the action (or `foxguard_sha256`), not one fetched from the same release.
-- The scan reads the files under `scan_path`; `.` is the whole checkout. The
-  library's own checkout beside it is excluded.
+- The scan reads the files under `scan_path`; `.` is the whole repository.
+  The repository is checked out under `repo/` beside the library's own
+  checkout, so the library's scripts are never under the scanned path.
 - Configuration comes from the base commit of a pull request (`HEAD` on other
   events): `config_path`, or `.foxguard.yml` when present, and otherwise an
   empty config. A `.foxguard.yml` added or changed by the pull request is not

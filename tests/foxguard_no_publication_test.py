@@ -97,14 +97,16 @@ sys.exit(1 if total else 0)
         self.assertEqual(args[args.index("-f") + 1], "json")
         self.assertEqual(args[-1], str(self.workspace))
 
-    def test_own_checkout_inside_the_scan_path_is_excluded(self):
-        # foxguard-scan.yml checks this library out beside the caller's tree.
-        # Scanning the parent of this checkout stands in for that layout.
-        self.run_scan(0, SCAN_PATH=str(ROOT.parent))
-        args = self.called()["args"]
-        self.assertEqual(args[args.index("--exclude") + 1], ROOT.name)
-        self.run_scan(0)
-        self.assertNotIn("--exclude", self.called()["args"])
+    def test_own_checkout_inside_the_scan_path_is_refused(self):
+        # foxguard-scan.yml checks this library out beside the caller's tree,
+        # never under it. Scanning the parent of this checkout stands in for a
+        # layout that would read the library's scripts as the caller's.
+        self.run_scan(1, SCAN_PATH=str(ROOT.parent))
+        self.assertIsNone(self.called())
+        # The action run from its own repository, as security-weekly.yml does:
+        # the checkout is the scan root, not under it.
+        self.run_scan(0, SCAN_PATH=str(ROOT))
+        self.assertIsNotNone(self.called())
 
     def test_unknown_severity_is_refused_before_scan(self):
         self.run_scan(1, SEVERITY="loud")
@@ -172,9 +174,30 @@ sys.exit(1 if total else 0)
         self.assertEqual(self.called()["config"], "# base\n")
 
     def test_baseline_in_reviewed_config_is_refused(self):
-        self.configure("scan:\n  baseline: .foxguard/baseline.json\n")
+        for text in (
+            "scan:\n  baseline: .foxguard/baseline.json\n",
+            "scan: {disable_rules: [], baseline: .foxguard/baseline.json}\n",
+            'scan: {"baseline": "b.json"}\n',
+            "scan:\n  nested:\n    deeper:\n      baseline: b.json\n",
+            'scan:\n  "base\\x6cine": b.json\n',
+            "defaults: &d\n  baseline: b.json\nscan:\n  <<: *d\n",
+            "defaults: &d {baseline: b.json}\nscan: *d\n",
+            "rules:\n  - baseline: b.json\n",
+            "---\nscan: {}\n---\nscan: {baseline: b.json}\n",
+        ):
+            self.configure(text)
+            self.run_scan(1)
+            self.assertIsNone(self.called())
+
+    def test_unparsable_reviewed_config_is_refused(self):
+        self.configure("scan: [unclosed\n")
         self.run_scan(1)
         self.assertIsNone(self.called())
+
+    def test_baseline_as_a_value_is_not_a_key(self):
+        self.configure("scan:\n  disable_rules: [baseline]\n  note: 'baseline: kept locally'\n")
+        self.run_scan(0)
+        self.assertIn("disable_rules", self.called()["config"])
 
     def test_named_config_missing_at_base_is_refused(self):
         self.configure("# base\n")

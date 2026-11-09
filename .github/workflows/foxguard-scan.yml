@@ -46,10 +46,14 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     steps:
+      # The caller's repository goes under `repo/`, beside the library checkout
+      # below and never containing it, so a scan of "." reads the caller's
+      # files and nothing of this library's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
           fetch-depth: 0
+          path: repo
 
       # The library's own action, at the commit of this workflow file. A
       # `uses: <owner>/ci-helpers/...@production` here ran whatever production
@@ -80,12 +84,10 @@ jobs:
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
           echo "ci-helpers actions at $WF_SHA"
 
-      # The action excludes its own checkout from the scan, so with the default
-      # scan_path "." the library's scripts are not read as the caller's.
       - name: Foxguard scan
         uses: ./.ci-helpers-actions/.github/actions/foxguard-scan
         with:
-          scan_path: ${{ inputs.scan_path }}
+          scan_path: repo/${{ inputs.scan_path }}
           severity: ${{ inputs.severity }}
           config_path: ${{ inputs.config_path }}
           foxguard_version: ${{ inputs.foxguard_version }}

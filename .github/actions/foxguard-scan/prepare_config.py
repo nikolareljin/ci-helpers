@@ -8,9 +8,35 @@ import subprocess
 import sys
 
 REVIEW_ROOT = os.environ.get("SCAN_PATH", ".")
-# `scan.baseline` names a findings file read from the unreviewed tree, which
-# would let a pull request silence what it adds.
-BASELINE_KEY = re.compile(rb"^\s*['\"]?baseline['\"]?\s*:", re.M)
+
+
+def names_a_baseline(text):
+    """True when any mapping key at any depth is `baseline`.
+
+    `scan.baseline` names a findings file read from the unreviewed tree, which
+    would let a pull request silence what it adds. The parsed structure is
+    walked, not the text: flow mappings, escapes, anchors and merge keys all
+    resolve before the keys are compared. No parser, or a parse error, refuses.
+    """
+    try:
+        import yaml
+    except ImportError:
+        raise ValueError("PyYAML is needed to review a foxguard config")
+    try:
+        documents = list(yaml.safe_load_all(text))
+    except yaml.YAMLError:
+        raise ValueError("unparsable configuration")
+    pending = list(documents)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(key, str) and key.strip().casefold() == "baseline":
+                    return True
+                pending.append(value)
+        elif isinstance(node, (list, tuple, set)):
+            pending.extend(node)
+    return False
 
 
 def git(*args):
@@ -49,7 +75,7 @@ def main():
         config_ref = base + ":" + (configured or ".foxguard.yml")
         if git("cat-file", "-e", config_ref).returncode == 0:
             config = content(config_ref)
-            if BASELINE_KEY.search(config):
+            if names_a_baseline(config):
                 return 1
         elif configured:
             return 1
