@@ -52,21 +52,28 @@ config="$(cat "$tmp/config.path")" || fail
 # that puts it under scan_path is refused rather than excluded.
 own="$(cd "$dir/../../.." && pwd -P)"
 if root="$(cd "$scan_path" 2>/dev/null && pwd -P)" && [[ "$own" == "$root"/* ]]; then fail; fi
+# foxguard matches findings by path: a file the review only renames would
+# report its old findings as new, so the base it is given has the renames.
+fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" 2>"$tmp/base.log")" || fail
+[[ "$fg_base" =~ ^[0-9a-f]{40}$ || "$fg_base" =~ ^[0-9a-f]{64}$ ]] || fail
+# A review that adds or changes nothing under scan_path (a deletion) may leave
+# foxguard nothing to read; only then is a scan of no files a pass.
+changed="$(git -C "$scan_path" diff --name-only --diff-filter=ACMRT "$merge_base" HEAD -- . 2>"$tmp/base.log")" || fail
 rc=0
-"$FG_BIN" diff "$merge_base" --config "$config" -f json -s "$severity" \
+"$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
   --output "$tmp/report.json" "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
 # 0 is clean, 1 is new findings, anything else a scanner error.
 [[ "$rc" -eq 0 ]] || fail
 # The report names the base it compared with and how many files were read. A
 # scan of nothing (a directory of files foxguard cannot parse, say) is refused
-# rather than reported clean.
+# rather than reported clean, unless the review changed nothing there.
 if ! "$py" -I -c '
 import json, sys
 with open(sys.argv[1], "rb") as fh:
     doc = json.load(fh)
 ok = (doc["scanner"]["name"] == "foxguard"
       and doc["finding_counts"]["total"] == 0
-      and doc["target"]["files_scanned"] > 0
+      and (doc["target"]["files_scanned"] > 0 or sys.argv[3] == "")
       and doc["target"]["diff_base"] == sys.argv[2])
 sys.exit(0 if ok else 1)
-' "$tmp/report.json" "$merge_base" >"$tmp/check.log" 2>&1; then fail; fi
+' "$tmp/report.json" "$fg_base" "$changed" >"$tmp/check.log" 2>&1; then fail; fi

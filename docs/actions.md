@@ -312,8 +312,10 @@ Notes:
   `foxguard-scan` uses, against the digest in `scanner-pins.env`.
 - The scan is `foxguard diff <merge-base>`: only findings the merge base's
   tree does not have are reported, and a finding whose lines move is not new.
-  The report must name that base and have read at least one file, or the step
-  fails. Configuration is read from the merge base as `foxguard-scan` reads it
+  Renames the review makes are applied to that base first, so a renamed file
+  keeps its old findings old. The report must name that base and have read
+  at least one file, unless the review adds or changes no file under
+  `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it
   from the pull request base; a `baseline` entry is refused.
 - No report, SARIF or artifact. A failure names Foxguard and the branch,
   links https://nikolareljin.github.io/leak-lock/ and says what to run

@@ -111,7 +111,12 @@ class ResolveBaseTests(unittest.TestCase):
     def test_pull_request_event_uses_the_base_sha(self):
         event = {"pull_request": {"base": {"sha": self.fx.base, "ref": "main"}}}
         self.assert_base(self.resolve(event=event, event_name="pull_request"), self.fx.base)
-        self.assert_base(self.resolve(event=event, event_name="pull_request_target"), self.fx.base)
+
+    def test_pull_request_target_is_refused(self):
+        # pull_request_target checks out the base branch, not the pull
+        # request: its range would scan the base's commits and pass.
+        event = {"pull_request": {"base": {"sha": self.fx.base, "ref": "main"}}}
+        self.assert_refused(self.resolve(event=event, event_name="pull_request_target"))
 
     def test_pull_request_base_missing_or_malformed_is_refused(self):
         self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": "f" * 40}}}, event_name="pull_request"))

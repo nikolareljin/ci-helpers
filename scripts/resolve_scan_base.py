@@ -11,7 +11,9 @@ The base commit, in order:
      `main`, `origin/main` or `refs/remotes/origin/main`. Nothing else: a
      short sha, a tag or a local branch is a name a pull request can create
      or shadow, so a bare `git rev-parse <name>` is never run.
-  2. A pull_request (or pull_request_target) event: pull_request.base.sha.
+  2. A pull_request event: pull_request.base.sha. pull_request_target is
+     refused: its checkout is the base branch, so the range would hold the
+     base's own commits and none of the pull request's.
   3. A push event: `before`, when it is a commit here and an ancestor of HEAD
      (the state the branch was pushed from). Otherwise (a new branch's
      all-zero `before`, a force push whose `before` is gone or rewritten) the
@@ -88,7 +90,7 @@ def from_event(root):
     event = json.loads(Path(path).read_text(encoding="utf-8"))
     name = os.environ.get("GITHUB_EVENT_NAME", "")
     pull = event.get("pull_request")
-    if pull and name in ("pull_request", "pull_request_target"):
+    if pull and name == "pull_request":
         sha = str(pull["base"]["sha"])
         if not SHA.match(sha):
             raise ValueError("pull request base is not a commit sha")

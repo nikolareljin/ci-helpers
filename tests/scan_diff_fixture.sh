@@ -20,6 +20,9 @@
 #   both           adds a key and shell=True: both diffs fail
 #   head-config    adds configs that would silence both, plus both findings:
 #                  both diffs fail (the configs are read from the base)
+#   renamed        moves both old files to new paths: both diffs pass
+#   renamed-new    renames old.py and adds shell=True to it: foxguard-diff fails
+#   deleted        deletes old.py, leaving no file foxguard reads: it passes
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -97,8 +100,22 @@ g add -A; g commit -q -m "a new key"
 printf '%s:new_key.pem:private-key:1\n' "$(g rev-parse HEAD)" > "$src/.gitleaksignore"
 g add -A; g commit -q -m "an ignore list naming that key"
 
+branch renamed
+g mv old.py lib_old.py
+g mv old_key.pem keys_old.pem
+g commit -q -m "both old files renamed"
+
+branch renamed-new
+g mv old.py lib_old.py
+printf 'subprocess.call(sys.argv[2], shell=True)\n' >> "$src/lib_old.py"
+g add -A; g commit -q -m "old.py renamed, with a new command injection"
+
+branch deleted
+g rm -q old.py
+g commit -q -m "the only file foxguard reads, deleted"
+
 g checkout -q main
-for b in clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in renamed renamed-new deleted clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

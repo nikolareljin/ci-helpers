@@ -1256,6 +1256,12 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/new-shell
           base_ref: main
 
+      - name: A renamed file with the old key is not new
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/renamed
+          base_ref: main
+
       - name: A new key fails
         id: new_secret
         continue-on-error: true
@@ -1411,6 +1417,26 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/moved
           base_ref: main
 
+      - name: Renamed files keep their old findings old
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/renamed
+          base_ref: main
+
+      - name: A deletion that leaves nothing to read passes
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/deleted
+          base_ref: main
+
+      - name: A new command injection in a renamed file fails
+        id: renamed_new
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/renamed-new
+          base_ref: main
+
       - name: A new command injection fails
         id: new_shell
         continue-on-error: true
@@ -1451,13 +1477,14 @@ jobs:
         shell: bash
         env:
           NEW_SHELL: ${{ steps.new_shell.outcome }}
+          RENAMED_NEW: ${{ steps.renamed_new.outcome }}
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
           NO_BASE: ${{ steps.no_base.outcome }}
           FULL_SCAN: ${{ steps.full_scan.outcome }}
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new command injection:$NEW_SHELL" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"

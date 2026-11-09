@@ -691,8 +691,9 @@ Notes:
   (the state the branch was pushed from). Otherwise (a new branch's all-zero
   `before`, a force push whose `before` is gone or rewritten) the push is
   compared with the repository's default branch, so the first push of the
-  default branch itself has an empty range. Any other event needs
-  `base_ref`. A base that is not in the repository, no merge base, or an
+  default branch itself has an empty range. `pull_request_target` is
+  refused: its checkout is the base branch, so the range would hold none of
+  the pull request's commits. Any other event needs `base_ref`. A base that is not in the repository, no merge base, or an
   empty range (`HEAD` is the base, or behind it) fails the run: nothing
   passes because the base could not be found.
 - `base_ref` is a full commit sha, or a branch of the remote written as
@@ -742,7 +743,8 @@ Notes:
 
 - The scan is `foxguard diff <merge-base>`: findings in the tree under review
   that the merge base's tree does not have. A finding whose lines move is not
-  new. `foxguard-scan.yml` reports every finding; use that one for a
+  new, and neither is one in a file the review renames: the base foxguard
+  compares with has the review's renames applied. `foxguard-scan.yml` reports every finding; use that one for a
   periodic full scan.
 - The base is resolved as `gitleaks-new-findings.yml` describes (same
   `base_ref` forms, same push rule), and fails the run the same way when it
@@ -750,7 +752,8 @@ Notes:
 - Configuration comes from the merge base: `config_path`, or `.foxguard.yml`
   when present, and otherwise an empty config. A config the review adds is
   not read, and a config with a `baseline` entry is refused.
-- A scan that reads no file fails rather than reporting no findings; a
+- A scan that reads no file fails rather than reporting no findings, unless
+  the review adds or changes no file under `scan_path` (a deletion); a
   repository with no file foxguard parses runs `scan-new-findings.yml` with
   `tools: gitleaks` instead.
 - Failures identify Foxguard and the branch and link
