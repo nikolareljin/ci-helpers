@@ -115,7 +115,7 @@ def main() -> int:
     text = summary(args.title, files, args.max_bytes)
     target = os.environ.get("GITHUB_STEP_SUMMARY")
     if target:
-        with open(target, "a", encoding="utf-8") as fh:
+        with Path(target).open("a", encoding="utf-8") as fh:
             fh.write(text)
     else:
         sys.stdout.write(text)

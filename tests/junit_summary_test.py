@@ -3,18 +3,25 @@ DOCTYPE refused, output appended to GITHUB_STEP_SUMMARY, never a non-zero exit.
 Then the pnpm workflows: no dorny/test-reporter step, no `checks: write`, and
 the report job runs this script from a checkout at job.workflow_sha."""
 
+import contextlib
 import glob
+import importlib.util
+import io
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/junit_summary.py"
+spec = importlib.util.spec_from_file_location("junit_summary", SCRIPT)
+junit = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(junit)
 
 PASS_FAIL = """<?xml version="1.0"?>
 <testsuites>
@@ -51,11 +58,19 @@ class JunitSummaryTests(unittest.TestCase):
         return path
 
     def run_script(self, *args, env=None):
-        full_env = dict(os.environ)
-        full_env.pop("GITHUB_STEP_SUMMARY", None)
+        """main() in-process with the given argv and environment; returns an
+        object with returncode, stdout and stderr like subprocess would."""
+        argv = ["junit_summary.py", "--glob", str(self.dir / "**/*.xml"), *args]
+        full_env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
         full_env.update(env or {})
-        return subprocess.run([sys.executable, str(SCRIPT), "--glob", str(self.dir / "**/*.xml"), *args],
-                              capture_output=True, text=True, env=full_env)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, full_env, clear=True), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = junit.main()
+            except SystemExit as exc:  # argparse
+                rc = exc.code
+        return types.SimpleNamespace(returncode=rc, stdout=out.getvalue(), stderr=err.getvalue())
 
     def test_counts_and_failures(self):
         self.write("results/a.xml", PASS_FAIL)
