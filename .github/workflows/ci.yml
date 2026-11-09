@@ -435,7 +435,7 @@ jobs:
       - name: Setup .NET
         id: setup_dotnet
         if: ${{ inputs.dotnet_version != '' }}
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.0.0 @ 2026-09-10
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
           cache: ${{ steps.cache_probe.outputs.dotnet }}

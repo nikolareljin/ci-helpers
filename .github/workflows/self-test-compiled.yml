@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.0.0 @ 2026-09-10
         with:
           dotnet-version: "8.0.x"
       - name: Unformatted source must fail the lint default
@@ -427,7 +427,7 @@ jobs:
       # runner image ships newer SDKs and the observed run resolved
       # /usr/share/dotnet/sdk/10.0.400. The assertion below does not depend on
       # the version -- every SDK that can target Windows refuses to do it here.
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0 @ 2026-09-10
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.0.0 @ 2026-09-10
         with:
           dotnet-version: "8.0.x"
       - name: A Windows-only target must fail on Linux, and say why
