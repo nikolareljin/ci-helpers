@@ -50,10 +50,16 @@ out.write_text(json.dumps({
 sys.exit(1 if total else 0)
 """)
         self.stub.chmod(0o700)
+        # security_notice vets the branch text with the credential scanner
+        # before printing it; the runner has none, so one that passes stands in.
+        metadata_checker = self.base / "metadata-checker"
+        metadata_checker.write_bytes(b"#!/bin/sh\nexit 0\n")
+        metadata_checker.chmod(0o700)
         self.canary = "PRIVATE" + "-SCANNER-DIAGNOSTICS"
         self.env = {
             **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")}, "CI": "true", "FG_BIN": str(self.stub),
             "RUNNER_TEMP": str(self.runner), "GITHUB_WORKSPACE": str(self.workspace),
+            "GITLEAKS_BIN": str(metadata_checker),
             "SCAN_PATH": str(self.workspace), "CANARY": self.canary,
             "CALLED": str(self.base / "called"), "FINDINGS": "0", "FILES": "1",
             "GITHUB_HEAD_REF": "fixture-branch", "GITHUB_EVENT_PATH": "",
