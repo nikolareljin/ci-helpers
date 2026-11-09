@@ -4,8 +4,9 @@
 #              way a scan workflow could send code, a token or findings out
 #              (third-party action, tag-only docker run, checkout keeping its
 #              token, secrets: inherit, write permissions, security-events
-#              without an upload), stays quiet on what is allowed, and leaves
-#              a non-scan workflow alone.
+#              without an upload), stays quiet on what is allowed, holds every
+#              other workflow and action to the kept third-party list and
+#              nothing else, and leaves the scan-only rules off them.
 # USAGE: bash tests/scan_egress_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -475,6 +476,125 @@ YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
 
+# Every other workflow and action: a third-party `uses:` outside the kept
+# list is a finding, in a step, in a job that calls a reusable workflow, and
+# in a composite action. A kept one is not, and the removed release action
+# does not come back.
+expect "new third-party action in a build workflow" 1 "uses: 'some/new-action@0000000000000000000000000000000000000000' is not actions/*" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: some/new-action@0000000000000000000000000000000000000000
+YAML
+# GitHub runs .yaml workflows and action.yaml actions too.
+expect "a third-party action in a .yaml workflow" 1 "uses: 'evil/thing@0123456789012345678901234567890123456789' is not" .github/workflows/release.yaml <<'YAML'
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: evil/thing@0123456789012345678901234567890123456789
+YAML
+expect "a third-party action in an action.yaml" 1 "uses: 'evil/thing@0123456789012345678901234567890123456789' is not" .github/actions/x/action.yaml <<'YAML'
+runs:
+  using: composite
+  steps:
+    - uses: evil/thing@0123456789012345678901234567890123456789
+YAML
+expect "a .yaml scan workflow keeps the scan rules" 1 "secrets: inherit" .github/workflows/x-scan.yaml <<'YAML'
+on: push
+jobs:
+  a:
+    uses: ./.github/workflows/other.yml
+    secrets: inherit
+YAML
+expect "the replaced release action in a release workflow" 1 "uses: 'softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3' is not" .github/workflows/release.yml <<'YAML'
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3
+YAML
+expect "the replaced test reporter in a test workflow" 1 "uses: 'dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a' is not" .github/workflows/node.yml <<'YAML'
+on: push
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
+YAML
+expect "third-party reusable workflow as a job" 1 "jobs.call: uses: 'some/repo/.github/workflows/x.yml@0000000000000000000000000000000000000000' is not" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  call:
+    uses: some/repo/.github/workflows/x.yml@0000000000000000000000000000000000000000
+YAML
+expect "third-party action inside a composite action" 1 "uses: 'some/new-action@0000000000000000000000000000000000000000' is not" .github/actions/helper/action.yml <<'YAML'
+name: helper
+runs:
+  using: composite
+  steps:
+    - uses: some/new-action@0000000000000000000000000000000000000000
+YAML
+expect "unpinned kept action in a build workflow" 1 "uses: 'subosito/flutter-action@v2' is not canonical" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: subosito/flutter-action@v2
+YAML
+expect "kept actions in a build workflow stay quiet" 0 "" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+      - uses: ./.github/actions/local
+      - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
+      - run: docker run --rm alpine:3 true
+YAML
+# The kept list is for the other workflows; a scan workflow still allows
+# only the toolchain installers.
+expect "kept action in a scan workflow" 1 "uses: 'subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2' is not" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+YAML
+# The kept list in the script is exactly the set of third-party actions this
+# tree runs: an entry nobody uses is a leftover, deleted with its action.
+python3 - "$root" <<'PY' || fail=1
+import glob, re, sys
+sys.path.insert(0, sys.argv[1] + "/scripts")
+import check_scan_egress as egress
+used = set()
+for path in glob.glob(sys.argv[1] + "/.github/**/*.yml", recursive=True):
+    for ref in re.findall(r"^\s*(?:-\s*)?uses:\s*([A-Za-z0-9._/-]+)@", open(path).read(), re.M):
+        parts = ref.split("/")
+        if parts[0] not in ("actions", "github") and len(parts) >= 2:
+            used.add("/".join(parts[:2]))
+used -= {o + "/ci-helpers" for o in egress.LIBRARY_OWNERS}
+stale = sorted(egress.KEPT_THIRD_PARTY - used)
+missing = sorted(used - egress.KEPT_THIRD_PARTY - egress.TOOLCHAIN_EXCEPTIONS)
+if stale:
+    print("FAIL kept third-party actions no workflow uses any more:", ", ".join(stale))
+if missing:
+    print("FAIL third-party actions in use but not kept:", ", ".join(missing))
+sys.exit(1 if stale or missing else 0)
+PY
+
 # In a fork, the library at the fork's owner is this library.
 mkdir -p "$work/f/.github/workflows"
 cat > "$work/f/.github/workflows/x-scan.yml" <<'YAML'
@@ -488,5 +608,5 @@ YAML
 rc=0; GITHUB_REPOSITORY_OWNER=SomeOwner python3 "$check" --root "$work/f" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL the fork's own ci-helpers was refused:"; cat "$work/out"; fail=1; fi
 
-[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, passes what is allowed and this tree"
+[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, holds every workflow to the kept list, passes what is allowed and this tree"
 exit "$fail"

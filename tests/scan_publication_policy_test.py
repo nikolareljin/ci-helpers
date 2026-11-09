@@ -55,6 +55,38 @@ class PolicyTests(unittest.TestCase):
             {"uses": "actions/upload-artifact@fixture", "if": "${{ always() && steps.checked.outcome == 'success' }}", "with": {"path": "dist/*"}},
         ]))
 
+    # scripts/github_release.sh replaced the release action; its inputs are env.
+    def release_step(self, env, condition="${{ (success()) && steps.checked.outcome == 'success' }}"):
+        return {"if": condition, "env": env, "run": "bash .ci-helpers-publication/scripts/github_release.sh"}
+
+    def test_release_script_behind_check_allowed(self):
+        guard = {"id": "checked", "uses": "./trusted/.github/actions/publication-check", "with": {"mode": "release"}}
+        env = {"GH_TOKEN": "${{ github.token }}", "TAG_NAME": "1.0.0",
+               "FILES": "${{ steps.checked.outputs.paths }}", "BODY_PATH": "${{ steps.checked.outputs.body_path }}"}
+        self.assertFalse(self.check([guard, self.release_step(env)]))
+        env.pop("FILES")
+        self.assertFalse(self.check([guard, self.release_step(env)]), "a release with notes only is fine")
+
+    def test_release_script_without_check_refused(self):
+        self.assertTrue(self.check([self.release_step({"TAG_NAME": "1.0.0"}, condition="")]))
+
+    def test_release_script_bypassing_snapshot_refused(self):
+        guard = {"id": "checked", "uses": "./trusted/.github/actions/publication-check", "with": {"mode": "release"}}
+        for env in ({"TAG_NAME": "1.0.0", "FILES": "dist/*"},
+                    {"TAG_NAME": "1.0.0", "BODY_PATH": "notes.md"},
+                    {"TAG_NAME": "1.0.0", "BODY": "text"},
+                    {"TAG_NAME": "1.0.0", "GENERATE_RELEASE_NOTES": "true"}):
+            self.assertTrue(self.check([guard, self.release_step(env)]), env)
+
+    def test_release_script_with_artifact_check_refused(self):
+        guard = {"id": "checked", "uses": "./trusted/.github/actions/publication-check", "with": {"mode": "artifact"}}
+        self.assertTrue(self.check([guard, self.release_step({"TAG_NAME": "1.0.0", "FILES": "${{ steps.checked.outputs.paths }}"})]))
+
+    def test_release_script_before_guard_refused(self):
+        self.assertTrue(policy.violations({"jobs": {"write": {"permissions": {"contents": "write"}, "steps": [
+            self.release_step({"TAG_NAME": "1.0.0"}), {"uses": "./publication-guard"},
+        ]}}}))
+
 
 if __name__ == "__main__":
     unittest.main()

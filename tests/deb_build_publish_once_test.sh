@@ -25,7 +25,7 @@ assert len(ren) == 1 and "sigs_id" not in ren[0].get("if", ""), "names must be n
 open(sys.argv[2], "w").write(ren[0]["run"])
 up = [s for s in d["jobs"]["release"]["steps"] if s.get("name") == "Upload .deb to GitHub release"]
 # The step above leaves only new files and unsigned replacements.
-assert len(up) == 1 and up[0]["with"]["overwrite_files"] is True, "upload must overwrite what the step allows"
+assert len(up) == 1 and up[0]["env"]["OVERWRITE_FILES"] == "true", "upload must overwrite what the step allows"
 PY
 
 # Stub gh. $PUB holds the published assets; $DIGESTS=0 hides their digests,

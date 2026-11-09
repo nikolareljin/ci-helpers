@@ -78,11 +78,11 @@ fi
 python3 - "$root/.github/workflows/release-upload.yml" <<'PY' || fail=1
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
-up = [s for j in d["jobs"].values() for s in j["steps"] if s.get("uses", "").startswith("softprops/")][0]
+up = [s for j in d["jobs"].values() for s in j["steps"] if "scripts/github_release.sh" in str(s.get("run", ""))][0]
 steps = next(j["steps"] for j in d["jobs"].values() if up in j["steps"])
 gate = next(s for s in steps if s.get("id") == "ci_publication_check_1")
 assert gate["with"]["paths"] == "${{ steps.check.outputs.files }}", "payload check does not use the checked list"
-assert up["with"]["files"] == "${{ steps.ci_publication_check_1.outputs.paths }}", "upload bypasses the validated snapshot"
+assert up["env"]["FILES"] == "${{ steps.ci_publication_check_1.outputs.paths }}", "upload bypasses the validated snapshot"
 print("ok: the upload takes the checked file list")
 PY
 exit "$fail"

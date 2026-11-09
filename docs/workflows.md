@@ -622,7 +622,7 @@ Inputs:
 - `severity` (string, default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
 - `config_path` (string, default `""`) - foxguard config file, relative to the repository; read from the pull request's base commit
 - `foxguard_version` (string, default `v0.14.1`) - release tag to download. Pin it for reproducible scans.
-- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in the action; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
 - `fail_on_findings` (boolean, default `true`) - `false` is refused
 
 Notes:
@@ -1051,7 +1051,7 @@ script-helpers must be at `vendor/script-helpers` (used first when present) or `
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
-- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `ref` (string, default `""`): git ref to build (tag, branch or commit); empty builds the ref the workflow runs on. Set it to the tag to rebuild an older release. Without `release_tag`, the release is named after `ref`: `auto` uploads only when `ref` is a version tag, and `true` fails for any other `ref`.
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -1732,7 +1732,7 @@ To restrict who may run it, point the wrapper's job at a GitHub Environment with
 
 Workflow: `.github/workflows/create-github-release.yml`
 
-Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Re-runs are safe: `softprops/action-gh-release` updates an existing release when the `tag_name` already has one.
+Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Re-runs are safe: `scripts/github_release.sh` (the GitHub CLI, `gh release create`, `edit` and `upload`) updates an existing release when the tag already has one.
 
 Triggers:
 - `workflow_dispatch` with `release_tag` input — used by the `release_workflow` dispatch mechanism in `auto-tag-release.yml`.
@@ -1836,7 +1836,7 @@ The build runs with `contents: read`; a separate `release` job holds `contents: 
 
 Inputs (selected):
 - `runner` (string, default `ubuntu-latest`)
-- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release
+- `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)

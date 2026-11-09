@@ -31,8 +31,9 @@ inputs:
   foxguard_sha256:
     description: >
       sha256 of the release binary for this runner, required with a
-      foxguard_version other than v0.14.1, whose digests are pinned here; a different
-      digest for that version is refused.
+      foxguard_version other than the one pinned in scanner-pins.env (v0.14.1),
+      whose digests are pinned there; a different digest for that version is
+      refused.
     default: ""
     required: false
 outputs:
@@ -60,12 +61,16 @@ runs:
       env:
         FOXGUARD_VERSION: ${{ inputs.foxguard_version }}
         FOXGUARD_SHA256: ${{ inputs.foxguard_sha256 }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
         # Normalize: strip any leading "v" then re-add it so both "v0.14.1"
         # and "0.14.1" produce the correct release URL.
         ver="${FOXGUARD_VERSION#v}"
         tag="v${ver}"
+        # Version and digests pinned in this repository's scanner-pins.env.
+        pins="$ACTION_PATH/../../../scanner-pins.env"
+        pin() { awk -F= -v k="$1" '$1 == k { print $2; exit }' "$pins"; }
 
         # Map uname output to foxguard release asset naming. The release
         # ships bare binaries, one per platform, no archive.
@@ -102,15 +107,11 @@ runs:
 
         # Verify against a digest held in this repository, never one fetched
         # beside the binary: a replaced release would bring its own checksums.
-        # 0.14.1, from its checksums.txt, matching GitHub's asset digests.
-        case "${tag}/${asset}" in
-          v0.14.1/foxguard-linux-x86_64)        pinned=10a531279f7f3e9dcd01996e5e288309cd6d7d2bb2b7fa35de583d0bbe715bc2 ;;
-          v0.14.1/foxguard-linux-aarch64)       pinned=f374bb1b81ffcb01aa5446719dee199245c673fffc9c659e985bbabe0faaa032 ;;
-          v0.14.1/foxguard-macos-x86_64)        pinned=df78bc22307b893975c4d75799b36a1d7f1664be92aeeab19e61b7d0ecfafa26 ;;
-          v0.14.1/foxguard-macos-aarch64)       pinned=e466cb4692a959fb500cd9f55d35aac0dd530afce8358643ed186e2c8c85f8c5 ;;
-          v0.14.1/foxguard-windows-x86_64.exe)  pinned=0fb139cb088a302a2c6567087079c4152025c20ac0e06a64107e9a0382e4bffb ;;
-          *) pinned="" ;;
-        esac
+        # scanner-pins.env holds the digests of one version, for each runner.
+        pinned=""
+        if [ "${ver}" = "$(pin FOXGUARD_VERSION)" ]; then
+          pinned="$(pin "FOXGUARD_SHA256_$(printf '%s_%s' "${os}" "${arch}" | tr '[:lower:]' '[:upper:]')")"
+        fi
         # First field only, lower-cased: a pasted checksums.txt line
         # ("<hash>  <file>") or an upper-case digest still works.
         expected="$(printf '%s' "${FOXGUARD_SHA256:-${pinned}}" | awk 'NR == 1 { print tolower($1) }')"

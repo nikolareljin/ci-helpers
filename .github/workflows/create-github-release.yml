@@ -154,6 +154,7 @@ jobs:
           sparse-checkout: |
             .github/actions/publication-check
             vendor/script-helpers
+            scripts
           persist-credentials: false
 
       - name: Verify publication action revision
@@ -184,10 +185,12 @@ jobs:
 
       - name: Create GitHub Release
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
-        with:
-          tag_name: ${{ steps.resolve_tag.outputs.tag }}
-          name: ${{ steps.resolve_tag.outputs.tag }}
-          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
-          prerelease: ${{ steps.resolve_tag.outputs.is_prerelease }}
-          make_latest: ${{ steps.resolve_tag.outputs.make_latest }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.resolve_tag.outputs.tag }}
+          RELEASE_NAME: ${{ steps.resolve_tag.outputs.tag }}
+          BODY_PATH: ${{ steps.ci_publication_check_1.outputs.body_path }}
+          PRERELEASE: ${{ steps.resolve_tag.outputs.is_prerelease }}
+          MAKE_LATEST: ${{ steps.resolve_tag.outputs.make_latest }}
+        run: bash .ci-helpers-publication/scripts/github_release.sh
