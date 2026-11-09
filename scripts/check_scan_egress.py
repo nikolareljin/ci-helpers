@@ -64,7 +64,9 @@ LIBRARY_USES = re.compile(r"^([a-z0-9-]+)/ci-helpers/")
 
 # A command that starts Trivy: the binary by name, or the path the installer
 # hands over in TRIVY_BIN / trivy_bin.
-TRIVY_CALL = re.compile(r'(^|[;&|(]\s*|\$\(\s*|\b(?:if|then|else|do|exec|time|!)\s+)("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
+# Where a command starts: line start, a separator, `$(`, or a shell keyword.
+CMD_START = r"(?:^|[;&|(]\s*|\$\(\s*|(?:\b(?:if|then|else|do|exec|time|sudo)|!)\s+)"
+TRIVY_CALL = re.compile(CMD_START + r'("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
 TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 
 # Toolchain installers the language scans still use. They install a compiler
@@ -113,8 +115,8 @@ def commands(run: str) -> list[str]:
 
 
 # `docker run` where a command starts: at the start of a line, after a
-# separator or inside `$(`, optionally behind sudo. `echo "docker run"` is not.
-DOCKER_RUN = re.compile(r"(^|[;&|(]|\$\()\s*(sudo\s+)?docker\s+(container\s+)?run\b")
+# separator, inside `$(` or behind a keyword or sudo. `echo "docker run"` is not.
+DOCKER_RUN = re.compile(CMD_START + r"docker\s+(container\s+)?run\b")
 
 
 def check_run(run: str, where: str, out: list[str]) -> None:
@@ -139,9 +141,12 @@ def check_steps(steps, where: str, out: list[str]) -> bool:
         uses = step.get("uses")
         if isinstance(uses, str):
             check_uses(uses, here, out)
-            if SARIF_UPLOADERS.search(uses.partition("@")[0]):
+            # GitHub resolves owner and repository case-insensitively, so
+            # every match below is on the lowercased name.
+            name = uses.partition("@")[0].lower()
+            if SARIF_UPLOADERS.search(name):
                 uploads = True
-            if uses.startswith("actions/checkout"):
+            if name == "actions/checkout":
                 with_ = step.get("with") or {}
                 keep = with_.get("persist-credentials") if isinstance(with_, dict) else None
                 if keep is not False and str(keep).lower() != "false":
@@ -178,7 +183,7 @@ def check_workflow(doc: dict, rel: str) -> list[str]:
         uploads = False
         if isinstance(job.get("uses"), str):
             check_uses(job["uses"], where, out)
-            uploads = bool(SARIF_UPLOADERS.search(job["uses"].partition("@")[0]))
+            uploads = bool(SARIF_UPLOADERS.search(job["uses"].partition("@")[0].lower()))
         uploads = check_steps(list(steps_of(job)), where, out) or uploads
         perms = job.get("permissions", wf_perms)
         if "uses" in job and "permissions" not in job and wf_perms is None:

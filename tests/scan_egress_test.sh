@@ -70,9 +70,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          docker run --rm \
+          if ! docker run --rm \
             -e TOKEN \
-            snyk/snyk:docker test
+            snyk/snyk:docker test; then exit 1; fi
 YAML
 
 expect "checkout keeps its token" 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
@@ -86,6 +86,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+YAML
+
+expect "mixed-case checkout keeps its token" 1 "checkout: actions/checkout without persist-credentials: false" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Actions/Checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+YAML
+
+expect "mixed-case SARIF upload counts as an upload" 0 "" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+      security-events: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Github/CodeQL-Action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
 YAML
 
 expect "secrets: inherit" 1 "secrets: inherit hands every secret" <<'YAML'
