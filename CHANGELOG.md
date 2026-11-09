@@ -8,7 +8,7 @@
 ### Notes
 
 - Upgrade notes for callers of the release workflows: the release steps print `Creating release`, `Updating release` or `nothing to change` and `Uploaded N file(s)` in place of the action's log. A `files` pattern that matches nothing is still a warning unless the workflow sets `fail_on_unmatched_files` (rust-release-tarballs does). The step has no outputs the workflows read; `url` and `upload_url` are written for a caller's own steps.
-- Upgrade notes for callers of `pnpm.yml`, `pnpm-cypress.yml` and `pnpm-playwright.yml` with `upload_test_results: true`: the test results appear on the job summary page, not as a check run on the pull request; the `Tests<suffix>` check run no longer exists. A branch protection rule that required it must drop it.
+- Upgrade notes for callers of `pnpm.yml`, `pnpm-cypress.yml` and `pnpm-playwright.yml` with `upload_test_results: true`: the test results appear on the job summary page, not as a check run on the pull request; the `Tests<suffix>` check run no longer exists. A branch protection rule that required it must drop it. The `report` job checks this library out at the workflow's commit and refuses to run when that commit cannot be verified; before, with `continue-on-error` on every step, the job could not fail.
 
 ## 2026-11-09 — v0.50.0
 
