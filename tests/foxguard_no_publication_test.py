@@ -192,6 +192,33 @@ sys.exit(1 if total else 0)
         self.assertIsNone(self.called())
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_config_directory_linked_inside_the_tree_is_refused(self):
+        # A link from ci/ to the root would anchor the base's ignore_rules
+        # paths at the root, silencing findings the base never ignored there.
+        (self.workspace / "ci").mkdir()
+        self.configure("# reviewed\n", name="ci/foxguard.yml")
+        subprocess.run(["rm", "-rf", str(self.workspace / "ci")], check=True)
+        (self.workspace / "ci").symlink_to(".")
+        self.run_scan(1, CONFIG_PATH="ci/foxguard.yml")
+        self.assertIsNone(self.called())
+
+    def test_reviewed_config_is_placed_without_o_nofollow(self):
+        # Windows Python has no os.O_NOFOLLOW; the action supports Windows.
+        self.configure("# reviewed\n")
+        target = self.base / "target"
+        target.mkdir()
+        prepare = RUN.parent / "prepare_config.py"
+        shim = self.base / "no_nofollow.py"
+        shim.write_text("import os, runpy, sys\ndel os.O_NOFOLLOW\nsys.argv = sys.argv[1:]\n"
+                        "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        proc = subprocess.run(["python3", "-I", str(shim), str(prepare), str(target)],
+                              cwd=self.workspace, env={**self.env, "SCAN_PATH": str(self.workspace)},
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        placed = Path((target / "config.path").read_text())
+        self.assertEqual(placed.read_text(), "# reviewed\n")
+        placed.unlink()
+
     def test_uncommitted_config_in_the_tree_is_not_used(self):
         self.configure("scan:\n  disable_rules: [fixture/rule]\n", commit=False)
         self.run_scan(0)

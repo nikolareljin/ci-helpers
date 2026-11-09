@@ -58,17 +58,23 @@ def place_beside(target, toplevel, relative, config):
     `secrets.exclude_paths`) against the config's own directory and refuses
     paths outside the scanned tree, so a copy elsewhere silently stops
     matching or errors. The directory must resolve inside the repository; the
-    file is created exclusively, never followed through a link.
+    file is created exclusively, never followed through a link. A link
+    anywhere on the directory path is refused even inside the repository: it
+    would move where the base config's path keys point.
     """
     root = Path(toplevel).resolve()
     folder = (root / relative).parent
     real = folder.resolve()
     if real != root and root not in real.parents:
         raise ValueError("config directory leaves the repository")
+    if real != folder:
+        raise ValueError("config directory is reached through a link")
     if not real.is_dir():
         raise ValueError("config directory missing")
     path = real / (".foxguard-reviewed-" + secrets.token_hex(8) + ".yml")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    # Windows has no O_NOFOLLOW; O_EXCL still refuses an existing name there.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, flags, 0o600)
     # Recorded once this call has created the file, so run.sh removes it even
     # if the write fails, and never removes a file it did not create.
     try:
