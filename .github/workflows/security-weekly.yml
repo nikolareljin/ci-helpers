@@ -118,6 +118,24 @@ jobs:
           output: results.sarif
           fail_on_findings: "true"
 
+  foxguard:
+    name: Foxguard Static Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Foxguard scan
+        uses: ./.github/actions/foxguard-scan
+        with:
+          scan_path: "."
+          severity: medium
+          fail_on_findings: "true"
+
   vendor-drift:
     name: Vendor Drift Check
     runs-on: ubuntu-latest
@@ -195,7 +213,7 @@ jobs:
     name: Report Failure
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, vendor-drift, runner-retirement]
+    needs: [sha-pin-audit, floating-ref-scan, trivy-fs, gitleaks, foxguard, vendor-drift, runner-retirement]
     if: failure()
     permissions:
       issues: write
@@ -208,6 +226,7 @@ jobs:
           FLOATING_REF_RESULT: ${{ needs.floating-ref-scan.result }}
           TRIVY_RESULT: ${{ needs.trivy-fs.result }}
           GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
+          FOXGUARD_RESULT: ${{ needs.foxguard.result }}
           VENDOR_RESULT: ${{ needs.vendor-drift.result }}
           RUNNER_RESULT: ${{ needs.runner-retirement.result }}
         run: |
@@ -218,6 +237,7 @@ jobs:
           [[ "$FLOATING_REF_RESULT" == "failure" ]] && failed+=("- ❌ Floating Reference Scan")
           [[ "$TRIVY_RESULT"        == "failure" ]] && failed+=("- ❌ Trivy Filesystem Scan")
           [[ "$GITLEAKS_RESULT"     == "failure" ]] && failed+=("- ❌ Gitleaks Secret Scan")
+          [[ "$FOXGUARD_RESULT"     == "failure" ]] && failed+=("- ❌ Foxguard Static Analysis")
           [[ "$VENDOR_RESULT"       == "failure" ]] && failed+=("- ❌ Vendor Drift Check")
           [[ "$RUNNER_RESULT"       == "failure" ]] && failed+=("- ❌ Runner Image Retirement (a pinned Ubuntu image is being retired; the job log names the announcement and the pins)")
 

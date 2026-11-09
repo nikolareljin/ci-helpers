@@ -1,0 +1,93 @@
+name: foxguard-scan
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      scan_path:
+        description: Path to scan (relative to repo root)
+        type: string
+        default: "."
+      severity:
+        description: Lowest severity that fails the scan (low, medium, high, critical)
+        type: string
+        default: medium
+      config_path:
+        description: Optional path to a foxguard config file (relative to repo root), read from the PR base commit
+        type: string
+        default: ""
+      foxguard_version:
+        description: >
+          Foxguard release tag to download (e.g. "v0.14.1"). Pin this explicitly
+          for reproducible scans and supply-chain safety.
+        type: string
+        default: "v0.14.1"
+      foxguard_sha256:
+        description: >
+          sha256 of the release binary for the runner, required with a
+          foxguard_version other than v0.14.1, whose digests are pinned.
+        type: string
+        default: ""
+      fail_on_findings:
+        description: Mandatory enforcement; false is refused
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Opt into Node.js 24 early: Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The library's own action, at the commit of this workflow file. A
+      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
+      # is today, even for a caller pinned to a SHA; `./.github/actions` would
+      # resolve in the caller's checkout, so the action is checked out beside it.
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            .github/actions
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      # The action excludes its own checkout from the scan, so with the default
+      # scan_path "." the library's scripts are not read as the caller's.
+      - name: Foxguard scan
+        uses: ./.ci-helpers-actions/.github/actions/foxguard-scan
+        with:
+          scan_path: ${{ inputs.scan_path }}
+          severity: ${{ inputs.severity }}
+          config_path: ${{ inputs.config_path }}
+          foxguard_version: ${{ inputs.foxguard_version }}
+          foxguard_sha256: ${{ inputs.foxguard_sha256 }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}

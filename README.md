@@ -1,4 +1,4 @@
-![ci-helpers - shared GitHub Actions workflows for CI/CD. 76 reusable workflows, 28 stack presets, 11 actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 77 reusable workflows, 28 stack presets, 12 actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -15,7 +15,7 @@ Includes:
 - Reusable workflows for release builds (generic, Rust, and Tauri desktop).
 - Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
 - Composite actions for semver comparison and release tag checks.
-- Composite actions for Trivy, Gitleaks, JSON data-safety, and WordPress plugin-check scans.
+- Composite actions for Trivy, Gitleaks, Foxguard, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519, Authenticode with a `.pfx`, or Azure Artifact Signing; see [Windows signing](docs/windows-signing.md)).
 - Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
@@ -99,6 +99,7 @@ jobs:
 - `.github/workflows/docker-scan.yml`: reusable Docker scan workflow (Trivy + Snyk)
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
+- `.github/workflows/foxguard-scan.yml`: reusable Foxguard static-analysis workflow
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/wp-phpunit.yml`: WordPress plugin PHPUnit against the WordPress test library
 - `.github/workflows/wp-build.yml`: WordPress plugin release zip (production dependencies, assets, `.distignore`)
@@ -134,6 +135,7 @@ jobs:
 - `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
+- `.github/actions/foxguard-scan`: composite action for Foxguard static analysis
 - `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.
 - `.github/actions/publication-check`: validate artifact and release payloads before upload.
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check

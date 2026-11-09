@@ -599,6 +599,55 @@ jobs:
       upload_artifact: false
 ```
 
+## foxguard-scan.yml
+
+Workflow: `.github/workflows/foxguard-scan.yml`
+
+Purpose: Enforce Foxguard static-analysis checks without exporting scanner results.
+
+Note: When findings are detected, the workflow prints a link to Leak-Lock for help
+reproducing and fixing them locally.
+
+Inputs:
+
+- `runner` (string, default `ubuntu-latest`)
+- `scan_path` (string, default `"."`)
+- `severity` (string, default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
+- `config_path` (string, default `""`) - foxguard config file, relative to the repository; read from the pull request's base commit
+- `foxguard_version` (string, default `v0.14.1`) - release tag to download. Pin it for reproducible scans.
+- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in the action
+- `fail_on_findings` (boolean, default `true`) - `false` is refused
+
+Notes:
+
+- Failures identify Foxguard and the branch and link
+  https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
+  Results, counts, rule ids, file paths and report paths never appear in CI output.
+- The scan runs a pinned `foxguard` binary, verified against a sha256 held in
+  the action (or `foxguard_sha256`), not one fetched from the same release.
+- The scan reads the files under `scan_path`; `.` is the whole checkout. The
+  library's own checkout beside it is excluded.
+- Configuration comes from the base commit of a pull request (`HEAD` on other
+  events): `config_path`, or `.foxguard.yml` when present, and otherwise an
+  empty config. A `.foxguard.yml` added or changed by the pull request is not
+  read, and a config with a `baseline` entry is refused, so a pull request
+  cannot silence what it adds. Inline `foxguard: ignore[...]` comments are the
+  scanner's own and still apply; they are visible in the diff.
+- A scan that reads no file fails rather than reporting no findings: foxguard
+  skips files it cannot parse and hidden directories, so a `scan_path` holding
+  only those is refused.
+
+Example:
+
+```yaml
+jobs:
+  foxguard:
+    uses: nikolareljin/ci-helpers/.github/workflows/foxguard-scan.yml@production
+    with:
+      scan_path: "."
+      severity: medium
+```
+
 ## ppa-deb.yml
 
 Workflow: `.github/workflows/ppa-deb.yml`
