@@ -48,8 +48,9 @@ good="$(printf 'payload' | sha256sum | awk '{print $1}')"
 run() { # name sha expected-rc
   local rc=0
   rm -f "$work/dl"
-  PATH="$work/bin:$PATH" bash -euo pipefail -c ". '$work/fn.sh'; fetch_verified tool https://example.invalid/t '$2' '$work/dl'" \
-    > "$work/log" 2>&1 || rc=$?
+  # The digest and paths travel as arguments, not spliced into the script text.
+  PATH="$work/bin:$PATH" bash -euo pipefail -c '. "$1"; fetch_verified tool https://example.invalid/t "$2" "$3"' \
+    fetch_verified_probe "$work/fn.sh" "$2" "$work/dl" > "$work/log" 2>&1 || rc=$?
   if [ "$rc" != "$3" ]; then echo "FAIL $1: exit $rc, expected $3"; cat "$work/log"; fail=1; return 0; fi
   if [ "$3" != 0 ] && [ -e "$work/dl" ]; then echo "FAIL $1: unverified file left on disk"; fail=1; fi
 }

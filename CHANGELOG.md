@@ -5,6 +5,7 @@
 - Check artifact files, release assets and release notes before upload. Upload only validated snapshots; failed checks cannot be bypassed by `always()`.
 
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.
+- `tests/fpc_appimage_verify_test.sh` passes the digest and the two paths to its `bash -c` probe as arguments instead of splicing them into the script text. `scripts/check_docs_coverage.py` names its backticked search string `backticked`, not `token`. No behaviour change.
 
 ## 2026-11-07 — v0.49.0
 
