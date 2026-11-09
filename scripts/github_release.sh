@@ -82,7 +82,11 @@ if [ -n "${FILES:-}" ]; then
   done
   set +f; IFS="$oldifs"
   shopt -s nullglob
+  # "${patterns[@]}" on an empty array is an unbound variable under set -u
+  # before bash 4.4; FILES of blank lines only means no file.
+  [ "${#patterns[@]}" -gt 0 ] || patterns=("")
   for pattern in "${patterns[@]}"; do
+    [ -n "$pattern" ] || continue
     matched=0
     # Expand the glob with IFS set to newline, so a path with a space survives.
     IFS=$'\n'

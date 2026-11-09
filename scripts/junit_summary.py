@@ -66,9 +66,10 @@ def collect(root: ET.Element, source: str, totals: dict, failures: list) -> None
             continue
         totals[kind + "s"] += 1
         node = case.find(kind)
-        message = node.get("message") or (node.text or "").strip().splitlines()[:1]
-        if isinstance(message, list):
-            message = message[0] if message else ""
+        message = node.get("message")
+        if not message:
+            body = (node.text or "").strip().splitlines()
+            message = body[0] if body else ""
         failures.append((kind, name or "(unnamed)", message, source))
 
 
