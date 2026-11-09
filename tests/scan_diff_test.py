@@ -1,0 +1,373 @@
+"""The diff actions review only what a branch adds, and fail closed.
+
+resolve_scan_base.py is run against real git repositories built here; the two
+run.sh scripts are run with a stand-in scanner that records its arguments, so
+no scanner is downloaded and no real-looking secret is written anywhere.
+"""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+RESOLVE = ROOT / "scripts/resolve_scan_base.py"
+GITLEAKS_RUN = ROOT / ".github/actions/gitleaks-diff/run.sh"
+FOXGUARD_RUN = ROOT / ".github/actions/foxguard-diff/run.sh"
+ZERO = "0" * 40
+
+
+def git(root, *args, **kw):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"})
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True, env=env, **kw).stdout.strip()
+
+
+def commit(root, message, **files):
+    for name, text in files.items():
+        path = Path(root) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if text is None:
+            git(root, "rm", "-q", name)
+        else:
+            path.write_text(text)
+            git(root, "add", name)
+    git(root, "commit", "-q", "--allow-empty", "-m", message)
+    return git(root, "rev-parse", "HEAD")
+
+
+class Fixture:
+    """An upstream with `main` and a feature branch, and a clone of the branch."""
+
+    def __init__(self, base):
+        self.src = Path(base) / "src"
+        self.src.mkdir()
+        git(self.src, "init", "-q", "-b", "main")
+        self.base = commit(self.src, "base", **{"README.md": "# fixture\n", "old.py": "x = 1\n"})
+        self.main2 = commit(self.src, "main moves", **{"later.txt": "on main after the branch\n"})
+        git(self.src, "checkout", "-q", "-b", "feature", self.base)
+        self.feature = commit(self.src, "feature", **{"new.py": "y = 2\n"})
+        git(self.src, "checkout", "-q", "main")
+        self.clone = Path(base) / "clone"
+        subprocess.run(["git", "clone", "-q", "--branch", "feature", str(self.src), str(self.clone)],
+                       check=True, capture_output=True)
+
+
+class ResolveBaseTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fx = Fixture(self.tmp.name)
+
+    def resolve(self, root=None, event=None, event_name="", base_ref=""):
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "BASE_REF"))}
+        env["BASE_REF"] = base_ref
+        env["GITHUB_EVENT_NAME"] = event_name
+        if event is not None:
+            path = Path(self.tmp.name) / "event.json"
+            path.write_text(json.dumps(event))
+            env["GITHUB_EVENT_PATH"] = str(path)
+        return subprocess.run(["python3", "-I", str(RESOLVE), str(root or self.fx.clone)],
+                              capture_output=True, text=True, env=env)
+
+    def assert_base(self, proc, sha):
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, sha + "\n")
+
+    def assert_refused(self, proc):
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.stdout, "")
+
+    def test_base_ref_commit_branch_and_origin_fallback(self):
+        # A sha, a branch only the remote has (the clone fetched one branch,
+        # so `main` is origin/main), and an explicit origin/ name.
+        self.assert_base(self.resolve(base_ref=self.fx.base), self.fx.base)
+        self.assert_base(self.resolve(base_ref="main"), self.fx.base)
+        self.assert_base(self.resolve(base_ref="origin/main"), self.fx.base)
+        # The merge base, not the branch tip: main moved after the branch.
+        self.assertNotEqual(self.fx.main2, self.fx.base)
+
+    def test_base_ref_that_is_not_a_commit_is_refused(self):
+        for ref in ("nosuch", "--all", "main HEAD", "a" * 40):
+            with self.subTest(ref=ref):
+                self.assert_refused(self.resolve(base_ref=ref))
+
+    def test_pull_request_event_uses_the_base_sha(self):
+        event = {"pull_request": {"base": {"sha": self.fx.base, "ref": "main"}}}
+        self.assert_base(self.resolve(event=event, event_name="pull_request"), self.fx.base)
+        self.assert_base(self.resolve(event=event, event_name="pull_request_target"), self.fx.base)
+
+    def test_pull_request_base_missing_or_malformed_is_refused(self):
+        self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": "f" * 40}}}, event_name="pull_request"))
+        self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": "main"}}}, event_name="pull_request"))
+        self.assert_refused(self.resolve(event={"pull_request": {}}, event_name="pull_request"))
+
+    def test_push_event_uses_before(self):
+        event = {"before": self.fx.base, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=event, event_name="push"), self.fx.base)
+
+    def test_push_of_a_new_branch_compares_with_the_default_branch(self):
+        event = {"before": ZERO, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=event, event_name="push"), self.fx.base)
+
+    def test_push_of_a_new_default_branch_is_refused(self):
+        event = {"before": ZERO, "ref": "refs/heads/main", "repository": {"default_branch": "main"}}
+        self.assert_refused(self.resolve(event=event, event_name="push"))
+        self.assert_refused(self.resolve(event={"before": ZERO, "ref": "refs/heads/x", "repository": {}}, event_name="push"))
+
+    def test_push_before_not_in_the_repository_is_refused(self):
+        # A force push: `before` is gone. Nothing is compared with a guess.
+        event = {"before": "e" * 40, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_refused(self.resolve(event=event, event_name="push"))
+        self.assert_refused(self.resolve(event={"before": "main", "ref": "refs/heads/feature"}, event_name="push"))
+
+    def test_other_events_and_no_event_are_refused(self):
+        self.assert_refused(self.resolve())
+        self.assert_refused(self.resolve(event={}, event_name="workflow_dispatch"))
+        self.assert_refused(self.resolve(event={"before": self.fx.base}, event_name="schedule"))
+        # A pull_request payload under another event name is not trusted.
+        self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": self.fx.base}}}, event_name="push"))
+
+    def test_empty_range_is_refused(self):
+        # HEAD is the base, or behind it: nothing to review is not a pass.
+        self.assert_refused(self.resolve(base_ref="HEAD"))
+        self.assert_refused(self.resolve(base_ref="feature"))
+        self.assert_refused(self.resolve(root=self.fx.src, base_ref=self.fx.main2))
+
+    def test_unrelated_history_and_no_work_tree_are_refused(self):
+        other = Path(self.tmp.name) / "other"
+        other.mkdir()
+        git(other, "init", "-q", "-b", "main")
+        lone = commit(other, "lone", **{"a.txt": "a\n"})
+        git(self.fx.clone, "fetch", "-q", str(other), "main")
+        self.assert_refused(self.resolve(base_ref=lone))
+        plain = Path(self.tmp.name) / "plain"
+        plain.mkdir()
+        self.assert_refused(self.resolve(root=plain, base_ref="main"))
+
+    def test_base_ref_wins_over_the_event(self):
+        event = {"pull_request": {"base": {"sha": self.fx.main2}}}
+        self.assert_base(self.resolve(event=event, event_name="pull_request", base_ref=self.fx.base), self.fx.base)
+
+
+class DiffRunTests(unittest.TestCase):
+    """Both run.sh scripts, with a stand-in scanner."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.fx = Fixture(base)
+        self.runner = base / "runner"
+        self.runner.mkdir()
+        self.workspace = base / "workspace"
+        self.workspace.mkdir()
+        self.canary = "PRIVATE" + "-SCANNER-DIAGNOSTICS"
+        self.called = base / "called"
+        # Records its arguments and any config handed to it, prints a canary
+        # on both streams, and behaves as the environment says.
+        self.stub = base / "scanner"
+        self.stub.write_text("""#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+record = {"args": args, "cwd": os.getcwd()}
+for flag in ("--config", "-c"):
+    if flag in args:
+        record["config"] = pathlib.Path(args[args.index(flag) + 1]).read_text()
+if "--gitleaks-ignore-path" in args:
+    record["ignore"] = pathlib.Path(args[args.index("--gitleaks-ignore-path") + 1]).read_text()
+pathlib.Path(os.environ["CALLED"]).write_text(json.dumps(record))
+print(os.environ["CANARY"])
+print(os.environ["CANARY"], file=sys.stderr)
+rc = int(os.environ.get("STUB_RC", "0"))
+if "--output" in args:
+    out = pathlib.Path(args[args.index("--output") + 1])
+    if os.environ.get("MALFORMED"):
+        out.write_text("{not json")
+    else:
+        total = int(os.environ.get("FINDINGS", "0"))
+        out.write_text(json.dumps({
+            "scanner": {"name": "foxguard", "version": "0.0.0"},
+            "finding_counts": {"total": total},
+            "findings": [{"rule_id": "stub/rule", "file": "new.py"}] * total,
+            "target": {"files_scanned": int(os.environ.get("FILES", "1")),
+                       "diff_base": os.environ.get("DIFF_BASE", args[1])},
+        }))
+        if total and rc == 0:
+            rc = 1
+if os.environ.get("STUB_SAY"):
+    print(os.environ["STUB_SAY"])
+sys.exit(rc)
+""")
+        self.stub.chmod(0o700)
+        # security_notice vets the branch text with the credential scanner
+        # before printing it; the runner has none, so one that passes stands in.
+        checker = base / "metadata-checker"
+        checker.write_bytes(b"#!/bin/sh\nexit 0\n")
+        checker.chmod(0o700)
+        self.env = {
+            **{k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_"))},
+            "CI": "true", "RUNNER_TEMP": str(self.runner), "GITHUB_WORKSPACE": str(self.workspace),
+            "GITLEAKS_BIN": str(checker), "GL_BIN": str(self.stub), "FG_BIN": str(self.stub),
+            "CANARY": self.canary, "CALLED": str(self.called),
+            "SCAN_PATH": str(self.fx.clone), "BASE_REF": "origin/main",
+            "GITHUB_HEAD_REF": "fixture-branch", "GITHUB_EVENT_PATH": "", "GITHUB_EVENT_NAME": "",
+        }
+
+    def run_script(self, script, expected, **changes):
+        if self.called.exists():
+            self.called.unlink()
+        env = {**self.env, **changes}
+        proc = subprocess.run(["bash", str(script)], cwd=self.workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
+        self.assertNotIn(self.canary, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        if expected == 0:
+            self.assertEqual(proc.stderr, "")
+        else:
+            lines = proc.stderr.splitlines()
+            self.assertEqual(len(lines), 4, proc.stderr)
+            self.assertIn(lines[0], ("Gitleaks check failed.", "Foxguard check failed."))
+            self.assertEqual(lines[1], "Branch: fixture-branch")
+            self.assertIn("https://nikolareljin.github.io/leak-lock/", lines[2])
+        # Nothing of the scan survives in RUNNER_TEMP or the work tree.
+        self.assertEqual(sorted(self.runner.iterdir()), [])
+        self.assertEqual(git(self.fx.clone, "status", "--porcelain"), "")
+        return proc
+
+    def record(self):
+        return json.loads(self.called.read_text()) if self.called.exists() else None
+
+    # gitleaks-diff
+
+    def test_gitleaks_scans_the_reviewed_range_only(self):
+        self.run_script(GITLEAKS_RUN, 0)
+        args = self.record()["args"]
+        self.assertEqual(args[0], "git")
+        self.assertIn("--log-opts=%s..HEAD" % self.fx.base, args)
+        self.assertEqual(args[-1], str(self.fx.clone))
+        for flag in ("--redact", "--no-banner", "--no-color", "--ignore-gitleaks-allow", "--exit-code", "3"):
+            self.assertIn(flag, args)
+        self.assertNotIn("detect", args)
+        self.assertNotIn("--no-git", args)
+
+    def test_gitleaks_findings_and_errors_fail_without_diagnostics(self):
+        self.run_script(GITLEAKS_RUN, 1, STUB_RC="3")
+        self.run_script(GITLEAKS_RUN, 1, STUB_RC="2")
+        self.run_script(GITLEAKS_RUN, 1, STUB_SAY="ERR git error encountered")
+
+    def test_gitleaks_config_comes_from_the_base_not_the_branch(self):
+        # The branch adds an allow-everything config and an ignore list; the
+        # scan must not read either.
+        commit(self.fx.clone, "silence", **{
+            ".gitleaks.toml": '[allowlist]\npaths = [".*"]\n',
+            ".gitleaksignore": "fingerprint-of-the-new-secret\n",
+        })
+        self.run_script(GITLEAKS_RUN, 0)
+        rec = self.record()
+        self.assertEqual(rec["config"], "[extend]\nuseDefault = true\n")
+        self.assertEqual(rec["ignore"], "")
+        # Named explicitly, a config the base does not hold is refused.
+        self.run_script(GITLEAKS_RUN, 1, CONFIG_PATH=".gitleaks.toml")
+        self.assertIsNone(self.record())
+
+    def test_gitleaks_config_on_the_base_is_used(self):
+        git(self.fx.src, "checkout", "-q", "main")
+        commit(self.fx.src, "reviewed config", **{".gitleaks.toml": '[extend]\nuseDefault = true\n[allowlist]\npaths = ["docs/.*"]\n'})
+        reviewed = git(self.fx.src, "rev-parse", "HEAD")
+        git(self.fx.clone, "fetch", "-q", "origin")
+        # The branch is rebased on the new base so the merge base carries it.
+        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(GITLEAKS_RUN, 0)
+        rec = self.record()
+        self.assertIn('paths = ["docs/.*"]', rec["config"])
+        self.assertIn("--log-opts=%s..HEAD" % reviewed, rec["args"])
+
+    def test_gitleaks_refuses_without_a_base(self):
+        self.run_script(GITLEAKS_RUN, 1, BASE_REF="nosuch")
+        self.assertIsNone(self.record())
+        self.run_script(GITLEAKS_RUN, 1, BASE_REF="")
+        self.assertIsNone(self.record())
+        self.run_script(GITLEAKS_RUN, 1, BASE_REF="HEAD")
+        self.assertIsNone(self.record())
+
+    def test_gitleaks_refuses_a_disabled_or_missing_scanner(self):
+        self.run_script(GITLEAKS_RUN, 1, FAIL_ON_FINDINGS="false")
+        self.assertIsNone(self.record())
+        self.run_script(GITLEAKS_RUN, 1, GL_BIN=str(self.workspace / "absent"))
+        self.run_script(GITLEAKS_RUN, 1, SCAN_PATH=str(self.workspace / "absent"))
+        plain = Path(self.tmp.name) / "plain"
+        plain.mkdir()
+        self.run_script(GITLEAKS_RUN, 1, SCAN_PATH=str(plain))
+        self.assertIsNone(self.record())
+
+    # foxguard-diff
+
+    def test_foxguard_diffs_against_the_merge_base(self):
+        self.run_script(FOXGUARD_RUN, 0)
+        args = self.record()["args"]
+        self.assertEqual(args[:2], ["diff", self.fx.base])
+        self.assertEqual(args[-1], str(self.fx.clone))
+        self.assertIn("--config", args)
+        self.assertIn("json", args)
+        self.assertEqual(args[args.index("-s") + 1], "medium")
+        self.assertEqual(self.record()["config"], "")
+
+    def test_foxguard_severity_is_passed_and_validated(self):
+        self.run_script(FOXGUARD_RUN, 0, SEVERITY="HIGH")
+        self.assertEqual(self.record()["args"][self.record()["args"].index("-s") + 1], "high")
+        self.run_script(FOXGUARD_RUN, 1, SEVERITY="loud")
+        self.assertIsNone(self.record())
+
+    def test_foxguard_new_findings_and_errors_fail_without_diagnostics(self):
+        self.run_script(FOXGUARD_RUN, 1, FINDINGS="1")
+        self.run_script(FOXGUARD_RUN, 1, STUB_RC="2")
+        self.run_script(FOXGUARD_RUN, 1, MALFORMED="1")
+        # A report of nothing read, or of another base than the one asked for.
+        self.run_script(FOXGUARD_RUN, 1, FILES="0")
+        self.run_script(FOXGUARD_RUN, 1, DIFF_BASE="main")
+
+    def test_foxguard_config_comes_from_the_base_not_the_branch(self):
+        commit(self.fx.clone, "silence", **{".foxguard.yml": "scan:\n  ignore_rules:\n    - id: py/no-command-injection\n"})
+        self.run_script(FOXGUARD_RUN, 0)
+        self.assertEqual(self.record()["config"], "")
+        self.run_script(FOXGUARD_RUN, 1, CONFIG_PATH=".foxguard.yml")
+        self.assertIsNone(self.record())
+
+    def test_foxguard_config_on_the_base_is_used_and_removed_after(self):
+        git(self.fx.src, "checkout", "-q", "main")
+        commit(self.fx.src, "reviewed config", **{".foxguard.yml": "scan:\n  exclude_paths:\n    - docs\n"})
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(FOXGUARD_RUN, 0)
+        rec = self.record()
+        self.assertIn("exclude_paths", rec["config"])
+        # Placed beside the caller's config, under a temporary name, and gone.
+        config_arg = rec["args"][rec["args"].index("--config") + 1]
+        self.assertEqual(str(Path(config_arg).parent), str(self.fx.clone))
+        self.assertFalse(Path(config_arg).exists())
+        # A baseline entry at the base would let old findings hide new ones.
+        commit(self.fx.src, "baseline", **{".foxguard.yml": "scan:\n  baseline: findings.json\n"})
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(FOXGUARD_RUN, 1)
+        self.assertIsNone(self.record())
+
+    def test_foxguard_refuses_without_a_base(self):
+        self.run_script(FOXGUARD_RUN, 1, BASE_REF="nosuch")
+        self.assertIsNone(self.record())
+        self.run_script(FOXGUARD_RUN, 1, BASE_REF="")
+        self.assertIsNone(self.record())
+
+    def test_foxguard_refuses_a_disabled_or_missing_scanner(self):
+        self.run_script(FOXGUARD_RUN, 1, FAIL_ON_FINDINGS="false")
+        self.assertIsNone(self.record())
+        self.run_script(FOXGUARD_RUN, 1, FG_BIN=str(self.workspace / "absent"))
+        self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(self.workspace / "absent"))
+
+
+if __name__ == "__main__":
+    unittest.main()

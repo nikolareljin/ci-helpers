@@ -57,7 +57,10 @@ except ImportError:  # pragma: no cover
     print("PyYAML is required", file=sys.stderr)
     sys.exit(2)
 
-SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"}
+SCAN_WORKFLOWS = {
+    "codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml",
+    "gitleaks-new-findings.yml", "foxguard-new-findings.yml", "scan-new-findings.yml",
+}
 
 # `uses:` an action here may name without a finding. A local path and this
 # library at any owner are fine; so are GitHub's own actions.
@@ -258,7 +261,10 @@ def main() -> int:
         p for p in (root / ".github/workflows").glob("*.yml")
         if p.name.endswith("-scan.yml") or p.name in SCAN_WORKFLOWS
     )
-    actions = sorted((root / ".github/actions").glob("*-scan/action.yml"))
+    actions = sorted(
+        list((root / ".github/actions").glob("*-scan/action.yml"))
+        + list((root / ".github/actions").glob("*-diff/action.yml"))
+    )
     if not workflows and not actions and not any((root / ".github").glob("**/*.yml")):
         print(f"no scan workflow or action under {root}", file=sys.stderr)
         return 2

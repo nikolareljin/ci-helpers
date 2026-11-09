@@ -1,4 +1,4 @@
-![ci-helpers - shared GitHub Actions workflows for CI/CD. 77 reusable workflows, 28 stack presets, 12 actions.](docs/assets/hero.svg)
+![ci-helpers - shared GitHub Actions workflows for CI/CD. 80 reusable workflows, 28 stack presets, 14 actions.](docs/assets/hero.svg)
 
 [![Latest Release](https://img.shields.io/github/v/release/nikolareljin/ci-helpers?style=flat-square&logo=github&color=2ea44f&label=release)](https://github.com/nikolareljin/ci-helpers/releases/latest)
 [![License](https://img.shields.io/github/license/nikolareljin/ci-helpers?style=flat-square)](LICENSE)
@@ -13,7 +13,7 @@ Consumers pin workflows via the floating `@production` tag; see [Releases](https
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Reusable workflows for release builds (generic, Rust, and Tauri desktop).
-- Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy), and language scans.
+- Reusable scan workflows for Gitleaks, Foxguard, Trivy, Docker (Trivy), and language scans, with diff mode that fails a pull request only on what it adds.
 - Composite actions for semver comparison and release tag checks.
 - Composite actions for Trivy, Gitleaks, Foxguard, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519, Authenticode with a `.pfx`, or Azure Artifact Signing; see [Windows signing](docs/windows-signing.md)).
@@ -100,6 +100,9 @@ jobs:
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/foxguard-scan.yml`: reusable Foxguard static-analysis workflow
+- `.github/workflows/gitleaks-new-findings.yml`: fail only on secrets the commits under review add
+- `.github/workflows/foxguard-new-findings.yml`: fail only on Foxguard findings the review adds
+- `.github/workflows/scan-new-findings.yml`: both of the above as parallel jobs; `tools` picks one or both
 - `.github/workflows/wp-plugin-check.yml`: reusable WordPress plugin-check workflow
 - `.github/workflows/wp-phpunit.yml`: WordPress plugin PHPUnit against the WordPress test library
 - `.github/workflows/wp-build.yml`: WordPress plugin release zip (production dependencies, assets, `.distignore`)
@@ -136,6 +139,8 @@ jobs:
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/foxguard-scan`: composite action for Foxguard static analysis
+- `.github/actions/gitleaks-diff`: composite action, Gitleaks over the commits under review only
+- `.github/actions/foxguard-diff`: composite action, Foxguard findings the review adds only
 - `.github/actions/publication-guard`: mandatory outbound Git checks for writer jobs.
 - `.github/actions/publication-check`: validate artifact and release payloads before upload.
 - `.github/actions/wp-plugin-check`: composite action for WordPress plugin-check

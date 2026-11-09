@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# SCRIPT: scan_diff_fixture.sh
+# DESCRIPTION: Build the repositories the diff-scan self-tests run against.
+#              Everything is generated when this runs: the keys come from
+#              openssl, so no real-looking secret is committed to this tree
+#              and none is on anyone's list of known example values.
+#              `src` holds `main` (a clean README, one command injection and
+#              one private key, both old) and one branch per case; each branch
+#              is also cloned into <dir>/<branch>, where `main` is only
+#              `origin/main`, as in a caller's checkout.
+# USAGE: bash tests/scan_diff_fixture.sh <dir>
+# PARAMETERS:
+#   <dir>  Empty or absent directory to build in.
+# BRANCHES:
+#   clean          adds a clean file: both diffs pass, both full scans fail
+#   new-secret     adds a key: gitleaks-diff fails, foxguard-diff passes
+#   new-shell      adds shell=True: foxguard-diff fails, gitleaks-diff passes
+#   moved          moves the old command injection down: foxguard-diff passes
+#   added-removed  adds a key then removes it: gitleaks-diff fails
+#   both           adds a key and shell=True: both diffs fail
+#   head-config    adds configs that would silence both, plus both findings:
+#                  both diffs fail (the configs are read from the base)
+# EXIT CODES:
+#   0  Built.
+#   1  git or openssl failed.
+#   2  Usage error.
+# ----------------------------------------------------
+set -euo pipefail
+umask 077
+
+dir="${1:-}"
+[[ -n "$dir" ]] || { echo "usage: $0 <dir>" >&2; exit 2; }
+if [[ -e "$dir" && -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
+  echo "$dir is not empty" >&2; exit 2
+fi
+mkdir -p "$dir"
+dir="$(cd "$dir" && pwd -P)"
+src="$dir/src"
+
+# Identity for the fixture commits only; the caller's git config is not read.
+export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+
+g() { git -C "$src" "$@"; }
+injection() { printf 'import subprocess\nimport sys\n\nsubprocess.run(sys.argv[1], shell=True)\n' > "$src/$1"; }
+key() { openssl genrsa -out "$src/$1" 2048 2>/dev/null; }
+branch() { g checkout -q main; g checkout -q -b "$1"; }
+
+git init -q -b main "$src"
+echo "# fixture" > "$src/README.md"
+injection old.py
+key old_key.pem
+g add -A; g commit -q -m "base: one old finding of each kind"
+
+branch clean
+echo "x = 1" > "$src/clean.py"
+g add -A; g commit -q -m "a clean file"
+
+branch new-secret
+key new_key.pem
+g add -A; g commit -q -m "a new key"
+
+branch new-shell
+injection handler.py
+g add -A; g commit -q -m "a new command injection"
+
+branch moved
+printf '# header\n# more\n\n' | cat - "$src/old.py" > "$src/old.py.new" && mv "$src/old.py.new" "$src/old.py"
+g add -A; g commit -q -m "the old finding moves down three lines"
+
+branch added-removed
+key temp_key.pem
+g add -A; g commit -q -m "a key, briefly"
+g rm -q temp_key.pem
+g commit -q -m "the key removed again"
+
+branch both
+key new_key.pem
+injection handler.py
+g add -A; g commit -q -m "a new key and a new command injection"
+
+branch head-config
+printf '[allowlist]\npaths = [".*"]\n' > "$src/.gitleaks.toml"
+printf 'scan:\n  ignore_rules:\n    - id: py/no-command-injection\n' > "$src/.foxguard.yml"
+key new_key.pem
+injection handler.py
+g add -A; g commit -q -m "configs that would silence both, and both"
+
+g checkout -q main
+for b in clean new-secret new-shell moved added-removed both head-config; do
+  git clone -q --branch "$b" "$src" "$dir/$b"
+done
+echo "scan-diff fixture at $dir"

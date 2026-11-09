@@ -1,0 +1,100 @@
+name: gitleaks-new-findings
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      base_ref:
+        description: >
+          Commit or branch the review starts from. Empty: the pull request's
+          base commit, or a push's `before` (a new branch is compared with the
+          default branch). A base that cannot be resolved fails the run.
+        type: string
+        default: ""
+      scan_path:
+        description: Path inside the repository to review; the scan reads the commits the review adds, so a subdirectory does not narrow it
+        type: string
+        default: "."
+      config_path:
+        description: Optional path to a .gitleaks.toml config file (relative to repo root), read from the base commit
+        type: string
+        default: ""
+      gitleaks_version:
+        description: >
+          Gitleaks release tag to download (e.g. "v8.30.1"). Pin this explicitly
+          for reproducible scans and supply-chain safety.
+        type: string
+        default: "v8.30.1"
+      gitleaks_sha256:
+        description: >
+          sha256 of the release archive for the runner, required with a
+          gitleaks_version other than v8.30.1, whose digests are pinned; a different
+          digest for that version is refused.
+        type: string
+        default: ""
+      fail_on_findings:
+        description: Mandatory enforcement; false is refused
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Opt into Node.js 24 early: Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      # The caller's repository goes under `repo/`, beside the library checkout
+      # below and never containing it. Full history: the review needs the base
+      # commit and every commit between it and HEAD.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          path: repo
+
+      # The library's own action, at the commit of this workflow file. A
+      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
+      # is today, even for a caller pinned to a SHA; `./.github/actions` would
+      # resolve in the caller's checkout, so the action is checked out beside it.
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            .github/actions
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      - name: Gitleaks on the commits under review
+        uses: ./.ci-helpers-actions/.github/actions/gitleaks-diff
+        with:
+          base_ref: ${{ inputs.base_ref }}
+          scan_path: repo/${{ inputs.scan_path }}
+          config_path: ${{ inputs.config_path }}
+          gitleaks_version: ${{ inputs.gitleaks_version }}
+          gitleaks_sha256: ${{ inputs.gitleaks_sha256 }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}

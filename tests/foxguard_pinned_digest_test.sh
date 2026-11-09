@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# foxguard-scan's install step with curl and uname stubbed: the binary is
-# checked against a digest held in the action, never a checksums file from
-# the release. A version without a pinned digest needs foxguard_sha256.
+# foxguard-scan's install step (scripts/install_foxguard.sh) with curl and
+# uname stubbed: the binary is checked against a digest held in
+# scanner-pins.env, never a checksums file from the release. A version without a pinned digest needs foxguard_sha256.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,14 +39,34 @@ run_step() {  # $1 = version, $2 = foxguard_sha256
   : > "$work/calls"; : > "$work/out"
   env PATH="$work/bin:$PATH" CALLS="$work/calls" FAKE="$work/fake" \
     STUB_OS="${STUB_OS:-Linux}" STUB_ARCH="${STUB_ARCH:-x86_64}" \
-    RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/out" \
+    RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/out" ACTION_PATH="$(dirname "$ACTION")" \
     FOXGUARD_VERSION="$1" FOXGUARD_SHA256="$2" bash "$work/step.sh" 2>&1
 }
 
 fail=0
-for asset in linux-x86_64 linux-aarch64 macos-x86_64 macos-aarch64 windows-x86_64.exe; do
-  grep -q "${default}/foxguard-${asset})" "$ACTION" \
-    || { echo "FAIL: default $default has no pinned digest for foxguard-${asset}"; fail=1; }
+ver="${default#v}"
+# The digests live in scanner-pins.env, for the version the input defaults to.
+# Both files name the version, so this is what keeps them equal.
+pins="$ROOT_DIR/scanner-pins.env"
+pinned_ver="$(awk -F= '$1 == "FOXGUARD_VERSION" { print $2 }' "$pins")"
+[[ "$pinned_ver" == "$ver" ]] \
+  || { echo "FAIL: foxguard_version defaults to $default but scanner-pins.env pins FOXGUARD_VERSION=$pinned_ver"; fail=1; }
+for wf in foxguard-scan.yml foxguard-new-findings.yml scan-new-findings.yml; do
+  wf_default="$(python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); print((d.get(True) or d.get("on"))["workflow_call"]["inputs"]["foxguard_version"]["default"])' "$ROOT_DIR/.github/workflows/$wf")"
+  [[ "$wf_default" == "$default" ]] \
+    || { echo "FAIL: $wf defaults foxguard_version to $wf_default, the action to $default"; fail=1; }
+done
+diff_default="$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["inputs"]["foxguard_version"]["default"])' "$ROOT_DIR/.github/actions/foxguard-diff/action.yml")"
+[[ "$diff_default" == "$default" ]] \
+  || { echo "FAIL: foxguard-diff defaults foxguard_version to $diff_default, foxguard-scan to $default"; fail=1; }
+for key in LINUX_X86_64 LINUX_AARCH64 MACOS_X86_64 MACOS_AARCH64 WINDOWS_X86_64; do
+  sha="$(awk -F= -v k="FOXGUARD_SHA256_$key" '$1 == k { print $2 }' "$pins")"
+  [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL: FOXGUARD_SHA256_$key in scanner-pins.env is '$sha'"; fail=1; }
+done
+for action in foxguard-scan foxguard-diff; do
+  if grep -q 'pinned=[0-9a-f]\{64\}' "$ROOT_DIR/.github/actions/$action/action.yml"; then
+    echo "FAIL: $action still carries a digest of its own; scanner-pins.env is the one place"; fail=1
+  fi
 done
 
 rc=0; out="$(run_step "$default" "")" || rc=$?
@@ -68,7 +88,7 @@ grep -q "No pinned sha256 for v0.15.0" <<<"$out" || { echo "FAIL: other version 
 
 # A pinned version keeps its pinned digest: foxguard_sha256 may repeat it, not
 # replace it, so a caller cannot swap in another binary under the pinned tag.
-pinned_sha="$(sed -n "s/.*foxguard-linux-x86_64) *pinned=\([0-9a-f]*\).*/\1/p" "$ACTION" | head -n1)"
+pinned_sha="$(awk -F= '$1 == "FOXGUARD_SHA256_LINUX_X86_64" { print $2 }' "$pins")"
 rc=0; out="$(run_step "$default" "$fake_sha")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: foxguard_sha256 overrode the pinned digest of $default"; fail=1; fi
 grep -q "differs from the digest pinned" <<<"$out" || { echo "FAIL: override not named: $out"; fail=1; }

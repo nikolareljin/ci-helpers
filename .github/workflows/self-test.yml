@@ -881,6 +881,26 @@ jobs:
     with:
       scan_path: tests/fixtures/foxguard-clean
 
+  # The diff workflows review this repository's own pull request: the base
+  # is the PR's base commit, or `before` on a push to main. On a manual run
+  # of this suite there is no event base and the run would be refused, so
+  # the last commit alone is reviewed. `*-diff-refuses-what-it-must` below
+  # drive the actions on planted fixtures.
+  gitleaks-new-findings-defaults-can-pass:
+    uses: ./.github/workflows/gitleaks-new-findings.yml
+    with:
+      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+
+  foxguard-new-findings-defaults-can-pass:
+    uses: ./.github/workflows/foxguard-new-findings.yml
+    with:
+      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+
+  scan-new-findings-defaults-can-pass:
+    uses: ./.github/workflows/scan-new-findings.yml
+    with:
+      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+
   # tauri-release.yml runs its signing actions from a checkout of the library
   # at job.workflow_sha, on macOS and Windows runners, and needs signing
   # credentials, so no leg runs it. These are the same four steps with an
@@ -1176,6 +1196,274 @@ jobs:
             exit 1
           fi
           echo "foxguard $got on $RUNNER_OS/$RUNNER_ARCH"
+
+  # The diff actions on repositories built at run time (tests/scan_diff_fixture.sh):
+  # a base with one old key and one old command injection, and a branch per
+  # case. Each case names its own base_ref: the suite's own event is a pull
+  # request of this repository, whose base commit is not in the fixture.
+  gitleaks-diff-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Repositories with generated keys, nothing committed here
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/scan_diff_fixture.sh "${RUNNER_TEMP}/fixture"
+          echo "FIXTURE=${RUNNER_TEMP}/fixture" >> "$GITHUB_ENV"
+
+      - name: A clean branch passes (the old key on the base is not reported)
+        id: clean
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean
+          base_ref: main
+
+      - name: A new command injection is not gitleaks' to report
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/new-shell
+          base_ref: main
+
+      - name: A new key fails
+        id: new_secret
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/new-secret
+          base_ref: main
+
+      - name: A key added then removed inside the review fails
+        id: added_removed
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/added-removed
+          base_ref: main
+
+      - name: A config the branch adds does not silence it
+        id: head_config
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/head-config
+          base_ref: main
+
+      - name: A base that is not there fails, it does not pass
+        id: no_base
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean
+          base_ref: nosuch-branch
+
+      # The same content the diff passed fails the full scan: the old key is
+      # in the tree. Outside a work tree so the full scan reads the files,
+      # not this repository's pull request event.
+      - name: The old key fails the full scan of the same content
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${FIXTURE}/clean-export"
+          git -C "${FIXTURE}/clean" archive HEAD | tar -x -C "${FIXTURE}/clean-export"
+      - id: full_scan
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-scan
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean-export
+
+      - name: Every verdict is the expected one
+        shell: bash
+        env:
+          NEW_SECRET: ${{ steps.new_secret.outcome }}
+          ADDED_REMOVED: ${{ steps.added_removed.outcome }}
+          HEAD_CONFIG: ${{ steps.head_config.outcome }}
+          NO_BASE: ${{ steps.no_base.outcome }}
+          FULL_SCAN: ${{ steps.full_scan.outcome }}
+        run: |
+          set -euo pipefail
+          bad=0
+          for pair in "new key:$NEW_SECRET" "key added then removed:$ADDED_REMOVED" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old key:$FULL_SCAN"; do
+            [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
+          done
+          exit "$bad"
+
+      # The job cannot read its own step log, so the action's script is run
+      # once more on the failing case with the verified binary, its output
+      # kept in a private file and checked, then deleted. The check is then
+      # shown to fire on a log that does name the finding.
+      - name: The failure names the tool and the branch, nothing of the finding
+        shell: bash
+        env:
+          GL_BIN: ${{ steps.clean.outputs.gl_bin }}
+          GITLEAKS_BIN: ${{ steps.clean.outputs.gl_bin }}
+          SCAN_PATH: ${{ env.FIXTURE }}/both
+          BASE_REF: main
+          ACTION_PATH: ${{ github.workspace }}/.github/actions/gitleaks-diff
+        run: |
+          set -euo pipefail
+          umask 077
+          log="$(mktemp "$RUNNER_TEMP/gitleaks-log.XXXXXX")"
+          forbidden="$(mktemp "$RUNNER_TEMP/forbidden.XXXXXX")"
+          # Fixture root, file names, rule ids, key material (every line of
+          # the planted key but the BEGIN/END markers), counts.
+          {
+            echo "$FIXTURE"; echo new_key; echo old_key; echo handler.py; echo old.py
+            echo private-key; echo no-command-injection; echo CWE; echo "leaks found"
+            echo subprocess; echo shell=True
+            grep -v -- '-----' "$SCAN_PATH/new_key.pem"
+          } > "$forbidden"
+          check() {  # $1 = log; exits 1 when the log names the finding
+            local hits
+            hits="$(grep -c -F -f "$forbidden" "$1" || true)"
+            [[ "$hits" -eq 0 ]]
+          }
+          rc=0
+          bash "$ACTION_PATH/run.sh" > "$log" 2>&1 || rc=$?
+          bad=0
+          [[ "$rc" -eq 1 ]] || { echo "::error::run.sh exited $rc, expected 1"; bad=1; }
+          grep -q '^Gitleaks check failed\.$' "$log" || { echo "::error::the failure does not name the tool"; bad=1; }
+          grep -q 'https://nikolareljin.github.io/leak-lock/' "$log" || { echo "::error::the failure does not link Leak-Lock"; bad=1; }
+          grep -q 'run Scan Repository' "$log" || { echo "::error::the failure does not say what to run"; bad=1; }
+          grep -q -E '^Branch: ' "$log" || { echo "::error::the failure does not name the branch"; bad=1; }
+          check "$log" || { echo "::error::the failure log names the finding"; bad=1; }
+          [[ "$(wc -l < "$log")" -eq 4 ]] || { echo "::error::expected the four notice lines, got $(wc -l < "$log")"; bad=1; }
+          # The check fires: a log with one line of the key in it is refused.
+          planted="$(mktemp "$RUNNER_TEMP/planted-log.XXXXXX")"
+          { cat "$log"; sed -n 2p "$SCAN_PATH/new_key.pem"; } > "$planted"
+          if check "$planted"; then echo "::error::the log check passed a log holding key material"; bad=1; fi
+          { cat "$log"; echo "Finding: private-key in new_key.pem"; } > "$planted"
+          if check "$planted"; then echo "::error::the log check passed a log naming the rule and file"; bad=1; fi
+          rm -f "$log" "$planted" "$forbidden"
+          exit "$bad"
+
+  foxguard-diff-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Repositories with planted command injections, nothing committed here
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/scan_diff_fixture.sh "${RUNNER_TEMP}/fixture"
+          echo "FIXTURE=${RUNNER_TEMP}/fixture" >> "$GITHUB_ENV"
+
+      - name: A clean branch passes (the old finding on the base is not reported)
+        id: clean
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean
+          base_ref: main
+
+      - name: A new key is not foxguard's to report
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/new-secret
+          base_ref: main
+
+      - name: The old finding moving down the file is not new
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/moved
+          base_ref: main
+
+      - name: A new command injection fails
+        id: new_shell
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/new-shell
+          base_ref: main
+
+      - name: A config the branch adds does not silence it
+        id: head_config
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/head-config
+          base_ref: main
+
+      - name: A base that is not there fails, it does not pass
+        id: no_base
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean
+          base_ref: nosuch-branch
+
+      - name: The old finding fails the full scan of the same content
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${FIXTURE}/clean-export"
+          git -C "${FIXTURE}/clean" archive HEAD | tar -x -C "${FIXTURE}/clean-export"
+      - id: full_scan
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-scan
+        with:
+          scan_path: ${{ env.FIXTURE }}/clean-export
+
+      - name: Every verdict is the expected one
+        shell: bash
+        env:
+          NEW_SHELL: ${{ steps.new_shell.outcome }}
+          HEAD_CONFIG: ${{ steps.head_config.outcome }}
+          NO_BASE: ${{ steps.no_base.outcome }}
+          FULL_SCAN: ${{ steps.full_scan.outcome }}
+        run: |
+          set -euo pipefail
+          bad=0
+          for pair in "new command injection:$NEW_SHELL" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+            [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
+          done
+          exit "$bad"
+
+      - name: The failure names the tool and the branch, nothing of the finding
+        shell: bash
+        env:
+          FG_BIN: ${{ steps.clean.outputs.fg_bin }}
+          SCAN_PATH: ${{ env.FIXTURE }}/both
+          BASE_REF: main
+          ACTION_PATH: ${{ github.workspace }}/.github/actions/foxguard-diff
+        run: |
+          set -euo pipefail
+          umask 077
+          log="$(mktemp "$RUNNER_TEMP/foxguard-log.XXXXXX")"
+          forbidden="$(mktemp "$RUNNER_TEMP/forbidden.XXXXXX")"
+          {
+            echo "$FIXTURE"; echo new_key; echo old_key; echo handler.py; echo old.py
+            echo private-key; echo no-command-injection; echo CWE; echo "new issue"
+            echo subprocess; echo shell=True
+            grep -v -- '-----' "$SCAN_PATH/new_key.pem"
+          } > "$forbidden"
+          check() {  # $1 = log; exits 1 when the log names the finding
+            local hits
+            hits="$(grep -c -F -f "$forbidden" "$1" || true)"
+            [[ "$hits" -eq 0 ]]
+          }
+          rc=0
+          bash "$ACTION_PATH/run.sh" > "$log" 2>&1 || rc=$?
+          bad=0
+          [[ "$rc" -eq 1 ]] || { echo "::error::run.sh exited $rc, expected 1"; bad=1; }
+          grep -q '^Foxguard check failed\.$' "$log" || { echo "::error::the failure does not name the tool"; bad=1; }
+          grep -q 'https://nikolareljin.github.io/leak-lock/' "$log" || { echo "::error::the failure does not link Leak-Lock"; bad=1; }
+          grep -q 'run Scan Repository' "$log" || { echo "::error::the failure does not say what to run"; bad=1; }
+          grep -q -E '^Branch: ' "$log" || { echo "::error::the failure does not name the branch"; bad=1; }
+          check "$log" || { echo "::error::the failure log names the finding"; bad=1; }
+          [[ "$(wc -l < "$log")" -eq 4 ]] || { echo "::error::expected the four notice lines, got $(wc -l < "$log")"; bad=1; }
+          planted="$(mktemp "$RUNNER_TEMP/planted-log.XXXXXX")"
+          { cat "$log"; echo "handler.py:4 py/no-command-injection"; } > "$planted"
+          if check "$planted"; then echo "::error::the log check passed a log naming the rule and file"; bad=1; fi
+          rm -f "$log" "$planted" "$forbidden"
+          exit "$bad"
 
   foxguard-refuses-what-it-must:
     runs-on: ubuntu-latest
@@ -1735,6 +2023,11 @@ jobs:
       - foxguard-scan-defaults-can-pass
       - foxguard-refuses-what-it-must
       - foxguard-pins-match-each-platform
+      - gitleaks-new-findings-defaults-can-pass
+      - foxguard-new-findings-defaults-can-pass
+      - scan-new-findings-defaults-can-pass
+      - gitleaks-diff-refuses-what-it-must
+      - foxguard-diff-refuses-what-it-must
       - trivy-scan-defaults-can-pass
       - trivy-refuses-what-it-must
       - trivy-finds-misconfiguration

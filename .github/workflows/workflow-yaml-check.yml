@@ -262,6 +262,14 @@ jobs:
         shell: bash
         run: bash tests/foxguard_pinned_digest_test.sh
 
+      - name: The diff actions review only what a branch adds, and fail closed
+        shell: bash
+        run: bash tests/scan_diff_test.sh
+
+      - name: scan-new-findings reads its tools input before any download
+        shell: bash
+        run: bash tests/scan_tools_test.sh
+
       - name: install_trivy checks the digest pinned here and refuses the rest
         shell: bash
         run: bash tests/install_trivy_test.sh

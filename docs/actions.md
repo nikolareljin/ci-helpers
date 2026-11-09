@@ -188,7 +188,7 @@ Inputs:
 - `config_path` (default `""`) - foxguard config file, relative to the scanned repository; read from the pull request's base commit
 - `fail_on_findings` (default `"true"`) - `false` is refused
 - `foxguard_version` (default `v0.14.1`)
-- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in the action; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
 
 Requires `actions/checkout` with `fetch-depth: 0` on pull requests: the action reads the config from the base commit and refuses the scan when that commit is missing.
 
@@ -242,6 +242,77 @@ Example:
     scan_path: "."
     severity: medium
 ```
+
+## gitleaks-diff
+
+Path: `.github/actions/gitleaks-diff`
+
+Purpose: Fail on secrets the commits under review add, without exporting scanner results.
+
+Inputs:
+
+- `base_ref` (default `""`) - commit, branch or `origin/` branch the review starts from; empty reads the pull request's base commit or a push's `before` (a new branch is compared with the default branch)
+- `scan_path` (default `"."`) - a path inside the git work tree; the scan reads commits, so a subdirectory does not narrow it
+- `config_path` (default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
+- `gitleaks_version` (default `v8.30.1`)
+- `gitleaks_sha256` (default `""`) - required with any version other than `v8.30.1`, whose digests are pinned in `scanner-pins.env`; with `v8.30.1` it may only repeat the pinned digest
+- `fail_on_findings` (default `"true"`) - `false` is refused
+
+Requires `actions/checkout` with `fetch-depth: 0`: the base commit and every
+commit between it and `HEAD` must be present.
+
+Outputs:
+
+- `gl_bin`: path of the gitleaks binary the action downloaded and verified.
+
+Notes:
+
+- The binary is installed by `scripts/install_gitleaks.sh`, the installer
+  `gitleaks-scan` uses, against the digest in `scanner-pins.env`.
+- `scripts/resolve_scan_base.py` finds the base and prints the merge base of
+  it and `HEAD`; the scan is `gitleaks git --log-opts=<merge-base>..HEAD`.
+  No base, a base that is not in the repository, no merge base or an empty
+  range fails the step. Rules and `.gitleaksignore` are read from the merge
+  base, never from the tree under review.
+- No report, SARIF or artifact. A failure names Gitleaks and the branch,
+  links https://nikolareljin.github.io/leak-lock/ and says what to run
+  locally; nothing else is logged.
+
+## foxguard-diff
+
+Path: `.github/actions/foxguard-diff`
+
+Purpose: Fail on Foxguard findings the review adds, without exporting scanner results.
+
+Inputs:
+
+- `base_ref` (default `""`) - as `gitleaks-diff`
+- `scan_path` (default `"."`) - a path inside the git work tree
+- `severity` (default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
+- `config_path` (default `""`) - foxguard config file, relative to the scanned repository, read from the base commit; `.foxguard.yml` at the base when present
+- `fail_on_findings` (default `"true"`) - `false` is refused
+- `foxguard_version` (default `v0.14.1`)
+- `foxguard_sha256` (default `""`) - required with any version other than `v0.14.1`, whose digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest
+
+Requires `actions/checkout` with `fetch-depth: 0`: the merge base's tree is
+what the scan compares with.
+
+Outputs:
+
+- `fg_bin`: path of the foxguard binary the action downloaded and verified.
+
+Notes:
+
+- The binary is installed by `scripts/install_foxguard.sh`, the installer
+  `foxguard-scan` uses, against the digest in `scanner-pins.env`.
+- The scan is `foxguard diff <merge-base>`: only findings the merge base's
+  tree does not have are reported, and a finding whose lines move is not new.
+  The report must name that base and have read at least one file, or the step
+  fails. Configuration is read from the merge base as `foxguard-scan` reads it
+  from the pull request base; a `baseline` entry is refused.
+- No report, SARIF or artifact. A failure names Foxguard and the branch,
+  links https://nikolareljin.github.io/leak-lock/ and says what to run
+  locally; nothing else is logged.
 
 ## data-safety-scan
 

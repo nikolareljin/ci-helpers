@@ -1,0 +1,221 @@
+name: scan-new-findings
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        default: ubuntu-latest
+      tools:
+        description: >
+          Comma-separated scanners to run: `gitleaks`, `foxguard` or both.
+          Empty, an unknown name or a repeated name fails the run before any
+          download.
+        type: string
+        default: "gitleaks,foxguard"
+      base_ref:
+        description: >
+          Commit or branch the review starts from. Empty: the pull request's
+          base commit, or a push's `before` (a new branch is compared with the
+          default branch). A base that cannot be resolved fails the run.
+        type: string
+        default: ""
+      scan_path:
+        description: Path inside the repository to review (relative to repo root)
+        type: string
+        default: "."
+      severity:
+        description: Lowest foxguard severity that fails the scan (low, medium, high, critical)
+        type: string
+        default: medium
+      gitleaks_config_path:
+        description: Optional path to a .gitleaks.toml config file (relative to repo root), read from the base commit
+        type: string
+        default: ""
+      foxguard_config_path:
+        description: Optional path to a foxguard config file (relative to repo root), read from the base commit
+        type: string
+        default: ""
+      gitleaks_version:
+        description: >
+          Gitleaks release tag to download (e.g. "v8.30.1"). Pin this explicitly
+          for reproducible scans and supply-chain safety.
+        type: string
+        default: "v8.30.1"
+      gitleaks_sha256:
+        description: >
+          sha256 of the release archive for the runner, required with a
+          gitleaks_version other than v8.30.1, whose digests are pinned; a different
+          digest for that version is refused.
+        type: string
+        default: ""
+      foxguard_version:
+        description: >
+          Foxguard release tag to download (e.g. "v0.14.1"). Pin this explicitly
+          for reproducible scans and supply-chain safety.
+        type: string
+        default: "v0.14.1"
+      foxguard_sha256:
+        description: >
+          sha256 of the release binary for the runner, required with a
+          foxguard_version other than v0.14.1, whose digests are pinned; a different
+          digest for that version is refused.
+        type: string
+        default: ""
+      fail_on_findings:
+        description: Mandatory enforcement; false is refused
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Opt into Node.js 24 early: Node 20 actions deprecated (removed Sep 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Decides which scanners run, from `tools`, before anything is checked out
+  # or downloaded. A value this job cannot read fails the run here.
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gitleaks: ${{ steps.pick.outputs.gitleaks }}
+      foxguard: ${{ steps.pick.outputs.foxguard }}
+    steps:
+      - name: Read the tools input
+        id: pick
+        shell: bash
+        env:
+          TOOLS: ${{ inputs.tools }}
+        run: |
+          set -euo pipefail
+          gitleaks=false
+          foxguard=false
+          if [[ -z "$(printf '%s' "$TOOLS" | tr -d '[:space:],')" ]]; then
+            echo "::error::tools is empty; name gitleaks, foxguard or both." >&2
+            exit 1
+          fi
+          # `read` drops a trailing empty field, so an empty entry is refused
+          # on the joined text before the list is split.
+          case ",$(printf '%s' "$TOOLS" | tr -d '[:space:]')," in
+            *,,*) echo "::error::tools has an empty entry; write gitleaks,foxguard." >&2; exit 1 ;;
+          esac
+          IFS=, read -r -a listed <<<"$TOOLS"
+          for raw in "${listed[@]}"; do
+            tool="$(printf '%s' "$raw" | tr -d '[:space:]')"
+            case "$tool" in
+              gitleaks)
+                [[ "$gitleaks" == false ]] || { echo "::error::tools names gitleaks twice." >&2; exit 1; }
+                gitleaks=true ;;
+              foxguard)
+                [[ "$foxguard" == false ]] || { echo "::error::tools names foxguard twice." >&2; exit 1; }
+                foxguard=true ;;
+              "")
+                echo "::error::tools has an empty entry; write gitleaks,foxguard." >&2
+                exit 1 ;;
+              *)
+                echo "::error::tools names '$tool', which is not a scanner here; use gitleaks, foxguard or both." >&2
+                exit 1 ;;
+            esac
+          done
+          echo "gitleaks=$gitleaks" >> "$GITHUB_OUTPUT"
+          echo "foxguard=$foxguard" >> "$GITHUB_OUTPUT"
+          echo "gitleaks: $gitleaks, foxguard: $foxguard"
+
+  # The two scans wait on `tools` only, never on each other, and neither has
+  # continue-on-error: one failing leaves the other's verdict visible.
+  gitleaks:
+    needs: tools
+    if: ${{ needs.tools.outputs.gitleaks == 'true' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          path: repo
+
+      # The library's own action, at the commit of this workflow file; see
+      # gitleaks-new-findings.yml for why.
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            .github/actions
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      - name: Gitleaks on the commits under review
+        uses: ./.ci-helpers-actions/.github/actions/gitleaks-diff
+        with:
+          base_ref: ${{ inputs.base_ref }}
+          scan_path: repo/${{ inputs.scan_path }}
+          config_path: ${{ inputs.gitleaks_config_path }}
+          gitleaks_version: ${{ inputs.gitleaks_version }}
+          gitleaks_sha256: ${{ inputs.gitleaks_sha256 }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}
+
+  foxguard:
+    needs: tools
+    if: ${{ needs.tools.outputs.foxguard == 'true' }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          path: repo
+
+      - name: Check out ci-helpers actions at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            .github/actions
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers actions commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      - name: Foxguard on what the review adds
+        uses: ./.ci-helpers-actions/.github/actions/foxguard-diff
+        with:
+          base_ref: ${{ inputs.base_ref }}
+          scan_path: repo/${{ inputs.scan_path }}
+          severity: ${{ inputs.severity }}
+          config_path: ${{ inputs.foxguard_config_path }}
+          foxguard_version: ${{ inputs.foxguard_version }}
+          foxguard_sha256: ${{ inputs.foxguard_sha256 }}
+          fail_on_findings: ${{ inputs.fail_on_findings }}

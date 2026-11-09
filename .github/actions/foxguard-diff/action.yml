@@ -1,0 +1,86 @@
+name: Foxguard New Findings
+description: Fail on static-analysis findings the review adds, without publishing scanner output.
+inputs:
+  base_ref:
+    description: >
+      Commit, branch or `origin/` branch the review starts from. Empty reads
+      it from the event: a pull request's base commit, or a push's `before`
+      (a new branch is compared with the default branch). Findings present
+      at the merge base are not reported; a base that cannot be resolved
+      fails the step.
+    default: ""
+    required: false
+  scan_path:
+    description: Path inside the git work tree to scan (relative to repo root, or absolute).
+    default: "."
+    required: false
+  severity:
+    description: >
+      Lowest severity that fails the scan: low, medium, high or critical.
+      Findings below it are not reported.
+    default: medium
+    required: false
+  config_path:
+    description: >
+      Optional foxguard config file path, relative to the scanned repository,
+      read from the base commit; a config the review adds is not used.
+      Default: `.foxguard.yml` at the base when present.
+    default: ""
+    required: false
+  fail_on_findings:
+    description: Mandatory enforcement; false is refused.
+    default: "true"
+    required: false
+  foxguard_version:
+    description: >
+      Foxguard release tag to download (e.g. "v0.14.1"). Pin this explicitly
+      for reproducible scans and supply-chain safety.
+    default: "v0.14.1"
+    required: false
+  foxguard_sha256:
+    description: >
+      sha256 of the release binary for this runner, required with a
+      foxguard_version other than v0.14.1, whose digests are pinned in
+      scanner-pins.env; a different digest for that version is refused.
+    default: ""
+    required: false
+outputs:
+  fg_bin:
+    description: Path of the foxguard binary the action downloaded and verified.
+    value: ${{ steps.install.outputs.fg_bin }}
+runs:
+  using: composite
+  steps:
+    - name: Enforce local-only results
+      shell: bash
+      env:
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        if [[ "$FAIL_ON_FINDINGS" != true ]]; then
+          source "$ACTION_PATH/../../../vendor/script-helpers/scripts/security_notice.sh"
+          security_notice Foxguard
+          exit 1
+        fi
+    - name: Install foxguard binary
+      id: install
+      shell: bash
+      env:
+        FOXGUARD_VERSION: ${{ inputs.foxguard_version }}
+        FOXGUARD_SHA256: ${{ inputs.foxguard_sha256 }}
+        ACTION_PATH: ${{ github.action_path }}
+      # The installer foxguard-scan uses, with the pins in scanner-pins.env.
+      run: bash "$ACTION_PATH/../../../scripts/install_foxguard.sh"
+
+    - name: Security checks on what the review adds
+      shell: bash
+      env:
+        FG_BIN: ${{ steps.install.outputs.fg_bin }}
+        BASE_REF: ${{ inputs.base_ref }}
+        SCAN_PATH: ${{ inputs.scan_path }}
+        SEVERITY: ${{ inputs.severity }}
+        CONFIG_PATH: ${{ inputs.config_path }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/run.sh"
