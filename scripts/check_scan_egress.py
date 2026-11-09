@@ -64,7 +64,7 @@ LIBRARY_USES = re.compile(r"^([a-z0-9-]+)/ci-helpers/")
 
 # A command that starts Trivy: the binary by name, or the path the installer
 # hands over in TRIVY_BIN / trivy_bin.
-TRIVY_CALL = re.compile(r'(^|[;&|(]\s*|\$\(\s*)("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
+TRIVY_CALL = re.compile(r'(^|[;&|(]\s*|\$\(\s*|\b(?:if|then|else|do|exec|time|!)\s+)("?\$\{?(TRIVY_BIN|trivy_bin)\}?"?|(\S*/)?trivy)\s')
 TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 
 # Toolchain installers the language scans still use. They install a compiler

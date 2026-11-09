@@ -165,7 +165,8 @@ runs:
   using: composite
   steps:
     - shell: bash
-      run: trivy --disable-telemetry fs .
+      run: |
+        if trivy --disable-telemetry fs .; then echo clean; fi
 YAML
 
 expect "ci-helpers under another owner" 1 "uses: 'evil/ci-helpers/.github/workflows/x.yml@main' is not" <<'YAML'
