@@ -68,10 +68,15 @@ def place_beside(target, toplevel, relative, config):
     if not real.is_dir():
         raise ValueError("config directory missing")
     path = real / (".foxguard-reviewed-" + secrets.token_hex(8) + ".yml")
-    # Recorded before the file exists, so run.sh removes it even if the
-    # write fails part-way.
-    (target / "config.path").write_text(str(path))
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    # Recorded once this call has created the file, so run.sh removes it even
+    # if the write fails, and never removes a file it did not create.
+    try:
+        (target / "config.path").write_text(str(path))
+    except OSError:
+        os.close(fd)
+        os.unlink(path)
+        raise
     with os.fdopen(fd, "wb") as fh:
         fh.write(config)
     return path
