@@ -1039,14 +1039,14 @@ same step.
 
 Optional test result upload:
 
-- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `upload_test_results`: `false` — set to `true` to upload the JUnit XML as an artifact and write a test summary (totals and failures) to the job summary
 - `test_results_path`: `test-results/**/*.xml` — glob for JUnit files; configure your test runner to emit XML here
 - `artifact_suffix`: `""` — appended to the `junit-xml-pnpm` artifact name and the `Tests` check run; set to e.g. `-node20` when invoking this preset multiple times in a matrix to avoid name collisions
 
 Notes:
 
 - Works with Turborepo monorepos — `pnpm run test` can delegate to `turbo run test`.
-- To enable test result annotations in GitHub Actions UI, set `upload_test_results: true`
+- To get a test summary (totals and failures from the JUnit XML) on the job's summary page, set `upload_test_results: true`
   and configure Vitest to emit JUnit XML:
 
   ```ts
@@ -1087,7 +1087,7 @@ Defaults:
 
 Optional test result upload:
 
-- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `upload_test_results`: `false` — set to `true` to upload the JUnit XML as an artifact and write a test summary (totals and failures) to the job summary
 - `test_results_path`: `test-results/**/*.xml` — glob for Playwright JUnit output
 - `artifact_suffix`: `""` — appended to `playwright-report`, `junit-xml-playwright`, and the `Tests` check name; use in a matrix to avoid collisions
 
@@ -1455,7 +1455,7 @@ Defaults:
 
 Optional test result upload:
 
-- `upload_test_results`: `false` — set to `true` to upload JUnit XML via `dorny/test-reporter`
+- `upload_test_results`: `false` — set to `true` to upload the JUnit XML as an artifact and write a test summary (totals and failures) to the job summary
 - `test_results_path`: `test-results/**/*.xml` — glob for Cypress JUnit output
 - `artifact_suffix`: `""` — appended to `cypress-videos`, `cypress-screenshots`, `junit-xml-cypress`, and the `Tests` check name; use in a matrix to avoid collisions
 

@@ -236,8 +236,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      checks: write
-      pull-requests: read
     steps:
       - name: Download test results
         continue-on-error: true
@@ -246,11 +244,33 @@ jobs:
           name: ${{ format('junit-xml-cypress{0}', inputs.artifact_suffix) }}
           path: test-results
 
-      - name: Publish test results
-        continue-on-error: true
-        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0 @ 2026-10-16
+      # The summary comes from this library's own script, read from a
+      # checkout of the library at this workflow's commit. The job token
+      # is not kept and no check run is written.
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
-          name: ${{ format('Tests{0}', inputs.artifact_suffix) }}
-          path: "test-results/**/*.xml"
-          reporter: java-junit
-          fail-on-error: false
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers scripts commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is empty"; exit 1; }
+          [[ "$(git -C .ci-helpers-scripts rev-parse HEAD)" == "$WF_SHA" ]] || { echo "::error::ci-helpers checkout is not $WF_SHA"; exit 1; }
+
+      - name: Summarize test results
+        continue-on-error: true
+        shell: bash
+        env:
+          TITLE: ${{ format('Tests{0}', inputs.artifact_suffix) }}
+          RESULTS_GLOB: test-results/**/*.xml
+        run: python3 .ci-helpers-scripts/scripts/junit_summary.py --title "$TITLE" --glob "$RESULTS_GLOB"
