@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESOLVE = ROOT / "scripts/resolve_scan_base.py"
 GITLEAKS_RUN = ROOT / ".github/actions/gitleaks-diff/run.sh"
 FOXGUARD_RUN = ROOT / ".github/actions/foxguard-diff/run.sh"
+RENAME_BASE = ROOT / ".github/actions/foxguard-diff/rename_base.py"
 ZERO = "0" * 40
 
 
@@ -54,6 +55,49 @@ class Fixture:
         self.clone = Path(base) / "clone"
         subprocess.run(["git", "clone", "-q", "--branch", "feature", str(self.src), str(self.clone)],
                        check=True, capture_output=True)
+
+
+class RenameBaseTests(unittest.TestCase):
+    """Only a pure rename inside scan_path, under an empty config, moves a base path."""
+
+    BODY = "".join("line %d\n" % i for i in range(40)) + "danger()\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        self.base = commit(self.repo, "base", **{"old.py": self.BODY, "sub/keep.py": "x = 1\n"})
+        self.config = Path(self.tmp.name) / "config.yml"
+        self.config.write_text("")
+
+    def run_it(self, scan_path="."):
+        out = subprocess.run(["python3", "-I", str(RENAME_BASE), str(self.repo / scan_path), self.base,
+                              self.tmp.name, str(self.config)], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0)
+        return out.stdout.strip()
+
+    def test_pure_rename_moves_the_base_path(self):
+        commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
+        made = self.run_it()
+        self.assertNotEqual(made, self.base)
+        self.assertEqual(git(self.repo, "ls-tree", "--name-only", made), "new.py\nsub")
+
+    def test_edited_rename_is_a_new_file(self):
+        # 40 of 41 lines kept: git calls it a rename, but the added line is new.
+        commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY + "danger(2)\n"})
+        self.assertEqual(self.run_it(), self.base)
+
+    def test_rename_from_outside_scan_path_is_a_new_file(self):
+        commit(self.repo, "rename", **{"old.py": None, "sub/new.py": self.BODY})
+        self.assertEqual(self.run_it("sub"), self.base)
+
+    def test_rename_under_a_config_is_a_new_file(self):
+        # The config may exclude the source and not the destination.
+        self.config.write_text("scan:\n  exclude_paths:\n    - old.py\n")
+        commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
+        self.assertEqual(self.run_it(), self.base)
 
 
 class ResolveBaseTests(unittest.TestCase):

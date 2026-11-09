@@ -53,8 +53,9 @@ config="$(cat "$tmp/config.path")" || fail
 own="$(cd "$dir/../../.." && pwd -P)"
 if root="$(cd "$scan_path" 2>/dev/null && pwd -P)" && [[ "$own" == "$root"/* ]]; then fail; fi
 # foxguard matches findings by path: a file the review only renames would
-# report its old findings as new, so the base it is given has the renames.
-fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" 2>"$tmp/base.log")" || fail
+# report its old findings as new, so the base it is given has the renames
+# (identical content, inside scan_path, and only with an empty config).
+fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$config" 2>"$tmp/base.log")" || fail
 [[ "$fg_base" =~ ^[0-9a-f]{40}$ || "$fg_base" =~ ^[0-9a-f]{64}$ ]] || fail
 # A review that adds or changes nothing under scan_path (a deletion) may leave
 # foxguard nothing to read; only then is a scan of no files a pass.

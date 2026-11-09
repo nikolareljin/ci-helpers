@@ -743,8 +743,9 @@ Notes:
 
 - The scan is `foxguard diff <merge-base>`: findings in the tree under review
   that the merge base's tree does not have. A finding whose lines move is not
-  new, and neither is one in a file the review renames: the base foxguard
-  compares with has the review's renames applied. `foxguard-scan.yml` reports every finding; use that one for a
+  new, and neither is one in a file the review renames without changing it
+  (inside `scan_path`, with no config): the base foxguard compares with has
+  those renames applied. An edited rename is a new file. `foxguard-scan.yml` reports every finding; use that one for a
   periodic full scan.
 - The base is resolved as `gitleaks-new-findings.yml` describes (same
   `base_ref` forms, same push rule), and fails the run the same way when it

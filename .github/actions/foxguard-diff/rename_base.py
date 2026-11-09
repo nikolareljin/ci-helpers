@@ -3,10 +3,15 @@
 foxguard diff matches findings by path, so a file the review only renames
 reports every old finding in it as new. This writes a commit object whose
 tree is the merge base's with the review's renames applied, and prints it;
-with no renames it prints the merge base itself. The commit is an unreferenced
+with no renames it prints the merge base itself.
+
+Only a rename of identical content (R100) with both paths under scan_path
+counts, and none when the reviewed config is not empty: an edited rename, or
+one from a path the scan or the config leaves out, would let a new finding
+pass as old. Those files are compared as new. The commit is an unreferenced
 object in the caller's repository: no ref, index or work-tree file changes.
 
-Usage: rename_base.py <work-tree> <merge-base> <tmp-dir>
+Usage: rename_base.py <work-tree> <merge-base> <tmp-dir> <config>
 """
 
 import os
@@ -27,18 +32,24 @@ def git(root, *args, env_extra=None, stdin=None):
 
 
 def main():
-    root, base, tmp = sys.argv[1:4]
+    root, base, tmp, config = sys.argv[1:5]
     if not SHA.match(base):
         raise ValueError("base is not a commit sha")
+    with open(config, "rb") as fh:
+        if fh.read().strip():
+            sys.stdout.write(base + "\n")
+            return 0
+    prefix = git(root, "rev-parse", "--show-prefix").strip()
     top = git(root, "rev-parse", "--show-toplevel").decode().strip()
-    status = git(top, "diff", "-M", "--name-status", "-z", base, "HEAD")
+    status = git(top, "diff", "-M100%", "--name-status", "-z", base, "HEAD")
     fields = status.split(b"\0")
     renames = []
     i = 0
     while i < len(fields) and fields[i]:
         kind = fields[i]
         if kind.startswith(b"R") or kind.startswith(b"C"):
-            if kind.startswith(b"R"):
+            if (kind == b"R100" and fields[i + 1].startswith(prefix)
+                    and fields[i + 2].startswith(prefix)):
                 renames.append((fields[i + 1], fields[i + 2]))
             i += 3
         else:
