@@ -72,13 +72,16 @@ ok() {  # name, command...: the command's failure is a reported FAIL, never an e
 }
 not() { ! "$@"; }
 
-# A new release with files: view, create with the title and notes, upload --clobber.
+# A new release with files: view, then one create that carries the files, so
+# gh publishes only after the assets are on it (an immutable release takes
+# no asset once published).
 rc=0; run TAG_NAME=1.2.3 RELEASE_NAME="Release 1.2.3" BODY_PATH="$work/notes.md" \
   FILES="$work/dist/*.deb" OVERWRITE_FILES=true || rc=$?
 ok "new release exits 0" [ "$rc" = 0 ]
 ok "new release looked up first" has_call "release view 1.2.3 -R owner/repo"
 ok "create with title and notes" has_call "release create 1.2.3 -R owner/repo --title Release 1.2.3 --notes-file $work/notes.md"
-ok "files uploaded with --clobber" has_call "release upload 1.2.3 -R owner/repo --clobber $work/dist/a.deb $work/dist/b.deb"
+ok "files passed to create" has_call "release create 1.2.3 -R owner/repo --title Release 1.2.3 --notes-file $work/notes.md -- $work/dist/a.deb $work/dist/b.deb"
+ok "no separate upload on a new release" not has_call "release upload"
 ok "no edit on a new release" not has_call "release edit"
 ok "not a draft unless asked" not has_call "--draft"
 ok "not a prerelease unless asked" not has_call "--prerelease"
@@ -131,7 +134,7 @@ ok "kept asset named" grep -q "a.deb is already on 1.2.3; kept" "$work/out"
 # Several patterns, one per line, and a path with a space.
 rc=0; run TAG_NAME=5.0.0 FILES="$(printf '%s\n%s' "$work/dist/a.deb" "$work/dir with space/*.tar.gz")" || rc=$?
 ok "multi-line FILES exits 0" [ "$rc" = 0 ]
-ok "both patterns uploaded, space kept" has_call "--clobber $work/dist/a.deb $work/dir with space/s.tar.gz"
+ok "both patterns uploaded, space kept" has_call "-- $work/dist/a.deb $work/dir with space/s.tar.gz"
 
 # An unmatched pattern: a warning by default, an error when asked, and then
 # nothing is created.
@@ -159,6 +162,13 @@ rc=0; env -i PATH="$work/nogh" GH_TOKEN=stub GITHUB_REPOSITORY=owner/repo TAG_NA
   "$work/nogh/bash" "$script" > "$work/out" 2>&1 || rc=$?
 ok "missing gh refused (rc=$rc)" [ "$rc" != 0 ]
 ok "missing gh named" grep -q "::error::github_release: the GitHub CLI" "$work/out"
+
+# gh reads `file#label`; a '#' in a path would upload the wrong name.
+printf 'h\n' > "$work/dist/x#y.deb"
+rc=0; run TAG_NAME=7.0.0 FILES="$work/dist/x#y.deb" || rc=$?
+ok "a '#' in a file path refused (rc=$rc)" [ "$rc" != 0 ]
+ok "a '#' path made no gh call" [ "$(calls)" = 0 ]
+rm -f "$work/dist/x#y.deb"
 
 # Refusals, each before any gh call.
 rc=0; run "TAG_NAME=a b" || rc=$?

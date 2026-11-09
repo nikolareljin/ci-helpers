@@ -98,6 +98,8 @@ if [ -n "${FILES:-}" ]; then
     for f in $pattern; do
       IFS="$oldifs"
       [ -f "$f" ] || continue
+      # gh reads `path#label`, so a '#' would name another file.
+      case "$f" in *'#'*) IFS="$oldifs"; fail "file '$f' has a '#', which gh reads as a label" ;; esac
       files[${#files[@]}]="$f"
       matched=1
     done
@@ -137,8 +139,13 @@ if [ -z "$existing" ]; then
   case "${MAKE_LATEST:-}" in
     true|false) args+=("--latest=${MAKE_LATEST}") ;;
   esac
+  # The files go with the create: gh makes a draft, uploads them, then
+  # publishes, so an immutable release gets its assets before it locks.
+  if [ "${#files[@]}" -gt 0 ]; then args+=(-- "${files[@]}"); fi
   echo "Creating release $tag on $repo"
   gh "${args[@]}" >/dev/null
+  [ "${#files[@]}" -eq 0 ] || echo "Uploaded ${#files[@]} file(s) to $tag"
+  files=()
 else
   args=(release edit "$tag" -R "$repo")
   changes=0
