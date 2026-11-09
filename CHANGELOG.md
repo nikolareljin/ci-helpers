@@ -13,10 +13,10 @@
 
 ### Notes
 
-- Upgrade notes for consumers of the scan workflows:
-  - `docker-scan.yml` ignores `run_snyk: true` and `snyk_token`, and warns. Snyk is a cloud service and no longer runs here; drop the input or keep it for a later version, either parses.
+- Upgrade notes for callers of the scan workflows:
+  - `docker-scan.yml` ignores `run_snyk: true` and `snyk_token` and emits a warning; Snyk is a cloud service and does not run here. The inputs still parse, so no caller change is needed; set `run_snyk: false` to silence the warning.
   - `trivy-scan.yml` and `.github/actions/trivy-scan` write a SARIF report that holds only the findings at the requested `severity`. A code-scanning view that counted lower severities from the SARIF shows fewer alerts.
-  - The Trivy vulnerability database is downloaded from ghcr.io on every run and is not cached between runs, so a scan job takes longer by that download. A runner that cannot reach ghcr.io fails at the download step, not inside the scan.
+  - The Trivy vulnerability database is downloaded on every run (ghcr.io, with Trivy's mirror as fallback) and is not cached between runs, so a scan job takes longer by that download. A runner that can reach neither fails at the download step, not inside the scan.
 
 ## 2026-11-07 — v0.49.0
 
