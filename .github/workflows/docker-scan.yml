@@ -124,7 +124,7 @@ jobs:
           if [[ "$IGNORE_UNFIXED" == "true" ]]; then args+=(--ignore-unfixed); fi
           "$TRIVY_BIN" --cache-dir "$CACHE_DIR" image "${args[@]}" "$IMAGE_NAME"
 
-      # Snyk is disabled. It is a cloud service: `snyk test --docker` sends the
+      # Snyk is disabled. It is a cloud service: its container scan sends the
       # image's dependency graph and metadata to snyk.io, and the call ran a
       # container with the docker socket and the whole workspace mounted. The
       # inputs stay so a caller's `with:` and `secrets:` keep parsing, but
