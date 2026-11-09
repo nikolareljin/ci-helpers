@@ -13,7 +13,7 @@ Consumers pin workflows via the floating `@production` tag; see [Releases](https
 Includes:
 - Reusable workflows for CI, PR gating, and deploys.
 - Reusable workflows for release builds (generic, Rust, and Tauri desktop).
-- Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy/Snyk), and language scans.
+- Reusable scan workflows for Gitleaks, Trivy, Docker (Trivy), and language scans.
 - Composite actions for semver comparison and release tag checks.
 - Composite actions for Trivy, Gitleaks, Foxguard, JSON data-safety, and WordPress plugin-check scans.
 - Composite actions for macOS codesigning (`macos-sign`) and Windows signing (`windows-sign`: free ED25519, Authenticode with a `.pfx`, or Azure Artifact Signing; see [Windows signing](docs/windows-signing.md)).
@@ -96,7 +96,7 @@ jobs:
 - `.github/workflows/node-scan.yml`: reusable Node.js scan workflow (lint/test/audit)
 - `.github/workflows/react-scan.yml`: reusable React scan workflow (lint/test/build/audit)
 - `.github/workflows/vue-scan.yml`: reusable Vue scan workflow (lint/test/build/audit)
-- `.github/workflows/docker-scan.yml`: reusable Docker scan workflow (Trivy + Snyk)
+- `.github/workflows/docker-scan.yml`: reusable Docker scan workflow (Trivy; Snyk disabled)
 - `.github/workflows/trivy-scan.yml`: reusable Trivy scan workflow
 - `.github/workflows/gitleaks-scan.yml`: reusable Gitleaks scan workflow
 - `.github/workflows/foxguard-scan.yml`: reusable Foxguard static-analysis workflow

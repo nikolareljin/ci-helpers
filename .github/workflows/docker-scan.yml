@@ -29,16 +29,13 @@ on:
       fail_on_findings:
         type: boolean
         default: true
-      # Off by default: Snyk needs an account and an API token -- there is no
-      # anonymous mode, and the free plan still issues a key -- so a preset that
-      # ran it by default would ask every adopter for a credential to get a
-      # green build. Trivy runs on every call, needs no credential, and covers
-      # the same CVE ground for container images.
-      #
-      # Turned on with `run_snyk: true` plus the `snyk_token` secret. Turned on
-      # *without* the secret, it warns and skips rather than failing: a scan
-      # that cannot run should say so, and never read as a scan that found
-      # nothing.
+      # Snyk is disabled: it is a cloud service that receives the image's
+      # dependency graph and metadata, and a scan job here must send code and
+      # data to nobody. The three Snyk inputs stay declared so a caller's
+      # `with:` and `secrets:` keep parsing; `run_snyk: true` emits a warning
+      # and a summary line and does nothing else. The token is never read.
+      # Trivy runs on every call, needs no credential, and covers the same
+      # CVE ground for container images.
       run_snyk:
         type: boolean
         default: false
@@ -47,6 +44,7 @@ on:
         default: "high"
     secrets:
       snyk_token:
+        description: Unused; Snyk is disabled. Kept so existing callers keep parsing.
         required: false
 
 jobs:
@@ -73,84 +71,74 @@ jobs:
           set -euo pipefail
           docker build -f "$DS_DOCKERFILE" -t "$DS_IMAGE_NAME" "$DS_CONTEXT"
 
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
+      # The library's own files at the commit of this workflow file: the
+      # Trivy installer and its pins. `./scripts` would resolve in the
+      # caller's checkout, so the library is checked out beside it.
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
-          image-ref: ${{ inputs.image_name }}
-          format: table
-          severity: ${{ inputs.trivy_severity }}
-          ignore-unfixed: ${{ inputs.trivy_ignore_unfixed }}
-          exit-code: ${{ inputs.fail_on_findings && '1' || '0' }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
 
-      # Read once, into an output, so the Snyk step's `if:` does not have to
-      # test a secret -- a secret is not available to a job-level `if:` and is
-      # masked in logs, so testing it there fails in ways that read as "the
-      # step simply did not run".
-      - name: Is there a Snyk credential
-        id: snyk_token
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's scripts after all; refuse instead.
+      - name: Verify ci-helpers scripts commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers scripts at $WF_SHA"
+
+      # The Trivy binary, not the vendor's action: a release pinned by version
+      # and sha256 in the library's scanner-pins.env, downloaded and checked
+      # here. The vulnerability database is fetched in this step, so the scan
+      # below has no network call of its own.
+      - name: Install Trivy
+        id: trivy
+        shell: bash
+        run: bash .ci-helpers-actions/scripts/install_trivy.sh --download-db
+
+      - name: Trivy scan
+        shell: bash
+        env:
+          TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
+          CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          SEVERITY: ${{ inputs.trivy_severity }}
+          IGNORE_UNFIXED: ${{ inputs.trivy_ignore_unfixed }}
+          EXIT_CODE: ${{ inputs.fail_on_findings && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          args=(--skip-db-update --offline-scan --format table
+                --severity "$SEVERITY" --exit-code "$EXIT_CODE")
+          if [[ "$IGNORE_UNFIXED" == "true" ]]; then args+=(--ignore-unfixed); fi
+          "$TRIVY_BIN" --cache-dir "$CACHE_DIR" --disable-telemetry --skip-version-check image "${args[@]}" "$IMAGE_NAME"
+
+      # Snyk is disabled. It is a cloud service: its container scan sends the
+      # image's dependency graph and metadata to snyk.io, and the call ran a
+      # container with the docker socket and the whole workspace mounted. The
+      # inputs stay so a caller's `with:` and `secrets:` keep parsing, but
+      # `run_snyk: true` only says so; the token is never read.
+      - name: Snyk is disabled
+        id: snyk_disabled
         if: ${{ inputs.run_snyk }}
         shell: bash
-        env:
-          SNYK_TOKEN: ${{ secrets.snyk_token }}
         run: |
           set -euo pipefail
-          if [[ -n "${SNYK_TOKEN:-}" ]]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Snyk scan skipped::run_snyk is on but no snyk_token was passed, so the Snyk scan did not run. Pass the secret to enable it, or set run_snyk: false to stop asking."
-            {
-              echo "### Snyk scan skipped"
-              echo
-              echo "\`run_snyk\` is on and no \`snyk_token\` was passed, so **the image was not scanned by Snyk**."
-              echo "Trivy still ran. Pass the secret to enable Snyk, or set \`run_snyk: false\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      # `snyk/actions/docker` is a Docker-container action, and the runner
-      # pulls a container action's image during job setup -- before any step's
-      # `if:` is evaluated. So with Snyk off, which is the default, every job
-      # still pulled `snyk/snyk:docker` and then skipped the step that wanted
-      # it: measured at 9 to 19 seconds a job, 76 seconds across the six
-      # docker-scan jobs of one consumer's Security Checks run on 2026-09-28.
-      #
-      # The same call, run by hand, is not pulled unless this step runs. The
-      # action is three lines of `runs:` -- `snyk test <args> --docker <image>`
-      # with two SNYK_INTEGRATION_* variables -- and the rest of what is below
-      # is what the runner gives a container action for free and what this has
-      # to do for itself:
-      #
-      #   * the docker socket, without which Snyk cannot read an image from
-      #     the local daemon
-      #   * the workspace, mounted and made the working directory. Snyk reads
-      #     its `.snyk` policy file -- a consumer's ignore rules -- from the
-      #     working directory, and a container action's was the workspace. At
-      #     the image's own `/app` those rules would be silently dropped.
-      #
-      # `snyk test` is left as the command rather than modernised to
-      # `snyk container test`: this is a fix for the pull, and the exit codes
-      # a consumer already gates on are not its to change.
-      - name: Snyk scan
-        if: ${{ inputs.run_snyk && steps.snyk_token.outputs.present == 'true' }}
-        shell: bash
-        env:
-          SNYK_TOKEN: ${{ secrets.snyk_token }}
-          IMAGE_NAME: ${{ inputs.image_name }}
-          SEVERITY_THRESHOLD: ${{ inputs.snyk_severity_threshold }}
-        run: |
-          set -euo pipefail
-          # The runner mounts /var/run/docker.sock into a container action, but
-          # a host that moved its socket exports DOCKER_HOST; prefer it, so
-          # this does not mount an empty directory and report a missing image.
-          socket="${DOCKER_HOST:-}"; socket="${socket#unix://}"
-          [[ -S "$socket" ]] || socket=/var/run/docker.sock
-          workspace="${GITHUB_WORKSPACE:-$PWD}"
-          docker run --rm \
-            -e SNYK_TOKEN \
-            -e SNYK_INTEGRATION_NAME=GITHUB_ACTIONS \
-            -e SNYK_INTEGRATION_VERSION=docker \
-            -v "$socket":/var/run/docker.sock \
-            -v "$workspace":/github/workspace \
-            -w /github/workspace \
-            snyk/snyk:docker@sha256:d6595337edef7ce37eded247b8bb47ebb60681fd802c49e64c1b80b3a6963187 \
-            snyk test --severity-threshold="$SEVERITY_THRESHOLD" --docker "$IMAGE_NAME"
+          echo "::warning title=Snyk scan disabled::run_snyk is on, but Snyk is disabled in docker-scan: it uploads image metadata to snyk.io. Nothing was sent. Trivy ran. Set run_snyk: false to stop asking."
+          {
+            echo "### Snyk scan disabled"
+            echo
+            echo "\`run_snyk\` is on, but Snyk is disabled in this workflow: it sends image metadata to snyk.io."
+            echo "**Nothing was sent and the image was not scanned by Snyk.** Trivy ran. Set \`run_snyk: false\` to stop asking."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -40,14 +40,28 @@ chmod +x "$work/bin/curl" "$work/bin/uname"
 run_step() {  # $1 = version, $2 = gitleaks_sha256
   : > "$work/calls"; : > "$work/out"
   env PATH="$work/bin:$PATH" CALLS="$work/calls" FAKE="$work/fake.tar.gz" \
-    RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/out" \
+    RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/out" ACTION_PATH="$(dirname "$ACTION")" \
     GITLEAKS_VERSION="$1" GITLEAKS_SHA256="$2" bash "$work/step.sh" 2>&1
 }
 
 fail=0
 ver="${default#v}"
-grep -q "gitleaks_${ver}_linux_x64.tar.gz)" "$ACTION" \
-  || { echo "FAIL: default $default has no pinned linux_x64 digest"; fail=1; }
+# The digests live in scanner-pins.env, for the version the input defaults to.
+# Both files name the version, so this is what keeps them equal.
+pins="$ROOT_DIR/scanner-pins.env"
+pinned_ver="$(awk -F= '$1 == "GITLEAKS_VERSION" { print $2 }' "$pins")"
+[[ "$pinned_ver" == "$ver" ]] \
+  || { echo "FAIL: gitleaks_version defaults to $default but scanner-pins.env pins GITLEAKS_VERSION=$pinned_ver"; fail=1; }
+wf_default="$(python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); print((d.get(True) or d.get("on"))["workflow_call"]["inputs"]["gitleaks_version"]["default"])' "$ROOT_DIR/.github/workflows/gitleaks-scan.yml")"
+[[ "$wf_default" == "$default" ]] \
+  || { echo "FAIL: gitleaks-scan.yml defaults gitleaks_version to $wf_default, the action to $default"; fail=1; }
+for key in LINUX_X64 LINUX_ARM64 DARWIN_X64 DARWIN_ARM64 WINDOWS_X64 WINDOWS_ARM64; do
+  sha="$(awk -F= -v k="GITLEAKS_SHA256_$key" '$1 == k { print $2 }' "$pins")"
+  [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL: GITLEAKS_SHA256_$key in scanner-pins.env is '$sha'"; fail=1; }
+done
+if grep -q 'pinned=[0-9a-f]\{64\}' "$ACTION"; then
+  echo "FAIL: the action still carries a digest of its own; scanner-pins.env is the one place"; fail=1
+fi
 
 rc=0; out="$(run_step "$default" "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: an archive that is not the pinned one ran"; fail=1; fi

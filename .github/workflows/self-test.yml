@@ -368,8 +368,8 @@ jobs:
       working_directory: tests/fixtures/docker-image
       concurrency_key: docker-defaults-can-pass
 
-  # The Trivy half of docker-scan. Its Snyk step needs `snyk_token` and stays
-  # unexercised; verification stops at the credential, as
+  # docker-scan with the pinned Trivy binary. Snyk is disabled; its warning
+  # step is driven in docker-refuses-what-it-must, as
   # tests/workflow-coverage.yaml records.
   docker-scan-defaults-can-pass:
     uses: ./.github/workflows/docker-scan.yml
@@ -415,14 +415,16 @@ jobs:
           }
           echo "a false assertion fails the build, and the fixture builds"
 
-      - name: Snyk without a token warns rather than fails
+      - name: Snyk is disabled, says so, and sends nothing
         shell: bash
         run: |
           set -uo pipefail
-          # The behaviour asked for: a scan that cannot run says so loudly and
-          # does not fail the build, and never reads as a scan that found
-          # nothing. Driven by running the workflow's own step with an empty
-          # token, so this cannot drift from what ships.
+          # Snyk is a cloud service: `snyk test --docker` uploads the image's
+          # dependency graph and metadata, and the call mounted the docker
+          # socket and the workspace into a container. It is disabled, and
+          # `run_snyk: true` must say so rather than read as a scan that found
+          # nothing. Driven by running the workflow's own step, so this cannot
+          # drift from what ships.
           # `if` and `|| rc=$?` rather than a bare call and `$?`, because this
           # runs under the runner's `bash -e`: a failing command ends the step
           # at that line, so every check below it would be a silent exit 1
@@ -430,129 +432,39 @@ jobs:
           if ! python3 - <<'PYTHON' > /tmp/snyk-step.sh 2> /tmp/snyk-step.err
           import yaml
           doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
-          step = next(
-              (s for j in doc["jobs"].values() for s in j.get("steps", [])
-               if s.get("id") == "snyk_token"),
-              None,
-          )
+          text = open(".github/workflows/docker-scan.yml").read()
+          steps = [s for j in doc["jobs"].values() for s in j.get("steps", [])]
+          step = next((s for s in steps if s.get("id") == "snyk_disabled"), None)
           if step is None:
-              raise SystemExit("no step with id `snyk_token` in docker-scan.yml")
+              raise SystemExit("no step with id `snyk_disabled` in docker-scan.yml")
+          if "uses" in step:
+              raise SystemExit("the Snyk step is an action again; Snyk is disabled")
+          # Nothing in the workflow runs Snyk or reads its token: no container,
+          # no image, no `secrets.snyk_token` outside the declaration.
+          for banned in ("docker run", "docker.sock", "snyk test", "snyk/actions", "SNYK_TOKEN", "secrets.snyk_token"):
+              if banned in text:
+                  raise SystemExit(f"docker-scan.yml contains `{banned}`; Snyk is disabled and its token is never read")
           print(step["run"])
           PYTHON
           then
             echo "::error::$(cat /tmp/snyk-step.err)"
             exit 1
           fi
-          out="$(mktemp)"; summary="$(mktemp)"
+          summary="$(mktemp)"
           rc=0
-          SNYK_TOKEN="" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
+          GITHUB_STEP_SUMMARY="$summary" \
             bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /tmp/snyk-out.log 2>&1 \
             || rc=$?
           if [[ "$rc" -ne 0 ]]; then
-            echo "::error::no token made the step fail; it was asked to warn"
+            echo "::error::the disabled step failed; it was asked to warn"
             cat /tmp/snyk-out.log
             exit 1
           fi
-          grep -q "present=false" "$out" || {
-            echo "::error::the step did not report the credential as absent"; cat "$out"; exit 1; }
-          grep -q "::warning title=Snyk scan skipped" /tmp/snyk-out.log || {
+          grep -q "::warning title=Snyk scan disabled" /tmp/snyk-out.log || {
             echo "::error::no warning was emitted"; cat /tmp/snyk-out.log; exit 1; }
           grep -q "was not scanned by Snyk" "$summary" || {
             echo "::error::the job summary does not say the scan did not run"; cat "$summary"; exit 1; }
-
-          SNYK_TOKEN="pretend-token" GITHUB_OUTPUT="$out" GITHUB_STEP_SUMMARY="$summary" \
-            bash --noprofile --norc -e -o pipefail /tmp/snyk-step.sh > /dev/null 2>&1
-          grep -q "present=true" "$out" || {
-            echo "::error::a token present was not reported"; cat "$out"; exit 1; }
-          echo "no token: warns, does not fail, and says so in the summary; a token: runs"
-
-      - name: The Snyk call is well formed, and pulls nothing when it is off
-        shell: bash
-        run: |
-          set -uo pipefail
-          # Two things, and the first is why the second exists.
-          #
-          # A Docker-container action's image is pulled in the job's setup
-          # phase, before any `if:` is read, so `uses: snyk/actions/docker`
-          # behind a condition pulled `snyk/snyk:docker` on every run with
-          # Snyk off. The step is a plain `docker run` now, which is only
-          # reached when the condition holds -- and that swapped a verified
-          # action for a command line of our own, so the command line is run.
-          #
-          # With a deliberately invalid token, because that is as far as a
-          # repository without the account can honestly go: an authentication
-          # failure proves the CLI parsed the command, the flags and the image
-          # and got to the credential. A usage error would not.
-          # `if`, not `$?`: this runs under the runner's `bash -e`, where a
-          # failing command exits the step before the line that reads its
-          # status -- so the refusal below would have been a silent exit 1.
-          if ! python3 - <<'PYTHON' > /tmp/snyk-scan-step.sh 2> /tmp/snyk-scan-step.err
-          import yaml
-          doc = yaml.safe_load(open(".github/workflows/docker-scan.yml"))
-          steps = [s for j in doc["jobs"].values() for s in j.get("steps", [])]
-          scan = next((s for s in steps if s.get("name") == "Snyk scan"), None)
-          if scan is None:
-              raise SystemExit("no step named `Snyk scan` in docker-scan.yml")
-          if "uses" in scan:
-              raise SystemExit(
-                  "the Snyk scan is a container action again; its image is "
-                  "pulled during job setup whether or not the step runs"
-              )
-          # Split, because actionlint lexes a literal dollar-brace-brace in a
-          # workflow file as an expression to parse -- including one inside a
-          # string in a script. The check for interpolation cannot be written
-          # with interpolation in it.
-          if ("$" + "{{") in scan["run"]:
-              raise SystemExit(
-                  "the step interpolates into its own shell; this leg runs "
-                  "that script, and an expression it cannot expand would make "
-                  "the leg test something other than what ships"
-              )
-          # What a container action was given for free and this has to do for
-          # itself. Snyk reads `.snyk` -- a consumer's ignore rules -- from the
-          # working directory, and the action's was the workspace; at the
-          # image's own /app they would be dropped without a word. Unobservable
-          # without an account, so it is pinned here instead.
-          for needed in ("-w /github/workspace", ":/github/workspace"):
-              if needed not in scan["run"]:
-                  raise SystemExit(
-                      f"the Snyk call no longer has `{needed}`, so it runs "
-                      f"outside the workspace and a consumer's .snyk policy "
-                      f"is silently ignored"
-                  )
-          print(scan["run"])
-          PYTHON
-          then
-            echo "::error::$(cat /tmp/snyk-scan-step.err)"
-            exit 1
-          fi
-
-          # Also under `-e`, so this says why rather than ending the step.
-          docker build -q -t snyk-selftest:local tests/fixtures/docker-image \
-            > /tmp/snyk-fixture-build.log 2>&1 || {
-              echo "::error::the Docker fixture no longer builds, so the Snyk call cannot be driven"
-              tail -20 /tmp/snyk-fixture-build.log
-              exit 1
-            }
-
-          rc=0
-          SNYK_TOKEN="deliberately-invalid" \
-          IMAGE_NAME="snyk-selftest:local" \
-          SEVERITY_THRESHOLD="high" \
-            bash --noprofile --norc -e -o pipefail /tmp/snyk-scan-step.sh \
-            > /tmp/snyk-scan.log 2>&1 || rc=$?
-
-          if [[ "$rc" -eq 0 ]]; then
-            echo "::error::an invalid token scanned successfully, which cannot be true"
-            cat /tmp/snyk-scan.log
-            exit 1
-          fi
-          if ! grep -qi "authentication" /tmp/snyk-scan.log; then
-            echo "::error::the call failed before the credential; the command line is wrong"
-            cat /tmp/snyk-scan.log
-            exit 1
-          fi
-          echo "the Snyk call parses and reaches authentication (rc=$rc)"
+          echo "run_snyk: warns, does not fail, says so in the summary, and nothing left the runner"
 
       - name: The image refuses what is not a number
         shell: bash
@@ -1417,31 +1329,34 @@ jobs:
         with:
           persist-credentials: false
 
+      # Through this repository's action, which downloads the binary pinned in
+      # scanner-pins.env and verifies it: that is what ships, and what a
+      # repointed release would break.
       - name: An advisory fails the scan when asked
         id: vulnerable
         continue-on-error: true
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
+        uses: ./.github/actions/trivy-scan
         with:
-          scan-type: fs
-          scan-ref: tests/fixtures/go-vuln
+          scan_path: tests/fixtures/go-vuln
           format: json
           output: ${{ runner.temp }}/vuln.json
           severity: CRITICAL,HIGH
-          ignore-unfixed: "true"
-          vuln-type: os,library
-          exit-code: "1"
+          ignore_unfixed: "true"
+          vuln_type: os,library
+          fail_on_findings: "true"
+          upload_sarif: "false"
 
       - name: A clean tree does not
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
+        uses: ./.github/actions/trivy-scan
         with:
-          scan-type: fs
-          scan-ref: tests/fixtures/shell-project
+          scan_path: tests/fixtures/shell-project
           format: json
           output: ${{ runner.temp }}/clean.json
           severity: CRITICAL,HIGH
-          ignore-unfixed: "true"
-          vuln-type: os,library
-          exit-code: "1"
+          ignore_unfixed: "true"
+          vuln_type: os,library
+          fail_on_findings: "true"
+          upload_sarif: "false"
 
       - name: It failed on the pinned advisory, not on something passing
         shell: bash
@@ -1481,45 +1396,41 @@ jobs:
         with:
           persist-credentials: false
 
+      # Through this repository's action: the binary pinned in
+      # scanner-pins.env, run offline with the checks that ship inside it
+      # (`--skip-check-update`), which is what a caller gets.
       - name: A Dockerfile that runs as root fails
         id: bad
         continue-on-error: true
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
+        uses: ./.github/actions/trivy-scan
         with:
-          scan-type: fs
-          scan-ref: tests/fixtures/iac-misconfig/bad
+          scan_path: tests/fixtures/iac-misconfig/bad
           scanners: misconfig
           format: json
           output: ${{ runner.temp }}/misconfig-bad.json
           severity: CRITICAL,HIGH
-          # The vulnerability-only flags `trivy-scan.yml` always sends. Passed
-          # here too, so this leg reproduces what a caller setting
-          # `scanners: misconfig` on the preset actually gets, rather than a
-          # reduced version of it. Measured with trivy 0.74.0: they make no
-          # difference to a misconfiguration scan, and this is what keeps that
-          # true rather than assumed.
-          vuln-type: os,library
-          ignore-unfixed: "true"
-          exit-code: "1"
+          # The vulnerability-only flags the action always sends, so this leg
+          # reproduces what a caller setting `scanners: misconfig` gets.
+          # Measured with trivy 0.74.0 and 0.76.2: they make no difference to
+          # a misconfiguration scan, and this is what keeps that true rather
+          # than assumed.
+          vuln_type: os,library
+          ignore_unfixed: "true"
+          fail_on_findings: "true"
+          upload_sarif: "false"
 
       - name: The same Dockerfile with a USER does not
-        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # master @ 2026-11-06
+        uses: ./.github/actions/trivy-scan
         with:
-          scan-type: fs
-          scan-ref: tests/fixtures/iac-misconfig/good
+          scan_path: tests/fixtures/iac-misconfig/good
           scanners: misconfig
           format: json
           output: ${{ runner.temp }}/misconfig-good.json
           severity: CRITICAL,HIGH
-          # The vulnerability-only flags `trivy-scan.yml` always sends. Passed
-          # here too, so this leg reproduces what a caller setting
-          # `scanners: misconfig` on the preset actually gets, rather than a
-          # reduced version of it. Measured with trivy 0.74.0: they make no
-          # difference to a misconfiguration scan, and this is what keeps that
-          # true rather than assumed.
-          vuln-type: os,library
-          ignore-unfixed: "true"
-          exit-code: "1"
+          vuln_type: os,library
+          ignore_unfixed: "true"
+          fail_on_findings: "true"
+          upload_sarif: "false"
 
       - name: It failed on the rule the fixture exists for
         shell: bash
