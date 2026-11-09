@@ -1732,7 +1732,7 @@ To restrict who may run it, point the wrapper's job at a GitHub Environment with
 
 Workflow: `.github/workflows/create-github-release.yml`
 
-Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Re-runs are safe: `softprops/action-gh-release` updates an existing release when the `tag_name` already has one.
+Purpose: Create a GitHub Release for a version tag. Extracts release notes from `CHANGELOG.md` when a matching `## DATE — VERSION` section exists; falls back to GitHub auto-generated release notes otherwise. Re-runs are safe: `scripts/github_release.sh` (the GitHub CLI, `gh release create`, `edit` and `upload`) updates an existing release when the tag already has one.
 
 Triggers:
 - `workflow_dispatch` with `release_tag` input — used by the `release_workflow` dispatch mechanism in `auto-tag-release.yml`.

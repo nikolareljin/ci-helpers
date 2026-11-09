@@ -855,11 +855,11 @@ jobs:
             echo "::warning::release notes generation failed; publishing without a body."
           fi
 
-      # Exactly what softprops/action-gh-release would publish for these
-      # patterns: regular files only, no dotfiles, nothing under a matched
-      # directory, one asset per basename (softprops splits on
-      # newlines and commas, as here). Uploading the patterns as-is would
-      # also publish the contents of subdirectories.
+      # What a release upload publishes for these patterns: regular files
+      # only, no dotfiles, nothing under a matched directory, one asset per
+      # basename; patterns split on newlines and commas, as the release
+      # action did. Uploading the patterns as-is would also publish the
+      # contents of subdirectories.
       - name: Stage release files
         id: stage
         if: ${{ inputs.upload_to_release != 'false' && steps.resolve.outputs.skip == 'false' }}
@@ -1023,6 +1023,7 @@ jobs:
           sparse-checkout: |
             .github/actions/publication-check
             vendor/script-helpers
+            scripts
           persist-credentials: false
 
       - name: Verify publication action revision
@@ -1053,11 +1054,11 @@ jobs:
 
       - name: Upload to GitHub release
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
-        with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
-          files: ${{ steps.ci_publication_check_1.outputs.paths }}
-          overwrite_files: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.build.outputs.tag }}
+          BODY_PATH: ${{ steps.ci_publication_check_1.outputs.body_path }}
+          FILES: ${{ steps.ci_publication_check_1.outputs.paths }}
+          OVERWRITE_FILES: "true"
+        run: bash .ci-helpers-publication/scripts/github_release.sh

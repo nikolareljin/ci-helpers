@@ -147,6 +147,7 @@ jobs:
           sparse-checkout: |
             .github/actions/publication-check
             vendor/script-helpers
+            scripts
           persist-credentials: false
 
       - name: Verify publication action revision
@@ -177,11 +178,11 @@ jobs:
 
       - name: Attach files to the release
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
-        with:
-          tag_name: ${{ inputs.tag }}
-          target_commitish: ${{ inputs.commit }}
-          files: ${{ steps.ci_publication_check_1.outputs.paths }}
-          overwrite_files: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag }}
+          TARGET_COMMITISH: ${{ inputs.commit }}
+          FILES: ${{ steps.ci_publication_check_1.outputs.paths }}
+          OVERWRITE_FILES: "true"
+        run: bash .ci-helpers-publication/scripts/github_release.sh

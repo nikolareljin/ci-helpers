@@ -399,6 +399,7 @@ jobs:
           sparse-checkout: |
             .github/actions/publication-check
             vendor/script-helpers
+            scripts
           persist-credentials: false
 
       - name: Verify publication action revision
@@ -430,15 +431,15 @@ jobs:
 
       - name: Upload release assets
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 @ 2026-11-06
-        with:
-          tag_name: ${{ needs.build-tarballs.outputs.tag }}
-          body_path: ${{ steps.ci_publication_check_1.outputs.body_path }}
-          files: ${{ steps.ci_publication_check_1.outputs.paths }}
-          fail_on_unmatched_files: true
-          overwrite_files: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.build-tarballs.outputs.tag }}
+          BODY_PATH: ${{ steps.ci_publication_check_1.outputs.body_path }}
+          FILES: ${{ steps.ci_publication_check_1.outputs.paths }}
+          OVERWRITE_FILES: "true"
+          FAIL_ON_UNMATCHED_FILES: "true"
+        run: bash .ci-helpers-publication/scripts/github_release.sh
 
   bump-homebrew:
     name: Generate Homebrew formula
