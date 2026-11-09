@@ -872,6 +872,15 @@ jobs:
   gitleaks-scan-defaults-can-pass:
     uses: ./.github/workflows/gitleaks-scan.yml
 
+  # `foxguard-scan.yml` checks the library out at `job.workflow_sha` the same
+  # way. The fixture is a file foxguard parses and reports nothing on; a
+  # directory it cannot read is refused, so an empty one would not do.
+  # `foxguard-refuses-what-it-must` drives the action on a planted finding.
+  foxguard-scan-defaults-can-pass:
+    uses: ./.github/workflows/foxguard-scan.yml
+    with:
+      scan_path: tests/fixtures/foxguard-clean
+
   # tauri-release.yml runs its signing actions from a checkout of the library
   # at job.workflow_sha, on macOS and Windows runners, and needs signing
   # credentials, so no leg runs it. These are the same four steps with an
@@ -1130,6 +1139,120 @@ jobs:
             exit 1
           fi
           echo "gitleaks $got on $RUNNER_OS/$RUNNER_ARCH"
+
+  # The action pins a digest per binary; only a real download on each
+  # platform proves the pin is that binary's. linux x64 runs above. foxguard
+  # publishes no Windows arm64 binary, so that runner is not in the matrix.
+  foxguard-pins-match-each-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      # The fixture is inside the checkout, so a pull request scan reads its
+      # config from the base commit, which a depth-1 checkout does not hold.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install against the pinned digest and scan
+        id: scan
+        uses: ./.github/actions/foxguard-scan
+        with:
+          scan_path: tests/fixtures/foxguard-clean
+
+      - name: The verified binary is the pinned release
+        shell: bash
+        env:
+          FG_BIN: ${{ steps.scan.outputs.fg_bin }}
+        run: |
+          set -euo pipefail
+          got="$("$FG_BIN" --version)"
+          if [[ "$got" != *0.14.1* ]]; then
+            echo "::error::expected foxguard 0.14.1, got '$got'"
+            exit 1
+          fi
+          echo "foxguard $got on $RUNNER_OS/$RUNNER_ARCH"
+
+  foxguard-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: A directory with a command injection in it
+        shell: bash
+        # Written here, not committed: this repository's own scan has nothing
+        # to find and no suppression is needed.
+        run: |
+          set -euo pipefail
+          planted="${RUNNER_TEMP}/planted"
+          mkdir -p "$planted"
+          printf 'import subprocess\nimport sys\n\nsubprocess.run(sys.argv[1], shell=True)\n' > "$planted/handler.py"
+          echo "PLANTED=$planted" >> "$GITHUB_ENV"
+
+      - name: Security failures remain local
+        id: fails
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-scan
+        with:
+          scan_path: ${{ env.PLANTED }}
+
+      - name: The same binary passes the clean fixture
+        id: clean
+        uses: ./.github/actions/foxguard-scan
+        with:
+          scan_path: tests/fixtures/foxguard-clean
+
+      # The job cannot read its own step log, so the action's script is run
+      # once more with the verified binary and its output kept in a private
+      # file, checked for what it must and must not say, then deleted.
+      - name: The failure names the tool and the branch, nothing else
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.fails.outcome }}
+          FG_BIN: ${{ steps.clean.outputs.fg_bin }}
+          SCAN_PATH: ${{ env.PLANTED }}
+          ACTION_PATH: ${{ github.workspace }}/.github/actions/foxguard-scan
+        run: |
+          set -euo pipefail
+          [[ "$OUTCOME" == failure ]] || { echo "::error::the planted finding did not fail the action"; exit 1; }
+          umask 077
+          log="$(mktemp "$RUNNER_TEMP/foxguard-log.XXXXXX")"
+          rc=0
+          bash "$ACTION_PATH/run.sh" > "$log" 2>&1 || rc=$?
+          bad=0
+          [[ "$rc" -eq 1 ]] || { echo "::error::run.sh exited $rc, expected 1"; bad=1; }
+          grep -q '^Foxguard check failed\.$' "$log" || { echo "::error::the failure does not name the tool"; bad=1; }
+          grep -q 'https://nikolareljin.github.io/leak-lock/' "$log" || { echo "::error::the failure does not link Leak-Lock"; bad=1; }
+          grep -q 'run Scan Repository' "$log" || { echo "::error::the failure does not say what to run"; bad=1; }
+          # The fixture's path, file, rule, CWE, snippet and count must all stay out.
+          if grep -q -E 'planted|handler\.py|no-command-injection|CWE|subprocess|shell=True|[0-9]+ (issue|finding)' "$log"; then
+            echo "::error::the failure log names the finding"; bad=1
+          fi
+          [[ "$(wc -l < "$log")" -eq 4 ]] || { echo "::error::expected the four notice lines, got $(wc -l < "$log")"; bad=1; }
+          rm -f "$log"
+          exit "$bad"
+
+      - name: Refusal and publication boundary tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          check_rc=0
+          bash tests/foxguard_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Foxguard
+            exit "$check_rc"
+          fi
 
   gitleaks-refuses-what-it-must:
     runs-on: ubuntu-latest
@@ -1609,6 +1732,9 @@ jobs:
       - gitleaks-scan-defaults-can-pass
       - gitleaks-refuses-what-it-must
       - gitleaks-pins-match-each-platform
+      - foxguard-scan-defaults-can-pass
+      - foxguard-refuses-what-it-must
+      - foxguard-pins-match-each-platform
       - trivy-scan-defaults-can-pass
       - trivy-refuses-what-it-must
       - trivy-finds-misconfiguration

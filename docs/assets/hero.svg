@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
   <title id="t">ci-helpers</title>
-  <desc id="d">Shared GitHub Actions workflows and Bash helpers for CI/CD. 76 reusable workflows, 28 stack presets, 11 actions. Consumers pin the floating production tag.</desc>
+  <desc id="d">Shared GitHub Actions workflows and Bash helpers for CI/CD. 77 reusable workflows, 28 stack presets, 12 actions. Consumers pin the floating production tag.</desc>
   <!--
     Hero banner for the README and the documentation site.
 
@@ -61,7 +61,7 @@
        box and was clipped mid-word. -->
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">
     <rect x="290" y="258" width="241" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
-    <text x="304" y="281" fill="#3fb950">76</text>
+    <text x="304" y="281" fill="#3fb950">77</text>
     <text x="333" y="281" fill="#8b98a8">reusable workflows</text>
 
     <rect x="545" y="258" width="190" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
@@ -69,7 +69,7 @@
     <text x="588" y="281" fill="#8b98a8">stack presets</text>
 
     <rect x="749" y="258" width="221" height="34" rx="6" fill="#11161f" stroke="#222a36"/>
-    <text x="763" y="281" fill="#3fb950">11</text>
+    <text x="763" y="281" fill="#3fb950">12</text>
     <text x="782" y="281" fill="#8b98a8">actions</text>
   </g>
 
