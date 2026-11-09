@@ -160,3 +160,24 @@ test('renamed private diagnostic logs cannot reach the uploader', async () => {
   await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; });
   assert.equal(published, false);
 });
+
+test('ambiguous runner storage cannot change uploader selection', () => {
+  const {dir} = fixture();
+  const workspace = path.join(dir, 'workspace'), runner = path.join(dir, 'runner,storage');
+  fs.mkdirSync(workspace); fs.mkdirSync(runner);
+  const file = path.join(workspace, 'ordinary.txt'); fs.writeFileSync(file, 'ordinary package');
+  const state = path.join(dir, 'state'), output = path.join(dir, 'output');
+  fs.writeFileSync(state, ''); fs.writeFileSync(output, '');
+  const action = path.resolve(__dirname, '../.github/actions/publication-check');
+  const env = {...process.env, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_WORKSPACE: workspace,
+    RUNNER_TEMP: runner, GITHUB_STATE: state, GITHUB_OUTPUT: output, GITLEAKS_BIN: fake,
+    INPUT_MODE: 'release', INPUT_PATHS: file, INPUT_METADATA: '', INPUT_BODY_PATH: ''};
+  try {
+    const result = cp.spawnSync(process.execPath, [path.join(action, 'index.cjs')], {cwd: workspace, env, encoding: 'utf8'});
+    assert.equal(result.status, 1);
+    assert.equal(fs.readFileSync(output, 'utf8'), '');
+  } finally {
+    const stage = fs.readFileSync(state, 'utf8').trim().split('=')[1];
+    if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
+  }
+});

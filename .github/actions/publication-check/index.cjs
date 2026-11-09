@@ -50,6 +50,7 @@ function isGitMetadata(file) {
 function allocateStage() {
   if (!process.env.RUNNER_TEMP) throw new Error('runner storage unavailable');
   const root = fs.realpathSync(process.env.RUNNER_TEMP);
+  if (/[\r\n*?,\[\]{}]/.test(root) || /[+@!]\(/.test(root) || (process.platform !== 'win32' && root.includes('\\'))) throw new Error('ambiguous runner storage');
   const workspace = fs.realpathSync(process.env.GITHUB_WORKSPACE || process.cwd());
   const relative = path.relative(workspace, root);
   if (relative === '' || (!relative.startsWith('..' + path.sep) && !path.isAbsolute(relative))) throw new Error('unsafe runner storage');

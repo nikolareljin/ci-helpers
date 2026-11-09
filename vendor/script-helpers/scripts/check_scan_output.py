@@ -36,7 +36,8 @@ TOOL = re.compile(r"gitleaks|foxguard", re.I)
 RESULT = re.compile(
     r"(?i)\b(?:gitleaks|foxguard)(?![\w.-]).{0,80}"
     r"\b\d+\s+(?:findings?|leaks?|hits?|credentials?)\b|"
-    r"\b(?:gitleaks|foxguard)\s*[:=]\s*(?:clean|no leaks|no findings)\b|"
+    r"\b(?:gitleaks|foxguard)\s*[:=]?\s*(?:clean|no leaks|no findings)\b|"
+    r"\b(?:gitleaks|foxguard)\s+(?:findings?|leaks?|hits?|credentials?)\s*[:=]\s*\d+\b|"
     r"\bno gitleaks findings\b|\bgitleaks findings detected\s*:|"
     r"\b(?:gitleaks|foxguard)\s*[:=]?\s*\d+\s*(?:[,;]|$)|"
     r"\b\d+\s+(?:gitleaks|foxguard)\s+(?:findings?|leaks?|hits?|credentials?)\b"
@@ -86,6 +87,16 @@ def structured(value):
             {"finding_counts", "scanner", "tool", "finding_schema_version"}
         ):
             return True
+        for key, item in value.items():
+            if str(key).lower() in {"gitleaks", "foxguard"}:
+                if isinstance(item, (int, float)) and not isinstance(item, bool):
+                    return True
+                if isinstance(item, str) and item.lower() in {"clean", "no leaks", "no findings"}:
+                    return True
+                if isinstance(item, dict) and {str(k).lower() for k in item}.intersection(
+                    {"findings", "finding_counts", "leaks", "hits", "credentials", "fingerprints", "count", "total"}
+                ):
+                    return True
         return any(structured(v) for v in value.values())
     if isinstance(value, list):
         return any(structured(v) for v in value)
@@ -174,16 +185,22 @@ def _inspect(name, raw, depth=0):
         text = raw.decode("utf-8", errors="replace")
     if re.search(r"(?m)^[ \t>]*SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1[ \t]*\r?$", text):
         raise Refused()
-    try:
-        columns = {field.strip().lower() for field in next(csv.reader(io.StringIO(text)), [])}
-        if {"ruleid", "secret"} <= columns or {"ruleid", "fingerprint"} <= columns:
-            raise Refused(tool="Gitleaks")
-    except csv.Error:
-        pass
-    if text.lstrip().startswith("<"):
-        suite = re.search(r'''<testsuites?\b[^>]*\bname\s*=\s*["'](gitleaks|foxguard)["']''', text, re.I)
-        if suite:
-            raise Refused(tool="Gitleaks" if suite.group(1).lower() == "gitleaks" else "Foxguard")
+    for line in text.splitlines():
+        candidate = line.lstrip(" \t>\ufeff")
+        if not re.match(r'(?i)["\']?RuleID["\']?\s*,', candidate):
+            continue
+        try:
+            columns = {field.strip().lower() for field in next(csv.reader([candidate]), [])}
+            if {"ruleid", "secret"} <= columns or {"ruleid", "fingerprint"} <= columns:
+                raise Refused(tool="Gitleaks")
+        except csv.Error:
+            pass
+    for suite in re.finditer(r"<testsuites?\b[^>]{0,4096}>", text, re.I):
+        tag = suite.group(0)
+        identity = re.search(r'''\bname\s*=\s*["'](gitleaks|foxguard)["']''', tag, re.I)
+        count = re.search(r'''\b(?:tests|failures)\s*=\s*["']\d+["']''', tag, re.I)
+        if identity and count:
+            raise Refused(tool="Gitleaks" if identity.group(1).lower() == "gitleaks" else "Foxguard")
     try:
         if structured(json.loads(text)):
             raise Refused()
@@ -205,7 +222,7 @@ def _inspect(name, raw, depth=0):
     if re.search(r"(?m)^\s*Local(?: security)? report:\s+(?:/|[A-Za-z]:[\\/])", text):
         raise Refused()
     for line in text.splitlines():
-        if not RESULT.search(line) and not NATIVE_RESULT.search(line.strip()):
+        if not RESULT.search(line) and not NATIVE_RESULT.search(line.lstrip(" \t>")):
             continue
         # Executable statements describe the scanner; their output is checked
         # separately. This is not a directory exemption for source or tests.
@@ -218,7 +235,7 @@ def _inspect(name, raw, depth=0):
             continue
         raise Refused()
     if TOOL.search(text) and re.search(
-        r"(?im)^\s*(?:\[sensitive\]\s+gitleaks:\s*)?(?:RuleID|Fingerprint|StartLine|finding_counts)\s*:", text
+        r"(?im)^[ \t>]*(?:\[sensitive\]\s+gitleaks:\s*)?(?:RuleID|Fingerprint|StartLine|finding_counts)\s*:", text
     ):
         raise Refused()
 
