@@ -179,8 +179,8 @@ def check_workflows(root: pathlib.Path, problems: list[str]) -> tuple[list[str],
         body = "\n".join(b for _, b in docs)
         in_presets = any(rel.endswith("presets.md") for rel, _ in docs)
         for kind, name in names:
-            token = f"`{name}`"
-            if token in body or (in_presets and kind == "input" and token in shared):
+            backticked = f"`{name}`"
+            if backticked in body or (in_presets and kind == "input" and backticked in shared):
                 continue
             problems.append(f"{path.name}: {kind} `{name}` is not documented")
         for name, default in DEFAULT_LINE_RE.findall(body):
