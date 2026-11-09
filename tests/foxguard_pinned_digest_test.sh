@@ -66,6 +66,16 @@ rc=0; out="$(run_step v0.15.0 "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: another version ran against the pinned digest"; fail=1; fi
 grep -q "No pinned sha256 for v0.15.0" <<<"$out" || { echo "FAIL: other version not refused: $out"; fail=1; }
 
+# A pinned version keeps its pinned digest: foxguard_sha256 may repeat it, not
+# replace it, so a caller cannot swap in another binary under the pinned tag.
+pinned_sha="$(sed -n "s/.*foxguard-linux-x86_64) *pinned=\([0-9a-f]*\).*/\1/p" "$ACTION" | head -n1)"
+rc=0; out="$(run_step "$default" "$fake_sha")" || rc=$?
+if (( rc == 0 )); then echo "FAIL: foxguard_sha256 overrode the pinned digest of $default"; fail=1; fi
+grep -q "differs from the digest pinned" <<<"$out" || { echo "FAIL: override not named: $out"; fail=1; }
+rc=0; out="$(run_step "$default" "$(tr '[:lower:]' '[:upper:]' <<<"$pinned_sha")")" || rc=$?
+if grep -q "differs from the digest pinned" <<<"$out"; then echo "FAIL: foxguard_sha256 equal to the pin was refused: $out"; fail=1; fi
+grep -q "Checksum mismatch" <<<"$out" || { echo "FAIL: equal foxguard_sha256 skipped verification: $out"; fail=1; }
+
 rc=0; out="$(run_step v9.9.9 "$fake_sha")" || rc=$?
 if (( rc != 0 )); then echo "FAIL: foxguard_sha256 matching the binary gave exit $rc: $out"; fail=1; fi
 grep -q '^fg_bin=.*/foxguard$' "$work/out" || { echo "FAIL: fg_bin not set"; fail=1; }

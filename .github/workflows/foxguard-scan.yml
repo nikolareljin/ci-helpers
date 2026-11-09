@@ -26,7 +26,8 @@ on:
       foxguard_sha256:
         description: >
           sha256 of the release binary for the runner, required with a
-          foxguard_version other than v0.14.1, whose digests are pinned.
+          foxguard_version other than v0.14.1, whose digests are pinned; a different
+          digest for that version is refused.
         type: string
         default: ""
       fail_on_findings:

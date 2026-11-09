@@ -26,7 +26,8 @@ inputs:
   gitleaks_sha256:
     description: >
       sha256 of the release archive for this runner, required with a
-      gitleaks_version other than v8.30.1, whose digests are pinned here.
+      gitleaks_version other than v8.30.1, whose digests are pinned here; a different
+      digest for that version is refused.
     default: ""
     required: false
   config_path:
@@ -133,6 +134,11 @@ runs:
         fi
         if [ "${#expected}" -ne 64 ] || [ -n "$(printf '%s' "${expected}" | tr -d '0-9a-f')" ]; then
           echo "::error::gitleaks_sha256 must be 64 hex characters, got '${expected}'." >&2
+          exit 1
+        fi
+        # A pinned version keeps its pin: the input may repeat it, never replace it.
+        if [ -n "${pinned}" ] && [ "${expected}" != "${pinned}" ]; then
+          echo "::error::gitleaks_sha256 differs from the digest pinned for ${archive}; leave it empty or pass the pinned digest." >&2
           exit 1
         fi
         if command -v sha256sum >/dev/null 2>&1; then

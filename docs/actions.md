@@ -121,7 +121,7 @@ Inputs:
 - `report_format` (default `sarif`, deprecated, no report is exported)
 - `output` (default `results.sarif`, deprecated, no file is created)
 - `gitleaks_version` (default `v8.30.1`)
-- `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action
+- `gitleaks_sha256` (default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose six archive digests (linux, darwin, windows; x64, arm64) are pinned in the action; with `v8.30.1` it may only repeat the pinned digest, a different one is refused
 - `config_path` (default `""`)
 - `fail_on_findings` (default `"true"`)
 - `upload_artifact` (default `"false"`)
@@ -182,7 +182,9 @@ Inputs:
 - `config_path` (default `""`) - foxguard config file, relative to the scanned repository; read from the pull request's base commit
 - `fail_on_findings` (default `"true"`) - `false` is refused
 - `foxguard_version` (default `v0.14.1`)
-- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in the action
+- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in the action; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+
+Requires `actions/checkout` with `fetch-depth: 0` on pull requests: the action reads the config from the base commit and refuses the scan when that commit is missing.
 
 Outputs:
 

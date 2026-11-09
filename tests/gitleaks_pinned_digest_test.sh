@@ -58,6 +58,16 @@ rc=0; out="$(run_step v9.9.9 "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: an unpinned version ran without gitleaks_sha256"; fail=1; fi
 grep -q "No pinned sha256 for gitleaks_9.9.9_linux_x64.tar.gz" <<<"$out" || { echo "FAIL: missing digest not named: $out"; fail=1; }
 
+# A pinned version keeps its pinned digest: gitleaks_sha256 may repeat it, not
+# replace it, so a caller cannot swap in another binary under the pinned tag.
+pinned_sha="$(sed -n "s/.*gitleaks_${ver}_linux_x64.tar.gz) *pinned=\([0-9a-f]*\).*/\1/p" "$ACTION" | head -n1)"
+rc=0; out="$(run_step "$default" "$fake_sha")" || rc=$?
+if (( rc == 0 )); then echo "FAIL: gitleaks_sha256 overrode the pinned digest of $default"; fail=1; fi
+grep -q "differs from the digest pinned" <<<"$out" || { echo "FAIL: override not named: $out"; fail=1; }
+rc=0; out="$(run_step "$default" "$(tr '[:lower:]' '[:upper:]' <<<"$pinned_sha")")" || rc=$?
+if grep -q "differs from the digest pinned" <<<"$out"; then echo "FAIL: gitleaks_sha256 equal to the pin was refused: $out"; fail=1; fi
+grep -q "Checksum mismatch" <<<"$out" || { echo "FAIL: equal gitleaks_sha256 skipped verification: $out"; fail=1; }
+
 rc=0; out="$(run_step v9.9.9 "$fake_sha")" || rc=$?
 if (( rc != 0 )); then echo "FAIL: gitleaks_sha256 matching the archive gave exit $rc: $out"; fail=1; fi
 grep -q '^gl_bin=.*/gitleaks$' "$work/out" || { echo "FAIL: gl_bin not set"; fail=1; }

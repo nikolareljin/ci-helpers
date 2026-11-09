@@ -30,7 +30,8 @@ on:
       gitleaks_sha256:
         description: >
           sha256 of the release archive for the runner, required with a
-          gitleaks_version other than v8.30.1, whose digests are pinned.
+          gitleaks_version other than v8.30.1, whose digests are pinned; a different
+          digest for that version is refused.
         type: string
         default: ""
       fail_on_findings:
