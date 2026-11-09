@@ -61,15 +61,27 @@ fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$co
 # foxguard nothing to read; only then is a scan of no files a pass.
 changed="$(git -C "$scan_path" diff --name-only --diff-filter=ACMRT "$merge_base" HEAD -- . 2>"$tmp/base.log")" || fail
 # foxguard skips what .gitignore, .git/info/exclude or .ignore names, and the
-# review controls those files: a changed file they name is refused, not read.
+# review controls those files. Refused: any .gitignore or .ignore in the
+# repository that the review adds or edits, or that is a link (git does not
+# read one, foxguard does), and a changed file the remaining rules name.
 if ! "$py" -I -c '
 import os, subprocess, sys
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-def files(*args):
-    p = subprocess.run(["git", "-C", sys.argv[1], *args, "--", "."], capture_output=True, env=env)
+def files(*args, where="."):
+    p = subprocess.run(["git", "-C", sys.argv[1], *args, "--", where], capture_output=True, env=env)
     if p.returncode:
         sys.exit(1)
     return set(p.stdout.split(b"\0")) - {b""}
+def is_rules(path):
+    return path.rsplit(b"/", 1)[-1] in (b".gitignore", b".ignore")
+top = ":/"
+edited = files("diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMT", sys.argv[2], "HEAD", where=top)
+if any(is_rules(p) for p in edited):
+    sys.exit(1)
+for entry in files("ls-files", "-z", "-s", where=top):
+    meta, _, path = entry.partition(b"\t")
+    if is_rules(path) and meta.startswith(b"120000 "):
+        sys.exit(1)
 changed = files("diff", "--name-only", "-z", "--relative", "--diff-filter=ACMRT", sys.argv[2], "HEAD")
 ignored = (files("ls-files", "-z", "-c", "-i", "--exclude-standard")
            | files("ls-files", "-z", "-c", "-i", "--exclude-per-directory=.ignore"))

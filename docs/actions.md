@@ -319,7 +319,10 @@ Notes:
   with the moves is written to the runner's temporary directory, not to the
   caller's repository. foxguard skips files that `.gitignore`,
   `.git/info/exclude` or `.ignore` name, and the tree under review controls
-  those: a changed file they name fails the step. foxguard also skips hidden
+  those: the step fails when the review adds or edits any `.gitignore` or
+  `.ignore` in the repository, when one is a link, or when the remaining
+  rules name a changed file. Change ignore files in a pull request of their
+  own, reviewed without this scan. foxguard also skips hidden
   paths (such as `.github/`) and directories it treats as vendored
   (`node_modules`, `vendor`, `dist`, `build`), in this scan and in
   `foxguard-scan`. The report must name that base and have read

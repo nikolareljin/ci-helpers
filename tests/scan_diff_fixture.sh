@@ -25,6 +25,7 @@
 #   deleted        deletes old.py, leaving no file foxguard reads: it passes
 #   ignored        adds shell=True in a file its own .gitignore names:
 #                  foxguard-diff fails (foxguard would skip the file)
+#   ignored-dot    the same with .ignore: foxguard-diff fails
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -121,8 +122,13 @@ injection hidden.py
 echo hidden.py > "$src/.gitignore"
 g add -A -f; g commit -q -m "a new command injection its .gitignore names"
 
+branch ignored-dot
+injection hidden.py
+printf 'hidden.py\n' > "$src/.ignore"
+g add -A -f; g commit -q -m "a new command injection its .ignore names"
+
 g checkout -q main
-for b in renamed renamed-new deleted ignored clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

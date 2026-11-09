@@ -521,8 +521,27 @@ sys.exit(rc)
                 self.run_script(FOXGUARD_RUN, 1)
                 self.assertIsNone(self.record())
                 git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
-        # An ignore file that names nothing the review changed is fine.
-        commit(self.fx.clone, "ignore build output", **{".gitignore": "out/\n"})
+        # git reads no .gitignore that is a link; foxguard follows it.
+        for name in (".gitignore", ".ignore"):
+            with self.subTest(link=name):
+                (self.fx.clone / "list").write_text("evil.py\n")
+                (self.fx.clone / name).symlink_to("list")
+                (self.fx.clone / "evil.py").write_text("z = 3\n")
+                git(self.fx.clone, "add", "-f", "list", name, "evil.py")
+                git(self.fx.clone, "commit", "-q", "-m", "hide")
+                self.run_script(FOXGUARD_RUN, 1)
+                self.assertIsNone(self.record())
+                git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
+        # Any ignore file the review adds or edits, above scan_path too, is
+        # refused; one it leaves as the base had it is not.
+        sub = self.fx.clone / "sub"
+        commit(self.fx.clone, "ignore build output", **{".gitignore": "out/\n", "sub/x.py": "x = 1\n"})
+        self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(sub))
+        git(self.fx.src, "checkout", "-q", "main")
+        commit(self.fx.src, "reviewed ignore", **{".gitignore": "out/\n"})
+        git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "rebase", "-q", "origin/main")
         self.run_script(FOXGUARD_RUN, 0)
 
     def test_foxguard_refuses_without_a_base(self):
