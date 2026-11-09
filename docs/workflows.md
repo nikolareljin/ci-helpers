@@ -622,7 +622,7 @@ Inputs:
 - `severity` (string, default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
 - `config_path` (string, default `""`) - foxguard config file, relative to the repository; read from the pull request's base commit
 - `foxguard_version` (string, default `v0.14.1`) - release tag to download. Pin it for reproducible scans.
-- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in the action; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
 - `fail_on_findings` (boolean, default `true`) - `false` is refused
 
 Notes:
