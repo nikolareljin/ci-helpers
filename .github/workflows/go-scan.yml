@@ -95,11 +95,70 @@ jobs:
           set -euo pipefail
           ${{ inputs.test_command }}
 
+      # The library's own files at the commit of this workflow file, for the
+      # gosec version pinned in scanner-pins.env. `./scripts` would resolve in
+      # the caller's checkout, so the library is checked out beside it, after
+      # lint and tests so neither sees it.
+      - name: Check out ci-helpers scripts at this workflow's commit
+        if: ${{ inputs.gosec_args != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: |
+            scripts
+            vendor/script-helpers
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and read today's pins after all; refuse instead.
+      - name: Verify ci-helpers scripts commit
+        if: ${{ inputs.gosec_args != '' }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers scripts at $WF_SHA"
+
+      # gosec built from source with `go install`, at the version pinned in
+      # scanner-pins.env: the Go module checksum database verifies what is
+      # built, where the container action trusted an image tag. It runs in
+      # `working_directory`, as lint and tests do.
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        uses: securego/gosec@5eb1d104ef85ff2c905c877eb600e8c1dee33a22 # v2.30.0 @ 2026-10-23
-        with:
-          args: ${{ inputs.gosec_args }}
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          GOSEC_ARGS: ${{ inputs.gosec_args }}
+          PINS: ${{ github.workspace }}/.ci-helpers-actions/scanner-pins.env
+        run: |
+          set -euo pipefail
+          version="$(awk -F= '$1 == "GOSEC_VERSION" { print $2; exit }' "$PINS")"
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::GOSEC_VERSION in scanner-pins.env is '$version', not vX.Y.Z." >&2
+            exit 2
+          fi
+          # Build with the module's Go, or with the oldest Go gosec accepts
+          # (v2.30.0: go 1.26.0) when the module's is older; see govulncheck
+          # below for why not GOTOOLCHAIN=auto. Not named `floor=`: the
+          # self-test reads govulncheck's floor from this file by that name.
+          gosec_floor=go1.26.0
+          tc=local
+          if [ "$(printf '%s\n' "${gosec_floor#go}" "$(go env GOVERSION | sed 's/^go//')" | sort -V | head -n1)" != "${gosec_floor#go}" ]; then
+            tc="$gosec_floor"
+          fi
+          echo "building gosec ${version} with GOTOOLCHAIN=${tc} ($(go env GOVERSION) installed, floor ${gosec_floor})"
+          GOTOOLCHAIN="$tc" go install "github.com/securego/gosec/v2/cmd/gosec@${version}"
+          # Word-split on purpose: the input is gosec's argument list, as the
+          # container action's `args` was.
+          # shellcheck disable=SC2086
+          "$(go env GOPATH)/bin/gosec" $GOSEC_ARGS
 
       # gosec is a static analyser: it looks at this repository's own code. It
       # is not a dependency audit and says nothing about a known advisory in a

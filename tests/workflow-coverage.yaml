@@ -133,14 +133,13 @@ notes:
     code-scanning alerts against this repository for a dependency that is
     vulnerable by design.
   docker-scan.yml: >-
-    Exercised as far as the credential: `docker-scan-defaults-can-pass` builds
-    the fixture and runs Trivy, the step that decides whether Snyk *can* run is
-    driven with and without a token, and the Snyk call itself is run against
-    the fixture with a deliberately invalid one -- it reaches authentication,
-    which is the last thing provable without the account. What stays
-    unexercised is a scan that authenticates, and `fail_on_findings: true` --
-    whether a scan finds anything depends on the CVE state of a public base
-    image, which changes without us.
+    `docker-scan-defaults-can-pass` builds the fixture and runs the pinned
+    Trivy binary against it. Snyk is disabled: `docker-refuses-what-it-must`
+    runs the `run_snyk` step and checks it warns, writes the summary line and
+    that the workflow holds no `docker run`, Snyk image or token reference.
+    What stays unexercised is `fail_on_findings: true` -- whether a scan
+    finds anything depends on the CVE state of a public base image, which
+    changes without us.
   release-rc-pr.yml: >-
     Needs `GH_PAT` because the default token cannot open a pull request that
     triggers further workflows. A 403 used to log a warning while the job
