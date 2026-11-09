@@ -91,9 +91,22 @@ class ResolveBaseTests(unittest.TestCase):
         self.assertNotEqual(self.fx.main2, self.fx.base)
 
     def test_base_ref_that_is_not_a_commit_is_refused(self):
-        for ref in ("nosuch", "--all", "main HEAD", "a" * 40):
+        for ref in ("nosuch", "--all", "main HEAD", "a" * 40, "HEAD", "origin/HEAD", "refs/remotes/origin/HEAD",
+                    self.fx.base[:12], "refs/heads/main", "refs/tags/main", "@{-1}", "main@{1}"):
             with self.subTest(ref=ref):
                 self.assert_refused(self.resolve(base_ref=ref))
+
+    def test_base_ref_names_the_remote_branch_whatever_else_has_the_name(self):
+        # A tag and a local branch called `main`, both at the branch tip: a
+        # bare rev-parse would pick one of them; origin/main is what is read.
+        git(self.fx.clone, "tag", "main", self.fx.feature)
+        git(self.fx.clone, "branch", "main", self.fx.feature)
+        for ref in ("main", "origin/main", "refs/remotes/origin/main"):
+            with self.subTest(ref=ref):
+                self.assert_base(self.resolve(base_ref=ref), self.fx.base)
+        # A full sha is itself; a shorter unique prefix is not accepted.
+        self.assert_base(self.resolve(base_ref=self.fx.base), self.fx.base)
+        self.assert_refused(self.resolve(base_ref=self.fx.base[:20]))
 
     def test_pull_request_event_uses_the_base_sha(self):
         event = {"pull_request": {"base": {"sha": self.fx.base, "ref": "main"}}}
@@ -114,15 +127,44 @@ class ResolveBaseTests(unittest.TestCase):
         self.assert_base(self.resolve(event=event, event_name="push"), self.fx.base)
 
     def test_push_of_a_new_default_branch_is_refused(self):
+        # A checkout of main itself: its merge base with origin/main is HEAD.
+        on_main = Path(self.tmp.name) / "on-main"
+        subprocess.run(["git", "clone", "-q", "--branch", "main", str(self.fx.src), str(on_main)], check=True, capture_output=True)
         event = {"before": ZERO, "ref": "refs/heads/main", "repository": {"default_branch": "main"}}
-        self.assert_refused(self.resolve(event=event, event_name="push"))
+        self.assert_refused(self.resolve(root=on_main, event=event, event_name="push"))
+        # No default branch to fall back on.
         self.assert_refused(self.resolve(event={"before": ZERO, "ref": "refs/heads/x", "repository": {}}, event_name="push"))
+        self.assert_refused(self.resolve(event={"before": ZERO, "ref": "refs/heads/x"}, event_name="push"))
 
-    def test_push_before_not_in_the_repository_is_refused(self):
-        # A force push: `before` is gone. Nothing is compared with a guess.
-        event = {"before": "e" * 40, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
-        self.assert_refused(self.resolve(event=event, event_name="push"))
-        self.assert_refused(self.resolve(event={"before": "main", "ref": "refs/heads/feature"}, event_name="push"))
+    def test_push_before_that_is_not_an_ancestor_falls_back_to_the_default_branch(self):
+        # A force push: `before` is gone, or rewritten. The branch is then
+        # compared with the default branch, never with a guess at history.
+        gone = {"before": "e" * 40, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=gone, event_name="push"), self.fx.base)
+        # A commit that exists but is not behind HEAD: main's own tip.
+        rewritten = {"before": self.fx.main2, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=rewritten, event_name="push"), self.fx.base)
+        # A force push that rewrote only the last commit: `before` is the old
+        # tip, present and not behind HEAD. Its merge base with HEAD would be
+        # the commit before it, and the range would skip everything older;
+        # the default branch is the base instead.
+        old_tip = commit(self.fx.clone, "old tip", **{"old.py": "x = 2\n"})
+        git(self.fx.clone, "reset", "-q", "--hard", self.fx.feature)
+        rewritten_tip = commit(self.fx.clone, "new tip", **{"old.py": "x = 3\n"})
+        self.assertNotEqual(old_tip, rewritten_tip)
+        event = {"before": old_tip, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=event, event_name="push"), self.fx.base)
+        # Not a sha at all.
+        self.assert_base(self.resolve(event={"before": "main", "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}, event_name="push"), self.fx.base)
+        # And without a default branch, nothing.
+        self.assert_refused(self.resolve(event={"before": "e" * 40, "ref": "refs/heads/feature"}, event_name="push"))
+
+    def test_push_before_that_is_an_ancestor_is_the_base(self):
+        # Two pushes of the branch: the second reviews only what it added.
+        second = commit(self.fx.clone, "second push", **{"more.py": "z = 3\n"})
+        event = {"before": self.fx.feature, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        self.assert_base(self.resolve(event=event, event_name="push"), self.fx.feature)
+        self.assertNotEqual(second, self.fx.feature)
 
     def test_other_events_and_no_event_are_refused(self):
         self.assert_refused(self.resolve())
@@ -217,7 +259,7 @@ sys.exit(rc)
             "GITHUB_HEAD_REF": "fixture-branch", "GITHUB_EVENT_PATH": "", "GITHUB_EVENT_NAME": "",
         }
 
-    def run_script(self, script, expected, **changes):
+    def run_script(self, script, expected, dirty=False, **changes):
         if self.called.exists():
             self.called.unlink()
         env = {**self.env, **changes}
@@ -235,7 +277,8 @@ sys.exit(rc)
             self.assertIn("https://nikolareljin.github.io/leak-lock/", lines[2])
         # Nothing of the scan survives in RUNNER_TEMP or the work tree.
         self.assertEqual(sorted(self.runner.iterdir()), [])
-        self.assertEqual(git(self.fx.clone, "status", "--porcelain"), "")
+        if not dirty:
+            self.assertEqual(git(self.fx.clone, "status", "--porcelain"), "")
         return proc
 
     def record(self):
@@ -260,12 +303,10 @@ sys.exit(rc)
         self.run_script(GITLEAKS_RUN, 1, STUB_SAY="ERR git error encountered")
 
     def test_gitleaks_config_comes_from_the_base_not_the_branch(self):
-        # The branch adds an allow-everything config and an ignore list; the
-        # scan must not read either.
-        commit(self.fx.clone, "silence", **{
-            ".gitleaks.toml": '[allowlist]\npaths = [".*"]\n',
-            ".gitleaksignore": "fingerprint-of-the-new-secret\n",
-        })
+        # The branch adds an allow-everything config; the scan must not read
+        # it. (An ignore list the branch adds is refused outright: see the
+        # next test.)
+        commit(self.fx.clone, "silence", **{".gitleaks.toml": '[allowlist]\npaths = [".*"]\n'})
         self.run_script(GITLEAKS_RUN, 0)
         rec = self.record()
         self.assertEqual(rec["config"], "[extend]\nuseDefault = true\n")
@@ -273,6 +314,32 @@ sys.exit(rc)
         # Named explicitly, a config the base does not hold is refused.
         self.run_script(GITLEAKS_RUN, 1, CONFIG_PATH=".gitleaks.toml")
         self.assertIsNone(self.record())
+
+    def test_gitleaks_ignore_file_in_the_tree_must_match_the_base(self):
+        # gitleaks reads <source>/.gitleaksignore on its own, so the one the
+        # branch adds is not just left unread: the scan is refused.
+        commit(self.fx.clone, "ignore list", **{".gitleaksignore": "fingerprint-of-the-new-secret\n"})
+        self.run_script(GITLEAKS_RUN, 1)
+        self.assertIsNone(self.record())
+        # A file identical to the base's is what the base approved.
+        git(self.fx.src, "checkout", "-q", "main")
+        commit(self.fx.src, "approved ignore list", **{".gitleaksignore": "fingerprint-of-an-old-finding\n"})
+        git(self.fx.clone, "reset", "-q", "--hard", self.fx.feature)
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(GITLEAKS_RUN, 0)
+        self.assertEqual(self.record()["ignore"], "fingerprint-of-an-old-finding\n")
+        # One more line than the base has, and a link in place of the file.
+        commit(self.fx.clone, "one more", **{".gitleaksignore": "fingerprint-of-an-old-finding\nfingerprint-of-the-new-secret\n"})
+        self.run_script(GITLEAKS_RUN, 1)
+        self.assertIsNone(self.record())
+        git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
+        (self.fx.clone / ".gitleaksignore").unlink()
+        (self.fx.clone / ".gitleaksignore").symlink_to("README.md")
+        self.run_script(GITLEAKS_RUN, 1, dirty=True)
+        self.assertIsNone(self.record())
+        (self.fx.clone / ".gitleaksignore").unlink()
+        git(self.fx.clone, "checkout", "-q", "--", ".gitleaksignore")
 
     def test_gitleaks_config_on_the_base_is_used(self):
         git(self.fx.src, "checkout", "-q", "main")
@@ -291,7 +358,7 @@ sys.exit(rc)
         self.assertIsNone(self.record())
         self.run_script(GITLEAKS_RUN, 1, BASE_REF="")
         self.assertIsNone(self.record())
-        self.run_script(GITLEAKS_RUN, 1, BASE_REF="HEAD")
+        self.run_script(GITLEAKS_RUN, 1, BASE_REF="feature")
         self.assertIsNone(self.record())
 
     def test_gitleaks_refuses_a_disabled_or_missing_scanner(self):

@@ -80,7 +80,7 @@ fresh; edit docs/actions.md "\`skip_dirs\`" "\`skip-dirs\`"
 expect "undocumented action input" "action trivy-scan: input \`skip_dirs\` is not documented"
 
 fresh; edit README.md "80 reusable workflows" "79 reusable workflows"
-expect "README count drift" "README.md says 76 reusable workflows"
+expect "README count drift" "README.md says 79 reusable workflows"
 
 fresh; edit docs/assets/hero.svg "28 stack presets" "22 stack presets"
 expect "hero count drift" "docs/assets/hero.svg says"

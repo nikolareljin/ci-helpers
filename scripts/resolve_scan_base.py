@@ -7,18 +7,21 @@ descends from.
 
 The base commit, in order:
 
-  1. BASE_REF, when set: a commit, a local ref, or a branch under
-     refs/remotes/origin/. Must not start with "-".
+  1. BASE_REF, when set: a full commit sha, or a branch of the remote as
+     `main`, `origin/main` or `refs/remotes/origin/main`. Nothing else: a
+     short sha, a tag or a local branch is a name a pull request can create
+     or shadow, so a bare `git rev-parse <name>` is never run.
   2. A pull_request (or pull_request_target) event: pull_request.base.sha.
-  3. A push event: `before`. An all-zero `before` is a new branch; it is
-     compared against origin/<default_branch>, unless the pushed ref is the
-     default branch itself, which has no base and fails.
+  3. A push event: `before`, when it is a commit here and an ancestor of HEAD
+     (the state the branch was pushed from). Otherwise (a new branch's
+     all-zero `before`, a force push whose `before` is gone or rewritten) the
+     pushed commits are compared with origin/<default_branch>; a push of the
+     default branch itself then has an empty range and fails.
   4. Anything else fails: the caller passes base_ref.
 
 Fails closed: an unreadable event, a commit not in the repository, no merge
 base, or an empty range (HEAD is the base, or behind it) all exit 1. Nothing
-is printed but the merge base on success; diagnostics are for the caller's
-private log only.
+is printed but the merge base on success, and nothing at all on failure.
 
 Usage: resolve_scan_base.py <work-tree>
 """
@@ -40,18 +43,42 @@ def git(root, *args):
 
 
 def commit(root, ref):
-    """The commit a ref names, or None."""
+    """The commit a fully qualified ref or full sha names, or None."""
     if not ref or ref.startswith("-") or any(c.isspace() for c in ref):
         return None
     result = git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}")
     if result.returncode:
         return None
     sha = result.stdout.strip()
-    return sha if SHA.match(sha) else None
+    if not SHA.match(sha):
+        return None
+    # A full sha names itself or nothing: rev-parse would also accept it as
+    # an abbreviation of a longer object name.
+    if SHA.match(ref) and sha != ref:
+        return None
+    return sha
 
 
 def resolve_ref(root, ref):
-    return commit(root, ref) or commit(root, "refs/remotes/origin/" + ref)
+    """A full sha, or a branch of origin written any of three ways."""
+    if SHA.match(ref):
+        return commit(root, ref)
+    for prefix in ("refs/remotes/origin/", "origin/"):
+        if ref.startswith(prefix):
+            ref = ref[len(prefix):]
+            break
+    else:
+        if ref.startswith("refs/"):
+            return None
+    # origin/HEAD is a symref to whatever the remote's default was at clone
+    # time, and reads as the local HEAD; neither is a base anyone asked for.
+    if not ref or ref == "HEAD" or ref.startswith(".") or ref.endswith(".lock") or ".." in ref or "@{" in ref:
+        return None
+    return commit(root, "refs/remotes/origin/" + ref)
+
+
+def is_ancestor(root, older, newer):
+    return git(root, "merge-base", "--is-ancestor", older, newer).returncode == 0
 
 
 def from_event(root):
@@ -67,17 +94,17 @@ def from_event(root):
             raise ValueError("pull request base is not a commit sha")
         return commit(root, sha)
     if name == "push":
+        head = commit(root, "HEAD")
         before = str(event.get("before", ""))
-        # All zeros is a sha by shape and no commit at all: test it first.
-        if not ZERO.match(before):
-            if not SHA.match(before):
-                raise ValueError("push event carries no usable before sha")
-            return commit(root, before)
+        if SHA.match(before) and not ZERO.match(before):
+            pushed_from = commit(root, before)
+            # Only the state the branch was pushed from counts; a rewritten
+            # or unrelated `before` would let the range skip commits.
+            if pushed_from and head and is_ancestor(root, pushed_from, head):
+                return pushed_from
         default = str((event.get("repository") or {}).get("default_branch", ""))
         if not default:
-            raise ValueError("new branch and no default branch to compare with")
-        if str(event.get("ref", "")) == "refs/heads/" + default:
-            raise ValueError("first push of the default branch has no base")
+            raise ValueError("no usable before and no default branch to compare with")
         return commit(root, "refs/remotes/origin/" + default)
     raise ValueError("event %r carries no base; pass base_ref" % name)
 
@@ -102,13 +129,16 @@ def main():
     count = git(root, "rev-list", "--count", merge_base + ".." + head)
     if count.returncode or not count.stdout.strip().isdigit() or int(count.stdout) == 0:
         raise ValueError("nothing to review: HEAD is the base or behind it")
-    print(merge_base)
+    # Re-rendered from its integer value: the one line written is hex of the
+    # sha's length and nothing that came from the arguments or the event.
+    sys.stdout.write("%0*x\n" % (len(merge_base), int(merge_base, 16)))
     return 0
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        print("base: %s" % exc, file=sys.stderr)
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        # No reason on stderr: the caller discards it, and an event field
+        # could otherwise reach a log through the message.
         sys.exit(1)

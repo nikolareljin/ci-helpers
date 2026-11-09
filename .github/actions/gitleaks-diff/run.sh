@@ -37,6 +37,13 @@ merge_base="$("$py" -I "$dir/../../../scripts/resolve_scan_base.py" "$scan_path"
 # Rules and the approved ignore list come from the base commit, so a config
 # or .gitleaksignore the review adds cannot silence what it adds.
 if ! REVIEWED_REF="$merge_base" "$py" -I "$dir/../gitleaks-scan/prepare_rules.py" "$tmp" >"$tmp/check.log" 2>&1; then fail; fi
+# gitleaks also reads <source>/.gitleaksignore, beside the approved copy it is
+# given, so a work tree whose file differs from the base's could silence what
+# the review adds. Refused rather than merged: the two must be the same bytes.
+tree_ignore="$scan_path/.gitleaksignore"
+if [[ -e "$tree_ignore" || -L "$tree_ignore" ]]; then
+  if [[ -L "$tree_ignore" || ! -f "$tree_ignore" ]] || ! cmp -s "$tree_ignore" "$tmp/approved-ignore"; then fail; fi
+fi
 # `git` mode over the reviewed range reads every commit's patch, so a secret
 # added in one commit and removed in a later one of the same review is found.
 args=(git --log-opts="${merge_base}..HEAD" --config "$tmp/rules.toml"

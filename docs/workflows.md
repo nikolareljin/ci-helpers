@@ -584,8 +584,12 @@ Notes:
   https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
   Results and report paths never appear in CI output.
 - `scan_path` and `config_path` are honored. The scan
-  runs a pinned `gitleaks` binary, verified against a sha256 held in the
-  action (or `gitleaks_sha256`), not one fetched from the same release.
+  runs a pinned `gitleaks` binary, verified against a sha256 held in
+  `scanner-pins.env` (or `gitleaks_sha256`), not one fetched from the same release.
+- Rules and `.gitleaksignore` are read from the pull request's base commit.
+  gitleaks also reads the `.gitleaksignore` in the scanned tree on its own,
+  so one that differs from the base's (added, extended, or a link) fails the
+  scan; change the ignore list in its own pull request first.
 - **In a git work tree the scan reads the repository's history**, so naming a
   subdirectory in `scan_path` does not narrow it -- every commit is still
   scanned. Outside a work tree the files under `scan_path` are scanned instead.
@@ -682,15 +686,24 @@ Notes:
   and removed in a later one is still found, and a secret already on the base
   is not reported. `gitleaks-scan.yml` scans the whole history and fails on
   it; use that one for a periodic full scan.
-- The base, in order: `base_ref` (a commit, a branch, or a branch under
-  `origin/`); a pull request's base commit; a push's `before`. A push of a new
-  branch (`before` all zeros) is compared with the repository's default
-  branch; the first push of the default branch itself has no base. Any other
-  event needs `base_ref`. A base that is not in the repository, no merge base,
-  or an empty range (`HEAD` is the base, or behind it) fails the run: nothing
+- The base, in order: `base_ref`; a pull request's base commit; a push's
+  `before`, when it is a commit in the repository and an ancestor of `HEAD`
+  (the state the branch was pushed from). Otherwise (a new branch's all-zero
+  `before`, a force push whose `before` is gone or rewritten) the push is
+  compared with the repository's default branch, so the first push of the
+  default branch itself has an empty range. Any other event needs
+  `base_ref`. A base that is not in the repository, no merge base, or an
+  empty range (`HEAD` is the base, or behind it) fails the run: nothing
   passes because the base could not be found.
+- `base_ref` is a full commit sha, or a branch of the remote written as
+  `main`, `origin/main` or `refs/remotes/origin/main`. A short sha, a tag, a
+  local branch or `HEAD` is refused: those are names a pull request can
+  create or shadow, so no bare `git rev-parse <name>` is ever run.
 - Rules and `.gitleaksignore` are read from the merge base, never from the
-  tree under review, so a pull request cannot silence what it adds.
+  tree under review, so a pull request cannot silence what it adds. gitleaks
+  also reads the `.gitleaksignore` in the scanned tree on its own, so one
+  that differs from the merge base's (added, extended, or a link) fails the
+  run; change the ignore list in its own pull request first.
 - Failures identify Gitleaks and the branch and link
   https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
   Results and report paths never appear in CI output.
@@ -731,8 +744,9 @@ Notes:
   that the merge base's tree does not have. A finding whose lines move is not
   new. `foxguard-scan.yml` reports every finding; use that one for a
   periodic full scan.
-- The base is resolved as `gitleaks-new-findings.yml` describes, and fails
-  the run the same way when it cannot be.
+- The base is resolved as `gitleaks-new-findings.yml` describes (same
+  `base_ref` forms, same push rule), and fails the run the same way when it
+  cannot be.
 - Configuration comes from the merge base: `config_path`, or `.foxguard.yml`
   when present, and otherwise an empty config. A config the review adds is
   not read, and a config with a `baseline` entry is refused.

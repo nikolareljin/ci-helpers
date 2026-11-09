@@ -884,22 +884,49 @@ jobs:
   # The diff workflows review this repository's own pull request: the base
   # is the PR's base commit, or `before` on a push to main. On a manual run
   # of this suite there is no event base and the run would be refused, so
-  # the last commit alone is reviewed. `*-diff-refuses-what-it-must` below
-  # drive the actions on planted fixtures.
+  # this job hands them the previous commit, as a full sha (the only form
+  # of a commit base_ref accepts). `*-diff-refuses-what-it-must` below drive
+  # the actions on planted fixtures.
+  diff-base-for-a-manual-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      base_ref: ${{ steps.pick.outputs.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: pick
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          echo "base_ref=$base" >> "$GITHUB_OUTPUT"
+          echo "base_ref: '${base:-from the event}'"
+
   gitleaks-new-findings-defaults-can-pass:
+    needs: diff-base-for-a-manual-run
     uses: ./.github/workflows/gitleaks-new-findings.yml
     with:
-      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+      base_ref: ${{ needs.diff-base-for-a-manual-run.outputs.base_ref }}
 
   foxguard-new-findings-defaults-can-pass:
+    needs: diff-base-for-a-manual-run
     uses: ./.github/workflows/foxguard-new-findings.yml
     with:
-      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+      base_ref: ${{ needs.diff-base-for-a-manual-run.outputs.base_ref }}
 
   scan-new-findings-defaults-can-pass:
+    needs: diff-base-for-a-manual-run
     uses: ./.github/workflows/scan-new-findings.yml
     with:
-      base_ref: ${{ github.event_name == 'workflow_dispatch' && 'HEAD~1' || '' }}
+      base_ref: ${{ needs.diff-base-for-a-manual-run.outputs.base_ref }}
 
   # tauri-release.yml runs its signing actions from a checkout of the library
   # at job.workflow_sha, on macOS and Windows runners, and needs signing
@@ -1253,6 +1280,14 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/head-config
           base_ref: main
 
+      - name: An ignore list the branch adds for its own key does not silence it
+        id: head_ignore
+        continue-on-error: true
+        uses: ./.github/actions/gitleaks-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/head-ignore
+          base_ref: main
+
       - name: A base that is not there fails, it does not pass
         id: no_base
         continue-on-error: true
@@ -1282,12 +1317,13 @@ jobs:
           NEW_SECRET: ${{ steps.new_secret.outcome }}
           ADDED_REMOVED: ${{ steps.added_removed.outcome }}
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
+          HEAD_IGNORE: ${{ steps.head_ignore.outcome }}
           NO_BASE: ${{ steps.no_base.outcome }}
           FULL_SCAN: ${{ steps.full_scan.outcome }}
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new key:$NEW_SECRET" "key added then removed:$ADDED_REMOVED" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old key:$FULL_SCAN"; do
+          for pair in "new key:$NEW_SECRET" "key added then removed:$ADDED_REMOVED" "config on the branch:$HEAD_CONFIG" "ignore list on the branch:$HEAD_IGNORE" "missing base:$NO_BASE" "full scan of the old key:$FULL_SCAN"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"
@@ -2023,6 +2059,7 @@ jobs:
       - foxguard-scan-defaults-can-pass
       - foxguard-refuses-what-it-must
       - foxguard-pins-match-each-platform
+      - diff-base-for-a-manual-run
       - gitleaks-new-findings-defaults-can-pass
       - foxguard-new-findings-defaults-can-pass
       - scan-new-findings-defaults-can-pass

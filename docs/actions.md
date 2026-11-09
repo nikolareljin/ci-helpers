@@ -141,6 +141,9 @@ Outputs:
 
 Notes:
 
+- `.gitleaksignore` is read from the pull request's base commit. gitleaks also
+  reads the scanned tree's own `.gitleaksignore`, so one that differs from the
+  base's (added, extended, or a link) fails the step.
 - The gitleaks release archive is verified before it runs against a sha256
   held in this repository (or `gitleaks_sha256`), never against a checksums
   file fetched from the same release; a mismatch or a missing digest fails
@@ -251,7 +254,7 @@ Purpose: Fail on secrets the commits under review add, without exporting scanner
 
 Inputs:
 
-- `base_ref` (default `""`) - commit, branch or `origin/` branch the review starts from; empty reads the pull request's base commit or a push's `before` (a new branch is compared with the default branch)
+- `base_ref` (default `""`) - a full commit sha, or a branch of the remote as `main`, `origin/main` or `refs/remotes/origin/main` (a short sha, a tag, a local branch or `HEAD` is refused); empty reads the pull request's base commit or a push's `before` when that is an ancestor of `HEAD`, else the default branch
 - `scan_path` (default `"."`) - a path inside the git work tree; the scan reads commits, so a subdirectory does not narrow it
 - `config_path` (default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
 - `gitleaks_version` (default `v8.30.1`)
@@ -273,7 +276,9 @@ Notes:
   it and `HEAD`; the scan is `gitleaks git --log-opts=<merge-base>..HEAD`.
   No base, a base that is not in the repository, no merge base or an empty
   range fails the step. Rules and `.gitleaksignore` are read from the merge
-  base, never from the tree under review.
+  base, never from the tree under review; since gitleaks also reads the
+  scanned tree's `.gitleaksignore` on its own, one that differs from the
+  merge base's fails the step.
 - No report, SARIF or artifact. A failure names Gitleaks and the branch,
   links https://nikolareljin.github.io/leak-lock/ and says what to run
   locally; nothing else is logged.

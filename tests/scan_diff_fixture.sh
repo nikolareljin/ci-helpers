@@ -20,6 +20,9 @@
 #   both           adds a key and shell=True: both diffs fail
 #   head-config    adds configs that would silence both, plus both findings:
 #                  both diffs fail (the configs are read from the base)
+#   head-ignore    adds a key and a .gitleaksignore naming that key's
+#                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
+#                  ignore list, so one that differs from the base's is refused)
 # EXIT CODES:
 #   0  Built.
 #   1  git or openssl failed.
@@ -66,7 +69,7 @@ injection handler.py
 g add -A; g commit -q -m "a new command injection"
 
 branch moved
-printf '# header\n# more\n\n' | cat - "$src/old.py" > "$src/old.py.new" && mv "$src/old.py.new" "$src/old.py"
+printf '# header\n# more\n\nimport subprocess\nimport sys\n\nsubprocess.run(sys.argv[1], shell=True)\n' > "$src/old.py"
 g add -A; g commit -q -m "the old finding moves down three lines"
 
 branch added-removed
@@ -87,8 +90,15 @@ key new_key.pem
 injection handler.py
 g add -A; g commit -q -m "configs that would silence both, and both"
 
+branch head-ignore
+key new_key.pem
+g add -A; g commit -q -m "a new key"
+# gitleaks git-mode fingerprint: <commit>:<path>:<rule>:<line>
+printf '%s:new_key.pem:private-key:1\n' "$(g rev-parse HEAD)" > "$src/.gitleaksignore"
+g add -A; g commit -q -m "an ignore list naming that key"
+
 g checkout -q main
-for b in clean new-secret new-shell moved added-removed both head-config; do
+for b in clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"
