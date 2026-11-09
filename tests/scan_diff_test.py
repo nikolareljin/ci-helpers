@@ -170,8 +170,9 @@ class ResolveBaseTests(unittest.TestCase):
         self.assert_refused(self.resolve())
         self.assert_refused(self.resolve(event={}, event_name="workflow_dispatch"))
         self.assert_refused(self.resolve(event={"before": self.fx.base}, event_name="schedule"))
-        # A pull_request payload under another event name is not trusted.
+        # A pull_request payload under another event name, or none, is not trusted.
         self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": self.fx.base}}}, event_name="push"))
+        self.assert_refused(self.resolve(event={"pull_request": {"base": {"sha": self.fx.base}}}, event_name=""))
 
     def test_empty_range_is_refused(self):
         # HEAD is the base, or behind it: nothing to review is not a pass.

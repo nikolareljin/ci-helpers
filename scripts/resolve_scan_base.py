@@ -88,7 +88,7 @@ def from_event(root):
     event = json.loads(Path(path).read_text(encoding="utf-8"))
     name = os.environ.get("GITHUB_EVENT_NAME", "")
     pull = event.get("pull_request")
-    if pull and name in ("pull_request", "pull_request_target", ""):
+    if pull and name in ("pull_request", "pull_request_target"):
         sha = str(pull["base"]["sha"])
         if not SHA.match(sha):
             raise ValueError("pull request base is not a commit sha")
