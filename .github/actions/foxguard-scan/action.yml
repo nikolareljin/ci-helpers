@@ -1,0 +1,163 @@
+name: Foxguard Scan
+description: Enforce Foxguard static-analysis checks without publishing scanner output.
+inputs:
+  scan_path:
+    description: Path to scan (relative to repo root, or an absolute path).
+    default: "."
+    required: false
+  severity:
+    description: >
+      Lowest severity that fails the scan: low, medium, high or critical.
+      Findings below it are not reported.
+    default: medium
+    required: false
+  config_path:
+    description: >
+      Optional foxguard config file path, relative to the scanned repository.
+      PR scans read it from the base commit; a config added by the pull
+      request is not used. Default: `.foxguard.yml` at the base when present.
+    default: ""
+    required: false
+  fail_on_findings:
+    description: Mandatory enforcement; false is refused.
+    default: "true"
+    required: false
+  foxguard_version:
+    description: >
+      Foxguard release tag to download (e.g. "v0.14.1"). Pin this explicitly
+      for reproducible scans and supply-chain safety.
+    default: "v0.14.1"
+    required: false
+  foxguard_sha256:
+    description: >
+      sha256 of the release binary for this runner, required with a
+      foxguard_version other than v0.14.1, whose digests are pinned here; a different
+      digest for that version is refused.
+    default: ""
+    required: false
+outputs:
+  fg_bin:
+    description: Path of the foxguard binary the action downloaded and verified.
+    value: ${{ steps.install.outputs.fg_bin }}
+runs:
+  using: composite
+  steps:
+    - name: Enforce local-only results
+      shell: bash
+      env:
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        if [[ "$FAIL_ON_FINDINGS" != true ]]; then
+          source "$ACTION_PATH/../../../vendor/script-helpers/scripts/security_notice.sh"
+          security_notice Foxguard
+          exit 1
+        fi
+    - name: Install foxguard binary
+      id: install
+      shell: bash
+      env:
+        FOXGUARD_VERSION: ${{ inputs.foxguard_version }}
+        FOXGUARD_SHA256: ${{ inputs.foxguard_sha256 }}
+      run: |
+        set -euo pipefail
+        # Normalize: strip any leading "v" then re-add it so both "v0.14.1"
+        # and "0.14.1" produce the correct release URL.
+        ver="${FOXGUARD_VERSION#v}"
+        tag="v${ver}"
+
+        # Map uname output to foxguard release asset naming. The release
+        # ships bare binaries, one per platform, no archive.
+        raw_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        arch=$(uname -m)
+        case "${arch}" in x86_64|amd64) arch="x86_64" ;; aarch64|arm64) arch="aarch64" ;; esac
+
+        case "${raw_os}" in
+          linux)                os="linux"   ; ext="" ;;
+          darwin)               os="macos"   ; ext="" ;;
+          mingw*|msys*|cygwin*) os="windows" ; ext=".exe" ;;
+          *)
+            echo "::error::Unsupported runner OS '${raw_os}'. foxguard-scan supports linux, darwin, and windows." >&2
+            exit 1
+            ;;
+        esac
+        if [ "${os}" = "windows" ] && [ "${arch}" != "x86_64" ]; then
+          echo "::error::foxguard ${tag} publishes no windows ${arch} binary." >&2
+          exit 1
+        fi
+
+        asset="foxguard-${os}-${arch}${ext}"
+        # A private directory per run: fixed /tmp paths are shared by every job
+        # on a self-hosted runner, so one job could swap another's binary.
+        if [ -n "${RUNNER_TEMP:-}" ]; then
+          work=$(mktemp -d "${RUNNER_TEMP}/foxguard.XXXXXX")
+        else
+          work=$(mktemp -d)
+        fi
+
+        # Direct download from GitHub Releases: no API auth needed for public repos.
+        base_url="https://github.com/0sec-labs/foxguard/releases/download/${tag}"
+        curl -fsSL "${base_url}/${asset}" -o "${work}/${asset}"
+
+        # Verify against a digest held in this repository, never one fetched
+        # beside the binary: a replaced release would bring its own checksums.
+        # 0.14.1, from its checksums.txt, matching GitHub's asset digests.
+        case "${tag}/${asset}" in
+          v0.14.1/foxguard-linux-x86_64)        pinned=10a531279f7f3e9dcd01996e5e288309cd6d7d2bb2b7fa35de583d0bbe715bc2 ;;
+          v0.14.1/foxguard-linux-aarch64)       pinned=f374bb1b81ffcb01aa5446719dee199245c673fffc9c659e985bbabe0faaa032 ;;
+          v0.14.1/foxguard-macos-x86_64)        pinned=df78bc22307b893975c4d75799b36a1d7f1664be92aeeab19e61b7d0ecfafa26 ;;
+          v0.14.1/foxguard-macos-aarch64)       pinned=e466cb4692a959fb500cd9f55d35aac0dd530afce8358643ed186e2c8c85f8c5 ;;
+          v0.14.1/foxguard-windows-x86_64.exe)  pinned=0fb139cb088a302a2c6567087079c4152025c20ac0e06a64107e9a0382e4bffb ;;
+          *) pinned="" ;;
+        esac
+        # First field only, lower-cased: a pasted checksums.txt line
+        # ("<hash>  <file>") or an upper-case digest still works.
+        expected="$(printf '%s' "${FOXGUARD_SHA256:-${pinned}}" | awk 'NR == 1 { print tolower($1) }')"
+        if [ -z "${expected}" ]; then
+          echo "::error::No pinned sha256 for ${tag} ${asset}; pass foxguard_sha256 (its digest in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
+          exit 1
+        fi
+        if [ "${#expected}" -ne 64 ] || [ -n "$(printf '%s' "${expected}" | tr -d '0-9a-f')" ]; then
+          echo "::error::foxguard_sha256 must be 64 hex characters, got '${expected}'." >&2
+          exit 1
+        fi
+        # A pinned version keeps its pin: the input may repeat it, never replace it.
+        if [ -n "${pinned}" ] && [ "${expected}" != "${pinned}" ]; then
+          echo "::error::foxguard_sha256 differs from the digest pinned for ${tag} ${asset}; leave it empty or pass the pinned digest." >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          # From stdin: given a path with a backslash (a Windows RUNNER_TEMP),
+          # Git Bash's sha256sum prefixes the hash with "\".
+          actual=$(sha256sum < "${work}/${asset}" | awk '{ print $1 }')
+        elif command -v shasum >/dev/null 2>&1; then
+          actual=$(shasum -a 256 < "${work}/${asset}" | awk '{ print $1 }')
+        else
+          echo "::error::Neither sha256sum nor shasum is available to verify ${asset}." >&2
+          exit 1
+        fi
+        if [ "${actual}" != "${expected}" ]; then
+          echo "::error::Checksum mismatch for ${asset}: expected ${expected}, got ${actual}." >&2
+          exit 1
+        fi
+        echo "Verified ${asset} (sha256 ${actual})"
+
+        mkdir -p "${work}/bin"
+        FG_BIN="${work}/bin/foxguard${ext}"
+        mv "${work}/${asset}" "${FG_BIN}"
+        chmod +x "${FG_BIN}"
+        # An output, not GITHUB_ENV, which would also reach every later step
+        # of the caller's job.
+        echo "fg_bin=${FG_BIN}" >> "${GITHUB_OUTPUT}"
+
+    - name: Security checks
+      shell: bash
+      env:
+        FG_BIN: ${{ steps.install.outputs.fg_bin }}
+        SCAN_PATH: ${{ inputs.scan_path }}
+        SEVERITY: ${{ inputs.severity }}
+        CONFIG_PATH: ${{ inputs.config_path }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/run.sh"

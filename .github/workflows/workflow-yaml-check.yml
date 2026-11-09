@@ -78,6 +78,13 @@ jobs:
             security_notice Gitleaks
             exit "$check_rc"
           fi
+          bash tests/foxguard_no_publication_test.sh > "$RUNNER_TEMP/local-checks.log" 2>&1 || check_rc=$?
+          rm -f "$RUNNER_TEMP/local-checks.log"
+          if [[ "$check_rc" -ne 0 ]]; then
+            source vendor/script-helpers/scripts/security_notice.sh
+            security_notice Foxguard
+            exit "$check_rc"
+          fi
 
       # Parsing proves a file is YAML; it says nothing about an input going
       # missing one hop down. See the script's header for what drifted.
@@ -250,6 +257,10 @@ jobs:
       - name: gitleaks-scan checks a digest held here, not the release's own
         shell: bash
         run: bash tests/gitleaks_pinned_digest_test.sh
+
+      - name: foxguard-scan checks a digest held here, not the release's own
+        shell: bash
+        run: bash tests/foxguard_pinned_digest_test.sh
 
       - name: install_trivy checks the digest pinned here and refuses the rest
         shell: bash
