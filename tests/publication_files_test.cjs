@@ -150,3 +150,13 @@ test('temporary storage stays private when caller TMPDIR is unusable', () => {
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
   }
 });
+
+
+test('renamed private diagnostic logs cannot reach the uploader', async () => {
+  const {dir, stage} = fixture();
+  const file = path.join(dir, 'ordinary.log');
+  fs.writeFileSync(file, 'SCRIPT_HELPERS_PRIVATE_'+'SECURITY_REPORT_V1\nordinary diagnostics');
+  let published = false;
+  await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; });
+  assert.equal(published, false);
+});

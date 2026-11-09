@@ -476,3 +476,7 @@ CI prints only the failing tool and safe branch instructions with
 https://nikolareljin.github.io/leak-lock/. Inspect findings locally. This action
 checks the workflows' standard upload steps. An exclusive publication writer is
 still required to prevent deliberate client or credential bypasses.
+
+PII checks also apply to public author contact annotations in vendored files.
+Packaging self-tests build and inspect those packages locally without uploading
+them. Private diagnostic markers remain blocked after copying or renaming.

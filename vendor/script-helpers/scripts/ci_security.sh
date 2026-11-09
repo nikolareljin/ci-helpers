@@ -145,7 +145,8 @@ if [[ "${SCRIPT_HELPERS_REPORT_ACTIVE:-}" != 1 ]]; then
     exit 2
   }
   report_rc=0
-  SCRIPT_HELPERS_REPORT_ACTIVE=1 bash "${BASH_SOURCE[0]}" "${report_args[@]+"${report_args[@]}"}" >"$local_report" 2>&1 || report_rc=$?
+  printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$local_report" || exit 2
+  SCRIPT_HELPERS_REPORT_ACTIVE=1 bash "${BASH_SOURCE[0]}" "${report_args[@]+"${report_args[@]}"}" >>"$local_report" 2>&1 || report_rc=$?
   printf 'Local security report: %s\n' "$local_report"
   [[ "$report_rc" -eq 0 ]] || security_notice Security
   exit "$report_rc"

@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Use the current 0.62.0 helper base with private diagnostic markers and native report format checks.
 - Check artifact files, release assets and release notes before upload. Upload only validated snapshots; failed checks cannot be bypassed by `always()`.
 
 - Keep security diagnostics local and refuse scanner output before commit, push, or publication.

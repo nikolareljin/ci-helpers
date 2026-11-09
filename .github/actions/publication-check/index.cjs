@@ -185,6 +185,7 @@ async function main() {
     if (!process.env.GITHUB_STATE) throw new Error('state storage unavailable');
     fs.appendFileSync(process.env.GITHUB_STATE, `publication_stage=${stage}\n`);
     log = fs.openSync(path.join(stage, 'private.log'), 'wx', 0o600);
+    fs.writeSync(log, 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n');
     const muted = (chunk, encoding, callback) => {
       fs.writeSync(log, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, typeof encoding === 'string' ? encoding : 'utf8'));
       if (typeof encoding === 'function') encoding(); else if (callback) callback();

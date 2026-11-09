@@ -62,7 +62,11 @@ sec_guard() (
     }
     trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf "${report%/*}"; fi' EXIT
     trap 'exit 1' HUP INT TERM
-    "$@" >"$report" 2>&1 || rc=$?
+    if ! { printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report"; } 2>/dev/null; then
+      security_notice Security
+      return 1
+    fi
+    { "$@" >>"$report" 2>&1; } 2>/dev/null || rc=$?
     if [[ "$rc" -ne 0 ]]; then
       security_notice "$(security_notice_tool "$report")"
     fi
@@ -71,7 +75,8 @@ sec_guard() (
       echo 'Security checks could not create a private local report; refused.' >&2
       return 1
     }
-    "$@" >"$report" 2>&1 || rc=$?
+    printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report" || return 1
+    "$@" >>"$report" 2>&1 || rc=$?
     if [[ "$rc" -eq 0 ]]; then
       printf 'Security checks passed. Local report: %s\n' "$report"
     else
