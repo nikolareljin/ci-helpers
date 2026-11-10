@@ -2558,6 +2558,27 @@ Purpose: Build and push a multi-architecture Docker image (`linux/amd64` +
 `linux/arm64` by default) using QEMU + buildx. Optionally runs a Trivy
 vulnerability scan on the pushed image.
 
+Every step runs the docker CLI the runner ships, through scripts the job
+checks out from this library at the workflow's own commit; no third-party
+action. `scripts/setup_qemu.sh` registers the emulators by running the binfmt
+image pinned by tag and index digest in the library's `toolchain-pins.env`
+(`BINFMT_IMAGE`), every platform. `scripts/setup_buildx.sh` creates a
+`docker-container` builder on the BuildKit image pinned there
+(`BUILDKIT_IMAGE`); a runner without the buildx plugin fails with the message
+saying so. `scripts/docker_login.sh` hands `registry_token` to `docker login
+--password-stdin`, so the token is in no argument and no log, and logs out in a
+final step whatever the build did; an Amazon ECR host is refused (get a login
+password with `aws ecr get-login-password` in the caller and pass it as the
+token, with `registry_username: AWS`). `scripts/docker_build.sh` runs `docker
+buildx build` with the context, Dockerfile, platforms, tags, build-args, the
+Actions cache both ways (`type=gha`, exposed to buildx by GitHub's own script
+action) and `--push`; provenance is `mode=max` for a public repository and
+`mode=min,inline-only=true` for a private one. The printed command masks
+build-arg values. No build secret is passed, as before; a caller's own step can
+run `scripts/docker_build.sh` with `BUILD_SECRET_ENVS` (`id=VARIABLE` per
+line), which mounts `--secret id=<id>,env=<VARIABLE>` and never handles the
+value.
+
 Inputs:
 
 | Input | Required | Default | Description |

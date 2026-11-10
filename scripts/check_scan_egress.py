@@ -123,12 +123,6 @@ KEPT_THIRD_PARTY = {
     # To be replaced (E223). Runs Unity tests in a container with the
     # checkout mounted and the licence secrets passed in.
     "game-ci/unity-test-runner",
-    # To be replaced (E223). Multi-arch Docker builds: binfmt setup, buildx,
-    # the registry credential, and the whole build context.
-    "docker/setup-qemu-action",
-    "docker/setup-buildx-action",
-    "docker/login-action",
-    "docker/build-push-action",
 }
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")

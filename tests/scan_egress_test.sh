@@ -471,7 +471,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
 YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
@@ -531,11 +531,18 @@ YAML
 # steps now (corepack, rustup, the tool cache, actions/cache), and the Azure
 # signing action is used under its new name; the actions they replaced are
 # refused in every workflow, scan or not, so none can come back by habit.
+# The multi-arch Docker build runs the docker CLI from scripts (binfmt and
+# BuildKit images pinned in toolchain-pins.env); the four docker/* actions
+# are refused the same way.
 for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
             dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec \
             swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 \
             ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
-            azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82; do
+            azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 \
+            docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 \
+            docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 \
+            docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 \
+            docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc; do
   expect "the replaced $gone in a build workflow" 1 "uses: '$gone' is not" .github/workflows/build.yml <<YAML
 on: push
 jobs:
@@ -559,6 +566,28 @@ jobs:
       - uses: $gone
 YAML
 done
+# The QEMU setup is a `docker run` of the binfmt image: pinned by digest it
+# passes the docker rule even in a scan workflow; the floating tag does not.
+expect "the pinned binfmt run in a scan workflow" 0 "" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker run --rm --privileged docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all
+YAML
+expect "the binfmt run by tag in a scan workflow" 1 "docker: container run or create without an @sha256: image" <<'YAML'
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker run --rm --privileged docker.io/tonistiigi/binfmt:latest --install all
+YAML
 # A file-scoped ALLOWED_ACTIONS entry: the Azure signing action runs in
 # tauri-release.yml's sign-windows job and nowhere else, not in another job
 # of that file, another workflow, a reusable-workflow call or a composite

@@ -303,6 +303,13 @@ jobs:
         shell: bash
         run: bash tests/rust_cache_key_test.sh
 
+      # The multi-arch Docker build runs the docker CLI from four scripts:
+      # the binfmt and BuildKit images pinned in toolchain-pins.env, the
+      # registry token on stdin, build secrets by environment. Stub docker.
+      - name: The docker scripts build the command lines the actions built and keep secrets out of argv
+        shell: bash
+        run: bash tests/docker_scripts_test.sh
+
       # A scan job runs only allowlisted actions, digest-pinned containers and
       # token-free checkouts, inherits no secrets and writes nothing but
       # SARIF; no workflow runs a third-party action outside the kept list.
