@@ -48,14 +48,12 @@ pinned:
 | `azure/artifact-signing-action` | Microsoft, Azure Artifact Signing, SHA-pinned | `tauri-release.yml`, job `sign-windows` only |
 
 This library's own actions and workflows and local `./` paths need no entry.
-`KEPT_THIRD_PARTY` in the same file is the temporary list of third-party
-actions still in use, each to be replaced by a first-party step and removed;
-nothing is added to it.
+No other third-party action runs anywhere.
 
 To propose an addition: open a pull request that adds the entry to
 `ALLOWED_ACTIONS` with its reason in the comment, and, for an action that
 handles credentials, the file and job it is bound to. `workflow-yaml-check`
-fails on any `uses:` outside the two lists; `tests/scan_egress_test.sh` holds
+fails on any `uses:` outside that list; `tests/scan_egress_test.sh` holds
 the gate to that.
 
 ## Cache Trust
