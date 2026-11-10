@@ -178,7 +178,7 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
         return
     entry = allowed_entry(base)
     if entry:
-        pattern, reason, scope = entry
+        _, reason, scope = entry
         if scope is None or at in scope:
             return
         places = ", ".join(f"{f} job {j}" for f, j in sorted(scope))
