@@ -45,7 +45,38 @@ DOCTYPE = """<?xml version="1.0"?>
 <testsuite><testcase name="&b;"/></testsuite>"""
 
 
+NUNIT = """<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="4" result="Failed" total="4" passed="1" failed="2" inconclusive="0" skipped="1" duration="2.5">
+  <test-suite type="TestSuite" id="1000" name="Game" fullname="Game" result="Failed">
+    <test-case id="1" name="Spawns" fullname="Game.PlayerTests.Spawns" result="Passed" duration="0.5" />
+    <test-case id="2" name="Moves" fullname="Game.PlayerTests.Moves" result="Failed" duration="1.0">
+      <failure>
+        <message><![CDATA[Expected: 1
+  But was:  2]]></message>
+        <stack-trace><![CDATA[at Game.PlayerTests.Moves ()]]></stack-trace>
+      </failure>
+    </test-case>
+    <test-case id="3" name="Throws" fullname="Game.PlayerTests.Throws" result="Failed" label="Error" duration="0.5">
+      <failure><message><![CDATA[System.NullReferenceException : boom]]></message></failure>
+    </test-case>
+    <test-case id="4" name="Later" fullname="Game.PlayerTests.Later" result="Skipped" duration="0.5" />
+  </test-suite>
+</test-run>
+"""
+
+
 class JunitSummaryTests(unittest.TestCase):
+    def test_nunit_counts_and_failures(self):
+        """Unity's NUnit 3 XML: test-case with result=, duration, and a
+        failure message in CDATA; an Error label is an error, a Failed is a
+        failure, a Skipped is skipped."""
+        path = self.write("artifacts/editmode-results.xml", NUNIT)
+        out = junit.summary("Unity", [path], 1 << 20)
+        self.assertIn("| 4 | 1 | 1 | 1 | 1 | 2.5s |", out)
+        self.assertIn("| failure | Game.PlayerTests.Moves | Expected: 1 | editmode-results.xml |", out)
+        self.assertIn("| error | Game.PlayerTests.Throws | System.NullReferenceException : boom | editmode-results.xml |", out)
+        self.assertNotIn("Later", out)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = pathlib.Path(self.tmp.name)

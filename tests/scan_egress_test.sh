@@ -534,8 +534,10 @@ YAML
 # in every workflow, scan or not, so none can come back by habit. The
 # multi-arch Docker build runs the docker CLI from scripts (binfmt and
 # BuildKit images pinned in toolchain-pins.env); the four docker/* actions
-# are refused the same way.
+# are refused the same way. Unity tests run in the editor image pinned there
+# from scripts/unity_test.sh; the action that ran them is refused too.
 for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
+            game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 \
             dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec \
             swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 \
             ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
@@ -684,13 +686,13 @@ runs:
   steps:
     - uses: some/new-action@0000000000000000000000000000000000000000
 YAML
-expect "unpinned kept action in a build workflow" 1 "uses: 'game-ci/unity-test-runner@v4' is not canonical" .github/workflows/build.yml <<'YAML'
+expect "unpinned kept action in a build workflow" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: game-ci/unity-test-runner@v4
+      - uses: shivammathur/setup-php@v2
 YAML
 expect "kept actions in a build workflow stay quiet" 0 "" .github/workflows/build.yml <<'YAML'
 on: push
@@ -699,24 +701,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/local
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: docker run --rm alpine:3 true
 YAML
 # The kept list is for the other workflows; a scan workflow still allows
-# only the toolchain installers.
-expect "kept action in a scan workflow" 1 "uses: 'game-ci/unity-test-runner@0000000000000000000000000000000000000000' is not" <<'YAML'
-on: push
-jobs:
-  scan:
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
-YAML
+# only the toolchain installers. The one kept entry left (setup-php) is also
+# a toolchain installer, so there is no kept action a scan workflow refuses
+# to drive here until the list gains one or empties.
 # The kept list in the script is exactly the set of third-party actions this
 # tree runs outside ALLOWED_ACTIONS: an entry nobody uses is a leftover,
 # deleted with its action. Every ALLOWED_ACTIONS entry carries a reason, and

@@ -117,9 +117,6 @@ KEPT_THIRD_PARTY = {
     # checkout (composer.json) and the job token for API rate limits;
     # downloads tools from its own CDN.
     "shivammathur/setup-php",
-    # To be replaced (E223). Runs Unity tests in a container with the
-    # checkout mounted and the licence secrets passed in.
-    "game-ci/unity-test-runner",
 }
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
