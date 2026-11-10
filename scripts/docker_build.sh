@@ -4,11 +4,12 @@
 #              what the replaced build-push action took as inputs, with no
 #              third-party action. Every input reaches the command as one
 #              argument each, never spliced into shell text. A build secret
-#              goes to BuildKit as `--secret id=<id>,env=<variable>` with the
-#              value in this process's environment only: not in an argument,
-#              not in a build-arg, not in the image's history. Build-arg
-#              values are masked in the printed command. The digest and image
-#              id come from buildx's metadata and iid files.
+#              goes to BuildKit as `--secret id=<id>,env=<VARIABLE>`: this
+#              script handles the two names and never the value, which stays
+#              in the environment, out of every argument, build-arg and image
+#              history. Build-arg values are masked in the printed command.
+#              The digest and image id come from buildx's metadata and iid
+#              files.
 # USAGE: TAGS=ghcr.io/o/r:1.0 PUSH=true bash scripts/docker_build.sh
 # ENVIRONMENT:
 #   CONTEXT            Build context path (default: .).
@@ -17,17 +18,12 @@
 #   TAGS               Image tags, comma- or newline-separated (optional).
 #   LABELS             Image labels, one per line (optional).
 #   BUILD_ARGS         ARG=VALUE pairs, one per line (optional).
-#   BUILD_SECRETS      id=value pairs, one per line; each is passed by
-#                      environment as --secret id=<id>,env=... (optional). A
-#                      value with line breaks (a PEM key, JSON) is written as
-#                      id=base64:<base64 of the value> and decoded here. No
-#                      part of a line is printed; an error names the line
-#                      number, and under Actions every value (each line of
-#                      it, four characters or longer) is masked. Lines are
-#                      read as given: no trimming, blank lines skipped but
-#                      counted.
-#   BUILD_SECRET_ENVS  id=VARIABLE pairs, one per line; the secret is read from
-#                      that variable of this environment (optional).
+#   BUILD_SECRET_ENVS  id=VARIABLE pairs, one per line: the secret with mount
+#                      id <id> is read by BuildKit from that variable of this
+#                      environment (--secret id=<id>,env=<VARIABLE>). The
+#                      value never passes through this script. A step sets
+#                      the variable from the secrets context, which the
+#                      runner masks (optional).
 #   PUSH, LOAD         true or false (default: false).
 #   PULL, NO_CACHE     true or false (default: false).
 #   CACHE_FROM         --cache-from values, one per line (optional).
@@ -52,9 +48,8 @@
 #   0  The build ran; with PUSH=true the digest is known.
 #   1  docker buildx build failed, or the pushed image has no digest.
 #   2  No docker or no buildx plugin on PATH, a true/false value that is
-#      neither, a secret id that is not [A-Za-z0-9._-]+ or is repeated, a
-#      secret line without `=`, a base64 value that does not decode, or a
-#      secret variable that is unset.
+#      neither, a secret line that is not id=VARIABLE (id [A-Za-z0-9._-]+,
+#      a variable name after it), a repeated id, or an unset variable.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -130,63 +125,15 @@ while IFS= read -r v; do add --tag "$v"; done < <(each_item "${TAGS:-}")
 platform_list="$(each_item "${PLATFORMS:-}" | paste -sd, -)"
 [[ -n "$platform_list" ]] && add --platform "$platform_list"
 
-# Secrets: the value is exported under a name of this script's own and
-# BuildKit reads it from the environment, so neither argv nor the image
-# history nor this log carries it. No part of a BUILD_SECRETS line is ever
-# printed: an error names the line number only, and under Actions every
-# value is masked before it is looked at.
-mask() {
-  # One ::add-mask:: per line of the value: the runner masks line by line.
-  # Under four characters a mask would blank every such run in the log.
-  [[ "${GITHUB_ACTIONS:-}" == true ]] || return 0
-  printf '%s\n' "$1" | while IFS= read -r part; do
-    [[ ${#part} -ge 4 ]] && printf '::add-mask::%s\n' "$part"
-  done
-  return 0
-}
-# Secret lines are read as given (no trimming: a value keeps its spaces) and
-# counted as given, so the line number in an error is the caller's.
-secret_lines() {
-  printf '%s\n' "$1" | while IFS= read -r line; do
-    printf '%s\n' "$line"
-  done
-  return 0
-}
+# Secrets: BUILD_SECRET_ENVS names, per line, a mount id and the variable
+# of this environment that holds the value. The script passes the two names
+# to docker as `--secret id=<id>,env=<VARIABLE>` and BuildKit reads the
+# value from the environment: the value is never read, printed, trimmed or
+# split here, is in no argument and in no image history. Both sides are
+# names checked against a strict pattern; an error names the line number.
 id_re='^[A-Za-z0-9._-]+$'
+var_re='^[A-Za-z_][A-Za-z0-9_]*$'
 seen_ids=" "
-# secret_id <list> <line number> <id>: refuse an id that is not a name or
-# that was given before; say where, never what.
-secret_id() {
-  local list="$1" n="$2" id="$3"
-  [[ "$id" =~ $id_re ]] || { echo "::error::$list line $n: the id is not [A-Za-z0-9._-]+." >&2; exit 2; }
-  case "$seen_ids" in
-    *" $id "*) echo "::error::$list line $n repeats an id given before." >&2; exit 2 ;;
-  esac
-  seen_ids="$seen_ids$id "
-}
-n=0
-count=0
-while IFS= read -r line; do
-  count=$((count + 1))
-  [[ -n "${line//[[:space:]]/}" ]] || continue
-  mask "${line#*=}"
-  [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRETS line $count has no '='. One id=value per line; a value with line breaks goes as id=base64:<base64 of the value>." >&2; exit 2; }
-  id="${line%%=*}"
-  value="${line#*=}"
-  secret_id BUILD_SECRETS "$count" "$id"
-  if [[ "$value" == base64:* ]]; then
-    mask "${value#base64:}"
-    if ! value="$(printf '%s' "${value#base64:}" | openssl base64 -d -A 2>/dev/null)" || [[ -z "$value" ]]; then
-      echo "::error::BUILD_SECRETS line $count: the value after base64: does not decode." >&2
-      exit 2
-    fi
-    mask "$value"
-  fi
-  n=$((n + 1))
-  export "CI_HELPERS_SECRET_$n=$value"
-  args+=(--secret "id=$id,env=CI_HELPERS_SECRET_$n"); shown+=(--secret "id=***,env=CI_HELPERS_SECRET_$n")
-done < <(secret_lines "${BUILD_SECRETS:-}")
-unset value
 count=0
 while IFS= read -r line; do
   count=$((count + 1))
@@ -194,11 +141,15 @@ while IFS= read -r line; do
   [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRET_ENVS line $count has no '='. One id=VARIABLE per line." >&2; exit 2; }
   id="${line%%=*}"
   var="${line#*=}"
-  secret_id BUILD_SECRET_ENVS "$count" "$id"
-  [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::BUILD_SECRET_ENVS line $count: what follows '=' is not a variable name." >&2; exit 2; }
+  [[ "$id" =~ $id_re ]] || { echo "::error::BUILD_SECRET_ENVS line $count: the id is not [A-Za-z0-9._-]+." >&2; exit 2; }
+  [[ "$var" =~ $var_re ]] || { echo "::error::BUILD_SECRET_ENVS line $count: what follows '=' is not a variable name." >&2; exit 2; }
+  case "$seen_ids" in
+    *" $id "*) echo "::error::BUILD_SECRET_ENVS line $count repeats an id given before." >&2; exit 2 ;;
+  esac
+  seen_ids="$seen_ids$id "
   [[ -n "${!var+x}" ]] || { echo "::error::BUILD_SECRET_ENVS line $count: the named variable is not set." >&2; exit 2; }
   args+=(--secret "id=$id,env=$var"); shown+=(--secret "id=***,env=$var")
-done < <(secret_lines "${BUILD_SECRET_ENVS:-}")
+done < <(printf '%s\n' "${BUILD_SECRET_ENVS:-}")
 
 # Attestations, as the action chose them. No provenance by default when the
 # image goes to the docker engine, which cannot store it.

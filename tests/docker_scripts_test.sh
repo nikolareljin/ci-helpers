@@ -9,8 +9,10 @@
 #              in argv, and refuses an empty credential or an ECR host;
 #              docker_build.sh passes every input as its own argument, keeps a
 #              build secret out of argv and out of the printed command, and
-#              reads the digest from the metadata file. A stub docker records
-#              its argv, stdin and environment; nothing is pulled or built.
+#              reads the digest from the metadata file; a build secret is two
+#              names, the value never passes through the script. A stub
+#              docker records its argv, stdin and environment; nothing is
+#              pulled or built.
 # USAGE: bash tests/docker_scripts_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -21,8 +23,7 @@ trap 'rm -rf "$work"' EXIT
 fail=0
 
 # The stub: every call appends its argv to STUB_LOG, stdin to STUB_STDIN and
-# the CI_HELPERS_SECRET_* and STUB_VAR_* variables it sees to STUB_ENV
-# (a multi-line value spans lines there).
+# each STUB_VAR_* variable it sees, verbatim, to STUB_ENV.<name>.
 # STUB_FAIL names a subcommand that exits 1. A `buildx build` writes the
 # iid and metadata files it is given (STUB_DIGEST, empty for none).
 mkdir -p "$work/stub"
@@ -31,7 +32,7 @@ cat > "$work/stub/docker" <<'STUB'
 set -euo pipefail
 printf '%s\n' "$*" >> "$STUB_LOG"
 if [[ ! -t 0 ]]; then cat >> "$STUB_STDIN"; fi
-for v in ${!CI_HELPERS_SECRET_@} ${!STUB_VAR_@}; do printf '%s=%s\n' "$v" "${!v}" >> "$STUB_ENV"; done
+for v in ${!STUB_VAR_@}; do printf '%s' "${!v}" > "$STUB_ENV.$v"; done
 sub="$1"; [[ "$1" == buildx ]] && sub="buildx $2"
 if [[ "$sub" == "${STUB_FAIL:-}" ]]; then echo "stub: $sub failed" >&2; exit 1; fi
 case "$sub" in
@@ -64,16 +65,15 @@ BUILDKIT_IMAGE=docker.io/moby/buildkit:buildx-stable-1
 EOF
 
 # run <name> <expected rc> <script> [args...]; the caller sets the environment.
-# ACTIONS=true runs the script as under GitHub Actions (masking on); the
-# GITHUB_* run variables are cleared unless SERVER_URL, REPO, RUN_ID and
+# The GITHUB_* run variables are cleared unless SERVER_URL, REPO, RUN_ID and
 # RUN_ATTEMPT are given, so the test reads the same on a runner.
 run() {
   local name="$1" want="$2" script="$3" rc=0; shift 3
   rm -rf "${work:?}/gh"; mkdir -p "$work/gh"
-  : > "$work/log"; : > "$work/stdin"; : > "$work/env"
+  : > "$work/log"; : > "$work/stdin"; rm -f "$work"/env.*
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_STDIN="$work/stdin" STUB_ENV="$work/env" \
     TOOLCHAIN_PINS="${PINS:-$work/pins.env}" RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/gh/out" \
-    GITHUB_ACTIONS="${ACTIONS:-}" GITHUB_SERVER_URL="${SERVER_URL:-}" GITHUB_REPOSITORY="${REPO:-}" \
+    GITHUB_SERVER_URL="${SERVER_URL:-}" GITHUB_REPOSITORY="${REPO:-}" \
     GITHUB_RUN_ID="${RUN_ID:-}" GITHUB_RUN_ATTEMPT="${RUN_ATTEMPT:-}" \
     bash "$root/scripts/$script" "$@" > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
@@ -172,6 +172,13 @@ if REGISTRY=ghcr.io REGISTRY_USERNAME=octocat REGISTRY_PASSWORD='s3cr3t-token' r
   if grep -qF 's3cr3t-token' "$work/log" "$work/out"; then echo "FAIL $name: the password is in argv or the log"; fail=1; fi
 fi
 
+name="login passes a password with padding and a carriage return verbatim, on stdin only"
+if REGISTRY=ghcr.io REGISTRY_USERNAME=u REGISTRY_PASSWORD=$'  pw with spaces \r' run "$name" 0 docker_login.sh; then
+  printf '  pw with spaces \r' > "$work/want"
+  cmp -s "$work/want" "$work/stdin" || { echo "FAIL $name: stdin was '$(cat -A "$work/stdin")'"; fail=1; }
+  if grep -q 'pw with spaces' "$work/log" "$work/out"; then echo "FAIL $name: the password is in argv or the log"; fail=1; fi
+fi
+
 name="login with no registry is Docker Hub"
 REGISTRY='' REGISTRY_USERNAME=u REGISTRY_PASSWORD=p run "$name" 0 docker_login.sh && called "login --username u --password-stdin"
 
@@ -226,105 +233,64 @@ if CONTEXT=./app DOCKERFILE=docker/Dockerfile PLATFORMS=linux/amd64,linux/arm64 
   if grep -q 'VERSION=1.2.3' "$work/out"; then echo "FAIL $name: the build-arg value is in the log"; fail=1; fi
 fi
 
-name="build secret goes by environment, never argv, never the log"
-if TAGS=t BUILD_SECRETS=$'npm_token=hunter2-value\nother.id=x' PUSH=false run "$name" 0 docker_build.sh; then
-  build_has " --secret id=npm_token,env=CI_HELPERS_SECRET_1 --secret id=other.id,env=CI_HELPERS_SECRET_2 "
-  if grep -q 'hunter2-value' "$work/log" "$work/out"; then echo "FAIL $name: the secret value is in argv or the log"; fail=1; fi
+# Secrets: the script sees two names per line and never the value. The stub
+# records argv, stdout and stderr (the out file) and the variables docker
+# saw, so a value is proven absent from everything the script writes and
+# present, verbatim, where BuildKit reads it.
+name="build secret goes by variable name: value in docker's environment, in no argv, in no log"
+pem=$'-----BEGIN FAKE KEY-----\nMIIBfakekeybody0123\n-----END FAKE KEY-----\n'
+if TAGS=t BUILD_SECRET_ENVS=$'npm=STUB_VAR_NPM\npem=STUB_VAR_PEM\ncr=STUB_VAR_CR\nshort=STUB_VAR_SHORT\nsp=STUB_VAR_SP' \
+   STUB_VAR_NPM='hunter2-value' STUB_VAR_PEM="$pem" STUB_VAR_CR=$'with-cr-value\r' STUB_VAR_SHORT='ab' STUB_VAR_SP='  padded value  ' \
+   run "$name" 0 docker_build.sh; then
+  build_has " --secret id=npm,env=STUB_VAR_NPM --secret id=pem,env=STUB_VAR_PEM --secret id=cr,env=STUB_VAR_CR --secret id=short,env=STUB_VAR_SHORT --secret id=sp,env=STUB_VAR_SP "
   build_lacks "--build-arg"
-  grep -qxF 'CI_HELPERS_SECRET_1=hunter2-value' "$work/env" || { echo "FAIL $name: docker did not see the secret in its environment:"; cat "$work/env"; fail=1; }
-  # The printed command shows neither the id nor the value.
-  grep -q -- '--secret id=\*\*\*,env=CI_HELPERS_SECRET_1' "$work/out" || { echo "FAIL $name: the printed command does not mask the secret id:"; cat "$work/out"; fail=1; }
-  if grep -q 'npm_token' "$work/out"; then echo "FAIL $name: the secret id is in the log"; fail=1; fi
-  if grep -q 'add-mask' "$work/out"; then echo "FAIL $name: ::add-mask:: printed outside Actions"; fail=1; fi
+  for v in hunter2-value fakekeybody with-cr-value 'padded value' 'STUB_VAR_SHORT=ab'; do
+    if grep -qF -- "$v" "$work/log" "$work/out"; then echo "FAIL $name: '$v' is in argv or the log"; fail=1; fi
+  done
+  grep -q -- '--secret id=\*\*\*,env=STUB_VAR_NPM' "$work/out" || { echo "FAIL $name: the printed command does not mask the secret id:"; cat "$work/out"; fail=1; }
+  if grep -q 'id=npm' "$work/out"; then echo "FAIL $name: the secret id is in the log"; fail=1; fi
+  # Verbatim where BuildKit reads it: the stub wrote each variable's value to a file.
+  seen() {
+    printf '%s' "$2" > "$work/want"
+    cmp -s "$work/want" "$work/env.$1" || { echo "FAIL $name: docker saw $1 as '$(cat -A "$work/env.$1" 2>/dev/null)', not '$(cat -A "$work/want")'"; fail=1; }
+  }
+  seen STUB_VAR_NPM 'hunter2-value'
+  seen STUB_VAR_PEM "$pem"
+  seen STUB_VAR_CR $'with-cr-value\r'
+  seen STUB_VAR_SHORT 'ab'
+  seen STUB_VAR_SP '  padded value  '
 fi
 
-# No part of a BUILD_SECRETS line reaches the log, whichever check it fails.
-name="a secret line without = (a pasted token) names the line only"
-if TAGS=t BUILD_SECRETS=$'ok=1\nghp_pastedtokenvalue0123456789' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 2 has no '='"
-  if grep -q 'pastedtoken' "$work/out" "$work/log"; then echo "FAIL $name: the pasted token is in the output"; fail=1; fi
+name="a secret line that is not id=VARIABLE is refused, naming the line only"
+if TAGS=t BUILD_SECRET_ENVS=$'ok=STUB_VAR_NPM\n\nghp_pastedtokenvalue0123456789' STUB_VAR_NPM=x run "$name" 2 docker_build.sh; then
+  says "BUILD_SECRET_ENVS line 3 has no '='"
+  if grep -q 'pastedtoken' "$work/out" "$work/log"; then echo "FAIL $name: the pasted text is in the output"; fail=1; fi
   not_called "buildx build"
 fi
-
-name="a two-line value given raw is refused without echoing either line"
-if TAGS=t BUILD_SECRETS=$'key=-----BEGIN FAKE KEY-----\nMIIBfakekeybody0123' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 2 has no '='"
-  says "id=base64:"
-  if grep -q 'FAKE KEY\|fakekeybody' "$work/out" "$work/log"; then echo "FAIL $name: key material is in the output"; fail=1; fi
+if TAGS=t BUILD_SECRET_ENVS=$'gh=ghp_notavariable-0123' run "$name" 2 docker_build.sh; then
+  says "BUILD_SECRET_ENVS line 1: what follows '=' is not a variable name"
+  if grep -q 'notavariable' "$work/out"; then echo "FAIL $name: the right side is in the output"; fail=1; fi
+fi
+if TAGS=t BUILD_SECRET_ENVS=$'a,b=STUB_VAR_NPM' STUB_VAR_NPM=x run "$name" 2 docker_build.sh; then
+  says "BUILD_SECRET_ENVS line 1: the id is not [A-Za-z0-9._-]+"
+  if grep -q 'a,b' "$work/out"; then echo "FAIL $name: the id is in the output"; fail=1; fi
 fi
 
-name="a multi-line value goes as base64 and reaches docker decoded"
-pem=$'-----BEGIN FAKE KEY-----\nMIIBfakekeybody0123\n-----END FAKE KEY-----'
-b64="$(printf '%s' "$pem" | openssl base64 -A)"
-if TAGS=t BUILD_SECRETS="key=base64:$b64" run "$name" 0 docker_build.sh; then
-  build_has " --secret id=key,env=CI_HELPERS_SECRET_1 "
-  grep -qxF 'CI_HELPERS_SECRET_1=-----BEGIN FAKE KEY-----' "$work/env" || { echo "FAIL $name: first line not decoded:"; cat "$work/env"; fail=1; }
-  grep -qxF 'MIIBfakekeybody0123' "$work/env" || { echo "FAIL $name: second line not decoded:"; cat "$work/env"; fail=1; }
-  grep -qxF -- '-----END FAKE KEY-----' "$work/env" || { echo "FAIL $name: last line not decoded:"; cat "$work/env"; fail=1; }
-  if grep -q "fakekeybody\|$b64" "$work/out" "$work/log"; then echo "FAIL $name: key material is in the output"; fail=1; fi
+name="a secret id given twice is refused, naming the line only"
+if TAGS=t BUILD_SECRET_ENVS=$'a=STUB_VAR_NPM\na=STUB_VAR_PEM' STUB_VAR_NPM=x STUB_VAR_PEM=y run "$name" 2 docker_build.sh; then
+  says "BUILD_SECRET_ENVS line 2 repeats an id given before"
 fi
 
-name="a blank line counts and a value keeps its spaces"
-if TAGS=t BUILD_SECRETS=$'a=with trailing space \n\n   \nnope' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 4 has no '='"
-fi
-if TAGS=t BUILD_SECRETS=$'a=with trailing space \n\nb= lead' run "$name" 0 docker_build.sh; then
-  grep -qxF 'CI_HELPERS_SECRET_1=with trailing space ' "$work/env" || { echo "FAIL $name: the value was trimmed:"; cat "$work/env"; fail=1; }
-  grep -qxF 'CI_HELPERS_SECRET_2= lead' "$work/env" || { echo "FAIL $name: the leading space was trimmed:"; cat "$work/env"; fail=1; }
-fi
-
-name="base64 that does not decode names the line only"
-if TAGS=t BUILD_SECRETS='key=base64:!!not-base64!!' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 1: the value after base64: does not decode"
-  if grep -q 'not-base64' "$work/out"; then echo "FAIL $name: the value is in the output"; fail=1; fi
-fi
-
-name="under Actions every value is masked before it is looked at"
-if ACTIONS=true TAGS=t BUILD_SECRETS="a=plainvalue1
-key=base64:$b64
-nope" run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 3 has no '='"
-  grep -qxF '::add-mask::plainvalue1' "$work/out" || { echo "FAIL $name: the plain value is not masked"; fail=1; }
-  grep -qxF "::add-mask::$b64" "$work/out" || { echo "FAIL $name: the base64 text is not masked"; fail=1; }
-  grep -qxF '::add-mask::MIIBfakekeybody0123' "$work/out" || { echo "FAIL $name: a decoded line is not masked"; fail=1; }
-  grep -qxF '::add-mask::nope' "$work/out" || { echo "FAIL $name: the malformed line is not masked"; fail=1; }
-  # Only as ::add-mask:: lines, which the runner swallows.
-  if grep -v '^::add-mask::' "$work/out" | grep -q 'plainvalue1\|fakekeybody\|nope'; then echo "FAIL $name: a value is printed outside a mask"; cat "$work/out"; fail=1; fi
-fi
-
-name="build secret from a named variable"
-if TAGS=t BUILD_SECRET_ENVS=$'gh=STUB_VAR_GH' STUB_VAR_GH=tok-value run "$name" 0 docker_build.sh; then
-  build_has " --secret id=gh,env=STUB_VAR_GH "
-  if grep -q 'tok-value' "$work/log" "$work/out"; then echo "FAIL $name: the secret value is in argv or the log"; fail=1; fi
-fi
-
-name="build secret from an unset variable is refused, naming the line"
+name="a secret from an unset variable is refused, naming the line"
 if TAGS=t BUILD_SECRET_ENVS=$'gh=STUB_VAR_NOPE' run "$name" 2 docker_build.sh; then
   says "BUILD_SECRET_ENVS line 1: the named variable is not set"
   not_called "buildx build"
 fi
 
-name="a secret-envs line whose right side is not a name is refused without echo"
-if TAGS=t BUILD_SECRET_ENVS=$'gh=ghp_notavariable-0123' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRET_ENVS line 1: what follows '=' is not a variable name"
-  if grep -q 'notavariable' "$work/out"; then echo "FAIL $name: the right side is in the output"; fail=1; fi
+name="an empty variable is a secret too (set, empty)"
+if TAGS=t BUILD_SECRET_ENVS=$'e=STUB_VAR_EMPTY' STUB_VAR_EMPTY='' run "$name" 0 docker_build.sh; then
+  build_has " --secret id=e,env=STUB_VAR_EMPTY "
 fi
-
-name="build secret id with a comma is refused, naming the line only"
-if TAGS=t BUILD_SECRETS='a,b=1' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 1: the id is not [A-Za-z0-9._-]+"
-  if grep -q 'a,b' "$work/out"; then echo "FAIL $name: the id is in the output"; fail=1; fi
-  not_called "buildx build"
-fi
-
-name="build secret id given twice is refused, naming the line only"
-if TAGS=t BUILD_SECRETS=$'a=1\na=2' run "$name" 2 docker_build.sh; then
-  says "BUILD_SECRETS line 2 repeats an id given before"
-  if grep -q 'a=' "$work/out"; then echo "FAIL $name: the line is in the output"; fail=1; fi
-fi
-
-name="an id repeated across the two lists is refused"
-TAGS=t BUILD_SECRETS='a=1' BUILD_SECRET_ENVS=$'a=STUB_VAR_GH' STUB_VAR_GH=x run "$name" 2 docker_build.sh && says "BUILD_SECRET_ENVS line 1 repeats an id"
 
 name="private repository gets the action's minimal provenance"
 if TAGS=t REPOSITORY_PRIVATE=true run "$name" 0 docker_build.sh; then
