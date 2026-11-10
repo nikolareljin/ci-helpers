@@ -194,7 +194,7 @@ ok "nothing created after a view error" not has_call "release create"
 # behind the publication check, with the checked snapshot and notes, and the
 # checkout it reads the script from carries scripts/.
 python3 - "$root" <<'PY' || fail=1
-import glob, sys, yaml
+import glob, re, sys, yaml
 root = sys.argv[1]
 problems = []
 steps_seen = 0
@@ -234,7 +234,15 @@ for path in sorted(glob.glob(f"{root}/.github/workflows/*.yml")):
                 if key in env and not any(env[key] == f"${{{{ steps.{k}.outputs.{out} }}}}" for k in ids):
                     problems.append(f"{where}: {key} is not the publication check's {out} output")
             run = str(step.get("run"))
-            checkout_dir = run.split("scripts/github_release.sh")[0].split()[-1].rstrip("/")
+            # The script runs from a verified copy: LIB names the isolate
+            # step, whose run names the checkout it copied.
+            m = re.match(r"^\$\{\{ steps\.([\w-]+)\.outputs\.lib \}\}$", str(env.get("LIB", "")))
+            iso = [s for s in steps[:i] if m and s.get("id") == m.group(1)]
+            im = re.search(r"(\.ci-helpers-[a-z]+)/scripts/lib_isolate\.sh", str(iso[0].get("run", ""))) if iso else None
+            if '"$run_lib/scripts/github_release.sh"' not in run or not im:
+                problems.append(f"{where}: does not run the script from a verified copy (scripts/lib_isolate.sh)")
+                continue
+            checkout_dir = im.group(1)
             co = [s for s in steps[:i] if str(s.get("uses", "")).startswith("actions/checkout")
                   and (s.get("with") or {}).get("path") == checkout_dir]
             if not co:

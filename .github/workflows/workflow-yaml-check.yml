@@ -378,6 +378,18 @@ jobs:
         shell: bash
         run: python3 scripts/check_scan_egress.py
 
+      # Library scripts run only from a copy under RUNNER_TEMP, verified at
+      # job.workflow_sha and hashed again before each use. The test runs the
+      # gate and lib_isolate.sh against what they must refuse, then the gate
+      # runs against this tree.
+      - name: Library-isolation check reports what it must
+        shell: bash
+        run: bash tests/check_lib_isolation_test.sh
+
+      - name: Library scripts run only from the verified copy
+        shell: bash
+        run: python3 scripts/check_lib_isolation.py
+
   zizmor:
     # Every zizmor finding fails, among them a checkout that keeps its token,
     # a job with no permissions block and a text input spliced into a script.

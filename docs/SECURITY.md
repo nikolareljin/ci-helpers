@@ -84,3 +84,74 @@ on each pull request. A plain CI job keeps `setup-*` caches: it
 holds no secret and no write token, and nothing it restores reaches a
 release. A composite action is held to the trusted rules, as it runs inside
 whatever job calls it.
+
+## Library Isolation
+
+The control is structure: a step that holds a secret or a write token
+(registry login, release upload, signing, publishing, a licence) must run in
+a job with no caller-controlled step, or before the first one. A caller step
+runs as the runner's user and can write `GITHUB_ENV`, `GITHUB_PATH`, the
+workspace and `RUNNER_TEMP`, and can leave a process running; nothing inside
+the same job is a trust boundary against it. Moving every publish step into
+such a job is separate work and not complete yet.
+
+What follows is defence in depth for the library steps that still share a
+job with caller code. A workflow that runs one of the library's scripts
+checks the library out at `job.workflow_sha` into `.ci-helpers-scripts` (or
+reads `scripts/` from the `.ci-helpers-publication` or `.ci-helpers-actions`
+checkout it already has), and the step right after it runs
+`scripts/lib_isolate.sh`:
+
+| What | How |
+|---|---|
+| commit | `git rev-parse HEAD` must equal `job.workflow_sha`, run once by absolute path with `-c core.fsmonitor= -c core.hooksPath=/dev/null` and no user or system config |
+| copy | `scripts/`, `toolchain-pins.env` and `scanner-pins.env` go to a fresh `mktemp -d` under `RUNNER_TEMP`; anything other than a regular file or a directory is refused |
+| hash | sha256 over every directory path and every file's content and path, recorded as the step output `hash`, with `lib` (the copy) and `pins` (sha256 of `toolchain-pins.env`, for cache keys) |
+| mode | files and directories read-only; the job's last step, `if: always()`, makes them writable again so a self-hosted runner can clear its `_temp` |
+| checkout | removed from the workspace; kept only with `--keep`, for a checkout that also holds a composite action the job uses next |
+
+Each step that runs library code, the isolate step and the release step
+included, has two layers:
+
+- its `env:` sets `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`,
+  `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, the `DYLD_*` loader
+  variables, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5LIB`, `PERL5OPT`,
+  `RUBYOPT`, `NODE_OPTIONS`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS` and
+  `GIT_EXEC_PATH` to `""`. A step's `env:` wins over `GITHUB_ENV`, so these
+  never reach the shell the runner starts;
+- `shell: sh` (`bash` on a Windows runner, which has no `sh` shell), so
+  bash's startup handling is not on the path where `sh` is dash;
+- `set +xv`, then a refusal when an exported `BASH_FUNC_*` is present (where
+  `sh` is bash, on macOS and Git Bash);
+- `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
+  NAME="$NAME"... /bin/bash --noprofile --norc`: an allowlist of named
+  variables (the step's own `env:` keys and the runner's `GITHUB_*` and
+  `RUNNER_*` files and paths), never one that changes bash, the loader,
+  Python, Perl or git.
+
+Inside, the step copies the copy to a fresh directory, hashes that with
+tools at absolute paths, compares it to `LIB_HASH`, and only then runs a
+script from it, as `/bin/bash` or `/usr/bin/python3 -I`. The script then
+gets the step's `PATH` back (as `STEP_PATH`), because toolchains live
+there; a `GITHUB_PATH` entry can still shadow a tool the script calls.
+
+`scripts/check_lib_isolation.py`, run by `workflow-yaml-check`, fails a
+workflow or action that:
+
+- runs a file under a library checkout, or under `$RUNNER_TEMP/ci-helpers-*`,
+  other than through the isolate step, or reads one through `env:` or
+  `with:` (a pins path, a `hashFiles()` cache key);
+- runs the isolate step anywhere but right after its checkout (or right after
+  that checkout's `Verify` step), or without the checkout's `if:`;
+- reads `$LIB` outside the envelope above, passes a forbidden or renamed
+  variable into it, uses the copy before comparing its hash, or runs a
+  library script through `PATH`;
+- has no `always()` step that releases the read-only copy;
+- runs git on a library checkout later than the step right after it, or on
+  the copy;
+- mounts the copy or a checkout into a container (`-v`, `--volume`,
+  `--mount`, `container.volumes`).
+
+Not covered here: composite actions under `.github/actions` run their
+scripts from the action's own directory, and the gate does not yet hold
+publish steps to a job without caller code.
