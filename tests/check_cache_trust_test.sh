@@ -949,6 +949,20 @@ jobs:
         with: {path: t, key: k}
 YAML
 
+expect "a caller input with a suffix after command before a save" 1 "which runs the caller's inputs.<name>command" <<YAML
+on: workflow_call
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: \${{ inputs.build_command_args }}
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+      - run: fetch
+      - uses: actions/cache/save@$pin
+        with: {path: t, key: k}
+YAML
+
 expect "a caller input in the job's env before a save" 1 "the job's env carries the caller's inputs.<name>command" <<YAML
 on: workflow_call
 jobs:

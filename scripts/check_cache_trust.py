@@ -134,7 +134,7 @@ SECRET_REF = re.compile(
     re.IGNORECASE)
 # The caller's own code: inputs.<name>command, any case,
 # `-` or `_` in the name, dotted or indexed.
-CALLER = re.compile(r"\binputs\s*(?:\.\s*[A-Za-z0-9_-]*|\[\s*['\"][A-Za-z0-9_-]*)command\b",
+CALLER = re.compile(r"\binputs\s*(?:\.\s*[A-Za-z0-9_-]*|\[\s*['\"][A-Za-z0-9_-]*)command",
                     re.IGNORECASE)
 GHA = re.compile(r"type\s*=\s*gha\b", re.IGNORECASE)
 
