@@ -75,7 +75,7 @@ In a trusted job, and in a composite action:
   expression   a `uses:` written as an expression fails, as nothing here
                can tell what it names. A third-party action (setup-uv,
                setup-ruby, rust-cache) is refused in every job by
-               scripts/check_scan_egress.py, outside its short kept list.
+               scripts/check_scan_egress.py.
 
 In every job, trusted or plain, and in a composite action:
 
