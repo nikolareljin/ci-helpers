@@ -641,7 +641,8 @@ jobs:
             local name="$1" want="$2" version="$3" manifest="$4" rc=0 bin
             rm -f "$ws/package.json" "$RUNNER_TEMP/probe.out"
             [[ "$manifest" != "-" ]] && printf '%s\n' "$manifest" > "$ws/package.json"
-            export COREPACK_HOME="$(mktemp -d)"
+            COREPACK_HOME="$(mktemp -d)"
+            export COREPACK_HOME
             PNPM_VERSION="$version" GITHUB_WORKSPACE="$ws" GITHUB_OUTPUT="$RUNNER_TEMP/probe.out" \
               bash scripts/setup_pnpm.sh > "$RUNNER_TEMP/probe.log" 2>&1 || rc=$?
             if [[ "$rc" != "$want" ]]; then
