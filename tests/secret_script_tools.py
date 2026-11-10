@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """List the command names a shell script calls, one per line.
 
-    python3 tests/secret_script_tools.py scripts/github_release.sh
+    python3 tests/secret_script_tools.py < scripts/github_release.sh
 
 A line-based reading, enough for the library's own scripts: the first word
 of each simple command, after `;`, `&&`, `||`, `|`, `$(`, `then`, `do`,
@@ -50,5 +50,5 @@ def tools(text: str) -> set[str]:
 
 
 if __name__ == "__main__":
-    for name in sorted(set().union(*(tools(open(p, encoding="utf-8").read()) for p in sys.argv[1:]))):
+    for name in sorted(tools(sys.stdin.read())):
         print(name)

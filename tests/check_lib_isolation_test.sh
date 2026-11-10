@@ -528,7 +528,7 @@ grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
 mkdir -p "$work/hostile" "$work/seclib/scripts"
 cp "$root/scripts/lib_path.sh" "$work/seclib/scripts/"
 for s in github_release docker_login unity_test; do
-  names="$(python3 "$root/tests/secret_script_tools.py" "$root/scripts/$s.sh")"
+  names="$(python3 "$root/tests/secret_script_tools.py" < "$root/scripts/$s.sh")"
   for need in github_release:gh docker_login:docker unity_test:docker; do
     [[ "${need%%:*}" != "$s" ]] || grep -qx "${need#*:}" <<< "$names" \
       || { echo "FAIL premise: no ${need#*:} found in $s.sh by the tool lister"; fail=1; }
