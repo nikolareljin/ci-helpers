@@ -46,7 +46,7 @@ runs:
   using: composite
   steps:
     - name: Enforce local-only results
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
@@ -81,7 +81,7 @@ runs:
         cache: ""
     - name: Install gitleaks binary
       id: install
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
         GITLEAKS_SHA256: ${{ inputs.gitleaks_sha256 }}
@@ -104,10 +104,10 @@ runs:
         RUBYOPT: ""
         NODE_OPTIONS: ""
       # The installer gitleaks-scan uses, with the pins in scanner-pins.env.
-      run: bash "$ACTION_PATH/../../../scripts/install_gitleaks.sh"
+      run: /bin/bash "$ACTION_PATH/../../../scripts/install_gitleaks.sh"
 
     - name: Security checks on the commits under review
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         GL_BIN: ${{ steps.install.outputs.gl_bin }}
         GITLEAKS_BIN: ${{ steps.install.outputs.gl_bin }}
@@ -133,4 +133,4 @@ runs:
         PERL5OPT: ""
         RUBYOPT: ""
         NODE_OPTIONS: ""
-      run: bash "$ACTION_PATH/run.sh"
+      run: /bin/bash "$ACTION_PATH/run.sh"

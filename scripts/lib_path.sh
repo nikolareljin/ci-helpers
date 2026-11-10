@@ -6,7 +6,10 @@
 #              directory of links to the system copies of the tools that
 #              carry tokens, keys or downloads, so a GITHUB_PATH entry a
 #              caller step added cannot shadow them.
-# USAGE: . "$run_lib/scripts/lib_path.sh"
+# USAGE: . "$run_lib/scripts/lib_path.sh" [secret]
+#        secret: for a step that holds a token, password or licence
+#        (github_release.sh, docker_login.sh, unity_test.sh). PATH is then
+#        the links, /usr/bin and /bin only; the step's PATH is dropped.
 # ENVIRONMENT:
 #   run_lib    The checked copy (required); the links go in $run_lib/.trusted-bin.
 #   STEP_PATH  The step's PATH as the runner set it (required).
@@ -22,7 +25,7 @@
 # Git Bash on Windows: ln -s copies a file there, and the outer shell is
 # found on PATH anyway (docs/SECURITY.md); keep the step's PATH as it is.
 if [[ -x /usr/bin/cygpath ]]; then
-  export PATH="$STEP_PATH"
+  if [[ "${1:-}" == secret ]]; then export PATH="/usr/bin:/bin:/mingw64/bin"; else export PATH="$STEP_PATH"; fi
   return 0
 fi
 lib_path_bin="$run_lib/.trusted-bin"
@@ -37,5 +40,9 @@ for lib_path_tool in git gh curl wget tar gzip xz unzip zip sha256sum shasum \
   done
 done
 /bin/chmod a-w "$lib_path_bin"
-export PATH="$lib_path_bin:$STEP_PATH"
+if [[ "${1:-}" == secret ]]; then
+  export PATH="$lib_path_bin:/usr/bin:/bin"
+else
+  export PATH="$lib_path_bin:$STEP_PATH"
+fi
 unset lib_path_bin lib_path_tool lib_path_dir

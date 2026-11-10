@@ -106,7 +106,7 @@ runs:
     # there, through this repository's script beside the action.
     - name: Setup PHP
       if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         PHP_VERSION: ${{ inputs.php_version }}
         ACTION_PATH: ${{ github.action_path }}
@@ -127,11 +127,29 @@ runs:
         PERL5OPT: ""
         RUBYOPT: ""
         NODE_OPTIONS: ""
-      run: bash "$ACTION_PATH/../../../scripts/setup_php.sh"
+      run: /bin/bash "$ACTION_PATH/../../../scripts/setup_php.sh"
 
     - name: PHP lint (errors only)
       if: ${{ inputs.php_lint_command != '' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      env:
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         ${{ inputs.php_lint_command }}
@@ -139,24 +157,77 @@ runs:
     - name: PHPCS warnings (non-blocking)
       if: ${{ inputs.phpcs_warning_command != '' }}
       continue-on-error: true
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      env:
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         ${{ inputs.phpcs_warning_command }}
 
     - name: PHPUnit (standalone)
       if: ${{ inputs.phpunit_command != '' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      env:
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       working-directory: ${{ inputs.phpunit_working_directory }}
       run: |
         set -euo pipefail
         ${{ inputs.phpunit_command }}
 
     - name: Prepare WP-CLI config
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_OUT_DIR: ${{ inputs.out_dir }}
         WPC_HOST_PORT: ${{ inputs.host_port }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         out_dir="${WPC_OUT_DIR}"
@@ -172,13 +243,30 @@ runs:
         WPCLI
 
     - name: Start WordPress stack
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
         WPC_DB_SERVICE: ${{ inputs.db_service }}
         WPC_WORDPRESS_SERVICE: ${{ inputs.wordpress_service }}
         WPC_PLUGIN_SRC_ENV: ${{ inputs.plugin_src_env }}
         WPC_PLUGIN_SRC: ${{ inputs.plugin_src }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"
@@ -215,15 +303,32 @@ runs:
         docker compose -f "$compose_file" up -d "$db_service" "$wordpress_service"
 
     - name: Wait for DB
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_DB_WAIT_SECONDS: ${{ inputs.db_wait_seconds }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         sleep "${WPC_DB_WAIT_SECONDS}"
 
     - name: Install WordPress
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
         WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
@@ -233,6 +338,23 @@ runs:
         WPC_ADMIN_EMAIL: ${{ inputs.admin_email }}
         WPC_SITE_TITLE: ${{ inputs.site_title }}
         WPC_MULTISITE: ${{ inputs.multisite }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"
@@ -255,12 +377,29 @@ runs:
         fi
 
     - name: Activate plugin
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
         WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
         WPC_PLUGIN_SLUG: ${{ inputs.plugin_slug }}
         WPC_ACTIVATE_NETWORK: ${{ inputs.activate_network }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"
@@ -278,10 +417,27 @@ runs:
     # that blip into a failed check, so try 3 times with a pause. A plugin-check
     # that never installs is still reported by the next step.
     - name: Install plugin-check
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         COMPOSE_FILE_PATH: ${{ inputs.compose_file }}
         WPCLI_SERVICE: ${{ inputs.wpcli_service }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         for attempt in 1 2 3; do
@@ -296,12 +452,29 @@ runs:
         echo "::warning::plugin-check could not be installed after 3 attempts."
 
     - name: Run plugin-check
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
         WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
         WPC_PLUGIN_SLUG: ${{ inputs.plugin_slug }}
         WPC_OUT_DIR: ${{ inputs.out_dir }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"
@@ -317,12 +490,29 @@ runs:
 
     - name: Run meta checks
       if: ${{ inputs.meta_check_script != '' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
         WPC_WPCLI_SERVICE: ${{ inputs.wpcli_service }}
         WPC_META_CHECK_SCRIPT: ${{ inputs.meta_check_script }}
         WPC_OUT_DIR: ${{ inputs.out_dir }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"
@@ -334,9 +524,26 @@ runs:
 
     - name: Fail on findings
       if: ${{ inputs.fail_on_findings == 'true' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_OUT_DIR: ${{ inputs.out_dir }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
 
@@ -387,9 +594,26 @@ runs:
 
     - name: Cleanup
       if: ${{ always() && inputs.cleanup == 'true' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         WPC_COMPOSE_FILE: ${{ inputs.compose_file }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         compose_file="${WPC_COMPOSE_FILE}"

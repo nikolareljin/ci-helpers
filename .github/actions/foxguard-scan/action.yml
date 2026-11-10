@@ -44,7 +44,7 @@ runs:
   using: composite
   steps:
     - name: Enforce local-only results
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
@@ -74,7 +74,7 @@ runs:
         fi
     - name: Install foxguard binary
       id: install
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         FOXGUARD_VERSION: ${{ inputs.foxguard_version }}
         FOXGUARD_SHA256: ${{ inputs.foxguard_sha256 }}
@@ -98,10 +98,10 @@ runs:
         NODE_OPTIONS: ""
       # Version and digests pinned in this repository's scanner-pins.env,
       # read by the one installer the foxguard-scan and foxguard-diff actions share.
-      run: bash "$ACTION_PATH/../../../scripts/install_foxguard.sh"
+      run: /bin/bash "$ACTION_PATH/../../../scripts/install_foxguard.sh"
 
     - name: Security checks
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         FG_BIN: ${{ steps.install.outputs.fg_bin }}
         SCAN_PATH: ${{ inputs.scan_path }}
@@ -126,4 +126,4 @@ runs:
         PERL5OPT: ""
         RUBYOPT: ""
         NODE_OPTIONS: ""
-      run: bash "$ACTION_PATH/run.sh"
+      run: /bin/bash "$ACTION_PATH/run.sh"

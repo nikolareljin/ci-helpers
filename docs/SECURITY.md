@@ -96,7 +96,9 @@ the same job is a trust boundary against it. Moving every publish step into
 such a job is separate work and not complete yet.
 
 What follows is defence in depth for the library steps that still share a
-job with caller code. A workflow that runs one of the library's scripts
+job with caller code. The control is the second part of this work: publish,
+sign and login steps move to jobs with no caller code, and that change
+follows this one. A workflow that runs one of the library's scripts
 checks the library out at `job.workflow_sha` into `.ci-helpers-scripts` (or
 reads `scripts/` from the `.ci-helpers-publication` or `.ci-helpers-actions`
 checkout it already has), and the step right after it runs
@@ -142,7 +144,11 @@ directory of links to the `/usr/bin` or `/bin` copies of `git`, `gh`,
 `shasum`, `gpg`, `openssl`, `ssh`, `scp`, `docker` and `cosign`, where they
 exist. A `GITHUB_PATH` entry can still shadow every other tool (`python3`,
 `node`, `php`, `cargo` and the like, which a toolchain step selects there),
-and those tools where the system has no copy (`gh` on macOS).
+and those tools where the system has no copy (`gh` on macOS). A step
+that holds a token, password or licence (`github_release.sh`,
+`docker_login.sh`, `unity_test.sh`) sources `lib_path.sh secret` instead:
+its `PATH` is the links, `/usr/bin` and `/bin` only, and the step's `PATH`
+is dropped.
 
 The step that checks a library checkout's commit runs under
 `/bin/bash --noprofile --norc -e -o pipefail {0}` with the same blanks
@@ -164,9 +170,14 @@ Instead:
   and checks it out and verifies it again right before the action;
 - the `uses:` step sets the same blanks as the commit check, so
   `NODE_OPTIONS` or `BASH_ENV` from `GITHUB_ENV` does not reach the action;
-- inside each action under `.github/actions`, every step that runs a file
-  from the action's directory sets those blanks too, for a caller that uses
-  the action directly, and PowerShell runs with `-NoProfile`.
+- inside each action under `.github/actions`, every step sets those blanks
+  too, for a caller that uses the action directly, and names its shell by
+  absolute path: `/bin/bash --noprofile --norc -e -o pipefail {0}`, or on
+  Windows `powershell.exe` under `C:\Windows\System32` with `-NoProfile`,
+  which starts `C:\Program Files\PowerShell\7\pwsh.exe -NoProfile` on the
+  step's file. Scripts in the action's directory run as `/bin/bash`, and
+  `macos-sign` sets `PATH=/usr/bin:/bin:/usr/sbin:/sbin` before it touches
+  the certificate.
 
 `scripts/check_lib_isolation.py`, run by `workflow-yaml-check`, fails a
 workflow or action that:
@@ -186,8 +197,9 @@ workflow or action that:
 - runs git on a library checkout other than in the hardened form above, or
   under a bare `bash`, or without the blanks;
 - runs a step between a library checkout and an action from it, or uses
-  such an action without the blanks; or has a composite step that runs a
-  file from the action's directory without them;
+  such an action without the blanks; or has a composite step without
+  them, under a shell named without its path, or calling `bash` by name;
+- runs a step that holds a secret without `lib_path.sh secret`;
 - runs git on a library checkout later than the step right after it, or on
   the copy;
 - mounts the copy or a checkout into a container (`-v`, `--volume`,

@@ -107,11 +107,28 @@ runs:
   using: composite
   steps:
     - name: Check sign mode
-      shell: pwsh
+      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
       env:
         SIGN_MODE: ${{ inputs.sign_mode }}
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
@@ -129,11 +146,28 @@ runs:
     # ── tauri_updater ─────────────────────────────────────────────────────────
     - name: Configure Tauri updater signing (free ED25519)
       if: ${{ inputs.sign_mode == 'tauri_updater' }}
-      shell: pwsh
+      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
       env:
         PRIV_KEY: ${{ inputs.tauri_signing_private_key }}
         PRIV_KEY_PW: ${{ inputs.tauri_signing_private_key_password }}
         EXPORT_ENV: ${{ inputs.export_env }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |  # zizmor: ignore[github-env] export_env "true" writes it on purpose; off by default
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"
@@ -166,7 +200,7 @@ runs:
     # --- pfx ---
     - name: Check or sign with the PFX certificate (Authenticode)
       if: ${{ inputs.sign_mode == 'pfx' }}
-      shell: pwsh -NoProfile -Command ". '{0}'"
+      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
       env:
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
@@ -195,7 +229,7 @@ runs:
     # ── azure ─────────────────────────────────────────────────────────────────
     - name: Configure Azure Trusted Signing credentials
       if: ${{ inputs.sign_mode == 'azure' }}
-      shell: pwsh
+      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
       env:
         AZ_TENANT: ${{ inputs.azure_tenant_id }}
         AZ_CLIENT: ${{ inputs.azure_client_id }}
@@ -204,6 +238,23 @@ runs:
         AZ_ACCOUNT: ${{ inputs.azure_code_signing_account }}
         AZ_PROFILE: ${{ inputs.azure_cert_profile }}
         EXPORT_ENV: ${{ inputs.export_env }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |  # zizmor: ignore[github-env] export_env "true" writes it on purpose; off by default
         Set-StrictMode -Version Latest
         $ErrorActionPreference = "Stop"

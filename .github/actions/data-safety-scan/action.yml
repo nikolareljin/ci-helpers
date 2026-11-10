@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - name: Scan JSON data files
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         INPUT_SCAN_PATH: ${{ inputs.scan_path }}
         BASH_ENV: ""
@@ -29,4 +29,4 @@ runs:
         RUBYOPT: ""
         NODE_OPTIONS: ""
       run: |
-        bash "${{ github.action_path }}/data-safety-scan.sh" "$INPUT_SCAN_PATH"
+        /bin/bash "${{ github.action_path }}/data-safety-scan.sh" "$INPUT_SCAN_PATH"

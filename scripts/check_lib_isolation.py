@@ -49,6 +49,8 @@ with PyYAML. In every job, and in a composite action:
              git on `$LIB` fails;
   path       a library step sources `$run_lib/scripts/lib_path.sh` before
              its first library script and never sets PATH itself;
+             a step whose env: holds a secret (SECRET_VALUE, SECRET_NAME)
+             sources it as `lib_path.sh secret`;
   verify     git on a library checkout runs only as `/usr/bin/env -i
              PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
              "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C <dir>
@@ -57,8 +59,9 @@ with PyYAML. In every job, and in a composite action:
   action     a `uses: ./.ci-helpers-*/...` step sets OUTER_BLANKS, and only
              the checkout's verify, isolate and library steps, other such
              actions and SHA-pinned actions run between the checkout and it;
-             a composite step that runs a file from the action's directory
-             sets OUTER_BLANKS, and PowerShell there runs with -NoProfile;
+             every composite step sets OUTER_BLANKS, names its shell by
+             absolute path, calls no bare `bash "..."`, and PowerShell there
+             runs with -NoProfile;
   mount      a `docker`/`podman` run: that mounts (`-v`, `--volume`,
              `--mount`) `$LIB`, `ci-helpers-lib` or a library checkout
              fails, and so does a job `container.volumes` entry naming one.
@@ -120,13 +123,17 @@ STEP_REF = re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.(lib|hash)\s
 SH = "/bin/sh -e {0}"
 BASH = "/bin/bash --noprofile --norc -e -o pipefail {0}"
 LIB_PATH_LINE = '. "$run_lib/scripts/lib_path.sh"'
+LIB_PATH_SECRET = LIB_PATH_LINE + " secret"
+# A step whose env: carries one of these runs its script with PATH limited
+# to the trusted links, /usr/bin and /bin (lib_path.sh secret).
+SECRET_VALUE = re.compile(r"secrets\.|github\.token")
+SECRET_NAME = re.compile(r"TOKEN|PASSWORD|SECRET|LICEN[CS]E|SERIAL")
 GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git'
 GIT_ANY = re.compile(r'(?:^|[;&|(\s"`])(?:/usr/bin/|/mingw64/bin/)?(?:git|\$\{?git\}?)(?=["\s]|$)')
 HARD_GIT = re.compile(r'/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "\$git" -c core\.fsmonitor= '
                       r'-c core\.hooksPath=/dev/null -C (\.ci-helpers-[a-z]+) rev-parse HEAD\)')
 LOCAL_ACTION = re.compile(r"^\./(\.ci-helpers-[a-z]+)/")
 PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
-ACTION_DIR = re.compile(r"github\.action_path|ACTION_PATH")
 
 
 def outer_blanks(name: str, env: dict) -> list[str]:
@@ -361,7 +368,10 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 errors.append(f"{name}: does not copy $LIB to run_lib and compare its hash to LIB_HASH")
             elif first and chk.start() > first.start():
                 errors.append(f"{name}: uses run_lib before comparing its hash to LIB_HASH")
-            blines = [ln.strip() for ln in logical_lines(body)]
+            blines = [LIB_PATH_LINE if ln.strip() == LIB_PATH_SECRET else ln.strip() for ln in logical_lines(body)]
+            secret = any(SECRET_VALUE.search(str(v)) or SECRET_NAME.search(k) for k, v in env.items())
+            if secret and LIB_PATH_LINE in blines and LIB_PATH_SECRET not in [ln.strip() for ln in logical_lines(body)]:
+                errors.append(f"{name}: holds a secret; use `{LIB_PATH_SECRET}`, which drops the step's PATH")
             if any(re.search(r"(?:^|[\s;])(?:export\s+)?PATH=", ln) for ln in blines):
                 errors.append(f"{name}: sets PATH itself; `{LIB_PATH_LINE}` gives the step's PATH back")
             uses_script = [n for n, ln in enumerate(blines)
@@ -372,7 +382,7 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 if LIB_PATH_LINE in blines and blines.index(LIB_PATH_LINE) > uses_script[0]:
                     errors.append(f"{name}: `{LIB_PATH_LINE}` comes after the first library script")
             for line in logical_lines(body):
-                if line.strip() == LIB_PATH_LINE:
+                if line.strip() in (LIB_PATH_LINE, LIB_PATH_SECRET):
                     continue
                 if re.search(r'"\$run_lib/scripts/[^"]*\.sh"', line) and not re.search(r'(?:^|\s)/bin/bash "\$run_lib/scripts/', line):
                     errors.append(f"{name}: a library shell script runs as /bin/bash, not through PATH")
@@ -423,19 +433,23 @@ def check_file(path: Path) -> list[str]:
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)
-        # A composite step that runs a file from the action's directory gets
-        # the blanks too: the caller's GITHUB_ENV reaches it otherwise.
+        # Every composite step: an absolute shell, since the runner looks a
+        # bare name up on PATH, and the blanks, since the caller's GITHUB_ENV
+        # reaches it otherwise.
         for n, st in enumerate(runs["steps"]):
             if not isinstance(st, dict) or "run" not in st:
                 continue
             env = st.get("env") if isinstance(st.get("env"), dict) else {}
-            text = str(st.get("run")) + " " + " ".join(str(v) for v in env.values())
-            if ACTION_DIR.search(text):
-                errors += outer_blanks(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}), which runs "
-                                       f"a file from the action's directory,", env)
-                if str(st.get("shell") or "").split(" ")[0] in ("pwsh", "powershell") and "-NoProfile" not in str(st.get("shell")):
-                    errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs PowerShell "
-                                  f"without -NoProfile")
+            sh = str(st.get("shell") or "")
+            if not (sh.startswith("/") or sh.startswith("C:\\")):
+                errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs under `{sh}`, "
+                              f"which the runner looks up on PATH; give the shell by absolute path")
+            if re.search(r'(?:^|[\s;&|(])bash "', str(st.get("run"))):
+                errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs bash through PATH")
+            errors += outer_blanks(f"{path}: composite step {n + 1} ({st.get('name') or 'run'})", env)
+            if re.search(r"pwsh|powershell", sh, re.I) and "-NoProfile" not in sh:
+                errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs PowerShell "
+                              f"without -NoProfile")
     return errors
 
 

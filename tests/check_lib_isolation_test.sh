@@ -257,6 +257,9 @@ expect "step PATH restored without the trusted tools" 1 "$(wf "$checkout" "$isol
 expect "release step under shell: sh, found through PATH" 1 "$(wf_raw "$checkout" "$isolate" "$use" "${release/$SH/shell: sh}")"
 expect "PATH set again after lib_path.sh" 1 "$(wf "$checkout" "$isolate" "${use/. \"\$run_lib\/scripts\/lib_path.sh\"/. \"\$run_lib/scripts/lib_path.sh\"
           export PATH=\"\$STEP_PATH\"}")"
+tok='GH_TOKEN: ${{ github.token }}'
+expect "a step holding a token without lib_path.sh secret" 1 "$(wf "$checkout" "$isolate" "${use/RUST_TOOLCHAIN: stable/$tok}")"
+expect "a step holding a token with lib_path.sh secret" 0 "$(wf "$checkout" "$isolate" "${use/RUST_TOOLCHAIN: stable/$tok}" | sed 's|lib_path.sh"$|lib_path.sh" secret|')"
 expect "library script without lib_path.sh" 1 "$(wf "$checkout" "$isolate" "${use/          . \"\$run_lib\/scripts\/lib_path.sh\"
 /}")"
 expect "trusted tools set after the script runs" 1 "$(wf "$checkout" "$isolate" "${use/          . \"\$run_lib\/scripts\/lib_path.sh\"
@@ -278,16 +281,18 @@ act="runs:
   using: composite
   steps:
     - name: Install
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         ACTION_PATH: \${{ github.action_path }}
 ${blanks//          /        }
-      run: bash \"\$ACTION_PATH/../../../scripts/install_foxguard.sh\""
+      run: /bin/bash \"\$ACTION_PATH/../../../scripts/install_foxguard.sh\""
 expect_action "composite step running a library script with the blanks" 0 "$act"
 expect_action "composite step running a library script without the BASH_ENV blank" 1 "${act/        BASH_ENV: \"\"
 /}"
-expect_action "composite PowerShell step without -NoProfile" 1 "${act/shell: bash/shell: pwsh}"
-expect_action "composite PowerShell step with -NoProfile" 0 "${act/shell: bash/shell: pwsh -NoProfile -Command \". '{0}'\"}"
+expect_action "composite step under a bare bash" 1 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: bash}"
+expect_action "composite step calling bash through PATH" 1 "${act/run: \/bin\/bash/run: bash}"
+expect_action "composite PowerShell step without -NoProfile" 1 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: C:\\\\x\\\\powershell.exe -Command x}"
+expect_action "composite PowerShell step with -NoProfile" 0 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: C:\\\\x\\\\powershell.exe -NoProfile -Command x}"
 expect_action "composite step running a script by github.action_path without blanks" 1 'runs:
   using: composite
   steps:
@@ -406,7 +411,9 @@ fi
 # absolute path as is, a bare name on the PATH with the GITHUB_PATH entries
 # first. `sh` would be the caller's shim.
 runner_shell() {  # runner_shell <tag> -> the command the runner starts
-  local s; s="$(cat "$work/shell-$1")"; s="${s%% *}"
+  local s f
+  case "$1" in isolate) f=isolate ;; use) f=use ;; release) f=release ;; verify) f=verify ;; *) return 1 ;; esac
+  s="$(< "$work/shell-$f")"; s="${s%% *}"
   if [[ "$s" == /* ]]; then echo "$s"; else PATH="$work/shim:$PATH" command -v "$s"; fi
 }
 step_as_runner() {  # step_as_runner <tag> <shell...> -- <extra env...>
@@ -513,6 +520,36 @@ done
   "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step on a clean runner:"; cat "$work/verify.out"; fail=1; }
 grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
   || { echo "FAIL the Verify step no longer keeps the checkout out of the caller's git status"; fail=1; }
+
+# The scripts that hold a token, password or licence run with
+# `lib_path.sh secret`: every tool they call by name must resolve to the
+# trusted links, /usr/bin or /bin, with a hostile entry for each of those
+# names first on the step's PATH.
+mkdir -p "$work/hostile" "$work/seclib/scripts"
+cp "$root/scripts/lib_path.sh" "$work/seclib/scripts/"
+for s in github_release docker_login unity_test; do
+  names="$(python3 "$root/tests/secret_script_tools.py" "$root/scripts/$s.sh")"
+  for need in github_release:gh docker_login:docker unity_test:docker; do
+    [[ "${need%%:*}" != "$s" ]] || grep -qx "${need#*:}" <<< "$names" \
+      || { echo "FAIL premise: no ${need#*:} found in $s.sh by the tool lister"; fail=1; }
+  done
+  for n in $names; do
+    printf '#!/bin/sh\ntouch "%s/canary-hostile"\n' "$work" > "$work/hostile/$n"; chmod +x "$work/hostile/$n"
+  done
+  # shellcheck disable=SC2030,SC2031
+  bad="$(run_lib="$work/seclib" STEP_PATH="$work/hostile:$PATH" names="$names" HOSTPATH="$PATH" /bin/bash --noprofile --norc -c '
+    set -euo pipefail
+    rm -rf "$run_lib/.trusted-bin"
+    . "$run_lib/scripts/lib_path.sh" secret
+    for n in $names; do
+      PATH="$HOSTPATH" command -v "$n" >/dev/null 2>&1 || continue   # not a tool on this host
+      case "$(type -t "$n")" in builtin|keyword|function) continue ;; esac
+      p="$(command -v "$n" || true)"
+      case "$p" in "$run_lib/.trusted-bin/"*|/usr/bin/*|/bin/*) ;; *) echo "$n -> ${p:-not found}" ;; esac
+    done')" || { echo "FAIL lib_path.sh secret did not load"; fail=1; }
+  [[ -z "$bad" ]] || { echo "FAIL $s.sh under lib_path.sh secret calls a tool outside the trusted set:"; echo "$bad"; fail=1; }
+  chmod -R u+w "$work/seclib"; rm -rf "$work/seclib/.trusted-bin"
+done
 
 # An exported function survives into bash and can shadow a builtin. Where
 # sh is bash (macOS, Git Bash on Windows) the step sees it and refuses;

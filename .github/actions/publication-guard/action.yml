@@ -4,7 +4,7 @@ runs:
   using: composite
   steps:
     - name: Install mandatory outbound hooks
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         ACTION_PATH: ${{ github.action_path }}
         BASH_ENV: ""
@@ -24,4 +24,4 @@ runs:
         PERL5OPT: ""
         RUBYOPT: ""
         NODE_OPTIONS: ""
-      run: bash "$ACTION_PATH/../../../vendor/script-helpers/scripts/install-publication-hooks.sh" --ci
+      run: /bin/bash "$ACTION_PATH/../../../vendor/script-helpers/scripts/install-publication-hooks.sh" --ci
