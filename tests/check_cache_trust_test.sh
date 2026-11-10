@@ -16,8 +16,8 @@
 #              the off values in a trusted one. Hostile forms refused too:
 #              a deployment environment, odd uses: casing or a trailing
 #              slash, write passed to a called workflow, type=gha in env:,
-#              a hyphenated or env-carried caller input, third-party cache
-#              actions, a uses: expression; unity.yml warns on cache: true.
+#              a hyphenated or env-carried caller input, a uses:
+#              expression, third-party cache actions (with the egress gate); unity.yml warns on cache: true.
 # USAGE: bash tests/check_cache_trust_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -963,37 +963,14 @@ jobs:
         with: {path: t, key: k}
 YAML
 
-expect "a third-party cache action in a trusted job" 1 "swatinem/rust-cache restores a cache into a job that holds contents: write" <<'YAML'
-on: push
-jobs:
-  a:
-    permissions: {contents: write}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: Swatinem/rust-cache@v2
-YAML
-
-expect "setup-ruby bundler-cache in a trusted job" 1 "ruby/setup-ruby with bundler-cache: true" <<'YAML'
-on: push
-jobs:
-  a:
-    permissions: {contents: write}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: ruby/setup-ruby@v1
-        with: {bundler-cache: true}
-YAML
-
-expect "setup-ruby without bundler-cache in a trusted job is quiet" 0 "" <<'YAML'
-on: push
-jobs:
-  a:
-    permissions: {contents: write}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: ruby/setup-ruby@v1
-        with: {ruby-version: "3.3"}
-YAML
+# Third-party cache actions are the egress gate's to refuse: together the two
+# gates refuse setup-uv and setup-ruby in a trusted job.
+for act in "astral-sh/setup-uv@v6" "ruby/setup-ruby@v1" "Swatinem/rust-cache@v2"; do
+  rm -rf "${work:?}/t"; mkdir -p "$work/t/.github/workflows"
+  printf 'on: push\njobs:\n  a:\n    permissions: {contents: write}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: %s\n' "$act" > "$work/t/.github/workflows/x.yml"
+  rc=0; { python3 "$check" --root "$work/t" && python3 "$root/scripts/check_scan_egress.py" --root "$work/t"; } > "$work/out" 2>&1 || rc=$?
+  if [ "$rc" = 0 ]; then echo "FAIL $act in a trusted job passes both gates"; cat "$work/out"; fail=1; fi
+done
 
 expect "uses: from a matrix expression in a trusted job" 1 "uses: is an expression" <<'YAML'
 on: push

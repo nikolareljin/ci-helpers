@@ -72,9 +72,10 @@ In a trusted job, and in a composite action:
                `type=gha` (any case), or a `with:` of `cache-from` or
                `cache-to`, fails: a layer cache restored from the Actions
                cache is a layer in the pushed image;
-  others       a third-party cache action from CACHING_ACTIONS fails, and
-               a `uses:` written as an expression fails, as nothing here
-               can tell what it names.
+  expression   a `uses:` written as an expression fails, as nothing here
+               can tell what it names. A third-party action (setup-uv,
+               setup-ruby, rust-cache) is refused in every job by
+               scripts/check_scan_egress.py, outside its short kept list.
 
 In every job, trusted or plain, and in a composite action:
 
@@ -137,17 +138,6 @@ CALLER = re.compile(r"\binputs\s*(?:\.\s*[A-Za-z0-9_-]*|\[\s*['\"][A-Za-z0-9_-]*
                     re.IGNORECASE)
 GHA = re.compile(r"type\s*=\s*gha\b", re.IGNORECASE)
 
-# Third-party actions that restore a cache, and the with: key that turns it
-# on (None: the action caches whatever it is given). Refused in a trusted job.
-CACHING_ACTIONS = {
-    "swatinem/rust-cache": None,
-    "mozilla-actions/sccache-action": None,
-    "hendrikmuhs/ccache-action": None,
-    "ruby/setup-ruby": "bundler-cache",
-    "astral-sh/setup-uv": "enable-cache",
-    "gradle/actions/setup-gradle": None,
-    "gradle/gradle-build-action": None,
-}
 
 
 def steps_of(body: dict) -> list[dict]:
@@ -343,15 +333,6 @@ def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str],
             out.append(f"{here}: restores '{path}' into a job that {why}; a cache entry is a tar "
                        "archive unpacked wherever its members point, so a trusted job restores "
                        "none and downloads what it needs")
-        elif act in CACHING_ACTIONS:
-            key = CACHING_ACTIONS[act]
-            with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
-            if key is None:
-                out.append(f"{here}: {act} restores a cache into a job that {why}; a trusted "
-                           "job restores none")
-            elif with_.get(key) not in (None, False, "false", ""):
-                out.append(f"{here}: {act} with {key}: {yaml_text(with_[key])} restores a cache "
-                           f"into a job that {why}; leave {key} unset or false")
         elif act.startswith("actions/setup-"):
             off = SETUP_OFF.get(act)
             with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
