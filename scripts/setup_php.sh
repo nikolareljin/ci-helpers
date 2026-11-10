@@ -354,6 +354,9 @@ if [[ -z "$have_composer" ]]; then
 fi
 composer_reported="$("$have_composer" --version --no-ansi 2>/dev/null | awk '/^Composer version/ { print $3; exit }')"
 [[ "$composer_reported" == "$composer_version" ]] || die "$have_composer reports version '$composer_reported', not the pinned $composer_version." 1
+# Later steps run whatever `composer` resolves to; it must be this one.
+on_path="$(command -v composer || true)"
+[[ "$on_path" == "$have_composer" ]] || die "composer on PATH is '$on_path', not $have_composer; a later step would run the other one." 1
 echo "composer $composer_version at $have_composer"
 
 # The action exported these for every later step, and put Composer's global
@@ -365,7 +368,7 @@ if [[ -n "${GITHUB_ENV:-}" ]]; then
   done
 fi
 if [[ -n "${GITHUB_PATH:-}" ]]; then
-  composer_bin="$(env ${PHP_SETUP_COMPOSER_HOME:+COMPOSER_HOME="$PHP_SETUP_COMPOSER_HOME"} "$have_composer" global config bin-dir --absolute --quiet --no-ansi 2>/dev/null || true)"
+  composer_bin="$(env ${PHP_SETUP_COMPOSER_HOME:+COMPOSER_HOME="$PHP_SETUP_COMPOSER_HOME"} "$have_composer" global config bin-dir --absolute --no-ansi 2>/dev/null || true)"
   [[ -z "$composer_bin" ]] || printf '%s\n' "$composer_bin" >> "$GITHUB_PATH"
 fi
 

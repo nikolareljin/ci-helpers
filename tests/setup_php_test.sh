@@ -118,7 +118,7 @@ chmod +x "$stubs"/*
 # (`|`-separated, what php -m lists), STATE_MODS (mods-available ini files
 # already there), STATE_FPR, STATE_EXISTING_COMPOSER (path to copy onto
 # PATH as composer), STATE_PPA_PRESENT (the source file already written),
-# STATE_OS_ID. After an `apt-get update` with the PPA source written, every
+# STATE_SHADOW (that composer stays first on PATH), STATE_OS_ID. After an `apt-get update` with the PPA source written, every
 # package not in STATE_UNAVAILABLE has a candidate.
 run() {
   local name="$1" want="$2" rc=0 v=8.4 a; shift 2
@@ -143,7 +143,11 @@ run() {
   [[ -z "${STATE_EXISTING_COMPOSER:-}" ]] || cp "$STATE_EXISTING_COMPOSER" "$work/path/composer"
   [[ -z "${STATE_EXISTING_COMPOSER:-}" ]] || chmod +x "$work/path/composer"
   [[ -z "${STATE_MODS:-}" ]] || for m in $STATE_MODS; do mkdir -p "$work/etc/php/$v/mods-available"; touch "$work/etc/php/$v/mods-available/$m.ini"; done
-  env -i PATH="$work/path:$stubs:/usr/bin:/bin" HOME="$work" STATE="$state" PHP_ETC="$work/etc/php" APT_ETC="$work/etc/apt" \
+  # As on the runner, /usr/local/bin precedes /usr/bin; STATE_SHADOW puts
+  # the pre-existing composer first instead.
+  local path="$work/usr/local/bin:$work/path:$stubs:/usr/bin:/bin"
+  [[ -z "${STATE_SHADOW:-}" ]] || path="$work/path:$work/usr/local/bin:$stubs:/usr/bin:/bin"
+  env -i PATH="$path" HOME="$work" STATE="$state" PHP_ETC="$work/etc/php" APT_ETC="$work/etc/apt" \
     TOOLCHAIN_PINS="${TEST_PINS:-$work/pins.env}" \
     PHP_SETUP_OS_RELEASE="$work/etc/os-release" PHP_SETUP_APT_ETC="$work/etc/apt" PHP_SETUP_PHP_ETC="$work/etc/php" \
     PHP_SETUP_USR_BIN="$work/usr/bin" PHP_SETUP_BIN_DIR="$work/usr/local/bin" PHP_SETUP_COMPOSER_HOME="$work/composer-home" \
@@ -296,6 +300,8 @@ printf '#!/usr/bin/env bash\necho "Composer version 2.0.0 2020-01-01"\n' > "$wor
 STATE_AVAILABLE="php8.4-*" STATE_EXISTING_COMPOSER="$work/old-composer" run "$name" 0 PHP_VERSION=8.4 && {
   logged "curl https://getcomposer.org"; [[ -x "$work/usr/local/bin/composer" ]] || { echo "FAIL $name: not installed"; fail=1; }
 }
+name="a composer that still shadows the installed one on PATH fails"
+STATE_AVAILABLE="php8.4-*" STATE_SHADOW=1 STATE_EXISTING_COMPOSER="$work/old-composer" run "$name" 1 PHP_VERSION=8.4 && says "composer on PATH is '$work/path/composer', not $work/usr/local/bin/composer"
 name="a pin missing from the pins file is refused"
 grep -v '^COMPOSER_VERSION=' "$work/pins.env" > "$work/pins-nover.env"
 TEST_PINS="$work/pins-nover.env" run "$name" 2 PHP_VERSION=8.4 && says "COMPOSER_VERSION"

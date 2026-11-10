@@ -704,8 +704,8 @@ jobs:
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: docker run --rm alpine:3 true
 YAML
-# The kept list is for the other workflows; a scan workflow still allows
-# only the toolchain installers.
+# The kept list is for the other workflows; a scan workflow allows none of
+# it.
 expect "kept action in a scan workflow" 1 "uses: 'game-ci/unity-test-runner@0000000000000000000000000000000000000000' is not" <<'YAML'
 on: push
 jobs:

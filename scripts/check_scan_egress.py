@@ -22,7 +22,7 @@ ALLOWED_ACTIONS with its reason.
 
 Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
 and security-weekly.yml, and .github/actions/*-scan/action.yml. They allow
-only the named toolchain installers, not the kept list, and also fail on:
+no action from the kept list, and also fail on:
 
   docker      a run-block line, comments skipped and continuations joined,
               with a docker, podman or nerdctl token followed by `run` or
@@ -175,7 +175,7 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
     if base in kept:
         return
     out.append(f"{where}: uses: '{ref}' is not in ALLOWED_ACTIONS, this library or a local path"
-               + ("" if kept else " (a scan workflow allows only the toolchain installers)")
+               + ("" if kept else " (a scan workflow allows no kept action)")
                + "; replace it with a first-party step, or add it to ALLOWED_ACTIONS with its reason")
 
 
