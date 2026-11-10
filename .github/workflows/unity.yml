@@ -31,9 +31,9 @@ on:
         type: string
         default: ubuntu-latest
         description: >
-          ubuntu-latest covers editmode and playmode. An iOS export needs a
-          macOS runner, which bills at ten times the Linux rate — arm this
-          deliberately.
+          ubuntu-latest covers editmode and playmode. The editor runs in a
+          container, so the runner must be Linux with docker: a macOS runner
+          is refused by the test step, as the replaced action refused it.
       project_path:
         type: string
         default: "."
@@ -234,18 +234,130 @@ jobs:
           restore-keys: |
             unity-library-${{ inputs.runner }}-${{ inputs.project_path }}-
 
-      - uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0 @ 2026-09-21
-        id: tests
+      # The library's scripts and pins at this workflow's commit: the editor
+      # run, the licence return and the test summary. actions/checkout can
+      # only write under the workspace, and the project directory in the
+      # workspace is mounted into the editor's container, so the files are
+      # copied to a read-only directory under RUNNER_TEMP before anything
+      # runs from them, their content hash is recorded, and the checkout is
+      # removed: a container (a third-party image running project code)
+      # cannot rewrite a script the host runs after it. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's scripts after all; refuse instead. git
+      # runs here once, before any untrusted step, with no hooks, no fsmonitor
+      # and no user or system config; later steps never run git on the copy,
+      # which has no .git at all. `lib` is the read-only copy, `hash` the
+      # sha256 over its files.
+      - name: Verify ci-helpers scripts commit
+        id: ci_scripts_verify
+        shell: bash
         env:
+          WF_SHA: ${{ job.workflow_sha }}
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-scripts rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          lib="$(mktemp -d "${RUNNER_TEMP}/ci-helpers-lib.XXXXXX")"
+          cp -R .ci-helpers-scripts/scripts "$lib/scripts"
+          cp .ci-helpers-scripts/toolchain-pins.env "$lib/toolchain-pins.env"
+          rm -rf -- "$PWD/.ci-helpers-scripts"
+          chmod -R a-w "$lib"
+          hash="$(cd "$lib" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::could not hash the library copy."; exit 1; }
+          echo "lib=$lib" >> "$GITHUB_OUTPUT"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "ci-helpers scripts at $WF_SHA copied to $lib, sha256 $hash"
+
+      # The editor runs in the unityci/editor image pinned by digest in the
+      # library's toolchain-pins.env for the project's editor version; a
+      # version without a pin is refused with the line to add. The licence
+      # secrets reach the container as `--env NAME`, never as a value in an
+      # argument, and the activation log stays in the container unless
+      # activation fails, when it is printed redacted. The step's exit code
+      # is the editor's: 2 when a test failed, with the results written.
+      #
+      # Each step that runs a library script first hashes the copy again
+      # with plain coreutils and compares, and fails otherwise: the step
+      # before it ran a container, and this one must not run what a
+      # container left behind.
+      - name: Run Unity tests
+        id: tests
+        shell: bash
+        env:
+          LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
+          PROJECT_PATH: ${{ inputs.project_path }}
+          UNITY_VERSION: ${{ inputs.unity_version }}
+          TEST_MODE: ${{ inputs.test_mode }}
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          projectPath: ${{ inputs.project_path }}
-          unityVersion: ${{ inputs.unity_version }}
-          testMode: ${{ inputs.test_mode }}
-          githubToken: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          now="$(cd "$LIB" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          bash "$LIB/scripts/unity_test.sh"
+
+      # The licence a run activated is returned whatever the tests did, so a
+      # timed-out or failed run does not keep a seat. Nothing activated,
+      # nothing to return.
+      - name: Return the Unity licence
+        if: ${{ always() && steps.ci_scripts_verify.outcome == 'success' }}
+        shell: bash
+        env:
+          LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          now="$(cd "$LIB" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          bash "$LIB/scripts/unity_test.sh" --return-license
+
+      # The NUnit XML the editor wrote, as a table on the job summary page;
+      # the action posted a check run with the job token instead.
+      - name: Test summary
+        if: ${{ always() && steps.tests.outputs.artifactsPath != '' && steps.ci_scripts_verify.outcome == 'success' }}
+        shell: bash
+        env:
+          LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
+          ARTIFACTS_PATH: ${{ steps.tests.outputs.artifactsPath }}
+          TEST_MODE: ${{ inputs.test_mode }}
+        run: |
+          set -euo pipefail
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          now="$(cd "$LIB" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          python3 "$LIB/scripts/junit_summary.py" --title "Unity tests (${TEST_MODE})" --glob "${ARTIFACTS_PATH}/*-results.xml"
 
       # always(), so a failing suite still uploads the results that say which
       # test failed. Without it the one run worth inspecting is the one with no
