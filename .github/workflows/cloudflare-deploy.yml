@@ -491,13 +491,14 @@ jobs:
         shell: bash
         run: bash .ci-helpers-scripts/scripts/setup_pnpm.sh
 
+      # No package cache: this job holds the Cloudflare token and deploys what
+      # it builds, and a restored store is whatever the run that owned the key
+      # first left there (scripts/check_cache_trust.py).
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
-          cache: ${{ inputs.package_manager != 'none' && inputs.package_manager || '' }}
-          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/**/*lock*', inputs.working_directory) || '' }}
 
       - name: Install
         if: ${{ inputs.install_command != '' || inputs.package_manager != 'none' }}

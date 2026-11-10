@@ -118,8 +118,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
-          cache: pnpm
-          cache-dependency-path: ${{ inputs.working_directory != '.' && format('{0}/pnpm-lock.yaml', inputs.working_directory) || 'pnpm-lock.yaml' }}
+          # No pnpm store cache: the deploy job publishes what this job builds,
+          # and a restored store is whatever the run that owned the key first
+          # left there (scripts/check_cache_trust.py).
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}

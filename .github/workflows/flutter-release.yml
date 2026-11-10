@@ -216,17 +216,9 @@ jobs:
           RUBY_VERSION: ${{ inputs.ruby_version }}
         run: bash .ci-helpers-scripts/scripts/setup_ruby.sh
 
-      # The gems the lockfile names, under vendor/bundle, keyed as the
-      # action's bundler-cache keyed them: platform, Ruby and the lockfile.
-      - name: Cache gems
-        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) != '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: ${{ inputs.working_directory }}/vendor/bundle
-          key: gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-${{ hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) }}
-          restore-keys: |
-            gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-
-
+      # The gems install fresh under vendor/bundle on every run: this job holds
+      # the store credentials, and a cached vendor/bundle is whatever the run
+      # that owned the key first left there (scripts/check_cache_trust.py).
       # With a Gemfile.lock the install is deployment mode, as the action's
       # bundler-cache set it: the lockfile is frozen, a Gemfile that disagrees
       # fails here, not in a lane.

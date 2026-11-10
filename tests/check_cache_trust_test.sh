@@ -1,0 +1,613 @@
+#!/usr/bin/env bash
+# SCRIPT: check_cache_trust_test.sh
+# DESCRIPTION: scripts/check_cache_trust.py passes on this tree, and fails on
+#              each way a cache could put unread content into a release: a
+#              cargo, gem, Library or package-store cache restored into a
+#              job that reads a secret, holds a write token, is needed by
+#              such a job or is called by one through a publish chain; a
+#              BuildKit cache from the Actions cache in a push job; a
+#              post-job actions/cache save anywhere; an actions/cache/save
+#              with no restore two steps before it, not right after a run
+#              step, or after a caller step; a save in a trusted job; a
+#              verified-archive restore not followed by its script. It stays
+#              quiet on a verified archive restore in a trusted job, on
+#              restore, fetch, save in a plain job, on setup-* caches in a
+#              plain job and on cache: false in a trusted one.
+# USAGE: bash tests/check_cache_trust_test.sh
+# ----------------------------------------------------
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+check="$root/scripts/check_cache_trust.py"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+fail=0
+
+if ! python3 "$check" --root "$root" > "$work/out" 2>&1; then
+  echo "FAIL this tree has findings:"; cat "$work/out"; fail=1
+fi
+
+# expect <name> <rc> <pattern-or-empty> [file] [keep] ; file body on stdin.
+# `keep` leaves the files of the previous case in place, for a two-file case.
+expect() {
+  local name="$1" want="$2" pattern="$3" file="${4:-.github/workflows/x.yml}" keep="${5:-}" rc=0
+  [[ -n "$keep" ]] || rm -rf "${work:?}/t"
+  mkdir -p "$work/t/$(dirname "$file")"
+  cat > "$work/t/$file"
+  python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
+  if [ "$rc" != "$want" ]; then
+    echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 0
+  fi
+  if [ -n "$pattern" ] && ! grep -qF -- "$pattern" "$work/out"; then
+    echo "FAIL $name: no '$pattern' in output"; cat "$work/out"; fail=1
+  fi
+}
+
+pin=55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+
+# --- what main shipped before the gate -------------------------------------
+
+expect "cargo cache in a job with signing secrets" 1 "restores and saves '~/.cargo/registry/index/ target/' in a job that reads secrets.APPLE_CERTIFICATE" <<YAML
+on: push
+jobs:
+  build-macos:
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    steps:
+      - uses: actions/cache@$pin
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            target/
+          key: rust-x
+      - run: cargo build --release
+        env:
+          APPLE_CERTIFICATE: \${{ secrets.APPLE_CERTIFICATE }}
+YAML
+
+expect "gem cache in a job with store secrets" 1 "restores and saves 'vendor/bundle' in a job that reads secrets.GOOGLE_PLAY_JSON" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@$pin
+        with:
+          path: vendor/bundle
+          key: gems-x
+      - run: bundle exec fastlane deploy
+        env:
+          JSON: \${{ secrets.GOOGLE_PLAY_JSON }}
+YAML
+
+expect "setup-node cache in a deploy job" 1 "actions/setup-node with cache: 'pnpm' restores a dependency cache into a job that reads secrets.CLOUDFLARE_API_TOKEN" <<'YAML'
+on: push
+jobs:
+  deploy:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+YAML
+
+expect "setup-* cache as an expression in a trusted job" 1 "restores a dependency cache into a job that holds contents: write" <<'YAML'
+on: push
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: ${{ inputs.requirements_file != '' && 'pip' || '' }}
+YAML
+
+expect "BuildKit cache from the Actions cache in a push job" 1 "a BuildKit cache from the Actions cache in a job that reads secrets.registry_token; holds packages: write" <<'YAML'
+on: push
+jobs:
+  build-push:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/docker_build.sh
+        env:
+          CACHE_FROM: type=gha
+          CACHE_TO: type=gha,mode=max
+          REGISTRY_PASSWORD: ${{ secrets.registry_token }}
+YAML
+
+expect "Library cache in a job with licence secrets" 1 "restores and saves 'Library' in a job that reads secrets.UNITY_LICENSE" <<YAML
+on: push
+jobs:
+  test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@$pin
+        with:
+          path: Library
+          key: unity-x
+      - run: unity-test-runner
+        env:
+          UNITY_LICENSE: \${{ secrets.UNITY_LICENSE }}
+YAML
+
+expect "post-job actions/cache in a plain job" 1 "actions/cache saves '~/.cargo/registry/index/ target/' when the job ends, after the caller's code ran under it" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@$pin
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            target/
+          key: rust-x
+      - run: cargo test
+YAML
+
+# --- trust by write permissions, needs and calls ----------------------------
+
+expect "restore into a job trusted by workflow-level write" 1 "restores 'target/' into a job that holds contents: write" <<YAML
+on: push
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo build --release
+YAML
+
+expect "job-level permissions override the workflow's" 0 "" <<YAML
+on: push
+permissions:
+  contents: write
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo fetch
+      - uses: actions/cache/save@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+expect "write-all" 1 "restores 'target/' into a job that permissions: write-all" <<YAML
+on: push
+jobs:
+  release:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+expect "a build job the release job needs" 1 "restores 'target/' into a job that is needed by trusted job release" <<YAML
+on: push
+jobs:
+  build-linux:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo build --release
+  release:
+    needs: [build-linux]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release upload
+YAML
+
+expect "GITHUB_TOKEN alone is not a secret, read is not write" 0 "" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo fetch
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache/save@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+# A build workflow called by the job a Pages deploy needs: the deploy
+# publishes what the called workflow built.
+expect "the called build workflow (first file)" 0 "" .github/workflows/pb.yml <<'YAML'
+on:
+  workflow_call:
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: pip
+      - run: mkdocs build
+YAML
+expect "a build workflow called by the job a deploy needs" 1 "pb.yml: jobs.build.steps[0] 'actions/setup-python': actions/setup-python with cache: 'pip' restores a dependency cache into a job that is called by trusted job .github/workflows/pages.yml: jobs.build" .github/workflows/pages.yml keep <<'YAML'
+on: push
+jobs:
+  build:
+    uses: ./.github/workflows/pb.yml
+    permissions:
+      contents: read
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy
+YAML
+
+# A caller that grants a write scope the called workflow never asks for
+# does not make the called jobs trusted: that file declares what it holds.
+expect "the called CI workflow (first file)" 0 "" .github/workflows/pnpm.yml <<'YAML'
+on:
+  workflow_call:
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          cache: pnpm
+      - run: pnpm test
+YAML
+expect "a caller trusted by its own permissions only passes nothing on" 0 "" .github/workflows/self-test.yml keep <<'YAML'
+on: push
+jobs:
+  pnpm-defaults-can-pass:
+    uses: ./.github/workflows/pnpm.yml
+    permissions:
+      contents: read
+      checks: write
+YAML
+
+# --- save placement ---------------------------------------------------------
+
+expect "a save after the caller's step" 1 "actions/cache/save after steps[2] 'Install', which runs the caller's inputs.<name>command" <<YAML
+on:
+  workflow_call:
+    inputs:
+      install_command:
+        type: string
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-x
+      - run: cargo fetch
+      - name: Install
+        run: \${{ inputs.install_command }}
+      - uses: actions/cache/save@$pin
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-x
+YAML
+
+expect "a save with no restore two steps before it" 1 "actions/cache/save without actions/cache/restore of the same path and key two steps before it" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo fetch
+      - uses: actions/cache/save@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+YAML
+
+expect "a save whose restore names another key" 1 "without actions/cache/restore of the same path and key" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+      - run: cargo fetch
+      - uses: actions/cache/save@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-y
+YAML
+
+expect "a save right after a uses step, not the fetch" 1 "the step before actions/cache/save is not a run step" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - uses: actions/cache/save@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+YAML
+
+expect "a save in a trusted job, verified archive or not" 1 "saves '\${{ runner.temp }}/ci-helpers-godot-archive' from a job that reads secrets.STORE_KEY; a trusted job writes no cache" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ runner.temp }}/ci-helpers-godot-archive
+          key: godot-x
+      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
+      - uses: actions/cache/save@$pin
+        with:
+          path: \${{ runner.temp }}/ci-helpers-godot-archive
+          key: godot-x
+      - run: godot --export-release
+        env:
+          STORE_KEY: \${{ secrets.STORE_KEY }}
+YAML
+
+# --- verified archives ------------------------------------------------------
+
+expect "a verified archive restored into a job with secrets, then its script" 0 "" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ steps.flutter_resolve.outputs.cache_path }}
+          key: \${{ steps.flutter_resolve.outputs.cache_key }}
+      - name: Setup Flutter
+        run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ runner.temp }}/ci-helpers-godot-archive
+          key: godot-x
+      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
+      - run: flutter build appbundle
+        env:
+          KEYSTORE: \${{ secrets.ANDROID_KEYSTORE }}
+YAML
+
+expect "a verified archive path whose next step is not its script" 1 "restores '\${{ runner.temp }}/ci-helpers-godot-archive' but the next step does not run scripts/setup_godot.sh" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ runner.temp }}/ci-helpers-godot-archive
+          key: godot-x
+      - run: godot --export-release
+        env:
+          STORE_KEY: \${{ secrets.STORE_KEY }}
+YAML
+
+expect "a verified archive path whose next step is an action" 1 "but the next step does not run scripts/setup_godot.sh" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ runner.temp }}/ci-helpers-godot-archive
+          key: godot-x
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+      - run: godot --export-release
+        env:
+          STORE_KEY: \${{ secrets.STORE_KEY }}
+YAML
+
+expect "an archive path not in the list" 1 "restores '\${{ runner.temp }}/other-archive' into a job that reads secrets.STORE_KEY; only an archive listed in VERIFIED_ARCHIVES" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: \${{ runner.temp }}/other-archive
+          key: other-x
+      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
+      - run: godot --export-release
+        env:
+          STORE_KEY: \${{ secrets.STORE_KEY }}
+YAML
+
+# --- what stays quiet -------------------------------------------------------
+
+expect "cache: false and \"false\" in a trusted job" 0 "" <<'YAML'
+on: push
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          cache: false
+      - uses: actions/setup-go@4b8ab7c2a8ba6ca2a2ac2d2b8b4f3a6d8c1e0f9b
+        with:
+          cache: "false"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: ""
+      - run: go build
+YAML
+
+expect "restore, fetch, save in a plain job, then the caller's steps" 0 "" <<YAML
+on:
+  workflow_call:
+    inputs:
+      test_command:
+        type: string
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - id: cache
+        uses: actions/cache/restore@$pin
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-x
+          restore-keys: rust-
+      - run: cargo fetch --locked
+      - if: \${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@$pin
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-x
+      - run: \${{ inputs.test_command }}
+YAML
+
+expect "setup-* caches in a plain job" 0 "" <<'YAML'
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          cache: pnpm
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: ${{ steps.probe.outputs.python }}
+      - run: pnpm test
+YAML
+
+# --- composite actions ------------------------------------------------------
+
+expect "actions/cache in a composite action" 1 "action.yml: steps[0] 'actions/cache': restores and saves 'node_modules' in a job that may run inside a job that holds a secret" .github/actions/x/action.yml <<YAML
+name: x
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@$pin
+      with:
+        path: node_modules
+        key: n-x
+    - run: npm test
+      shell: bash
+YAML
+
+# --- the tree is read whole ---------------------------------------------------
+
+expect "a .yaml workflow is read" 1 "y.yaml: jobs.release" .github/workflows/y.yaml <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+rm -rf "${work:?}/t"; mkdir -p "$work/t"
+rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
+if [ "$rc" != 2 ]; then echo "FAIL a tree with no workflow: exit $rc, expected 2"; cat "$work/out"; fail=1; fi
+
+rm -rf "${work:?}/t"; mkdir -p "$work/t/.github/workflows"
+printf 'on: push\njobs: [\n' > "$work/t/.github/workflows/bad.yml"
+rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
+if [ "$rc" != 2 ] || ! grep -q "cannot read" "$work/out"; then echo "FAIL a file that does not parse: exit $rc, expected 2"; cat "$work/out"; fail=1; fi
+
+[[ "$fail" = 0 ]] && echo "ok: the cache-trust check passes on this tree, refuses every unverified restore into a trusted job and every save after the caller's code, and stays quiet on the rest"
+exit "$fail"

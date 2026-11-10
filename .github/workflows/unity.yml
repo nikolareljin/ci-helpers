@@ -53,9 +53,12 @@ on:
         type: boolean
         default: true
         description: >
-          Cache the Library folder, keyed on the project's assets and settings.
-          A cold Library import is the slowest thing in a Unity run by a wide
-          margin.
+          Ignored; kept so callers keep parsing. The Library folder is not
+          cached: the test job holds the licence secrets, and a restored
+          Library (compiled script assemblies included) is whatever the run
+          that owned the key first left there (scripts/check_cache_trust.py).
+          Every run imports cold, which is the slowest thing in a Unity run
+          by a wide margin.
       lfs:
         type: boolean
         default: true
@@ -223,16 +226,8 @@ jobs:
           fetch-depth: ${{ inputs.fetch_depth }}
           lfs: ${{ inputs.lfs }}
 
-      # Keyed on the assets and settings that decide what the import produces.
-      # Restoring a Library built from different assets is worse than a cold
-      # import: the editor reimports anyway, after paying to download it.
-      - if: ${{ inputs.cache }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: ${{ inputs.project_path }}/Library
-          key: unity-library-${{ inputs.runner }}-${{ inputs.project_path }}-${{ hashFiles(format('{0}/Assets/**', inputs.project_path), format('{0}/Packages/**', inputs.project_path), format('{0}/ProjectSettings/**', inputs.project_path)) }}
-          restore-keys: |
-            unity-library-${{ inputs.runner }}-${{ inputs.project_path }}-
+      # No Library cache (see the `cache` input): the editor below runs with
+      # the licence secrets, and Library/ScriptAssemblies is code it loads.
 
       - uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0 @ 2026-09-21
         id: tests

@@ -203,8 +203,9 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
         with:
           python-version: ${{ inputs.python_version }}
-          cache: ${{ inputs.requirements_file != '' && 'pip' || '' }}
-          cache-dependency-path: ${{ inputs.requirements_file != '' && format('{0}/{1}', inputs.working_directory, inputs.requirements_file) || '' }}
+          # No pip cache: pages.yml deploys what this job builds, and a
+          # restored store is whatever the run that owned the key first left
+          # there (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
