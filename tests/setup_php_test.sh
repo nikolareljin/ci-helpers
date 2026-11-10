@@ -136,7 +136,8 @@ run() {
   cp "$work/key.asc" "$state/key.asc"
   cp "$work/composer.phar" "$state/phar"
   : > "$state/log"
-  if [[ -n "${STATE_OS_ID:-}" ]]; then printf 'ID=%s\nVERSION_ID=3.20\n' "$STATE_OS_ID"; else printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\n'; fi > "$work/etc/os-release"
+  if [[ -n "${STATE_OS_RELEASE:-}" ]]; then printf '%s\n' "$STATE_OS_RELEASE"
+  elif [[ -n "${STATE_OS_ID:-}" ]]; then printf 'ID=%s\nVERSION_ID=3.20\n' "$STATE_OS_ID"; else printf 'ID=ubuntu\nID_LIKE=debian\nVERSION_CODENAME=noble\n'; fi > "$work/etc/os-release"
   for v in 8.1 8.2 8.3 8.4; do
     for t in php phar phar.phar php-config phpize phpdbg; do printf '#!/bin/sh\n' > "$work/usr/bin/$t$v"; chmod +x "$work/usr/bin/$t$v"; done
   done
@@ -219,6 +220,16 @@ STATE_FPR="0123456789ABCDEF0123456789ABCDEF01234567" run "$name" 1 PHP_VERSION=8
   not_logged "apt-get"
 }
 
+name="a Debian runner lacking the version is refused, the Ubuntu PPA is not added"
+STATE_OS_RELEASE="$(printf 'ID=debian\nVERSION_CODENAME=bookworm')" run "$name" 2 PHP_VERSION=8.4 && {
+  says "builds for Ubuntu only"; not_logged "keyserver"; not_logged "apt-get"
+  [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: Ubuntu PPA written on Debian"; fail=1; }
+}
+name="an Ubuntu derivative gets the PPA suite of its Ubuntu base"
+STATE_OS_RELEASE="$(printf 'ID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_CODENAME=wilma\nUBUNTU_CODENAME=noble')" run "$name" 0 PHP_VERSION=8.4 && {
+  grep -qx "Suites: noble" "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" || { echo "FAIL $name: suite:"; cat "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources"; fail=1; }
+}
+
 name="a key fetch that fails is an error, not a retry with add-apt-repository"
 run "$name" 1 PHP_VERSION=8.4 CURL_FAIL=1 && { says "Could not fetch the PPA signing key"; not_logged "apt-get"; }
 
@@ -278,6 +289,15 @@ post_max_size=64M" && {
 }
 name="an ini line that is not key=value is refused"
 run "$name" 2 PHP_VERSION=8.4 PHP_INI_VALUES="memory_limit" && { says "is not key=value"; not_logged "apt-get"; }
+for bad in "extension=/tmp/evil.so" "zend_extension=/tmp/evil.so" "Extension = x.so" "memory_limit=1
+extension=x.so"; do
+  name="ini line loading a module is refused: $bad"
+  run "$name" 2 PHP_VERSION=8.4 PHP_INI_VALUES="$bad" && { says "loads a module"; not_logged "apt-get"; }
+done
+for bad in "[PHP]" "memory_limit=1; id" "a b=1"; do
+  name="ini line '$bad' is refused"
+  run "$name" 2 PHP_VERSION=8.4 PHP_INI_VALUES="$bad" && { says "PHP_INI_VALUES"; not_logged "apt-get"; }
+done
 
 # --- tools -------------------------------------------------------------------------
 name="tools: composer is accepted"
@@ -312,7 +332,8 @@ TEST_PINS="$work/pins-nokey.env" run "$name" 2 PHP_VERSION=8.4 && says "PHP_PPA_
 # --- version and platform --------------------------------------------------------------
 name="php on PATH reporting another version fails"
 STATE_AVAILABLE="php8.4-*" STATE_PHP_VERSION=8.3.6 run "$name" 1 PHP_VERSION=8.4 && says "reports '8.3.6', not 8.4.x"
-for bad in "" latest 8.4.1 8 nightly "8.4 "; do
+for bad in "" latest 8.4.1 8 nightly "8.4 " "8.3; id" "8.3
+8.4"; do
   name="PHP_VERSION '$bad' is refused"
   run "$name" 2 PHP_VERSION="$bad" && { says "PHP_VERSION"; not_logged "apt-get"; }
 done

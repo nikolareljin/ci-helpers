@@ -27,6 +27,7 @@
 #   PHP_INI_VALUES   Comma- or newline-separated `key=value` lines (the
 #                    action's `ini-values`), written after the defaults
 #                    `date.timezone=UTC` and `memory_limit=-1`.
+#                    `extension=`, `zend_extension=` and a `;` are refused.
 #   PHP_COVERAGE     xdebug (default), pcov or none.
 #   PHP_TOOLS        Comma-separated; `composer` (also `composer:v2`,
 #                    `composer:2`) or empty. Composer is installed either
@@ -95,7 +96,15 @@ if [[ -n "$ini_values" ]]; then
   while IFS= read -r line; do
     line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
     [[ -n "$line" ]] || continue
-    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_.]*=[^[:cntrl:]]*$ ]] || die "PHP_INI_VALUES line '$line' is not key=value." 2
+    # A module is loaded by apt package and PHP_COVERAGE only: an ini line
+    # must not load an arbitrary .so for every SAPI.
+    key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+    case "$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" in
+      extension|zend_extension) die "PHP_INI_VALUES line '$line' loads a module; name it in PHP_EXTENSIONS (an apt package) or PHP_COVERAGE instead." 2 ;;
+    esac
+    # No ';' either: PHP reads the rest of the line as a comment, so the
+    # value would be cut short without a word.
+    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_.]*=[^[:cntrl:]\;]*$ ]] || die "PHP_INI_VALUES line '$line' is not key=value (no spaces around '=', no ';')." 2
     ini_lines="$ini_lines$line"$'\n'
   done <<EOF
 $(printf '%s' "$ini_values" | tr ',' '\n')
@@ -122,6 +131,11 @@ os_id="$(. "$os_release" && printf '%s' "${ID:-}")"
 os_like="$(. "$os_release" && printf '%s' "${ID_LIKE:-}")"
 # shellcheck disable=SC1090
 os_codename="$(. "$os_release" && printf '%s' "${VERSION_CODENAME:-}")"
+# The PPA's suite is an Ubuntu release: UBUNTU_CODENAME on a derivative
+# (Mint names its own release in VERSION_CODENAME), empty on Debian.
+# shellcheck disable=SC1090
+ppa_suite="$(. "$os_release" && printf '%s' "${UBUNTU_CODENAME:-}")"
+if [[ -z "$ppa_suite" && "$os_id" == ubuntu ]]; then ppa_suite="$os_codename"; fi
 case " $os_id $os_like " in
   *" ubuntu "*|*" debian "*) ;;
   *) die "This runner is '$os_id', not Ubuntu or Debian; this script installs PHP with apt and knows no other package manager. Use an Ubuntu runner." 2 ;;
@@ -215,7 +229,8 @@ if [[ -n "$missing" ]]; then
   cand="$(candidate "php$version-cli")"
   if [[ -z "$cand" || "$cand" == "(none)" ]]; then
     if [[ ! -f "$ppa_sources" ]]; then
-      echo "php$version-cli is not in the runner's apt sources; adding the ondrej/php PPA for $os_codename"
+      [[ "$ppa_suite" =~ ^[a-z]+$ ]] || die "php$version-cli is not in this runner's apt sources, and the ondrej/php PPA builds for Ubuntu only ('$os_id' names no Ubuntu release). Use an Ubuntu runner or a version the runner's sources hold." 2
+      echo "php$version-cli is not in the runner's apt sources; adding the ondrej/php PPA for $ppa_suite"
       keytmp="$(mktemp -d)"
       trap 'rm -rf "$keytmp"' EXIT
       curl -fsSL --retry 3 --proto '=https' --tlsv1.2 \
@@ -230,7 +245,7 @@ if [[ -n "$missing" ]]; then
       [[ "$fprs" == "$ppa_fingerprint" ]] || die "The key from keyserver.ubuntu.com has fingerprint(s) '$(printf '%s' "$fprs" | tr '\n' ' ')', not the pinned $ppa_fingerprint; refusing to trust it." 1
       as_root install -d -m 0755 "$apt_etc/keyrings" "$apt_etc/sources.list.d"
       as_root install -m 0644 "$keytmp/key.gpg" "$ppa_keyring"
-      printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: %s\nComponents: main\nSigned-By: %s\n' "$os_codename" "$ppa_keyring" > "$keytmp/php.sources"
+      printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: %s\nComponents: main\nSigned-By: %s\n' "$ppa_suite" "$ppa_keyring" > "$keytmp/php.sources"
       as_root install -m 0644 "$keytmp/php.sources" "$ppa_sources"
       rm -rf "$keytmp"; trap - EXIT
     fi

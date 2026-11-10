@@ -1191,11 +1191,13 @@ from apt: the image's own packages when they hold it (8.3 on `ubuntu-24.04`),
 else the ondrej/php PPA, added under the signing key whose fingerprint is
 pinned in `toolchain-pins.env` and refused when the fetched key does not match.
 `php_version` must be `X.Y` (`8.4`; not `latest`, `nightly` or `8.4.1`), and
-only an Ubuntu or Debian runner is supported. The script installs the
+only an Ubuntu or Debian runner is supported (on Debian only a version its
+own sources hold, as the PPA builds for Ubuntu only). The script installs the
 extension packages the replaced action's builds carried (bcmath, bz2, curl, gd,
 gmp, intl, mbstring, mysql, opcache, pgsql, readline, soap, sqlite3, xml, xsl,
 zip), Xdebug with `xdebug.mode=coverage`, `date.timezone=UTC` and
-`memory_limit=-1`, points `php`, `phar`, `php-config`, `phpize` and `phpdbg`
+`memory_limit=-1` (an ini value setting `extension` or `zend_extension`, or
+holding a `;`, is refused), points `php`, `phar`, `php-config`, `phpize` and `phpdbg`
 at the version with `update-alternatives`, and checks that `php -v` reports
 it. Composer is the release pinned in `toolchain-pins.env` (`COMPOSER_VERSION`,
 `COMPOSER_PHAR_SHA256`), downloaded from getcomposer.org and installed only
