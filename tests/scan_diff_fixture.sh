@@ -42,6 +42,10 @@
 #                  and "[x].py": foxguard-diff fails (names are not pathspecs)
 #   too-large      adds a parseable file over foxguard's 1 MiB limit:
 #                  foxguard-diff fails (a file it would skip is refused)
+#   long-line      adds a command injection in a .py with a line over 2000
+#                  characters: foxguard-diff fails (foxguard skips it as minified)
+#   latin1         adds a command injection in a latin-1 .py: foxguard-diff
+#                  fails (foxguard skips a non-UTF-8 file unread)
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -187,8 +191,16 @@ branch too-large
 { printf 'x = 1\n'; head -c 1048576 /dev/zero | tr '\0' '#'; printf '\n'; } > "$src/big.py"
 g add -A; g commit -q -m "a file over foxguard's size limit"
 
+branch long-line
+{ printf 'import os\nx = "'; head -c 3000 /dev/zero | tr '\0' 'a'; printf '"\nos.system(input())\n'; } > "$src/long.py"
+g add -A; g commit -q -m "a new command injection in a file with a long line"
+
+branch latin1
+printf '# -*- coding: latin-1 -*-\nimport os\nname = "caf\351"\nos.system(input())\n' > "$src/latin.py"
+g add -A; g commit -q -m "a new command injection in a latin-1 file"
+
 g checkout -q main
-for b in named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

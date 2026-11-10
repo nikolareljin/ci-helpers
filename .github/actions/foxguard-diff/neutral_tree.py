@@ -38,6 +38,9 @@ MAX_SIZE = 1048576
 UNPARSED = {b"png", b"jpg", b"jpeg", b"gif", b"webp", b"ico", b"bmp", b"pdf", b"zip", b"gz",
             b"tgz", b"bz2", b"xz", b"7z", b"jar", b"woff", b"woff2", b"ttf", b"otf", b"eot",
             b"mp3", b"mp4", b"wav", b"ogg", b"webm", b"mov"}
+# Names Windows refuses whatever the extension (con.py, AUX): a copy whose
+# stem is one gets a "_" prefix, so a runner on Windows can check it out.
+RESERVED = {b"CON", b"PRN", b"AUX", b"NUL"} | {b"%s%d" % (p, i) for p in (b"COM", b"LPT") for i in range(1, 10)}
 IDENT = {
     "GIT_AUTHOR_NAME": "foxguard-diff", "GIT_AUTHOR_EMAIL": "foxguard-diff@example.invalid",
     "GIT_COMMITTER_NAME": "foxguard-diff", "GIT_COMMITTER_EMAIL": "foxguard-diff@example.invalid",
@@ -62,10 +65,12 @@ def quoted(path):
 def neutral_names(index, path):
     """The copies of one file: f<i>/<name> keeps the name (foxguard picks some
     languages by it: Dockerfile.dev, nginx.conf), leading dots dropped so the
-    walk does not skip it; g<i>/file.<ext> keeps only the extension, for names
+    walk does not skip it, "_" before a name Windows reserves; g<i>/file.<ext> keeps only the extension, for names
     foxguard skips (a.min.js). Directories are dropped: no rule of foxguard
     0.14.1 reads them, and its walk skips vendor/, build/ and hidden ones."""
     name = path.rsplit(b"/", 1)[-1].lstrip(b".") or b"file"
+    if name.split(b".", 1)[0].rstrip(b" ").upper() in RESERVED:
+        name = b"_" + name
     names = [b"f%d/" % index + name]
     stem, dot, ext = name.rpartition(b".")
     if dot and stem and ext:

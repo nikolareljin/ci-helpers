@@ -602,6 +602,8 @@ sys.exit(rc)
                  "sub/Dockerfile": ["Dockerfile"], "vendor/Dockerfile.dev": ["Dockerfile.dev", "file.dev"],
                  "conf/nginx.conf": ["nginx.conf", "file.conf"], ".bashrc": ["bashrc"],
                  ":(glob)*.py": [":(glob)*.py", "file.py"], ":(exclude)a.py": [":(exclude)a.py", "file.py"],
+                 ".con.py": ["_con.py", "file.py"], ".Aux": ["_Aux"], ".lpt1.c.py": ["_lpt1.c.py", "file.py"],
+                 ".console.py": ["console.py", "file.py"],
                  ":!b.py": [":!b.py", "file.py"], "*.py": ["*.py", "file.py"], "[x].py": ["[x].py", "file.py"]}
         for path, neutral in cases.items():
             with self.subTest(path=path):
@@ -688,6 +690,13 @@ sys.exit(rc)
         # minified, whatever its size or name.
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 2 files: 1 unsupported extension, 1 minified.")
         self.run_script(FOXGUARD_RUN, 0, STUB_SAY="Skipped 2 files: 2 unsupported extensions.")
+        # A base copy foxguard cannot parse is logged by path; a file named
+        # minified.py there is not a skip.
+        self.run_script(FOXGUARD_RUN, 0, STUB_SAY="warning: skipping /tmp/.t/f0/minified.py (parse error)")
+        # A changed file that is not UTF-8 (a latin-1 coding line, say) is
+        # skipped unread.
+        self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping ./f0/x.py (binary or non-UTF-8 content)")
+        self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 1 file: 1 binary or non-UTF-8.")
 
     def test_foxguard_refuses_a_scan_path_that_reads_as_an_option(self):
         dash = self.fx.clone / "-s"

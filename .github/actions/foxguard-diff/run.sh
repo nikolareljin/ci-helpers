@@ -140,8 +140,10 @@ rc=0
 [[ "$rc" -eq 0 ]] || fail
 # neutral_tree.py refuses a changed file over foxguard's --max-file-size
 # (1 MiB) before the scan; a skip the log reports is refused too, and so is
-# a file skipped as minified (one line over about 2000 characters).
-if grep -q -e 'exceeds --max-file-size' -e '[0-9] too large' -e 'minified' "$tmp/scan.log"; then fail; fi
+# a file skipped as minified (one line over about 2000 characters) or as
+# binary or non-UTF-8. Only the skip phrases match: warnings name paths.
+if grep -q -E -e '\(.*exceeds --max-file-size\)$' -e '\(binary or non-UTF-8 content\)$' \
+  -e '^Skipped .*[0-9] (too large|minified|binary or non-UTF-8)' "$tmp/scan.log"; then fail; fi
 n="$(report_ok "$neutral_base")" || fail
 read_count=$((read_count + n))
 # A scan of nothing (files foxguard cannot parse, say) is refused rather
