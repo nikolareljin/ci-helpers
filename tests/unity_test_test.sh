@@ -448,7 +448,13 @@ want = {"Isolate ci-helpers scripts": "verify", "Run Unity tests": "tests",
         "Return the Unity licence": "return", "Test summary": "summary"}
 for step in doc["jobs"]["test"]["steps"]:
     if step.get("name") in want:
-        pathlib.Path(sys.argv[2], want[step["name"]] + ".sh").write_text(step["run"])
+        # The stub docker is found on PATH; lib_path.sh would hand the step
+        # the system docker instead (tested in check_lib_isolation_test.sh),
+        # so the step gets its PATH back as it is.
+        run = step["run"]
+        for line in ('. "$run_lib/scripts/lib_path.sh" secret', '. "$run_lib/scripts/lib_path.sh"'):
+            run = run.replace(line, 'export PATH="$STEP_PATH"')
+        pathlib.Path(sys.argv[2], want[step["name"]] + ".sh").write_text(run)
 PY2
 for f in verify tests return summary; do
   [[ -s "$work/wf/$f.sh" ]] || { echo "FAIL: unity.yml has no run block for the $f step"; fail=1; }

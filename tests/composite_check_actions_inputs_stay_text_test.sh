@@ -57,7 +57,7 @@ for flag in ("true", "false"):
   for action in ("wp-plugin-check", "pimcore-bundle-check"):
     steps = yaml.safe_load(open(f"{root}/.github/actions/{action}/action.yml"))["runs"]["steps"]
     for i, s in enumerate(steps):
-        if "run" not in s or s.get("shell") != "bash":
+        if "run" not in s or str(s.get("shell")).split(" ")[0] not in ("bash", "/bin/bash"):
             continue
         tag = f"{action}.{i}.{flag}"
         names.append(tag)
