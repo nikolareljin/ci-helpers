@@ -31,6 +31,13 @@ import sys
 
 SHA = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 REGULAR = (b"100644", b"100755")
+# foxguard skips a file over --max-file-size (1 MiB) without failing, so a
+# changed file larger than that is refused before the scan, unless its
+# extension is one no foxguard rule reads.
+MAX_SIZE = 1048576
+UNPARSED = {b"png", b"jpg", b"jpeg", b"gif", b"webp", b"ico", b"bmp", b"pdf", b"zip", b"gz",
+            b"tgz", b"bz2", b"xz", b"7z", b"jar", b"woff", b"woff2", b"ttf", b"otf", b"eot",
+            b"mp3", b"mp4", b"wav", b"ogg", b"webm", b"mov"}
 IDENT = {
     "GIT_AUTHOR_NAME": "foxguard-diff", "GIT_AUTHOR_EMAIL": "foxguard-diff@example.invalid",
     "GIT_COMMITTER_NAME": "foxguard-diff", "GIT_COMMITTER_EMAIL": "foxguard-diff@example.invalid",
@@ -84,25 +91,44 @@ def regular(entries, path):
     return (found[0], found[2]) if found and found[1] == b"blob" and found[0] in REGULAR else None
 
 
+def too_large(path, size):
+    ext = path.rsplit(b"/", 1)[-1].rpartition(b".")[2].lower()
+    return size > MAX_SIZE and ext not in UNPARSED
+
+
 def neutral_config(text, folder, names):
-    """The reviewed config with its ignore paths moved to the neutral names."""
+    """The reviewed config with its ignore paths moved to the neutral names.
+    The keys that exclude files by path or by a list file
+    (secrets.exclude_paths, secrets.exclude_path_files) are dropped, so they
+    silence nothing on the copies."""
     import yaml
     doc = yaml.safe_load(text)
     if not isinstance(doc, dict):
         raise ValueError("config is not a mapping")
-    scan = doc.get("scan")
-    if isinstance(scan, dict) and "ignore_rules" in scan:
-        rules = scan["ignore_rules"]
+    for section in ("scan", "secrets"):
+        table = doc.get(section)
+        if table is not None and not isinstance(table, dict):
+            raise ValueError("config section is not a mapping")
+        if not table:
+            continue
+        if section == "secrets":
+            table.pop("exclude_paths", None)
+            table.pop("exclude_path_files", None)
+        if "ignore_rules" not in table:
+            continue
+        rules = table["ignore_rules"]
         if not isinstance(rules, list):
-            raise ValueError("scan.ignore_rules is not a list")
+            raise ValueError("ignore_rules is not a list")
         moved = []
         for rule in rules:
             if not (isinstance(rule, dict) and isinstance(rule.get("path"), str)):
-                raise ValueError("ignore rule without a path")
+                if section == "scan":
+                    raise ValueError("ignore rule without a path")
+                continue
             target = posixpath.normpath(posixpath.join(folder, rule["path"]))
             if target in names:
                 moved.extend({**rule, "path": name} for name in names[target])
-        scan["ignore_rules"] = moved
+        table["ignore_rules"] = moved
     return yaml.safe_dump(doc, sort_keys=False)
 
 
@@ -120,6 +146,7 @@ def main():
     git(tmp, "init", "-q", neutral, env_extra=IDENT)
     store = {**IDENT, "GIT_INDEX_FILE": os.path.join(tmp, "neutral.index")}
     copied = {}
+    sizes = {}
     names = {}
     head_tree = tree(top, "HEAD", None)
     old_tree = tree(top, renamed, caller)
@@ -137,7 +164,10 @@ def main():
         for mode, sha in filter(None, (head, regular(old_tree, full))):
             if sha not in copied:
                 blob = git(top, "cat-file", "blob", sha.decode(), env_extra=caller)
+                sizes[sha] = len(blob)
                 copied[sha] = git(neutral, "hash-object", "-w", "--stdin", env_extra=store, stdin=blob).strip()
+        if too_large(path, sizes[head[1]]):
+            raise ValueError("a changed file is over foxguard's size limit")
         old = regular(old_tree, full)
         for name in copies:
             if old is not None:

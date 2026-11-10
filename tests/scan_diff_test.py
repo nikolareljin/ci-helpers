@@ -17,6 +17,7 @@ RESOLVE = ROOT / "scripts/resolve_scan_base.py"
 GITLEAKS_RUN = ROOT / ".github/actions/gitleaks-diff/run.sh"
 FOXGUARD_RUN = ROOT / ".github/actions/foxguard-diff/run.sh"
 RENAME_BASE = ROOT / ".github/actions/foxguard-diff/rename_base.py"
+NEUTRAL_TREE = ROOT / ".github/actions/foxguard-diff/neutral_tree.py"
 ZERO = "0" * 40
 
 
@@ -649,6 +650,37 @@ sys.exit(rc)
         self.assertNotIn("old.py", config)
         self.assertIn("py/no-command-injection", config)
 
+    def test_foxguard_neutral_config_drops_secret_exclusions(self):
+        # secrets.exclude_paths and exclude_path_files would silence the copies
+        # by path or glob: dropped. secrets.ignore_rules paths move like scan's.
+        git(self.fx.src, "checkout", "-q", "main")
+        commit(self.fx.src, "reviewed config", **{"cfg/.foxguard.yml": (
+            "secrets:\n  exclude_paths: ['../new.py', '**/*.py', 'f0']\n"
+            "  exclude_path_files: [../paths.txt]\n"
+            "  ignore_rules:\n    - path: ../new.py\n      rules: [s/x]\n"
+            "    - path: ../old.py\n      rules: [s/x]\n")})
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(FOXGUARD_RUN, 0, CONFIG_PATH="cfg/.foxguard.yml")
+        config = self.neutral_call()["config"]
+        self.assertNotIn("exclude_path", config)
+        self.assertNotIn("*.py", config)
+        self.assertIn("path: f0/new.py", config)
+        self.assertIn("path: g0/file.py", config)
+        self.assertNotIn("old.py", config)
+
+    def test_foxguard_refuses_a_changed_file_over_the_size_limit_before_the_scan(self):
+        # Refused whatever foxguard logs; a binary type no rule reads passes.
+        big = "#" * 1048576 + "\n"
+        commit(self.fx.clone, "big", **{"vendor/big.py": big})
+        self.run_script(FOXGUARD_RUN, 1)
+        self.assertEqual(len(Path(str(self.called) + ".all").read_text().splitlines()), 1)
+        git(self.fx.clone, "reset", "-q", "--hard", self.fx.feature)
+        commit(self.fx.clone, "limit", **{"edge.py": big[:-2] + "\n"})
+        self.run_script(FOXGUARD_RUN, 0)
+        commit(self.fx.clone, "image", **{"logo.PNG": big})
+        self.run_script(FOXGUARD_RUN, 0)
+
     def test_foxguard_refuses_a_changed_file_it_skips_for_size(self):
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping ./f0/file.py (1048577 bytes exceeds --max-file-size)")
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 1 file: 1 too large.")
@@ -674,6 +706,41 @@ sys.exit(rc)
         self.assertIsNone(self.record())
         self.run_script(FOXGUARD_RUN, 1, FG_BIN=str(self.workspace / "absent"))
         self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(self.workspace / "absent"))
+
+
+class NeutralTreeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fx = Fixture(self.tmp.name)
+        self.out = Path(self.tmp.name) / "out"
+        self.out.mkdir()
+
+    def run_main(self, patch_head):
+        import importlib.util
+        import io
+        import sys
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("neutral_tree", NEUTRAL_TREE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        real = mod.tree
+        if patch_head:
+            # A changed path that the head listing lacks, which a diff from the
+            # same repository cannot produce: the guard must still fail.
+            mod.tree = lambda root, commit, env: (
+                {k: v for k, v in real(root, commit, env).items() if k != b"new.py"}
+                if commit == "HEAD" else real(root, commit, env))
+        argv = ["neutral_tree.py", str(self.fx.clone), self.fx.base, self.fx.base, str(self.out), ""]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(sys, "stdout", io.StringIO()):
+            return mod.main()
+
+    def test_changed_path_missing_from_the_head_tree_fails(self):
+        with self.assertRaises(ValueError):
+            self.run_main(True)
+
+    def test_changed_path_in_the_head_tree_passes(self):
+        self.assertEqual(self.run_main(False), 0)
 
 
 if __name__ == "__main__":
