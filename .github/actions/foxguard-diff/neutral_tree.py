@@ -8,8 +8,8 @@ with two commits: the base copy of each changed regular file, read from
 <rename-base> (the merge base with the review's renames applied), and its
 head copy. File i lands at f<i>/<name> and, with an extension, also at
 g<i>/file.<ext>, so no directory or name of the review decides whether
-foxguard reads it. Links and submodules are not copied. Only git moves bytes;
-nothing in the caller's repository changes.
+foxguard reads it. A UTF-16 or UTF-32 copy is written as UTF-8. Links and
+submodules are not copied. Nothing in the caller's repository changes.
 
 Usage: neutral_tree.py <work-tree> <merge-base> <rename-base> <tmp-dir> <config-or-empty>
        < reviewed-config-text
@@ -38,9 +38,14 @@ MAX_SIZE = 1048576
 UNPARSED = {b"png", b"jpg", b"jpeg", b"gif", b"webp", b"ico", b"bmp", b"pdf", b"zip", b"gz",
             b"tgz", b"bz2", b"xz", b"7z", b"jar", b"woff", b"woff2", b"ttf", b"otf", b"eot",
             b"mp3", b"mp4", b"wav", b"ogg", b"webm", b"mov"}
-# Names Windows refuses whatever the extension (con.py, AUX): a copy whose
-# stem is one gets a "_" prefix, so a runner on Windows can check it out.
-RESERVED = {b"CON", b"PRN", b"AUX", b"NUL"} | {b"%s%d" % (p, i) for p in (b"COM", b"LPT") for i in range(1, 10)}
+# Names Windows refuses whatever the extension (con.py, AUX, conin$.ps1): a
+# copy whose stem is one gets a "_" prefix, so a runner on Windows can check it out.
+RESERVED = {b"CON", b"PRN", b"AUX", b"NUL", b"CONIN$", b"CONOUT$"} | {b"%s%d" % (p, i) for p in (b"COM", b"LPT") for i in range(1, 10)}
+# foxguard skips UTF-16 and UTF-32 as non-UTF-8. A copy that starts with one
+# of these byte order marks and decodes is written as UTF-8 (UTF-32 is
+# checked first: its little-endian mark starts with UTF-16's).
+WIDE = ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
+        (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
 IDENT = {
     "GIT_AUTHOR_NAME": "foxguard-diff", "GIT_AUTHOR_EMAIL": "foxguard-diff@example.invalid",
     "GIT_COMMITTER_NAME": "foxguard-diff", "GIT_COMMITTER_EMAIL": "foxguard-diff@example.invalid",
@@ -94,6 +99,20 @@ def tree(root, commit, env_extra):
 def regular(entries, path):
     found = entries.get(path)
     return (found[0], found[2]) if found and found[1] == b"blob" and found[0] in REGULAR else None
+
+
+def as_utf8(path, blob):
+    """blob, or its UTF-8 text when it has a UTF-16 or UTF-32 byte order mark,
+    decodes, and has an extension a foxguard rule may read."""
+    if path.rsplit(b"/", 1)[-1].rpartition(b".")[2].lower() in UNPARSED:
+        return blob
+    for mark, codec in WIDE:
+        if blob.startswith(mark):
+            try:
+                return blob.decode(codec).encode("utf-8")
+            except UnicodeError:
+                return blob
+    return blob
 
 
 def too_large(path, size):
@@ -168,7 +187,7 @@ def main():
         names[full.decode()] = [c.decode() for c in copies]
         for mode, sha in filter(None, (head, regular(old_tree, full))):
             if sha not in copied:
-                blob = git(top, "cat-file", "blob", sha.decode(), env_extra=caller)
+                blob = as_utf8(path, git(top, "cat-file", "blob", sha.decode(), env_extra=caller))
                 sizes[sha] = len(blob)
                 copied[sha] = git(neutral, "hash-object", "-w", "--stdin", env_extra=store, stdin=blob).strip()
         if too_large(path, sizes[head[1]]):

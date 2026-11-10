@@ -46,6 +46,14 @@
 #                  characters: foxguard-diff fails (foxguard skips it as minified)
 #   latin1         adds a command injection in a latin-1 .py: foxguard-diff
 #                  fails (foxguard skips a non-UTF-8 file unread)
+#   utf16-new      adds a command injection in a UTF-16 .py: foxguard-diff
+#                  fails (the copy is scanned as UTF-8)
+#   utf16-old      edits a UTF-16 .py whose command injection is on main:
+#                  foxguard-diff passes (the old finding stays old)
+#   broken-new     adds a command injection in a .py that does not parse:
+#                  foxguard-diff fails (foxguard skips it unread)
+#   broken-old     edits a .py that did not parse on main so that it does:
+#                  foxguard-diff passes (a base copy may fail to parse)
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -82,6 +90,9 @@ injection old.py
 mkdir -p "$src/vendor"
 injection vendor/lib.py
 key old_key.pem
+wide() { { printf '\377\376'; printf '%bimport subprocess\nimport sys\n\nsubprocess.run(sys.argv[1], shell=True)\n' "$1" | iconv -f UTF-8 -t UTF-16LE; } > "$src/wide.py"; }
+wide ""
+printf 'def broken(:\n    pass\n' > "$src/broken.py"
 g add -A; g commit -q -m "base: one old finding of each kind"
 
 branch clean
@@ -199,8 +210,24 @@ branch latin1
 printf '# -*- coding: latin-1 -*-\nimport os\nname = "caf\351"\nos.system(input())\n' > "$src/latin.py"
 g add -A; g commit -q -m "a new command injection in a latin-1 file"
 
+branch utf16-new
+printf 'import os\nos.system(input())\n' | iconv -f UTF-8 -t UTF-16 > "$src/wide_new.py"
+g add -A; g commit -q -m "a new command injection in a UTF-16 file"
+
+branch utf16-old
+wide '# edited\n'
+g add -A; g commit -q -m "an old UTF-16 file edited above its old finding"
+
+branch broken-new
+printf 'import os\nos.system(input())\ndef broken(:\n    pass\n' > "$src/broken_new.py"
+g add -A; g commit -q -m "a new command injection in a file that does not parse"
+
+branch broken-old
+printf 'def broken():\n    pass\n' > "$src/broken.py"
+g add -A; g commit -q -m "a file that did not parse now does"
+
 g checkout -q main
-for b in long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in utf16-new utf16-old broken-new broken-old long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

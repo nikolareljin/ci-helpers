@@ -338,9 +338,11 @@ Notes:
   over foxguard's `--max-file-size` (1 MiB) would be skipped, so the step
   fails before the scan, unless its extension is one foxguard does not read
   (images, archives, fonts, audio, video). A changed file foxguard skips as
-  minified (a line over about 2000 characters) or as binary or non-UTF-8
-  fails the step too. A copy whose name Windows reserves (`con.py`, `AUX`)
-  gets a `_` prefix. `foxguard-scan` still skips those directories. The
+  minified (a line over about 2000 characters), as binary or non-UTF-8, or
+  as a parse error fails the step too; a base copy that does not parse
+  passes. A UTF-16 or UTF-32 file with a byte order mark is copied as UTF-8.
+  A copy whose name Windows reserves (`con.py`, `AUX`, `CONIN$`) gets a `_`
+  prefix. `foxguard-scan` still skips those directories. The
   reports must name their base and, together, have read at least one file,
   unless the review adds or changes no file under
   `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it

@@ -35,7 +35,7 @@ def commit(root, message, **files):
         if text is None:
             git(root, "rm", "-q", "--", name)
         else:
-            path.write_text(text)
+            path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text)
             git(root, "add", "--", name)
     git(root, "commit", "-q", "--allow-empty", "-m", message)
     return git(root, "rev-parse", "HEAD")
@@ -603,7 +603,8 @@ sys.exit(rc)
                  "conf/nginx.conf": ["nginx.conf", "file.conf"], ".bashrc": ["bashrc"],
                  ":(glob)*.py": [":(glob)*.py", "file.py"], ":(exclude)a.py": [":(exclude)a.py", "file.py"],
                  ".con.py": ["_con.py", "file.py"], ".Aux": ["_Aux"], ".lpt1.c.py": ["_lpt1.c.py", "file.py"],
-                 ".console.py": ["console.py", "file.py"],
+                 ".console.py": ["console.py", "file.py"], ".conin$.py": ["_conin$.py", "file.py"],
+                 ".CONOUT$": ["_CONOUT$"],
                  ":!b.py": [":!b.py", "file.py"], "*.py": ["*.py", "file.py"], "[x].py": ["[x].py", "file.py"]}
         for path, neutral in cases.items():
             with self.subTest(path=path):
@@ -697,6 +698,34 @@ sys.exit(rc)
         # skipped unread.
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping ./f0/x.py (binary or non-UTF-8 content)")
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 1 file: 1 binary or non-UTF-8.")
+        # A changed file foxguard cannot parse is skipped unread; the base copies
+        # sit under an absolute temporary path and still pass.
+        self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping ./f0/x.py (parse error)")
+        self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping .\\g0\\file.js (parse error)")
+        self.run_script(FOXGUARD_RUN, 0, STUB_SAY="Skipped 1 file: 1 parse error.")
+
+    def test_foxguard_neutral_copy_of_a_utf16_or_utf32_file_is_utf8(self):
+        # foxguard skips UTF-16 as non-UTF-8; a copy with a UTF-16 or UTF-32
+        # byte order mark that decodes is written as UTF-8, base side too.
+        # Other bytes are copied as they are.
+        text = "import os\nos.system(input())\n"
+        cases = {"a.ps1": ("utf-16", text), "b.ps1": ("utf-16-be", "\ufeff" + text),
+                 "c.py": ("utf-32", text), "d.py": ("utf-32-be", "\ufeff" + text)}
+        commit(self.fx.src, "base copies", **{"old.ps1": "# old\n".encode("utf-16")})
+        git(self.fx.clone, "fetch", "-q", "origin")
+        git(self.fx.clone, "reset", "-q", "--hard", "origin/feature")
+        git(self.fx.clone, "merge", "-q", "--no-edit", "origin/main")
+        files = {n: t.encode(c) for n, (c, t) in cases.items()}
+        files["old.ps1"] = "# old\n# more\n".encode("utf-16")
+        commit(self.fx.clone, "wide", **files)
+        self.run_script(FOXGUARD_RUN, 0)
+        call = self.neutral_call()
+        tree = {p.split("/", 1)[1]: t for p, t in call["tree"].items() if p.startswith("f")}
+        for name in cases:
+            self.assertEqual(tree[name], text)
+        self.assertEqual(tree["old.ps1"], "# old\n# more\n")
+        base = {p.split("/", 1)[1]: t for p, t in call["base_tree"].items() if p.startswith("f")}
+        self.assertEqual(base["old.ps1"], "# old\n")
 
     def test_foxguard_refuses_a_scan_path_that_reads_as_an_option(self):
         dash = self.fx.clone / "-s"
