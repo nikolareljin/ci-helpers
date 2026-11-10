@@ -218,8 +218,12 @@ chmod +x "$editor"
 
 # A link named `godot` on PATH, as the action made it: a hard link on Linux
 # and Windows, a symlink on macOS (a hard link to the binary inside the
-# bundle is killed by the kernel). The .NET build looks for GodotSharp beside
-# the executable, so that directory is linked beside the hard link too.
+# bundle is killed by the kernel). On Windows the link is `godot.exe`
+# (Git Bash resolves `godot` to it) and points at the console wrapper the
+# release ships beside the editor when there is one: the editor itself is
+# a GUI program whose output never reaches a step log, the wrapper runs it
+# and relays stdout and the exit code. The .NET build looks for GodotSharp
+# beside the executable, so that directory is linked beside the hard link.
 mkdir -p "$bin_dir"
 alias_path="$bin_dir/godot"
 case "$os" in
@@ -227,8 +231,9 @@ case "$os" in
   linux) ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path" ;;
   windows)
     alias_path="$bin_dir/godot.exe"
-    ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path"
-    ln "$editor" "$bin_dir/godot" 2>/dev/null || cp "$editor" "$bin_dir/godot" ;;
+    target="$editor"
+    [[ -f "${editor%.exe}_console.exe" ]] && target="${editor%.exe}_console.exe"
+    ln "$target" "$alias_path" 2>/dev/null || cp "$target" "$alias_path" ;;
 esac
 if [[ "$use_dotnet" == true && "$os" != macos ]]; then
   sharp="$(find "$install_dir" -type d -name GodotSharp | head -n 1)"
