@@ -1090,11 +1090,16 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$RELEASE" == "${WANT%.0}-stable" || "$RELEASE" == "$WANT-stable" ]] || { echo "::error::release output '$RELEASE' for $WANT"; exit 1; }
-          v="$(godot --version | tail -n 1 | tr -d '\r')"
-          echo "godot --version: $v"
-          [[ "$v" == "${RELEASE//-/.}".* ]] || { echo "::error::godot --version is '$v', not $RELEASE"; exit 1; }
           [[ -n "${GODOT:-}" && -n "${GODOT4:-}" ]] || { echo "::error::GODOT or GODOT4 is not exported"; exit 1; }
-          [[ "$("$GODOT" --version | tail -n 1 | tr -d '\r')" == "$v" ]] || { echo "::error::\$GODOT is not the same editor"; exit 1; }
+          command -v godot >/dev/null || { echo "::error::godot is not on PATH"; exit 1; }
+          # On Windows `godot` is the GUI editor, which prints nothing to a
+          # console; $GODOT is the console wrapper, which does.
+          v="$("$GODOT" --version | tail -n 1 | tr -d '\r')"
+          echo "\$GODOT --version: $v"
+          [[ "$v" == "${RELEASE//-/.}".* ]] || { echo "::error::\$GODOT --version is '$v', not $RELEASE"; exit 1; }
+          if [[ "$RUNNER_OS" != Windows ]]; then
+            [[ "$(godot --version | tail -n 1 | tr -d '\r')" == "$v" ]] || { echo "::error::godot on PATH is not the same editor"; exit 1; }
+          fi
           echo "godot $v reaches later steps"
       - name: The cached archive is reused after its digest check, the install is rebuilt, and the refusals refuse
         shell: bash

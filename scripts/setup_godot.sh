@@ -30,17 +30,19 @@
 #   GODOT_INSTALL_DIR  Where the archive is extracted (default $HOME/godot);
 #                      removed and rebuilt every run, never cached.
 #   GODOT_BIN_DIR      Where the `godot` link goes (default $HOME/bin); its
-#                      godot, godot.exe and GodotSharp entries are replaced,
-#                      the rest of the directory is left alone.
+#                      godot, godot.exe, godot_console.exe and GodotSharp
+#                      entries are replaced, the rest of the directory is
+#                      left alone.
 #   GITHUB_WORKSPACE   Where global.json is read from (default: cwd).
 #   RUNNER_ARCH        X64 or ARM64 (set by the runner); else from uname -m.
 #   TOOLCHAIN_PINS     Pins file (default: toolchain-pins.env beside scripts/).
 #   RUNNER_TEMP        Where a download goes without GODOT_ARCHIVE_DIR
 #                      (default: mktemp -d).
 #   GITHUB_PATH, GITHUB_ENV, GITHUB_OUTPUT  Written when set.
-# OUTPUT: godot_version=<release, e.g. 4.3-stable>, godot_bin=<the link>,
-#         on stdout and, when GITHUB_OUTPUT is set, appended there.
-#         GITHUB_ENV gets GODOT and GODOT4.
+# OUTPUT: godot_version=<release, e.g. 4.3-stable>, godot_bin=<the link;
+#         on Windows the console wrapper, godot_console.exe>, on stdout
+#         and, when GITHUB_OUTPUT is set, appended there. GITHUB_ENV gets
+#         GODOT and GODOT4, the same path.
 # EXIT CODES:
 #   0  godot is on PATH at the requested release.
 #   1  Download or checksum failed, the archive holds no editor, or the
@@ -151,7 +153,7 @@ fi
 # directory are removed; the action emptied the whole directory.
 [[ -n "$install_dir" && "$install_dir" != "/" && "$install_dir" != "$HOME" ]] || { echo "::error::GODOT_INSTALL_DIR '$install_dir' is not a directory of its own." >&2; exit 2; }
 [[ -n "$bin_dir" && "$bin_dir" != "/" && "$bin_dir" != "$HOME" ]] || { echo "::error::GODOT_BIN_DIR '$bin_dir' is not a directory of its own." >&2; exit 2; }
-rm -rf "$install_dir" "$bin_dir/godot" "$bin_dir/godot.exe" "$bin_dir/GodotSharp"
+rm -rf "$install_dir" "$bin_dir/godot" "$bin_dir/godot.exe" "$bin_dir/godot_console.exe" "$bin_dir/GodotSharp"
 
 # The archive: one kept in GODOT_ARCHIVE_DIR by a cache restore is used only
 # after its sha256 matches the pin in this run; a cache entry is written by
@@ -218,22 +220,28 @@ chmod +x "$editor"
 
 # A link named `godot` on PATH, as the action made it: a hard link on Linux
 # and Windows, a symlink on macOS (a hard link to the binary inside the
-# bundle is killed by the kernel). On Windows the link is `godot.exe`
-# (Git Bash resolves `godot` to it) and points at the console wrapper the
-# release ships beside the editor when there is one: the editor itself is
-# a GUI program whose output never reaches a step log, the wrapper runs it
-# and relays stdout and the exit code. The .NET build looks for GodotSharp
-# beside the executable, so that directory is linked beside the hard link.
+# bundle is killed by the kernel). On Windows the editor is a GUI program
+# whose output never reaches a step log; the release ships a console
+# wrapper beside it that runs the editor of the same name minus `_console`
+# and relays stdout and the exit code, so it is linked as
+# `godot_console.exe` beside `godot.exe`, and GODOT names the wrapper. The
+# .NET build looks for GodotSharp beside the executable, so that directory
+# is linked beside the hard link too.
 mkdir -p "$bin_dir"
 alias_path="$bin_dir/godot"
+check_path="$alias_path"
 case "$os" in
   macos) ln -s "$editor" "$alias_path" ;;
   linux) ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path" ;;
   windows)
     alias_path="$bin_dir/godot.exe"
-    target="$editor"
-    [[ -f "${editor%.exe}_console.exe" ]] && target="${editor%.exe}_console.exe"
-    ln "$target" "$alias_path" 2>/dev/null || cp "$target" "$alias_path" ;;
+    check_path="$alias_path"
+    ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path"
+    wrapper="${editor%.exe}_console.exe"
+    if [[ -f "$wrapper" ]]; then
+      check_path="$bin_dir/godot_console.exe"
+      ln "$wrapper" "$check_path" 2>/dev/null || cp "$wrapper" "$check_path"
+    fi ;;
 esac
 if [[ "$use_dotnet" == true && "$os" != macos ]]; then
   sharp="$(find "$install_dir" -type d -name GodotSharp | head -n 1)"
@@ -244,21 +252,21 @@ fi
 
 # The editor runs and is the release asked for: `--version` prints
 # `4.3.stable.official.<hash>` (`4.3.stable.mono.official.<hash>` for .NET).
-reported="$("$alias_path" --version 2>/dev/null | tail -n 1 | tr -d '\r')" || reported=""
+reported="$("$check_path" --version 2>&1 | tail -n 1 | tr -d '\r')" || reported=""
 want="$(printf '%s' "$release" | tr '-' '.')"
 if [[ "$reported" != "$want".* ]]; then
-  echo "::error::$alias_path --version reports '$reported', not $want.*; the installed editor is not Godot $release." >&2
+  echo "::error::$check_path --version reports '$reported', not $want.*; the installed editor is not Godot $release." >&2
   exit 1
 fi
-echo "Godot $reported at $alias_path"
+echo "Godot $reported at $check_path"
 
 PATH="$bin_dir:$PATH"
 export PATH
 if [[ -n "${GITHUB_PATH:-}" ]]; then host_path "$bin_dir" >> "$GITHUB_PATH"; fi
 if [[ -n "${GITHUB_ENV:-}" ]]; then
-  printf 'GODOT=%s\nGODOT4=%s\n' "$(host_path "$alias_path")" "$(host_path "$alias_path")" >> "$GITHUB_ENV"
+  printf 'GODOT=%s\nGODOT4=%s\n' "$(host_path "$check_path")" "$(host_path "$check_path")" >> "$GITHUB_ENV"
 fi
-printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$alias_path"
+printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$check_path"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$(host_path "$alias_path")" >> "$GITHUB_OUTPUT"
+  printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$(host_path "$check_path")" >> "$GITHUB_OUTPUT"
 fi

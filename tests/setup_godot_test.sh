@@ -251,15 +251,17 @@ STUB_UNAME_S=Darwin run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.offic
 [[ -L "$work/bin/godot" ]] || { echo "FAIL $name: bin/godot is not a symlink on macOS"; fail=1; }
 STUB_UNAME_S=Darwin run "$name" 2 4.3.0 true ARM64 && no_download && says "Godot_v4.3-stable_mono_macos.universal.zip"
 
-name="Windows asks for win64.exe, windows_arm64.exe and the mono variants, and links godot.exe to the console wrapper"
+name="Windows asks for win64.exe, windows_arm64.exe and the mono variants, links godot.exe and the console wrapper beside it"
 STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 0 4.3.0 \
   && fetched https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_win64.exe.zip
-[[ -x "$work/bin/godot.exe" ]] || { echo "FAIL $name: no bin/godot.exe"; ls -la "$work/bin"; fail=1; }
+[[ -x "$work/bin/godot.exe" && -x "$work/bin/godot_console.exe" ]] || { echo "FAIL $name: no bin/godot.exe and bin/godot_console.exe"; ls -la "$work/bin"; fail=1; }
 [[ -e "$work/bin/godot" ]] && { echo "FAIL $name: bin/godot made beside godot.exe (Git Bash resolves them to one file)"; fail=1; }
-[[ "$("$work/bin/godot.exe" --version)" == 4.3.stable.official.77dcf97d8 ]] || { echo "FAIL $name: godot.exe is not the console wrapper: $("$work/bin/godot.exe" --version)"; fail=1; }
-grep -q "^godot_bin=$work/bin/godot.exe$" "$work/gh/out" || { echo "FAIL $name: godot_bin output:"; cat "$work/gh/out"; fail=1; }
-grep -q "^GODOT=$work/bin/godot.exe$" "$work/gh/env" || { echo "FAIL $name: GODOT in GITHUB_ENV:"; cat "$work/gh/env"; fail=1; }
+[[ "$("$work/bin/godot.exe" --version)" == gui-prints-nothing ]] || { echo "FAIL $name: godot.exe is not the editor: $("$work/bin/godot.exe" --version)"; fail=1; }
+[[ "$("$work/bin/godot_console.exe" --version)" == 4.3.stable.official.77dcf97d8 ]] || { echo "FAIL $name: godot_console.exe is not the wrapper"; fail=1; }
+grep -q "^godot_bin=$work/bin/godot_console.exe$" "$work/gh/out" || { echo "FAIL $name: godot_bin output:"; cat "$work/gh/out"; fail=1; }
+grep -q "^GODOT=$work/bin/godot_console.exe$" "$work/gh/env" || { echo "FAIL $name: GODOT in GITHUB_ENV:"; cat "$work/gh/env"; fail=1; }
 STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 0 4.7.2 && says "Godot 4.7.2.stable.official.abcdef123 at $work/bin/godot.exe"
+[[ -e "$work/bin/godot_console.exe" ]] && { echo "FAIL $name: a stale godot_console.exe survived a release without a wrapper"; fail=1; }
 STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 2 4.3.0 true && says "Godot_v4.3-stable_mono_win64.zip"
 STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 2 4.3.0 false ARM64 && says "Godot_v4.3-stable_windows_arm64.exe.zip"
 STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 2 4.3.0 true ARM64 && says "Godot_v4.3-stable_mono_windows_arm64.zip"
