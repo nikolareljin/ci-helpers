@@ -80,6 +80,8 @@ ulf="$(printf '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <License id="Te
 
 # run <name> <expected rc> [--return-license]; the caller sets the inputs in
 # the environment, and these defaults apply unless set (empty counts as set).
+# The runner's own GITHUB_WORKSPACE and RUNNER_TEMP are never inherited: the
+# test's are T_WS and T_TMP, so the paths asserted below are the test's.
 run() {
   local name="$1" want="$2" rc=0; shift 2
   # The script's only flag, and the one misspelling the test probes.
@@ -92,8 +94,8 @@ run() {
   esac
   : > "$work/log"; rm -f "$work"/env.* "$work/gh-out"
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_ENV="$work/env" \
-    TOOLCHAIN_PINS="${TOOLCHAIN_PINS-$work/pins.env}" RUNNER_TEMP="${RUNNER_TEMP-$work/tmp}" \
-    GITHUB_WORKSPACE="${GITHUB_WORKSPACE-$work/ws}" GITHUB_OUTPUT="$work/gh-out" GITHUB_ACTIONS=true \
+    TOOLCHAIN_PINS="$work/pins.env" RUNNER_TEMP="${T_TMP-$work/tmp}" \
+    GITHUB_WORKSPACE="$work/ws" GITHUB_OUTPUT="$work/gh-out" GITHUB_ACTIONS=true \
     UNITY_EMAIL="${UNITY_EMAIL-$email}" UNITY_PASSWORD="${UNITY_PASSWORD-$password}" \
     UNITY_SERIAL="${UNITY_SERIAL-$serial}" UNITY_LICENSE="${UNITY_LICENSE-}" \
     PROJECT_PATH="${PROJECT_PATH-game}" TEST_MODE="${TEST_MODE-editmode}" \
@@ -271,7 +273,7 @@ PATH="$work/mac:$PATH" run "$name" 4 && says "Linux runner with docker" && not_c
 
 # ---- --return-license ----
 name="nothing to return before a run"
-RUNNER_TEMP="$work/fresh" run "$name" 0 --return-license && says "nothing to return" && not_called
+T_TMP="$work/fresh" run "$name" 0 --return-license && says "nothing to return" && not_called
 
 name="after a run the licence is returned in a second container, serial not passed"
 run "a run to return" 0
