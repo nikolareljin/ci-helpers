@@ -987,6 +987,66 @@ jobs:
           [[ "${home%/}" == "${HOME%/}/.cargo" ]] || { echo "::error::CARGO_HOME '$CARGO_HOME' is not ~/.cargo, which actions/cache saves"; exit 1; }
           echo "rust and pnpm reach later steps; CARGO_HOME is ~/.cargo"
 
+  # scripts/setup_ruby.sh is what flutter-release.yml runs for its store
+  # deploys: a Ruby from the runner's tool cache, nothing downloaded. The
+  # default ruby_version of that workflow must resolve on the hosted images
+  # the deploys run on, ruby and bundle must reach the next step, the pinned
+  # fastlane must install under it, and a version the cache lacks must be
+  # refused with the list.
+  ruby-setup-on-every-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: The workflow's default ruby_version
+        id: default
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The `default:` under `ruby_version:`; no PyYAML on every image.
+          v="$(awk '/^      ruby_version:/ { f = 1; next } f && /^        default:/ { gsub(/[" ]/, "", $2); print $2; exit } f && /^      [a-z]/ { exit }' .github/workflows/flutter-release.yml)"
+          [[ "$v" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "::error::flutter-release.yml ruby_version default is '$v'"; exit 1; }
+          echo "ruby_version=$v" >> "$GITHUB_OUTPUT"
+      - name: Setup Ruby
+        id: ruby
+        shell: bash
+        env:
+          RUBY_VERSION: ${{ steps.default.outputs.ruby_version }}
+        run: bash scripts/setup_ruby.sh
+      - name: ruby, gem and bundle are on PATH in a later step, at the chosen version
+        shell: bash
+        env:
+          CHOSEN: ${{ steps.ruby.outputs.ruby_version }}
+          WANT: ${{ steps.default.outputs.ruby_version }}
+          FASTLANE_VERSION: ${{ steps.ruby.outputs.fastlane_version }}
+        run: |
+          set -euo pipefail
+          ruby -v
+          [[ "$CHOSEN" == "$WANT".* || "$CHOSEN" == "$WANT" ]] || { echo "::error::chose $CHOSEN for $WANT"; exit 1; }
+          [[ "$(ruby -e 'print RUBY_VERSION')" == "$CHOSEN" ]] || { echo "::error::ruby -v is not $CHOSEN"; ruby -v; exit 1; }
+          bundle -v
+          [[ "$FASTLANE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::fastlane_version output is '$FASTLANE_VERSION'"; exit 1; }
+          gem install fastlane -N -v "$FASTLANE_VERSION"
+          gem list -i fastlane -v "$FASTLANE_VERSION" >/dev/null || { echo "::error::fastlane $FASTLANE_VERSION is not installed"; gem list fastlane; exit 1; }
+          fastlane --version
+          echo "ruby $CHOSEN and fastlane $FASTLANE_VERSION reach later steps"
+      - name: A version the cache lacks is refused with the list
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          RUBY_VERSION=2.0 bash scripts/setup_ruby.sh > "$RUNNER_TEMP/bad.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/bad.log"
+          [[ "$rc" == 1 ]] || { echo "::error::exit $rc for Ruby 2.0, expected 1"; exit 1; }
+          grep -q "No Ruby 2.0 in the runner's tool cache" "$RUNNER_TEMP/bad.log" || { echo "::error::no refusal message"; exit 1; }
+          grep -q "Available: " "$RUNNER_TEMP/bad.log" || { echo "::error::the cached versions are not listed"; exit 1; }
+
   rust-cache-restores-the-previous-job:
     needs: rust-setup-installs-and-caches
     runs-on: ubuntu-latest

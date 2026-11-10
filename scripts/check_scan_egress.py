@@ -8,15 +8,17 @@ credentials and findings to nobody.
 Every workflow and action under .github (.yml or .yaml) is read with PyYAML. Each `uses:`
 must be canonical (lowercase owner/repo[/path], no empty, `.` or `..`
 segment, pinned to a 40-hex commit; a local `./path` with no such segment;
-or this library at `@production`) and one of: actions/*, github/*, this
-library (nikolareljin/ci-helpers, or the ci-helpers of
-$GITHUB_REPOSITORY_OWNER in a fork), a local path, or an entry of
-KEPT_THIRD_PARTY below, each with the reason it is still here. Other
-spellings are refused, not normalised. A third-party action runs inside the
-caller's job with the checkout, the token and whatever secrets it is given;
-the Trivy actions were hijacked in March 2026 to read exactly those. A new
-third-party action fails here until it is replaced by a first-party step or
-added to the list on purpose.
+or this library at `@production`) and one of: this library
+(nikolareljin/ci-helpers, or the ci-helpers of $GITHUB_REPOSITORY_OWNER in
+a fork), a local path, an entry of ALLOWED_ACTIONS below (the one list of
+actions this repository runs, each with its reason, some bound to named
+files and jobs), or an entry of KEPT_THIRD_PARTY (temporary, each to be
+replaced by a first-party step). Other spellings are refused, not
+normalised. A third-party action runs inside the caller's job with the
+checkout, the token and whatever secrets it is given; the Trivy actions
+were hijacked in March 2026 to read exactly those. Any other action fails
+here, however it is pinned; allowing one is a pull request that adds it to
+ALLOWED_ACTIONS with its reason.
 
 Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
 and security-weekly.yml, and .github/actions/*-scan/action.yml. They allow
@@ -50,6 +52,7 @@ EXIT_CODES:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import re
 import sys
@@ -63,8 +66,6 @@ except ImportError:  # pragma: no cover
 
 SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"}
 
-# `uses:` an action here may name without a finding. A local path and this
-# library at any owner are fine; so are GitHub's own actions.
 # A `uses:` must be in canonical form or it is refused, never normalised:
 # lowercase, no empty, `.` or `..` segment, no trailing `/`, a 40-hex pin.
 # GitHub resolves owner and repository case-insensitively and walks odd
@@ -72,7 +73,23 @@ SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"
 SEG = r"(?!\.\.?(?:/|@|$))[a-z0-9._-]+"
 CANONICAL_USES = re.compile(rf"^[a-z0-9-]+/{SEG}(/{SEG})*@[0-9a-f]{{40}}$")
 LOCAL_USES = re.compile(r"^\./[A-Za-z0-9._/-]+$")
-ALLOWED_OWNERS = {"actions", "github"}
+
+# The one list of actions a workflow or action here may run, besides this
+# library and a local path. Each entry: an owner/repo pattern (fnmatch, on
+# the canonical lowercase name), the reason, and where it may appear: None
+# for anywhere, else a set of (workflow file, job) pairs. An action outside
+# this list and KEPT_THIRD_PARTY is refused, however it is pinned. Adding an
+# entry is a pull request that states the reason here.
+ALLOWED_ACTIONS = (
+    ("actions/*", "GitHub's own actions (checkout, cache, setup-*, upload-artifact)", None),
+    ("github/*", "GitHub's own actions (CodeQL)", None),
+    # Microsoft, a verified organisation; SHA-pinned; receives the Azure
+    # tenant, client id, client secret and the installers. Signing jobs
+    # only: a job that downloads the built installers and runs no build or
+    # app code.
+    ("azure/artifact-signing-action", "Microsoft, Azure Artifact Signing; signing jobs only",
+     frozenset({(".github/workflows/tauri-release.yml", "sign-windows")})),
+)
 # This library, at its home owner or at the owner of the repository the check
 # runs in (a fork), may also ride the `production` ref.
 LIBRARY_OWNERS = {"nikolareljin"}
@@ -87,27 +104,25 @@ TOOLCHAIN_EXCEPTIONS = {
     "shivammathur/setup-php",
 }
 
-# Third-party actions the other workflows still run, each on its way out:
-# one pull request per entry replaces it with a first-party step and deletes
-# the line. The comment says what the action receives in the job, so a
-# reader knows what is at stake until then. Nothing is added here without a
-# replacement task; an empty set is the goal.
+# Temporary: third-party actions the other workflows still run, each to be
+# replaced (E223) by a first-party step in a pull request of its own that
+# deletes the line. The comment says what the action receives in the job,
+# so a reader knows what is at stake until then. Nothing is added here
+# without a replacement task; an empty set is the goal.
 KEPT_THIRD_PARTY = {
-    # Installs PHP and Composer; runs with the checkout (composer.json) and
-    # the job token for API rate limits; downloads tools from its own CDN.
+    # To be replaced (E223). Installs PHP and Composer; runs with the
+    # checkout (composer.json) and the job token for API rate limits;
+    # downloads tools from its own CDN.
     "shivammathur/setup-php",
-    # Installs the Flutter SDK; reads pubspec.yaml from the checkout.
+    # To be replaced (E223). Installs the Flutter SDK; reads pubspec.yaml
+    # from the checkout.
     "subosito/flutter-action",
-    # Installs Godot and its export templates; runs with the checkout.
+    # To be replaced (E223). Installs Godot and its export templates; runs
+    # with the checkout.
     "chickensoft-games/setup-godot",
-    # Installs Ruby for fastlane; reads Gemfile.lock, beside store credentials.
-    "ruby/setup-ruby",
-    # Runs Unity tests in a container with the checkout mounted and the
-    # licence secrets passed in.
+    # To be replaced (E223). Runs Unity tests in a container with the
+    # checkout mounted and the licence secrets passed in.
     "game-ci/unity-test-runner",
-    # Signs Windows installers; receives the Azure tenant, client id and
-    # client secret and the installers.
-    "azure/trusted-signing-action",
 }
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
@@ -126,9 +141,21 @@ def uses_name(ref: str) -> str:
     return ref.partition("@")[0]
 
 
-def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset()) -> None:
-    """One `uses:` reference. `kept` is the extra allowlist for the file:
-    empty for a scan file, KEPT_THIRD_PARTY for every other workflow."""
+def allowed_entry(base: str):
+    """The ALLOWED_ACTIONS entry whose pattern matches owner/repo, or None."""
+    for pattern, reason, scope in ALLOWED_ACTIONS:
+        if fnmatch.fnmatchcase(base, pattern):
+            return pattern, reason, scope
+    return None
+
+
+def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset(),
+               at: tuple[str, str] | None = None) -> None:
+    """One `uses:` reference. `kept` is the temporary allowlist for the
+    file: empty for a scan file, KEPT_THIRD_PARTY for every other workflow.
+    `at` is (workflow file, job) of a step, for a file-scoped
+    ALLOWED_ACTIONS entry; None (a composite action, a reusable-workflow
+    call, or unknown) matches no scope."""
     if LOCAL_USES.match(ref):
         if any(seg in ("", ".", "..") for seg in ref.split("/")[1:]):
             out.append(f"{where}: uses: local path '{ref}' has an empty, '.' or '..' segment")
@@ -142,17 +169,25 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
         return
     parts = uses_name(ref).split("/")
     base = "/".join(parts[:2])
-    if parts[0] in ALLOWED_OWNERS:
-        return
     if parts[1] == "ci-helpers" and parts[0] in LIBRARY_OWNERS:
+        return
+    entry = allowed_entry(base)
+    if entry:
+        _, reason, scope = entry
+        # A scoped entry is the action itself, as a step: no subpath, and
+        # never a reusable workflow from the same repository.
+        if scope is None or (at in scope and uses_name(ref) == base):
+            return
+        places = ", ".join(f"{f} job {j}" for f, j in sorted(scope))
+        out.append(f"{where}: uses: '{ref}' is allowed only in {places} ({reason})")
         return
     if base in TOOLCHAIN_EXCEPTIONS:
         return
     if base in kept:
         return
-    out.append(f"{where}: uses: '{ref}' is not actions/*, github/*, this library or a local path"
+    out.append(f"{where}: uses: '{ref}' is not in ALLOWED_ACTIONS, this library or a local path"
                + ("" if kept else " (a scan workflow allows only the toolchain installers)")
-               + "; replace it with a first-party step, or add it to KEPT_THIRD_PARTY with its replacement task")
+               + "; replace it with a first-party step, or add it to ALLOWED_ACTIONS with its reason")
 
 
 def commands(run: str) -> list[str]:
@@ -324,11 +359,19 @@ def main() -> int:
         # list. Scan files were held to the narrower rule above.
         if rel not in scan_files:
             for name, job in (doc.get("jobs") or {}).items():
-                if isinstance(job, dict) and isinstance(job.get("uses"), str):
+                if not isinstance(job, dict):
+                    continue
+                if isinstance(job.get("uses"), str):
+                    # A reusable-workflow call is not a step: no scope.
                     check_uses(job["uses"], f"{rel}: jobs.{name}", findings, kept)
-            for i, step in enumerate(all_steps(doc)):
-                if isinstance(step.get("uses"), str):
-                    check_uses(step["uses"], f"{rel}: step {i}", findings, kept)
+                for i, step in enumerate(steps_of(job)):
+                    if isinstance(step.get("uses"), str):
+                        check_uses(step["uses"], f"{rel}: jobs.{name}.steps[{i}]", findings, kept, (rel, name))
+            runs = doc.get("runs")
+            if isinstance(runs, dict):
+                for i, step in enumerate(steps_of(runs)):
+                    if isinstance(step.get("uses"), str):
+                        check_uses(step["uses"], f"{rel}: step {i}", findings, kept)
         for i, step in enumerate(all_steps(doc)):
             if isinstance(step.get("run"), str):
                 check_trivy(step["run"], f"{rel}: step {i}", findings)
@@ -340,7 +383,8 @@ def main() -> int:
               "and read-only permissions", file=sys.stderr)
         return 1
     print(f"ok: {len(workflows)} scan workflows and {len(actions)} scan actions send nothing out; "
-          f"no workflow runs a third-party action outside the {len(KEPT_THIRD_PARTY)} kept")
+          f"no workflow runs an action outside ALLOWED_ACTIONS and the {len(KEPT_THIRD_PARTY)} "
+          "kept third-party actions, each temporary, to be replaced (E223)")
     return 0
 
 

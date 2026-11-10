@@ -865,13 +865,13 @@ jobs:
 
       - name: Sign with Azure Artifact Signing
         if: ${{ inputs.windows_sign_mode == 'azure' }}
-        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0 @ 2026-05-24
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0 @ 2026-11-09
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
           endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
           files-folder: ${{ runner.temp }}/windows-installers
           files-folder-filter: exe,msi
