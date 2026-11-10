@@ -6,8 +6,9 @@
 #              from setup_rust.sh, and a hash of every Cargo.lock, Cargo.toml,
 #              rust-toolchain, rust-toolchain.toml and .cargo/config[.toml]
 #              under the workspace (target/ excluded) plus the CARGO*, CC*,
-#              CFLAGS*, CXX*, CMAKE* and RUST* environment, less any name
-#              holding TOKEN, SECRET, PASSWORD or CREDENTIAL. The restore key
+#              build-affecting environment on an allowlist (RUSTFLAGS,
+#              CARGO_PROFILE_*, CARGO_BUILD_*, CC, CFLAGS, ...; see `allow`),
+#              less any name holding a secret word. The restore key
 #              is the same without the hash, so a lockfile change still
 #              restores the previous dependencies.
 # USAGE: RUSTC_CACHEKEY=<from setup_rust.sh> bash scripts/rust_cache_key.sh
@@ -49,6 +50,13 @@ clean() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
 }
 
+# Build-affecting variables, by name.
+allow='RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_ENCODED_RUSTDOCFLAGS|CARGO_INCREMENTAL'
+allow="$allow"'|CARGO_PROFILE_[A-Z0-9_]+|CARGO_BUILD_[A-Z0-9_]+|CARGO_TARGET_[A-Z0-9_]+_(LINKER|RUNNER|RUSTFLAGS)'
+allow="$allow"'|CC|CXX|AR|CC_[A-Za-z0-9_]+|CXX_[A-Za-z0-9_]+|AR_[A-Za-z0-9_]+'
+allow="$allow"'|CFLAGS|CFLAGS_[A-Za-z0-9_]+|CXXFLAGS|CXXFLAGS_[A-Za-z0-9_]+|LDFLAGS'
+allow="$allow"'|CMAKE_GENERATOR|CMAKE_BUILD_TYPE|CMAKE_TOOLCHAIN_FILE|RUSTC|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN'
+
 files="$(cd "$workspace" && find . \( -name target -prune \) -o -type f \( \
     -name Cargo.lock -o -name Cargo.toml -o -name rust-toolchain -o -name rust-toolchain.toml \
     -o -path '*/.cargo/config.toml' -o -path '*/.cargo/config' \) -print | LC_ALL=C sort)"
@@ -60,11 +68,11 @@ hash="$(
         printf '%s  %s\n' "$(sha256_stdin < "$workspace/$f")" "$f"
       done
     fi
-    # Credentials (CARGO_REGISTRIES_<name>_TOKEN, CARGO_REGISTRY_TOKEN, a
-    # credential provider) are left out: a rotated token must not churn
-    # the cache, and a secret has no place in a key.
-    env | LC_ALL=C grep -E '^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)[A-Za-z0-9_]*=' \
-      | LC_ALL=C grep -Ev '^[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Za-z0-9_]*=' \
+    # An allowlist of what changes build output; nothing else is hashed, so
+    # a proxy URL, a registry token or any other secret never reaches a key.
+    # The secret-word exclusion is kept on top of it.
+    env | LC_ALL=C grep -E "^(${allow})=" \
+      | LC_ALL=C grep -Ev '^[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASS|CREDENTIAL|AUTH|KEY|PROXY)[A-Za-z0-9_]*=' \
       | LC_ALL=C sort || true
   } | sha256_stdin | head -c16
 )"

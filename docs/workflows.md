@@ -2320,9 +2320,17 @@ build job of `tauri-release.yml`: `~/.cargo/registry/index`,
 under a key of the runner OS and architecture, the job id, the `runner` label
 (the Linux jobs), the rustc commit, and a hash of every `Cargo.lock`,
 `Cargo.toml`, `rust-toolchain[.toml]` and `.cargo/config[.toml]` under the
-workspace plus the `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*`
-environment, less any variable whose name holds `TOKEN`, `SECRET`, `PASSWORD`
-or `CREDENTIAL` (`scripts/rust_cache_key.sh`). A lockfile change restores the
+workspace plus an allowlist of build-affecting variables: `RUSTFLAGS`,
+`RUSTDOCFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_INCREMENTAL`,
+`CARGO_PROFILE_*`, `CARGO_BUILD_*`, `CARGO_TARGET_*_LINKER`/`_RUNNER`/`_RUSTFLAGS`,
+`CC`, `CXX`, `AR` (and their `_<target>` forms), `CFLAGS*`, `CXXFLAGS*`,
+`LDFLAGS`, `CMAKE_GENERATOR`, `CMAKE_BUILD_TYPE`, `CMAKE_TOOLCHAIN_FILE`,
+`RUSTC`, `RUSTC_WRAPPER` and `RUSTUP_TOOLCHAIN`, less any name holding
+`TOKEN`, `SECRET`, `PASS`, `CREDENTIAL`, `AUTH`, `KEY` or `PROXY`
+(`scripts/rust_cache_key.sh`). A cargo-specific cache hashes every `CARGO*`,
+`CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable; this one does not, so
+a registry token or proxy URL is never hashed into a key that anyone with read
+access can see. A lockfile change restores the
 previous entry through a restore key without the hash. The entry is saved when
 the job succeeds. Unlike a cargo-specific cache, nothing is pruned before the
 save: `target/` is kept whole, workspace crates and stale dependencies

@@ -86,6 +86,24 @@ t2="$(CARGO_REGISTRIES_PRIVATE_TOKEN=tok-two-secret CARGO_REGISTRY_TOKEN=tok-b C
 [[ "$t1" == "$k4" && "$t2" == "$k4" ]] || { echo "FAIL a token in the environment moved the key: $k4 / $t1 / $t2"; fail=1; }
 grep -q "tok-" "$work/log-token" "$work/log" "$work/out" && { echo "FAIL a token value was printed"; fail=1; }
 
+# Only build-affecting variables are hashed; anything else, a proxy URL or a
+# key included, leaves the key alone.
+base="$(key ubuntu-24.04)"
+for v in CARGO_HTTP_PROXY CARGO_REGISTRIES_X_AUTH CC_AWS_ACCESS_KEY_ID RUSTC_WRAPPER_KEY CARGO_HTTP_PROXY_PASS \
+         CARGO_REGISTRIES_X_TOKEN CARGO_BUILD_TOKEN CARGO_PROFILE_RELEASE_SECRET CARGO_TERM_COLOR CARGO_HOME; do
+  a="$(export "$v=one"; key ubuntu-24.04)"
+  b="$(export "$v=two"; key ubuntu-24.04)"
+  [[ "$a" == "$base" && "$b" == "$base" ]] || { echo "FAIL $v moved the key"; fail=1; }
+done
+for v in RUSTFLAGS RUSTDOCFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_INCREMENTAL CARGO_PROFILE_RELEASE_LTO CARGO_BUILD_TARGET \
+         CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS \
+         CC CXX AR CFLAGS CFLAGS_x86_64_unknown_linux_gnu CXXFLAGS LDFLAGS CMAKE_GENERATOR CMAKE_BUILD_TYPE \
+         CMAKE_TOOLCHAIN_FILE RUSTC RUSTC_WRAPPER RUSTUP_TOOLCHAIN; do
+  a="$(export "$v=one"; key ubuntu-24.04)"
+  b="$(export "$v=two"; key ubuntu-24.04)"
+  [[ "$a" != "$b" ]] || { echo "FAIL $v did not move the key"; fail=1; }
+done
+
 # No sha256sum (macOS): shasum gives the same key.
 mkdir -p "$work/noshasum"
 for d in /usr/local/bin /usr/bin /bin; do
