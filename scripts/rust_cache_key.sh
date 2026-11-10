@@ -6,7 +6,8 @@
 #              from setup_rust.sh, and a hash of every Cargo.lock, Cargo.toml,
 #              rust-toolchain, rust-toolchain.toml and .cargo/config[.toml]
 #              under the workspace (target/ excluded) plus the CARGO*, CC*,
-#              CFLAGS*, CXX*, CMAKE* and RUST* environment. The restore key
+#              CFLAGS*, CXX*, CMAKE* and RUST* environment, less any name
+#              holding TOKEN, SECRET, PASSWORD or CREDENTIAL. The restore key
 #              is the same without the hash, so a lockfile change still
 #              restores the previous dependencies.
 # USAGE: RUSTC_CACHEKEY=<from setup_rust.sh> bash scripts/rust_cache_key.sh
@@ -59,7 +60,12 @@ hash="$(
         printf '%s  %s\n' "$(sha256_stdin < "$workspace/$f")" "$f"
       done
     fi
-    env | LC_ALL=C grep -E '^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)' | LC_ALL=C sort || true
+    # Credentials (CARGO_REGISTRIES_<name>_TOKEN, CARGO_REGISTRY_TOKEN, a
+    # credential provider) are left out: a rotated token must not churn
+    # the cache, and a secret has no place in a key.
+    env | LC_ALL=C grep -E '^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)[A-Za-z0-9_]*=' \
+      | LC_ALL=C grep -Ev '^[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Za-z0-9_]*=' \
+      | LC_ALL=C sort || true
   } | sha256_stdin | head -c16
 )"
 

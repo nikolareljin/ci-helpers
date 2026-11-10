@@ -27,8 +27,8 @@ printf '# a stale lockfile cargo copied into target\n' > "$ws/target/Cargo.lock"
 key() {
   rm -f "$work/out"
   RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_JOB=build CARGO_WORKSPACE="$ws" CACHE_KEY_EXTRA="$1" RUSTC_CACHEKEY=20260102abcd \
-    GITHUB_OUTPUT="$work/out" bash "$script" > "$work/log" 2>&1 || { echo "FAIL rust_cache_key exited $?:"; cat "$work/log"; fail=1; }
-  sed -n 's/^key=//p' "$work/out"
+    GITHUB_OUTPUT="$work/out" "$BASH" "$script" > "$work/log" 2>&1 || { echo "FAIL rust_cache_key exited $?:"; cat "$work/log"; fail=1; }
+  if [[ -f "$work/out" ]]; then sed -n 's/^key=//p' "$work/out"; fi
 }
 
 k1="$(key ubuntu-24.04)"
@@ -61,22 +61,46 @@ k7="$(key "self-hosted, linux x64")"
 k8="$(key "")"
 [[ "$k8" =~ ^rust-Linux-X64-build--20260102abcd-[0-9a-f]{16}$ ]] || { echo "FAIL empty label: $k8"; fail=1; }
 
-k9="$(RUNNER_OS=macOS RUNNER_ARCH=ARM64 GITHUB_JOB=build-macos CARGO_WORKSPACE="$ws" CACHE_KEY_EXTRA="" RUSTC_CACHEKEY=20260102abcd bash "$script" 2>/dev/null | sed -n 's/^key=//p')"
+k9="$(RUNNER_OS=macOS RUNNER_ARCH=ARM64 GITHUB_JOB=build-macos CARGO_WORKSPACE="$ws" CACHE_KEY_EXTRA="" RUSTC_CACHEKEY=20260102abcd "$BASH" "$script" 2>/dev/null | sed -n 's/^key=//p')"
 [[ "$k9" == rust-macOS-ARM64-build-macos--20260102abcd-* ]] || { echo "FAIL runner os/arch/job not in key: $k9"; fail=1; }
 
-rc=0; CARGO_WORKSPACE="$ws" RUSTC_CACHEKEY="" bash "$script" > "$work/log" 2>&1 || rc=$?
+rc=0; CARGO_WORKSPACE="$ws" RUSTC_CACHEKEY="" "$BASH" "$script" > "$work/log" 2>&1 || rc=$?
 if ! { [[ "$rc" == 2 ]] && grep -q "RUSTC_CACHEKEY is empty" "$work/log"; }; then echo "FAIL empty rustc key: exit $rc"; cat "$work/log"; fail=1; fi
 
-rc=0; CARGO_WORKSPACE="$work/nowhere" RUSTC_CACHEKEY=abc bash "$script" > "$work/log" 2>&1 || rc=$?
+rc=0; CARGO_WORKSPACE="$work/nowhere" RUSTC_CACHEKEY=abc "$BASH" "$script" > "$work/log" 2>&1 || rc=$?
 if ! { [[ "$rc" == 2 ]] && grep -q "is not a directory" "$work/log"; }; then echo "FAIL missing workspace: exit $rc"; cat "$work/log"; fail=1; fi
 
 mkdir -p "$work/bare"
-rc=0; CARGO_WORKSPACE="$work/bare" RUSTC_CACHEKEY=abc bash "$script" > "$work/log" 2>&1 || rc=$?
+rc=0; CARGO_WORKSPACE="$work/bare" RUSTC_CACHEKEY=abc "$BASH" "$script" > "$work/log" 2>&1 || rc=$?
 if ! { [[ "$rc" == 0 ]] && grep -q "::warning::no Cargo.lock or Cargo.toml" "$work/log"; }; then echo "FAIL a workspace without manifests: exit $rc"; cat "$work/log"; fail=1; fi
 
 # The fixture crate the self-test builds.
-rc=0; CARGO_WORKSPACE="$root/tests/fixtures/rust-crate" RUSTC_CACHEKEY=abc bash "$script" > "$work/log" 2>&1 || rc=$?
+rc=0; CARGO_WORKSPACE="$root/tests/fixtures/rust-crate" RUSTC_CACHEKEY=abc "$BASH" "$script" > "$work/log" 2>&1 || rc=$?
 if ! { [[ "$rc" == 0 ]] && grep -q "^key=rust-" "$work/log"; }; then echo "FAIL on tests/fixtures/rust-crate: exit $rc"; cat "$work/log"; fail=1; fi
+
+# A registry token or other credential in the CARGO* environment is not
+# hashed (rotating it would churn the cache) and never printed.
+t1="$(CARGO_REGISTRIES_PRIVATE_TOKEN=tok-one-secret CARGO_REGISTRY_TOKEN=tok-a key ubuntu-24.04)"
+cp "$work/log" "$work/log-token"
+t2="$(CARGO_REGISTRIES_PRIVATE_TOKEN=tok-two-secret CARGO_REGISTRY_TOKEN=tok-b CARGO_REGISTRIES_X_CREDENTIAL_PROVIDER=cargo:token key ubuntu-24.04)"
+[[ "$t1" == "$k4" && "$t2" == "$k4" ]] || { echo "FAIL a token in the environment moved the key: $k4 / $t1 / $t2"; fail=1; }
+grep -q "tok-" "$work/log-token" "$work/log" "$work/out" && { echo "FAIL a token value was printed"; fail=1; }
+
+# No sha256sum (macOS): shasum gives the same key.
+mkdir -p "$work/noshasum"
+for d in /usr/local/bin /usr/bin /bin; do
+  [[ -d "$d" ]] || continue
+  for f in "$d"/*; do
+    b="${f##*/}"
+    [[ "$b" == sha256sum || "$b" == shasum || -e "$work/noshasum/$b" || -L "$work/noshasum/$b" ]] && continue
+    ln -s "$f" "$work/noshasum/$b"
+  done
+done
+real_sha="$(command -v sha256sum)"
+printf '#!/bin/sh\n[ "$1 $2" = "-a 256" ] || exit 9\nexec %s\n' "$real_sha" > "$work/noshasum/shasum"
+chmod +x "$work/noshasum/shasum"
+ks="$(PATH="$work/noshasum" key ubuntu-24.04)"
+[[ "$ks" == "$k4" ]] || { echo "FAIL the shasum path gives '$ks', not '$k4'"; cat "$work/log"; fail=1; }
 
 [[ "$fail" = 0 ]] && echo "ok: rust_cache_key is deterministic, follows the lockfile and the compiler environment, ignores target/, and refuses bad input"
 exit "$fail"

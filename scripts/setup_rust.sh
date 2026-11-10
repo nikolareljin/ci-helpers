@@ -70,8 +70,11 @@ if [[ "$toolchain" =~ $ago_re ]]; then
   unit="$(printf '%s' "$toolchain" | sed 's/stable [0-9]* \([a-z]\).*/\1/')"
   if date --date "1 day ago" +%s >/dev/null 2>&1; then
     then_s="$(date --date "${toolchain#stable }" +%s)"
-  else
+  elif date -v-1d +%s >/dev/null 2>&1; then
     then_s="$(date -v"-${n}${unit}" +%s)"
+  else
+    echo "::error::'$toolchain' needs a date that takes --date (GNU) or -v (BSD); this one takes neither. Name the release, e.g. 1.85." >&2
+    exit 2
   fi
   toolchain="1.$(stable_release_at "$then_s")"
 elif [[ "$toolchain" =~ $minus_re ]]; then
@@ -98,8 +101,12 @@ else
   cargo_bin="$CARGO_HOME/bin"
 fi
 
+# Installed but not on PATH (a self-hosted runner, a fresh shell): later steps
+# need it too, not only this one.
 if ! command -v rustup >/dev/null 2>&1 && [[ -x "$cargo_bin/rustup" ]]; then
   PATH="$cargo_bin:$PATH"
+  export PATH
+  [[ -n "${GITHUB_PATH:-}" ]] && host_path "$cargo_bin" >> "$GITHUB_PATH"
 fi
 
 if ! command -v rustup >/dev/null 2>&1; then

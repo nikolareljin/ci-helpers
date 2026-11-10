@@ -936,6 +936,56 @@ jobs:
           test -d target/debug/deps || { echo "::error::cargo build left no target/debug/deps to cache"; exit 1; }
           echo "built under $KEY; the post step saves it"
 
+  # The same three scripts on macOS and Windows: CARGO_HOME, GITHUB_PATH and
+  # the corepack shims must reach the next step there too (Git Bash paths on
+  # Windows, BSD tools on macOS).
+  toolchain-scripts-on-every-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        id: rust
+        shell: bash
+        env:
+          RUST_TOOLCHAIN: stable
+          RUST_COMPONENTS: rustfmt
+        run: bash scripts/setup_rust.sh
+      - name: Rust cache key
+        id: rust_cache_key
+        shell: bash
+        env:
+          CARGO_WORKSPACE: tests/fixtures/rust-crate
+          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+        run: bash scripts/rust_cache_key.sh
+      - name: Setup pnpm
+        shell: bash
+        env:
+          PNPM_VERSION: "10.0.0"
+        run: bash scripts/setup_pnpm.sh
+      - name: cargo, rustfmt and pnpm are on PATH in a later step, and CARGO_HOME is where the cache looks
+        shell: bash
+        env:
+          CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+          KEY: ${{ steps.rust_cache_key.outputs.key }}
+        run: |
+          set -euo pipefail
+          [[ "$CACHEKEY" =~ ^[0-9a-f]{12}$ ]] || { echo "::error::cachekey output is '$CACHEKEY'"; exit 1; }
+          [[ "$KEY" =~ ^rust-(macOS|Windows)-(X64|ARM64)-toolchain-scripts-on-every-os--[0-9a-f]{12}-[0-9a-f]{16}$ ]] || { echo "::error::key '$KEY'"; exit 1; }
+          rustup show active-toolchain | grep -q '^stable-' || { echo "::error::stable is not the default"; rustup show; exit 1; }
+          cargo fmt --version
+          [[ "$(pnpm --version)" == 10.0.0 ]] || { echo "::error::pnpm --version is $(pnpm --version)"; exit 1; }
+          home="$CARGO_HOME"
+          if command -v cygpath >/dev/null 2>&1; then home="$(cygpath -u "$CARGO_HOME")"; fi
+          [[ "$home" -ef "$HOME/.cargo" ]] || { echo "::error::CARGO_HOME '$CARGO_HOME' is not ~/.cargo, which actions/cache saves"; exit 1; }
+          echo "rust and pnpm reach later steps; CARGO_HOME is ~/.cargo"
+
   rust-cache-restores-the-previous-job:
     needs: rust-setup-installs-and-caches
     runs-on: ubuntu-latest

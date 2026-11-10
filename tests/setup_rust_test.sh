@@ -48,7 +48,7 @@ run() {
   rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" RUST_TOOLCHAIN="$3" RUST_COMPONENTS="${4-}" RUST_TARGETS="${5-}" \
     GITHUB_PATH="$work/gh/path" GITHUB_ENV="$work/gh/env" GITHUB_OUTPUT="$work/gh/out" RUNNER_TEMP="$work" \
-    bash "$script" > "$work/out" 2>&1 || rc=$?
+    "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
   fi
@@ -76,7 +76,7 @@ fi
 name="a job's own cargo environment is kept"
 rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
 CARGO_INCREMENTAL=1 CARGO_TERM_COLOR=never CARGO_HOME="$work/cargo" PATH="$work/stub:$PATH" STUB_LOG="$work/log" RUST_TOOLCHAIN=stable \
-  GITHUB_ENV="$work/gh/env" bash "$script" > "$work/out" 2>&1 || { echo "FAIL $name: exit $?"; cat "$work/out"; fail=1; }
+  GITHUB_ENV="$work/gh/env" "$BASH" "$script" > "$work/out" 2>&1 || { echo "FAIL $name: exit $?"; cat "$work/out"; fail=1; }
 [[ -s "$work/gh/env" ]] && { echo "FAIL $name: GITHUB_ENV written:"; cat "$work/gh/env"; fail=1; }
 
 name="nightly with components allows a downgrade"
@@ -95,7 +95,10 @@ run "$name" 0 "stable minus 2 releases" && logged "rustup toolchain install 1.$(
 
 name="stable N weeks ago"
 then_s=$(( $(date +%s) - 12 * 7 * 24 * 60 * 60 ))
-run "$name" 0 "stable 12 weeks ago" && logged "rustup toolchain install 1.$(( (then_s / 60 / 60 / 24 - 16569) / 7 / 6 )) --profile minimal --no-self-update --force-non-host"
+if ! date --date "1 day ago" +%s >/dev/null 2>&1; then
+  echo "SKIP $name: this date has no --date"
+else run "$name" 0 "stable 12 weeks ago" && logged "rustup toolchain install 1.$(( (then_s / 60 / 60 / 24 - 16569) / 7 / 6 )) --profile minimal --no-self-update --force-non-host"
+fi
 
 name="the 1.N shorthand"
 run "$name" 0 1.7 && logged "rustup toolchain install 1.70 --profile minimal --no-self-update --force-non-host"
@@ -113,6 +116,53 @@ if STUB_INSTALL_FAILS="toolchain 'nope' is not installable" run "$name" 1 nope; 
   says "rustup toolchain install nope failed"
   [[ "$(grep -c "toolchain install" "$work/log")" == 1 ]] || { echo "FAIL $name: retried a final failure:"; cat "$work/log"; fail=1; }
 fi
+
+name="rustup under CARGO_HOME/bin but not on PATH reaches later steps"
+rm -rf "${work:?}/gh" "${work:?}/cargo2"; mkdir -p "$work/gh" "$work/cargo2/bin"; : > "$work/log"
+cp "$work/stub/rustup" "$work/stub/rustc" "$work/cargo2/bin/"
+rc=0
+PATH="${BASH%/*}:/usr/bin:/bin" STUB_LOG="$work/log" CARGO_HOME="$work/cargo2" RUST_TOOLCHAIN=stable \
+  GITHUB_PATH="$work/gh/path" GITHUB_ENV="$work/gh/env" GITHUB_OUTPUT="$work/gh/out" \
+  "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
+if command -v rustup >/dev/null 2>&1 && [[ "$(command -v rustup)" == /usr/bin/* || "$(command -v rustup)" == /bin/* ]]; then
+  echo "SKIP $name: rustup is in /usr/bin here"
+elif [[ "$rc" != 0 ]]; then
+  echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
+else
+  grep -qxF "$work/cargo2/bin" "$work/gh/path" 2>/dev/null || { echo "FAIL $name: CARGO_HOME/bin not appended to GITHUB_PATH"; fail=1; }
+fi
+
+name="stable N months ago with BSD date (no --date)"
+mkdir -p "$work/bsddate"
+real_date="$(command -v date)"
+cat > "$work/bsddate/date" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  --date|-d) exit 1 ;;
+  -v*) printf '%s\n' "\$1" >> "\$STUB_LOG"; echo 1767225600 ;;
+  *) exec "$real_date" "\$@" ;;
+esac
+STUB
+chmod +x "$work/bsddate/date"
+rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
+rc=0
+PATH="$work/bsddate:$work/stub:$PATH" STUB_LOG="$work/log" RUST_TOOLCHAIN="stable 3 months ago" GITHUB_OUTPUT="$work/gh/out" \
+  "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
+if [[ "$rc" != 0 ]]; then
+  echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
+else
+  logged "-v-3m"
+  logged "rustup toolchain install 1.92 --profile minimal --no-self-update --force-non-host"
+fi
+
+name="a relative toolchain with a date that has neither form is refused"
+mkdir -p "$work/nodate"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$work/nodate/date"; chmod +x "$work/nodate/date"
+rc=0
+PATH="$work/nodate:$work/stub:$PATH" STUB_LOG="$work/log" RUST_TOOLCHAIN="stable 3 months ago" \
+  "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
+[[ "$rc" == 2 ]] || { echo "FAIL $name: exit $rc, expected 2"; cat "$work/out"; fail=1; }
+says "takes neither"
 
 # No rustup on PATH: the installer is downloaded (curl is a stub that writes
 # a script), checked against the pins, run, and the toolchain installed with
@@ -133,7 +183,11 @@ done
 cp "$STUB_INSTALLER" "$out"
 STUB
 chmod +x "$work/nocurl/curl"
-digest="$(sha256sum < "$work/installer" | awk '{ print $1 }')"
+if command -v sha256sum >/dev/null 2>&1; then
+  digest="$(sha256sum < "$work/installer" | awk '{ print $1 }')"
+else
+  digest="$(shasum -a 256 < "$work/installer" | awk '{ print $1 }')"
+fi
 triple="$(uname -m | sed 's/amd64/x86_64/; s/arm64/aarch64/')"
 case "$(uname -s)" in
   Linux) triple="${triple}-unknown-linux-gnu" ;;
@@ -148,10 +202,10 @@ printf 'RUSTUP_VERSION=1.29.3\n' > "$work/empty-pins.env"
 install_run() {
   local name="$1" want="$2" rc=0
   rm -rf "${work:?}/gh" "${work:?}/cargo"; mkdir -p "$work/gh"; : > "$work/log"
-  PATH="$work/nocurl:/usr/bin:/bin" STUB_LOG="$work/log" STUB_DIR="$work/stub" STUB_INSTALLER="$work/installer" \
+  PATH="$work/nocurl:${BASH%/*}:/usr/bin:/bin" STUB_LOG="$work/log" STUB_DIR="$work/stub" STUB_INSTALLER="$work/installer" \
     CARGO_HOME="$work/cargo" TOOLCHAIN_PINS="$3" RUST_TOOLCHAIN=stable RUNNER_TEMP="$work" \
     GITHUB_PATH="$work/gh/path" GITHUB_ENV="$work/gh/env" GITHUB_OUTPUT="$work/gh/out" \
-    bash "$script" > "$work/out" 2>&1 || rc=$?
+    "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
   fi

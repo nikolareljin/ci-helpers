@@ -2321,7 +2321,8 @@ under a key of the runner OS and architecture, the job id, the `runner` label
 (the Linux jobs), the rustc commit, and a hash of every `Cargo.lock`,
 `Cargo.toml`, `rust-toolchain[.toml]` and `.cargo/config[.toml]` under the
 workspace plus the `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*`
-environment (`scripts/rust_cache_key.sh`). A lockfile change restores the
+environment, less any variable whose name holds `TOKEN`, `SECRET`, `PASSWORD`
+or `CREDENTIAL` (`scripts/rust_cache_key.sh`). A lockfile change restores the
 previous entry through a restore key without the hash. The entry is saved when
 the job succeeds. Unlike a cargo-specific cache, nothing is pruned before the
 save: `target/` is kept whole, workspace crates and stale dependencies
