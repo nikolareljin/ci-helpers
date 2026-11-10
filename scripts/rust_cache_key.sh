@@ -51,15 +51,19 @@ clean() {
 }
 
 # Build-affecting variables, by exact name or a closed pattern: no open
-# prefix, so a name nobody listed (CC_GITHUB_PAT) is never hashed.
+# prefix, so a name nobody listed (CC_GITHUB_PAT) is never hashed. A target
+# suffix is arch, vendor, then os/env tokens, each from a closed set.
 arch='(x86_64|aarch64|i686|i586|armv7|arm|thumbv7em|riscv64gc|riscv32imac|wasm32|powerpc64le|s390x|loongarch64)'
-arch_uc='(X86_64|AARCH64|I686|I586|ARMV7|ARM|THUMBV7EM|RISCV64GC|RISCV32IMAC|WASM32|POWERPC64LE|S390X|LOONGARCH64)'
+vendor='(unknown|apple|pc|linux|none|wasi|uwp|sun|nvidia|fortanix|wrs)'
+osenv='(unknown|linux|gnu|gnueabihf|gnueabi|musl|musleabihf|darwin|ios|windows|msvc|gnullvm|android|androideabi|freebsd|netbsd|openbsd|none|elf|eabi|eabihf|emscripten|wasi|wasip1|wasip2|sim|macabi|illumos|solaris|uefi)'
+triple="${arch}_${vendor}(_${osenv})+"
+triple_uc="$(printf '%s' "$triple" | tr '[:lower:]' '[:upper:]')"
 pkey='(OPT_LEVEL|DEBUG|SPLIT_DEBUGINFO|STRIP|DEBUG_ASSERTIONS|OVERFLOW_CHECKS|LTO|PANIC|INCREMENTAL|CODEGEN_UNITS|RPATH)'
 allow='RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_ENCODED_RUSTDOCFLAGS|CARGO_INCREMENTAL'
 allow="$allow|CARGO_BUILD_(TARGET|RUSTFLAGS|RUSTDOCFLAGS|INCREMENTAL|RUSTC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER)"
 allow="$allow|CARGO_PROFILE_[A-Z0-9]+(_BUILD_OVERRIDE)?_$pkey"
-allow="$allow|CARGO_TARGET_${arch_uc}_[A-Z0-9_]+_(LINKER|RUNNER|RUSTFLAGS)"
-allow="$allow|(CC|CXX|AR|CFLAGS|CXXFLAGS|LDFLAGS)(_${arch}_[a-z0-9_]+)?|(TARGET|HOST)_(CC|CXX|AR|CFLAGS|CXXFLAGS)"
+allow="$allow|CARGO_TARGET_${triple_uc}_(LINKER|RUNNER|RUSTFLAGS)"
+allow="$allow|(CC|CXX|AR|CFLAGS|CXXFLAGS|LDFLAGS)(_${triple})?|(TARGET|HOST)_(CC|CXX|AR|CFLAGS|CXXFLAGS)"
 allow="$allow|CMAKE_GENERATOR|CMAKE_BUILD_TYPE|CMAKE_TOOLCHAIN_FILE|RUSTC|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN"
 
 files="$(cd "$workspace" && find . \( -name target -prune \) -o -type f \( \

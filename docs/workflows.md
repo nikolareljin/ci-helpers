@@ -2329,8 +2329,11 @@ workspace plus build-affecting variables named exactly: `RUSTFLAGS`,
 `CFLAGS`, `CXXFLAGS`, `LDFLAGS` (bare or with a `_<triple>` suffix),
 `TARGET_`/`HOST_` forms of the compiler variables, `CMAKE_GENERATOR`,
 `CMAKE_BUILD_TYPE`, `CMAKE_TOOLCHAIN_FILE`, `RUSTC`, `RUSTC_WRAPPER` and
-`RUSTUP_TOOLCHAIN`. A triple must start with a known architecture (`x86_64`,
-`aarch64`, `armv7`, `wasm32`, ...). Names holding `TOKEN`, `SECRET`, `PASS`,
+`RUSTUP_TOOLCHAIN`. A triple suffix is matched token by token from closed
+sets: an architecture (`x86_64`, `aarch64`, `armv7`, `wasm32`, ...), a vendor
+(`unknown`, `apple`, `pc`, `linux`, ...), then OS and environment tokens
+(`linux`, `gnu`, `darwin`, `windows`, `msvc`, `android`, `unknown`, ...), so
+`CC_x86_64_unknown_linux_gnu` is hashed and `CC_x86_64_db_secretvalue` is not. Names holding `TOKEN`, `SECRET`, `PASS`,
 `PW`, `PWD`, `PAT`, `CREDENTIAL`, `AUTH`, `KEY` or `PROXY` are dropped as well
 (`scripts/rust_cache_key.sh`). A cargo-specific cache hashes every `CARGO*`,
 `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable; this one does not, so
