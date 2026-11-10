@@ -940,6 +940,40 @@ Credentials are checked by the gate job, in seconds, before a runner starts. The
 editor otherwise discovers a missing licence several minutes into a billed run and
 reports it as a missing file rather than a missing secret.
 
+The secrets reach the editor's container as `--env NAME`: docker reads the value
+from the step's environment, and no value is in an argument of the `docker run`
+the log shows. A Personal `.ulf` is turned into its serial by the script, as the
+action did. The activation log stays inside the container and is printed only when
+activation fails, with the serial, user and password replaced by `***`. A separate
+step returns the licence after the tests, whatever they did, first removing a
+test container that a cancelled or timed-out step left running. The containers
+run with `no-new-privileges`, without the `NET_RAW`, `MKNOD`, `SYS_CHROOT`,
+`SETFCAP` and `AUDIT_WRITE` capabilities, and with no docker socket or host
+network.
+
+### The editor image
+
+The tests run in `docker.io/unityci/editor` at the tag the replaced action built
+for a Linux runner, `ubuntu-<version>-linux-il2cpp-3`, pinned by index digest in
+this library's `toolchain-pins.env`, one line per editor version:
+
+```
+UNITY_EDITOR_IMAGE_6000_0_23f1=docker.io/unityci/editor:ubuntu-6000.0.23f1-linux-il2cpp-3@sha256:...
+```
+
+A project on a version with no line fails at `Run Unity tests`, before anything
+is pulled or billed, with the command that resolves the digest and the line to
+add here in a pull request. The runner must be Linux with docker; a macOS
+`runner` is refused by the same step.
+
+The container sees `project_path`, the artifacts directory and `CodeCoverage`,
+each at its workspace path, and nothing else: a package the manifest references
+by a `file:` path outside `project_path` is not visible to the editor. A path
+with a symlink in any component is refused, so the project's tree cannot point
+the mount elsewhere. This library's own scripts run from a copy outside
+the workspace, its files read-only, that is never mounted, and each step that runs one first
+hashes the copy again and stops on a mismatch.
+
 ### Defaults
 
 - `test_mode`: `editmode` — `all`, `editmode` or `playmode`; anything else is refused
@@ -947,7 +981,7 @@ reports it as a missing file rather than a missing secret.
 - `cache`: `true`, caching `Library` keyed on `Assets/`, `Packages/` and `ProjectSettings/`
 - `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
 - `timeout_minutes`: `60`, not `20` — a cold `Library` import can take most of it
-- `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate
+- `runner`: `ubuntu-latest`; the editor runs in a container, so the runner must be Linux with docker
 - `lfs`: `true` - check out Git LFS objects; a missing object fails deep inside the import otherwise
 - `artifact_name`: `unity-test-results`
 - `enabled`: `""`, which reads `vars.UNITY_CI`
@@ -959,9 +993,20 @@ absolute or `..`-containing `project_path`, and being armed without a usable
 licence; and it stays off, without asking for any credential, when `UNITY_CI` is
 unset.
 
-The editor run itself is not exercised, because this repository holds no Unity
-licence and an editor run bills by the minute. Treat the first run on a real
-project as the first proof that the Unity step works.
+The script behind the test job, `scripts/unity_test.sh`, is driven against a
+stub docker: the image it names is the digest pinned for the project's version,
+the licence secrets cross by name with no value in an argument, an unpinned
+version is refused with the line to add, and the container script's editor
+command lines are driven against a stub editor.
+
+The editor itself is not exercised, because this repository holds no Unity
+licence, there is no licence that activates without a credential, and an editor
+run bills by the minute. Treat the first run on a real project as the first proof
+that the editor accepts the blank project, the serial and the test arguments.
+
+Results are NUnit XML, `<artifacts>/<mode>-results.xml`, summarised on the job
+summary page; a failing test fails the `Run Unity tests` step with the editor's
+exit code 2, with the results still uploaded.
 
 ## Go scan
 

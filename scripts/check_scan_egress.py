@@ -12,8 +12,7 @@ or this library at `@production`) and one of: this library
 (nikolareljin/ci-helpers, or the ci-helpers of $GITHUB_REPOSITORY_OWNER in
 a fork), a local path, an entry of ALLOWED_ACTIONS below (the one list of
 actions this repository runs, each with its reason, some bound to named
-files and jobs), or an entry of KEPT_THIRD_PARTY (temporary, each to be
-replaced by a first-party step). Other spellings are refused, not
+files and jobs). Other spellings are refused, not
 normalised. A third-party action runs inside the caller's job with the
 checkout, the token and whatever secrets it is given; the Trivy actions
 were hijacked in March 2026 to read exactly those. Any other action fails
@@ -22,7 +21,7 @@ ALLOWED_ACTIONS with its reason.
 
 Scan files are .github/workflows/*-scan.yml, codeql-scan.yml, gitleaks-check.yml
 and security-weekly.yml, and .github/actions/*-scan/action.yml. They allow
-no action from the kept list, and also fail on:
+no more actions than the other workflows, and also fail on:
 
   docker      a run-block line, comments skipped and continuations joined,
               with a docker, podman or nerdctl token followed by `run` or
@@ -78,7 +77,7 @@ LOCAL_USES = re.compile(r"^\./[A-Za-z0-9._/-]+$")
 # library and a local path. Each entry: an owner/repo pattern (fnmatch, on
 # the canonical lowercase name), the reason, and where it may appear: None
 # for anywhere, else a set of (workflow file, job) pairs. An action outside
-# this list and KEPT_THIRD_PARTY is refused, however it is pinned. Adding an
+# this list is refused, however it is pinned. Adding an
 # entry is a pull request that states the reason here.
 ALLOWED_ACTIONS = (
     ("actions/*", "GitHub's own actions (checkout, cache, setup-*, upload-artifact)", None),
@@ -102,17 +101,6 @@ TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 # Adding one here is a decision, not a convenience.
 # Empty: every toolchain the scans need is a first-party step now.
 TOOLCHAIN_EXCEPTIONS: set[str] = set()
-
-# Temporary: third-party actions the other workflows still run, each to be
-# replaced (E223) by a first-party step in a pull request of its own that
-# deletes the line. The comment says what the action receives in the job,
-# so a reader knows what is at stake until then. Nothing is added here
-# without a replacement task; an empty set is the goal.
-KEPT_THIRD_PARTY = {
-    # To be replaced (E223). Runs Unity tests in a container with the
-    # checkout mounted and the licence secrets passed in.
-    "game-ci/unity-test-runner",
-}
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
 WRITE_OK = {"security-events", "issues"}
@@ -138,11 +126,9 @@ def allowed_entry(base: str):
     return None
 
 
-def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset(),
+def check_uses(ref: str, where: str, out: list[str],
                at: tuple[str, str] | None = None) -> None:
-    """One `uses:` reference. `kept` is the temporary allowlist for the
-    file: empty for a scan file, KEPT_THIRD_PARTY for every other workflow.
-    `at` is (workflow file, job) of a step, for a file-scoped
+    """One `uses:` reference. `at` is (workflow file, job) of a step, for a file-scoped
     ALLOWED_ACTIONS entry; None (a composite action, a reusable-workflow
     call, or unknown) matches no scope."""
     if LOCAL_USES.match(ref):
@@ -172,11 +158,8 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
         return
     if base in TOOLCHAIN_EXCEPTIONS:
         return
-    if base in kept:
-        return
     out.append(f"{where}: uses: '{ref}' is not in ALLOWED_ACTIONS, this library or a local path"
-               + ("" if kept else " (a scan workflow allows no kept action)")
-               + "; replace it with a first-party step, or add it to ALLOWED_ACTIONS with its reason")
+               "; replace it with a first-party step, or add it to ALLOWED_ACTIONS with its reason")
 
 
 def commands(run: str) -> list[str]:
@@ -334,7 +317,6 @@ def main() -> int:
             continue
         findings += check_action(doc, rel) if path.stem == "action" else check_workflow(doc, rel)
     scan_files = {str(p.relative_to(root)) for p in workflows + actions}
-    kept = frozenset(KEPT_THIRD_PARTY)
     for path in sorted(yaml_files(root / ".github", "**/*")):
         rel = str(path.relative_to(root))
         try:
@@ -344,23 +326,23 @@ def main() -> int:
             return 2
         if not isinstance(doc, dict):
             continue
-        # Every workflow and action: no third-party `uses:` beyond the kept
-        # list. Scan files were held to the narrower rule above.
+        # Every workflow and action: no third-party `uses:` outside
+        # ALLOWED_ACTIONS. Scan files were held to the narrower rule above.
         if rel not in scan_files:
             for name, job in (doc.get("jobs") or {}).items():
                 if not isinstance(job, dict):
                     continue
                 if isinstance(job.get("uses"), str):
                     # A reusable-workflow call is not a step: no scope.
-                    check_uses(job["uses"], f"{rel}: jobs.{name}", findings, kept)
+                    check_uses(job["uses"], f"{rel}: jobs.{name}", findings)
                 for i, step in enumerate(steps_of(job)):
                     if isinstance(step.get("uses"), str):
-                        check_uses(step["uses"], f"{rel}: jobs.{name}.steps[{i}]", findings, kept, (rel, name))
+                        check_uses(step["uses"], f"{rel}: jobs.{name}.steps[{i}]", findings, (rel, name))
             runs = doc.get("runs")
             if isinstance(runs, dict):
                 for i, step in enumerate(steps_of(runs)):
                     if isinstance(step.get("uses"), str):
-                        check_uses(step["uses"], f"{rel}: step {i}", findings, kept)
+                        check_uses(step["uses"], f"{rel}: step {i}", findings)
         for i, step in enumerate(all_steps(doc)):
             if isinstance(step.get("run"), str):
                 check_trivy(step["run"], f"{rel}: step {i}", findings)
@@ -372,8 +354,7 @@ def main() -> int:
               "and read-only permissions", file=sys.stderr)
         return 1
     print(f"ok: {len(workflows)} scan workflows and {len(actions)} scan actions send nothing out; "
-          f"no workflow runs an action outside ALLOWED_ACTIONS and the {len(KEPT_THIRD_PARTY)} "
-          "kept third-party actions, each temporary, to be replaced (E223)")
+          "no workflow runs an action outside ALLOWED_ACTIONS")
     return 0
 
 

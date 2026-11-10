@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Write a test summary from JUnit XML to the job summary.
+"""Write a test summary from JUnit or NUnit XML to the job summary.
 
     python3 scripts/junit_summary.py --title "Tests" --glob "test-results/**/*.xml"
 
 Replaces dorny/test-reporter, which needed `checks: write` and received every
 test name, file path and assertion message. This reads the same JUnit XML,
-with the standard library only, and appends a Markdown table of totals and a
-list of failures to $GITHUB_STEP_SUMMARY (stdout when it is unset). It never
+and the NUnit 3 XML the Unity test runner writes (`test-case` elements with
+a `result` attribute), with the standard library only, and appends a Markdown
+table of totals and a list of failures to $GITHUB_STEP_SUMMARY (stdout when
+it is unset). It never
 fails the job: no file, an unreadable file or a malformed one is reported in
 the summary and the exit code is 0, as the reporter's `fail-on-error: false`
 was. A DOCTYPE is refused (entity expansion), and a file over --max-bytes is
@@ -77,6 +79,35 @@ def collect(root: ET.Element, source: str, totals: dict, failures: list) -> None
         if not message:
             body = (node.text or "").strip().splitlines()
             message = body[0] if body else ""
+        failures.append((kind, name or "(unnamed)", message, source))
+    # NUnit 3, which the Unity test runner writes: <test-case> with a
+    # result attribute (Passed, Failed, Skipped, Inconclusive, Warning), a
+    # duration, and <failure><message> on a failure. A label of Error marks
+    # a test that threw rather than asserted.
+    for case in root.iter("test-case"):
+        totals["tests"] += 1
+        try:
+            totals["time"] += float(case.get("duration") or 0)
+        except ValueError:
+            pass
+        name = case.get("fullname") or case.get("name") or ""
+        result = (case.get("result") or "").lower()
+        if result in ("skipped", "inconclusive"):
+            totals["skipped"] += 1
+            continue
+        if result in ("passed", "warning"):
+            totals["passed"] += 1
+            continue
+        kind = "error" if (result != "failed" or case.get("label") == "Error") else "failure"
+        totals[kind + "s"] += 1
+        node = case.find("failure")
+        message = ""
+        if node is not None:
+            text = node.find("message")
+            message = (text.text if text is not None else node.text) or ""
+            message = message.strip().splitlines()[0] if message.strip() else ""
+        if not message and result != "failed":
+            message = f"result {case.get('result') or '(none)'}"
         failures.append((kind, name or "(unnamed)", message, source))
 
 

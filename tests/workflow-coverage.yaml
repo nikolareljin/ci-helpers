@@ -140,6 +140,19 @@ notes:
     What stays unexercised is `fail_on_findings: true` -- whether a scan
     finds anything depends on the CVE state of a public base image, which
     changes without us.
+  unity.yml: >-
+    The gate job is driven by `unity-gate-refuses-and-disarms`, and the
+    script behind the test job, `scripts/unity_test.sh`, is driven against a
+    stub docker by tests/unity_test_test.sh: the image it names is the digest
+    pinned in `toolchain-pins.env` for the project's editor version, the
+    licence secrets cross to the container as `--env NAME` with no value in
+    an argument, an unpinned version is refused with the line to add, and the
+    container script's editor command lines are driven against a stub editor.
+    The editor itself never runs here: activation needs a Unity account and a
+    licence this repository does not hold, and there is no licence that
+    activates without a credential, so the first run on a real project is
+    the first proof the editor accepts the blank project, the serial and the
+    test arguments as the action's scripts passed them.
   release-rc-pr.yml: >-
     Needs `GH_PAT` because the default token cannot open a pull request that
     triggers further workflows. A 403 used to log a warning while the job
