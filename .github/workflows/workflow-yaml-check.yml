@@ -307,6 +307,21 @@ jobs:
         shell: bash
         run: bash tests/flutter_release_secret_order_test.sh
 
+      # Godot and Flutter come from the official release archives, checked
+      # against toolchain-pins.env and the Flutter manifest's sha256. Stub
+      # curl, fixture archives, nothing downloaded.
+      - name: setup_godot.sh names the action's archives and installs only a pinned, verified release
+        shell: bash
+        run: bash tests/setup_godot_test.sh
+
+      - name: setup_flutter.sh resolves as the action did and checks every download
+        shell: bash
+        run: bash tests/setup_flutter_test.sh
+
+      - name: The Godot and Flutter archive caches are saved right after the verified download and never from a release job
+        shell: bash
+        run: bash tests/toolchain_cache_save_test.sh
+
       - name: rust_cache_key.sh is deterministic and follows the lockfile
         shell: bash
         run: bash tests/rust_cache_key_test.sh

@@ -117,12 +117,6 @@ KEPT_THIRD_PARTY = {
     # checkout (composer.json) and the job token for API rate limits;
     # downloads tools from its own CDN.
     "shivammathur/setup-php",
-    # To be replaced (E223). Installs the Flutter SDK; reads pubspec.yaml
-    # from the checkout.
-    "subosito/flutter-action",
-    # To be replaced (E223). Installs Godot and its export templates; runs
-    # with the checkout.
-    "chickensoft-games/setup-godot",
     # To be replaced (E223). Runs Unity tests in a container with the
     # checkout mounted and the licence secrets passed in.
     "game-ci/unity-test-runner",

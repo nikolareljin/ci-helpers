@@ -53,11 +53,12 @@ on:
       cache:
         type: boolean
         default: true
-      # setup-godot demands a full three-part version. `project.godot` records
-      # a two-part one ("4.3"), and passing that verbatim fails with
-      # "Invalid version: 4.3" before any step runs -- which is how a repository
-      # can carry a Validate workflow that has never once succeeded. Write
-      # 4.3.0, not 4.3.
+      # scripts/setup_godot.sh takes a full three-part version, as the action
+      # it replaced did. `project.godot` records a two-part one ("4.3"), and
+      # passing that verbatim fails before any download -- which is how a
+      # repository can carry a Validate workflow that has never once
+      # succeeded. Write 4.3.0, not 4.3. Only a release pinned in the
+      # library's toolchain-pins.env installs (4.3.0 and 4.7.2 today).
       godot_version:
         type: string
         default: "4.3.0"

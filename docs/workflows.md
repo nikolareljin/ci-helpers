@@ -49,7 +49,7 @@ Inputs:
 - `submodules` (string, default `"false"`) — `false`, `true` or `recursive`, passed to `actions/checkout`. Any other value is **refused**: checkout reads anything that is not `true`/`recursive` as false, so a typo would otherwise check out no submodule and report success. **Public submodules only** — checkout authenticates with a header scoped to the calling repository, so one in a private repository fails with a 403. Note the engine already checks out with `fetch-depth: 0` and `fetch-tags: true`, so `recursive` against a large submodule tree can want more than the default `timeout_minutes`.
 - `cache` (boolean, default `true`) — restore dependency caches through each `setup-*` action's own cache option. Which toolchains are enabled is **detected from the tree**, not assumed: `setup-node` and `setup-dotnet` fail the job when told to cache with no lockfile present, so a blanket "cache everything" would be a new class of red build. The mapping is `package-lock.json`/`npm-shrinkwrap.json` → npm, `yarn.lock` → yarn (npm wins when both are present, and the summary says so), `requirements*.txt` → pip, `go.sum`, `pom.xml` → maven, a root `*.gradle`/`*.gradle.kts` → gradle, `packages.lock.json` → NuGet. Each run writes one line per toolchain to the job summary saying what was cached and whether it hit.
 
-  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which must be on PATH before `setup-node` can probe its store (the `pnpm.yml` presets put it there with corepack and do not call this engine); and **Rust, PHP and Flutter**, whose setup steps have no cache option here (the Tauri workflows cache cargo with `actions/cache`).
+  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which must be on PATH before `setup-node` can probe its store (the `pnpm.yml` presets put it there with corepack and do not call this engine); and **Rust and PHP**, whose setup steps have no cache option here (the Tauri workflows cache cargo with `actions/cache`). **Flutter and Godot** cache the downloaded release archive only, never the extracted SDK or editor: `actions/cache/restore` before the setup step (the Flutter key carries OS, channel, version, architecture and the archive's expected sha256; the Godot key carries OS, architecture, version, the .NET flag and a hash of the library's `toolchain-pins.env`), and `actions/cache/save` directly after it, before any step runs the caller's code, so an entry holds what the setup step verified and nothing a later step wrote. On every run the script checks the archive's sha256 against the pin or the manifest, deletes and downloads it again on a mismatch, and extracts it fresh; a cache entry written by another job cannot put a different SDK on PATH. `tests/toolchain_cache_save_test.sh` holds the step order.
 
   One caveat worth knowing before enabling it on a matrix: `setup-java`'s cache key does not carry the JDK version, so a `java_version` matrix over one `pom.xml` shares a single cache. Pass `cache: false` if that matters.
 - `node_version` (string, default `""`)
@@ -57,12 +57,16 @@ Inputs:
 - `dotnet_version` (string, default `""`)
 - `python_version` (string, default `""`)
 - `go_version` (string, default `""`: no Go; `go.mod` reads `<working_directory>/go.mod`)
-- `flutter_version` (string, default `""`)
-- `flutter_channel` (string, default `""`; set it alone to install the latest Flutter on that channel, including `stable`)
+- `flutter_version` (string, default `""`; an exact release such as `3.47.9`, or `3.47` / `3.47.x` for the newest of that line)
+- `flutter_channel` (string, default `""`; `stable`, `beta` or `dev`. Set it alone to install Flutter on that channel without a version: on `stable` that is the release pinned in the library's `toolchain-pins.env`, on `beta` or `dev` the newest release of the channel. `master` and `main` are refused, they are git clones with no release digest)
+
+  Flutter comes from the official release archive through `scripts/setup_flutter.sh`, which the job checks out from this library at the workflow's own commit; no third-party action. The release is chosen from `releases_<os>.json` as `subosito/flutter-action` chose it (channel, the runner's architecture, exact version or `X.Y` prefix, newest first), the archive is checked against the manifest's sha256 before it is extracted, and the pinned default must also match the pin in `toolchain-pins.env`. `FLUTTER_ROOT` and `PUB_CACHE` are exported; `flutter`, `dart` and the pub cache's `bin` go on PATH. The manifest and the archive come from `storage.googleapis.com` only: a `FLUTTER_STORAGE_BASE_URL` naming another host refuses, no redirect is followed, the manifest is capped at 8 MiB, and an archive path other than `<channel>/<os>/flutter_<name>.zip` or `.tar.xz` refuses.
 - `php_version` (string, default `""`)
 - `rust_toolchain` (string, default `""`)
 - `rust_components` (string, default `""`)
-- `godot_version` (string, default `""`; a full three-part version — `4.3.0`, never `4.3`, which `setup-godot` rejects with `Invalid version` before any step runs)
+- `godot_version` (string, default `""`; a full three-part version — `4.3.0`, never `4.3`, which is refused with the fix before any download; `4.4.0-beta1` for a pre-release)
+
+  Godot comes from the official release archive on `github.com/godotengine/godot-builds` through `scripts/setup_godot.sh`, from the same library checkout; no third-party action. Only a release whose sha256 is pinned in the library's `toolchain-pins.env` installs (`4.3.0` and `4.7.2`, both variants, on Linux x86_64, macOS and Windows x64), checked before the archive is extracted; any other release fails naming the pinned ones. The editor is linked as `godot` under `~/bin`, which goes on PATH, and `GODOT` and `GODOT4` name it, as the action set them; on Windows `godot.exe` is the editor and `GODOT` names `godot_console.exe`, the release's console wrapper, since the editor prints nothing to a console. No export templates are installed (no caller had them).
 - `godot_use_dotnet` (boolean, default `false`; Godot's .NET build, for a C# project)
 - `install_command` (string, default `""`)
 - `lint_command` (string, default `""`)
@@ -347,10 +351,23 @@ Notes:
   at the version pinned in the library's `toolchain-pins.env`
   (`FASTLANE_VERSION`). `gem install` checks no digest, so that pin is the
   version only; commit a `Gemfile.lock` to pin the whole dependency tree.
-- Every toolchain step (Java, Flutter, `flutter pub get`, Ruby, gems,
-  fastlane) runs before any step that reads a secret; the keystore, the Play
-  service account file and the App Store Connect key are written right
-  before the steps that use them and removed by an `always()` cleanup step.
+- Flutter comes from the official release archive through
+  `scripts/setup_flutter.sh`, from the same library checkout, on every run;
+  no third-party action. An empty `flutter_version` on the `stable` channel
+  installs the release pinned in the library's `toolchain-pins.env`
+  (`FLUTTER_VERSION`), checked against both the pin and the manifest's
+  sha256; an exact version or an `X.Y` prefix is checked against the
+  manifest's sha256; `beta` or `dev` without a version is the newest of the
+  channel. A channel name in `flutter_version` is read as the channel, as
+  before; `master` and `main` are refused (git clones, no digest). The
+  archive cache a CI job of the caller saved is restored, and the archive
+  is checked against its sha256 and extracted fresh on every run; this job
+  holds secrets and never saves a cache entry.
+- Every toolchain step (Java, the library checkout, Flutter, `flutter pub
+  get`, Ruby, gems, fastlane) runs before any step that reads a secret; the
+  keystore, the Play service account file and the App Store Connect key are
+  written right before the steps that use them and removed by an `always()`
+  cleanup step.
 - This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
 
 Inputs:
@@ -358,8 +375,8 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `flutter_version` (string, default `""`)
-- `flutter_channel` (string, default `stable`)
+- `flutter_version` (string, default `""`; empty is the pinned release on `stable`, the newest on another channel; `3.47.9`, or `3.47` for the newest of that line)
+- `flutter_channel` (string, default `stable`; `stable`, `beta` or `dev`)
 - `java_version` (string, default `"17"`)
 - `ruby_version` (string, default `"3.4"`)
 - `build_android` (boolean, default `true`)
@@ -2039,7 +2056,7 @@ Inputs (selected):
 - `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
-- `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup)
+- `node_version`, `java_version`, `dotnet_version`, `python_version`, `go_version`, `flutter_version`, `flutter_channel`, `php_version` (optional toolchain setup). Flutter is installed by `scripts/setup_flutter.sh` from a checkout of this library at the workflow's commit, as `ci.yml` installs it: the official release archive checked against the manifest's sha256, the `stable` default pinned in `toolchain-pins.env`; `flutter_channel` takes `stable`, `beta` or `dev`.
 - `lint_command` (string, default `""`)
 - `test_command` (string, default `""`)
 - `build_command` (string, default `""`)
