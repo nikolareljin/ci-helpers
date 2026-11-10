@@ -983,7 +983,8 @@ jobs:
           [[ "$(pnpm --version)" == 10.0.0 ]] || { echo "::error::pnpm --version is $(pnpm --version)"; exit 1; }
           home="$CARGO_HOME"
           if command -v cygpath >/dev/null 2>&1; then home="$(cygpath -u "$CARGO_HOME")"; fi
-          [[ "$home" -ef "$HOME/.cargo" ]] || { echo "::error::CARGO_HOME '$CARGO_HOME' is not ~/.cargo, which actions/cache saves"; exit 1; }
+          # Compared as text: ~/.cargo need not exist yet (Homebrew rustup on macOS).
+          [[ "${home%/}" == "${HOME%/}/.cargo" ]] || { echo "::error::CARGO_HOME '$CARGO_HOME' is not ~/.cargo, which actions/cache saves"; exit 1; }
           echo "rust and pnpm reach later steps; CARGO_HOME is ~/.cargo"
 
   rust-cache-restores-the-previous-job:
