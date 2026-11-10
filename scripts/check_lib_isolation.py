@@ -52,11 +52,13 @@ with PyYAML. In every job, and in a composite action:
              its first library script and never sets PATH itself;
              a step whose env: holds a secret (SECRET_VALUE, SECRET_NAME)
              sources it as `lib_path.sh secret`;
-  verify     git on a library checkout runs only as `/usr/bin/env -i
-             PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+  verify     git on a library checkout runs only as `"${genv[@]}"
+             GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
              "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C <dir>
-             rev-parse HEAD`, with git set by GIT_DEF, under the absolute
-             bash, with OUTER_BLANKS and no empty GIT_* variable;
+             rev-parse HEAD`, with git and genv set by GIT_DEF and
+             GENV_DEF, under the absolute bash (bare bash where the job
+             can run on Windows), with OUTER_BLANKS and no empty GIT_*
+             variable;
   action     a `uses: ./.ci-helpers-*/...` step sets OUTER_BLANKS, and only
              the checkout's verify, isolate and library steps, other such
              actions and SHA-pinned actions run between the checkout and it;
@@ -130,8 +132,14 @@ LIB_PATH_SECRET = LIB_PATH_LINE + " secret"
 SECRET_VALUE = re.compile(r"secrets\.|github\.token")
 SECRET_NAME = re.compile(r"TOKEN|PASSWORD|SECRET|LICEN[CS]E|SERIAL")
 GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git'
+# git runs under `env -i` with a bare PATH; Git Bash's git.exe does not
+# start without the Windows environment, so there the git variables are
+# dropped one by one instead.
+GENV_DEF = ('genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || '
+            'genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY '
+            '-u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)')
 GIT_ANY = re.compile(r'(?:^|[;&|(\s"`])(?:/usr/bin/|/mingw64/bin/)?(?:git|\$\{?git\}?)(?=["\s]|$)')
-HARD_GIT = re.compile(r'/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "\$git" -c core\.fsmonitor= '
+HARD_GIT = re.compile(r'"\$\{genv\[@\]\}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "\$git" -c core\.fsmonitor= '
                       r'-c core\.hooksPath=/dev/null -C (\.ci-helpers-[a-z]+) rev-parse HEAD\)')
 # Actions callers run on Windows runners too: their steps keep `bash` and
 # pwsh, found on PATH, since no absolute path works on every runner.
@@ -303,12 +311,14 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 if not near:
                     errors.append(f"{name}: runs git on {m.group(1)} later than the step right after its checkout")
                 if not HARD_GIT.search(line) or HARD_GIT.search(line).group(1) != m.group(1):
-                    errors.append(f"{name}: git on {m.group(1)} runs as `/usr/bin/env -i PATH=/usr/bin:/bin "
+                    errors.append(f"{name}: git on {m.group(1)} runs as `\"${{genv[@]}}\" "
                                   f"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "
                                   f"\"$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C {m.group(1)} rev-parse HEAD`")
                 hardened = True
         if hardened:
             lines = [ln.strip() for ln in logical_lines(run)]
+            if GENV_DEF not in lines:
+                errors.append(f"{name}: sets genv only as `{GENV_DEF}`")
             if GIT_DEF not in lines or any(re.match(r"(?:export\s+)?git=", ln) and ln != GIT_DEF for ln in lines):
                 errors.append(f"{name}: sets git only as `{GIT_DEF}`")
             if any(GIT_LINE.search(ln) for ln in lines):

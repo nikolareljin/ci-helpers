@@ -128,7 +128,9 @@ included, has two layers:
   supply the shell itself. A job whose `runs-on` is an expression (a
   `runner` input, a matrix) can land on Windows, where `/bin/sh` is not a
   path the runner can start, so it keeps `shell: sh`; a Windows job uses
-  `bash`. In those jobs a `GITHUB_PATH` entry can still supply the shell;
+  `bash`. In those jobs a `GITHUB_PATH` entry can still supply the shell.
+  This is a known limit: moving publish, sign and login steps to jobs with
+  no caller code closes it;
 - `set +xv`, then a refusal when an exported `BASH_FUNC_*` is present (where
   `sh` is bash, on macOS and Git Bash);
 - `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
@@ -157,10 +159,12 @@ The step that checks a library checkout's commit runs under
 `/bin/bash --noprofile --norc -e -o pipefail {0}` (bare `bash` where
 `runs-on` is an expression or Windows) with the same blanks
 except the `GIT_*` ones (an empty `GIT_DIR` stops git), and runs git as
-`/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1
-GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c
-core.hooksPath=/dev/null -C <checkout> rev-parse HEAD`, with `git` set to
-`/usr/bin/git` or `/mingw64/bin/git`.
+`"${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c
+core.fsmonitor= -c core.hooksPath=/dev/null -C <checkout> rev-parse HEAD`,
+with `git` set to `/usr/bin/git` or `/mingw64/bin/git`. `genv` is
+`/usr/bin/env -i PATH=/usr/bin:/bin`; under Git Bash, where `git.exe` does
+not start without the Windows environment, it is `/usr/bin/env` with each
+`GIT_*` variable that points git elsewhere unset.
 
 A composite or node action from a library checkout (`publication-check`,
 `publication-guard`, `macos-sign`, `windows-sign` and the scan actions)

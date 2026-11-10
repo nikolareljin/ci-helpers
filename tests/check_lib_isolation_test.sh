@@ -227,7 +227,8 @@ pubverify="      - name: Verify publication action revision
 $blanks
         run: |
           git=/usr/bin/git; [[ -x \"\$git\" ]] || git=/mingw64/bin/git
-          [[ \"\$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \"\$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)\" == \"\$TRUSTED_SHA\" ]] || exit 1"
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ \"\$(\"\${genv[@]}\" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \"\$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)\" == \"\$TRUSTED_SHA\" ]] || exit 1"
 pubuse="      - uses: ./.ci-helpers-publication/.github/actions/publication-check
         env:
 $blanks"
@@ -252,7 +253,9 @@ expect "verify step without the PS4 blank" 1 "$(wf_raw "$pubco" "${pubverify/   
 /}" "$pubuse")"
 expect "verify step with an empty GIT_DIR, which stops git" 1 "$(wf_raw "$pubco" "${pubverify/          PS4: \"\"/          PS4: \"\"
           GIT_DIR: \"\"}" "$pubuse")"
-expect "verify git outside env -i" 1 "$(wf_raw "$pubco" "${pubverify//\/usr\/bin\/env -i PATH=\/usr\/bin:\/bin /}" "$pubuse")"
+expect "verify git outside the genv wrapper" 1 "$(wf_raw "$pubco" "${pubverify//\"\${genv\[@\]}\" /}" "$pubuse")"
+expect "verify step without the genv line" 1 "$(wf_raw "$pubco" "${pubverify/genv=(*GIT_EXEC_PATH)
+/}" "$pubuse")"
 expect "use step under shell: sh, found through PATH" 1 "$(wf "$checkout" "$isolate" "${use/$SH/shell: sh}")"
 expect "isolate step under shell: sh, found through PATH" 1 "$(wf "$checkout" "${isolate/$SH/shell: sh}" "$use")"
 expect "step PATH restored without the trusted tools" 1 "$(wf "$checkout" "$isolate" "${use/. \"\$run_lib\/scripts\/lib_path.sh\"/export PATH=\"\$STEP_PATH\"}")"
