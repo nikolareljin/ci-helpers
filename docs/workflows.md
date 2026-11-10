@@ -43,7 +43,7 @@ as a caller overrides that default.
 
 Inputs:
 
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-latest`; with `php_version` set, `ubuntu-latest` runs on `ubuntu-24.04`, as the ondrej/php PPA has no 26.04 suite yet)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `submodules` (string, default `"false"`) — `false`, `true` or `recursive`, passed to `actions/checkout`. Any other value is **refused**: checkout reads anything that is not `true`/`recursive` as false, so a typo would otherwise check out no submodule and report success. **Public submodules only** — checkout authenticates with a header scoped to the calling repository, so one in a private repository fails with a 403. Note the engine already checks out with `fetch-depth: 0` and `fetch-tags: true`, so `recursive` against a large submodule tree can want more than the default `timeout_minutes`.
@@ -205,7 +205,7 @@ Purpose: Run a deployment command with optional runtime setup.
 
 Inputs:
 
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-latest`; with `php_version` set, `ubuntu-latest` runs on `ubuntu-24.04`, as the ondrej/php PPA has no 26.04 suite yet)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `node_version` (string, default `""`)
@@ -1159,7 +1159,7 @@ Workflow: `.github/workflows/php-scan.yml`
 Purpose: Run PHP unit tests, framework linting, and a WP-CLI scan with demo content when detected.
 
 Inputs (selected):
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `working_directory` (string, default `"."`)
 - `php_version` (string, default `8.4`)
 - `composer_command` (string, default `composer install --no-interaction --prefer-dist`)
@@ -1207,6 +1207,12 @@ later steps as before. No GitHub token is written to Composer's `auth.json`;
 a job that hits the GitHub API rate limit during `composer install` sets
 `COMPOSER_AUTH` itself. Opcache JIT is not switched on (the action wrote
 `opcache.jit=1235` into every php.ini).
+The PHP jobs run on `ubuntu-24.04` by default (the generic workflows when
+`php_version` is set): the ondrej/php PPA has no suite for `ubuntu-latest`
+(26.04) yet, and on a 26.04 runner a version its own sources lack fails with a
+message naming `ubuntu-24.04`. `runner` still overrides it. Switch the default
+back to `ubuntu-latest` when the PPA ships a 26.04 suite;
+`scripts/check_php_runner.py` holds the jobs to 24.04 until then.
 
 Example:
 
@@ -1583,7 +1589,7 @@ Purpose: Preset for Pimcore bundle CI. Runs PHPCS and PHPUnit against the
 caller's Docker Compose stack, over one or more PHP versions.
 
 Inputs (selected):
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `compose_file` (string, default `test/docker-compose.yml`)
 - `bundle_src` (string, default `"."`) and `bundle_src_env` (string, default `BUNDLE_SRC`)
 - `php_service` (string, default `php`), `db_service` (string, default `db`), `db_wait_seconds` (string, default `"20"`)
@@ -1623,7 +1629,7 @@ want no matrix.
 Inputs: as `pimcore.yml`, minus `php_versions` (it takes one `php_version`),
 plus four that run outside the compose stack. In full:
 
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `compose_file` (string, default `test/docker-compose.yml`)
 - `bundle_src` (string, default `.`)
 - `bundle_src_env` (string, default `BUNDLE_SRC`) - the variable the compose file reads the bundle path from
@@ -1909,7 +1915,7 @@ Purpose: Build release artifacts in any language and publish a GitHub Release.
 The build runs with `contents: read`; a separate `release` job holds `contents: write`, downloads the built files and publishes them. The caller grants `contents: write`. It runs on `release_runner` (default `ubuntu-latest`), not `runner`: a reused self-hosted machine can carry state left by the build.
 
 Inputs (selected):
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-latest`; with `php_version` set, `ubuntu-latest` runs on `ubuntu-24.04`, as the ondrej/php PPA has no 26.04 suite yet)
 - `release_runner` (string, default `ubuntu-latest`): runner for the job that publishes the release; it needs the GitHub CLI (`gh`), which GitHub-hosted runners ship
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
@@ -2146,7 +2152,7 @@ It builds and uploads only. It creates no release and needs no
 [WordPress preset](presets.md#wordpress)).
 
 Inputs:
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `working_directory` (string, default `.`)
 - `fetch_depth` (number, default `0`)
 - `submodules` (string, default `false`)
@@ -2209,7 +2215,7 @@ dependencies; the default `install_command` runs `composer install`.
 without forking this workflow.
 
 Inputs:
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `working_directory` (string, default `.`)
 - `fetch_depth` (number, default `0`)
 - `submodules` (string, default `false`)
@@ -2252,7 +2258,7 @@ Note: Requires Docker on the runner. Without `wp_version` or `versions`, it
 also requires the compose file named by `compose_file`, which mounts the plugin.
 
 Inputs:
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-24.04`: the ondrej/php PPA has no suite for `ubuntu-latest` (26.04) yet; it returns to `ubuntu-latest` when the PPA ships one)
 - `compose_file` (string, default `test/docker-compose.yml`)
 - `plugin_slug` (string, required)
 - `plugin_src` (string, default `.`)

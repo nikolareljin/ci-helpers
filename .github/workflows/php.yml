@@ -4,6 +4,7 @@ on:
     inputs:
       runner:
         type: string
+        # ci.yml runs ubuntu-latest on ubuntu-24.04 when php_version is set.
         default: ubuntu-latest
       working_directory:
         type: string

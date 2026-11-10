@@ -4,6 +4,8 @@ on:
     inputs:
       runner:
         type: string
+        # With php_version set, ubuntu-latest runs on ubuntu-24.04: the
+        # ondrej/php PPA has no suite for 26.04 yet.
         default: ubuntu-latest
       # The job that holds contents: write. A fresh hosted runner by default:
       # a reused self-hosted machine can carry state left by the build.
@@ -91,7 +93,7 @@ jobs:
   # The caller's lint, test and build commands run here with a read-only token.
   # The release job below holds contents: write and runs none of them.
   build:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.php_version != '' && inputs.runner == 'ubuntu-latest' && 'ubuntu-24.04' || inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     permissions:
       contents: read

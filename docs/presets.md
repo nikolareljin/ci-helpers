@@ -61,7 +61,7 @@ Pass-through inputs, forwarded to the job as-is:
 
 | Input | Type | Engine default | What it does |
 |---|---|---|---|
-| `runner` | string | `ubuntu-latest` | The `runs-on` label. |
+| `runner` | string | `ubuntu-latest` (`ubuntu-24.04` with PHP, see below) | The `runs-on` label. |
 | `working_directory` | string | `.` | Directory every command runs in. |
 | `concurrency_key` | string | `""` | Overrides the computed concurrency group. |
 | `fetch_depth` | number | `0` | Checkout depth. `0` is full history. |
@@ -229,6 +229,11 @@ PHP comes from apt through `scripts/setup_php.sh` in every preset that takes
 generic `ci.yml`, `pr-gate.yml`, `deploy.yml` and `release-build.yml`); what
 it installs, and that `php_version` must be `X.Y`, is under
 [`php-scan.yml`](workflows.md#php-scanyml).
+The PHP presets default `runner` to `ubuntu-24.04`, and the generic ones pick
+it when `php_version` is set: the ondrej/php PPA has no suite for
+`ubuntu-latest` (26.04) yet, so only 24.04 can install every version. Pass
+`runner` to override. The default returns to `ubuntu-latest` when the PPA
+ships a 26.04 suite.
 
 `php.yml` is the only preset that forwards `ci.yml`'s database and environment
 inputs: `db_image`, `db_env`, `db_ports`, `db_health_cmd`, `db_wait_seconds`

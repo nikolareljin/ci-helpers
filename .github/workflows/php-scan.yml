@@ -4,7 +4,9 @@ on:
     inputs:
       runner:
         type: string
-        default: ubuntu-latest
+        # ubuntu-24.04 until the ondrej/php PPA ships a suite for ubuntu-latest
+        # (26.04); scripts/check_php_runner.py holds PHP jobs to it.
+        default: ubuntu-24.04
       working_directory:
         type: string
         default: "."

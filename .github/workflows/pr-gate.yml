@@ -4,6 +4,8 @@ on:
     inputs:
       runner:
         type: string
+        # With php_version set, ubuntu-latest runs on ubuntu-24.04: the
+        # ondrej/php PPA has no suite for 26.04 yet.
         default: ubuntu-latest
       working_directory:
         type: string
@@ -144,7 +146,7 @@ jobs:
   pr-gate:
     permissions:
       contents: read
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.php_version != '' && inputs.runner == 'ubuntu-latest' && 'ubuntu-24.04' || inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
 

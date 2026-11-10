@@ -260,7 +260,7 @@ STATE_AVAILABLE_AFTER_UPDATE="php8.4-*" run "$name" 0 PHP_VERSION=8.4 && {
 }
 name="a PPA with no suite for this Ubuntu is removed again and refused"
 STATE_PPA_NO_SUITE=1 run "$name" 1 PHP_VERSION=8.4 && {
-  says "no build for noble"
+  says "no build for noble"; says "ubuntu-24.04"
   [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: broken PPA source left for later apt steps"; fail=1; }
   [[ ! -e "$work/etc/apt/keyrings/ci-helpers-ondrej-php.gpg" ]] || { echo "FAIL $name: keyring left"; fail=1; }
 }
