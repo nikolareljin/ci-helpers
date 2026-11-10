@@ -103,6 +103,21 @@ class AllowPatternTests(unittest.TestCase):
                 with self.subTest(pattern=pattern, path=path):
                     self.assertFalse(self.matches(pattern, path))
 
+    def test_question_mark_is_one_character(self):
+        self.assertTrue(self.matches("?.py", "\u00e9.py".encode()))
+        self.assertFalse(self.matches("?.py", b"\xc3.py"[:1] + b"x.py"))
+
+    def test_no_backtracking_blowup(self):
+        # A pattern of many stars, or of many "**" names, against a long name
+        # or a deep path: re backtracking took seconds at four stars.
+        import time
+        cases = [("*a" * 12 + "*b", b"a" * 250), ("/".join(["**"] * 12) + "/zz", b"a/" * 80 + b"x"),
+                 ("**/" + "*a" * 8 + "*b", b"/".join([b"a" * 200] * 6))]
+        for pattern, path in cases:
+            start = time.monotonic()
+            self.assertFalse(self.matches(pattern, path))
+            self.assertLess(time.monotonic() - start, 1.0, pattern)
+
     def test_lists(self):
         self.assertEqual(len(self.mod.allow_patterns("a, b\n\n c\n")), 3)
         self.assertEqual(self.mod.allow_patterns(""), [])

@@ -148,7 +148,7 @@ def plain(text, codec):
 
 
 def allow_patterns(text):
-    """The ALLOW_UNSCANNED patterns as compiled regexes, or ValueError naming
+    """The ALLOW_UNSCANNED patterns as tuples of names, or ValueError naming
     the 1-based entry. Entries are separated by commas or newlines and
     stripped; blank lines are skipped. A pattern is a path from the
     repository root with "/" between names: "*" matches within a name, "?"
@@ -178,25 +178,56 @@ def allow_patterns(text):
                 raise ValueError("allow_unscanned entry %d has an empty name (a '//' or trailing '/')" % number)
             if "." in names or ".." in names:
                 raise ValueError("allow_unscanned entry %d has a '.' or '..' name" % number)
-            patterns.append(re.compile(glob_regex([os.fsencode(n) for n in names]), re.DOTALL))
+            patterns.append(tuple(os.fsencode(n).decode("utf-8", "surrogateescape") for n in names))
     return patterns
 
 
-def glob_regex(names):
-    out = b""
-    for i, name in enumerate(names):
-        last = i == len(names) - 1
-        if name == b"**":
-            out += b".*" if last else b"(?:[^/]*/)*"
-            continue
-        for part in re.split(rb"(\*+|\?)", name):
-            out += b"[^/]*" if part.startswith(b"*") else b"[^/]" if part == b"?" else re.escape(part)
-        out += b"" if last else b"/"
-    return out
+def name_match(glob, name):
+    """True when one name matches one pattern name; "*" and "?" never cross
+    a "/" because names hold none. Two pointers, no backtracking beyond the
+    last "*": time is at most len(glob) x len(name), whatever the stars."""
+    g = n = 0
+    star = mark = -1
+    while n < len(name):
+        if g < len(glob) and glob[g] == "*":
+            star, mark, g = g, n, g + 1
+        elif g < len(glob) and (glob[g] == "?" or glob[g] == name[n]):
+            g, n = g + 1, n + 1
+        elif star >= 0:
+            mark += 1
+            g, n = star + 1, mark
+        else:
+            return False
+    return all(c == "*" for c in glob[g:])
 
 
 def allowed(patterns, path):
-    return any(p.fullmatch(path) for p in patterns)
+    """True when path (bytes from the repository root) matches a pattern of
+    allow_patterns. Names are compared as UTF-8 text, so "?" is one
+    character; bytes that are not UTF-8 compare as themselves. A middle "**"
+    name matches zero or more directories, a last one at least one name."""
+    names = tuple(path.decode("utf-8", "surrogateescape").split("/"))
+    for glob in patterns:
+        # reach[j]: the first j names of path match the pattern names so far.
+        reach = [True] + [False] * len(names)
+        for i, part in enumerate(glob):
+            last = i == len(glob) - 1
+            if part == "**":
+                # Zero or more names in the middle, at least one at the end.
+                seen, nxt = False, []
+                for j in range(len(names) + 1):
+                    if not last:
+                        seen = seen or reach[j]
+                    nxt.append(seen)
+                    if last:
+                        seen = seen or reach[j]
+                reach = nxt
+            else:
+                reach = [False] + [reach[j] and name_match(part, names[j])
+                                   for j in range(len(names))]
+        if reach[-1]:
+            return True
+    return False
 
 
 def too_large(path, size):
