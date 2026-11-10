@@ -217,7 +217,7 @@ def is_trusted(job: dict, wf_perms) -> list[str]:
         why.append("passes " + ", ".join(sorted(str(k) for k in passed)) + " to the workflow it calls")
     env = job.get("environment")
     if env:
-        name = env.get("name") if isinstance(env, dict) else env
+        name = (env.get("name") if isinstance(env, dict) else env) or "(unnamed)"
         why.append(f"uses environment {name}: a deployment environment holds secrets")
     perms = job.get("permissions", wf_perms)
     if perms == "write-all":
