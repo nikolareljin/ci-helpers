@@ -179,13 +179,35 @@ jobs:
       # Flutter from the official release archive, checked against the
       # manifest's sha256 and, for the pinned default, the library's
       # toolchain-pins.env. An empty flutter_version on stable installs the
-      # pinned release.
+      # pinned release. The archive a CI job of the caller saved is
+      # restored; this job publishes and saves nothing. The script checks
+      # the archive's sha256 on every run and extracts it fresh, so a cache
+      # entry written by another job cannot put a different SDK on PATH.
+      - name: Resolve Flutter
+        id: flutter_resolve
+        if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
+        shell: bash
+        env:
+          FLUTTER_VERSION: ${{ inputs.flutter_version }}
+          FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
+          FLUTTER_DRY_RUN: "true"
+        run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
+
+      - name: Restore Flutter archive
+        if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: ${{ steps.flutter_resolve.outputs.cache_path }}
+          key: ${{ steps.flutter_resolve.outputs.cache_key }}
+
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
         shell: bash
         env:
           FLUTTER_VERSION: ${{ inputs.flutter_version }}
           FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
         run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
 
       - name: Setup PHP

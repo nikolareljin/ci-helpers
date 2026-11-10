@@ -310,6 +310,10 @@ jobs:
         shell: bash
         run: bash tests/setup_flutter_test.sh
 
+      - name: The Godot and Flutter archive caches are saved right after the verified download and never from a release job
+        shell: bash
+        run: bash tests/toolchain_cache_save_test.sh
+
       - name: rust_cache_key.sh is deterministic and follows the lockfile
         shell: bash
         run: bash tests/rust_cache_key_test.sh

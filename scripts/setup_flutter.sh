@@ -12,6 +12,10 @@
 #              digest must also match the manifest's. The SDK is extracted
 #              under the runner's tool cache, FLUTTER_ROOT and PUB_CACHE are
 #              exported, and flutter, dart and the pub cache go on PATH.
+#              Nothing extracted is trusted across runs: the SDK directory
+#              is rebuilt every run from an archive whose sha256 matched in
+#              this run, whether it was downloaded now or kept in
+#              FLUTTER_ARCHIVE_DIR by a cache restore.
 # USAGE: FLUTTER_CHANNEL=stable FLUTTER_VERSION=3.47.9 bash scripts/setup_flutter.sh
 # ENVIRONMENT:
 #   FLUTTER_VERSION     Exact version, `X.Y`, `X.Y.x`, `any`, or empty (the
@@ -20,19 +24,26 @@
 #   FLUTTER_CHANNEL     stable (default), beta or dev. master and main are
 #                       refused: they are git clones with no digest.
 #   FLUTTER_DRY_RUN     true: resolve and write the outputs, install nothing.
+#   FLUTTER_ARCHIVE_DIR Where the downloaded archive is kept (optional). An
+#                       archive already there is used only after its sha256
+#                       matches the expected one; otherwise it is deleted
+#                       and downloaded again. Cache this directory, saved
+#                       right after this script, never after a caller's step.
 #   FLUTTER_INSTALL_ROOT  Where SDKs go (default $RUNNER_TOOL_CACHE/flutter,
 #                       else $HOME/flutter-sdk); one directory per
-#                       channel-version-arch. Cache that directory; a
-#                       verified SDK there is reused when its recorded
-#                       digest is the expected one.
+#                       channel-version-arch, removed and rebuilt every
+#                       run, never cached.
 #   FLUTTER_STORAGE_BASE_URL  The mirror Flutter itself honours (default
 #                       https://storage.googleapis.com); https only.
 #   RUNNER_ARCH         X64 or ARM64 (set by the runner); else from uname -m.
 #   TOOLCHAIN_PINS      Pins file (default: toolchain-pins.env beside scripts/).
-#   RUNNER_TEMP         Where the download goes (default: mktemp -d).
+#   RUNNER_TEMP         Where the manifest and, without FLUTTER_ARCHIVE_DIR,
+#                       the archive go (default: mktemp -d).
 #   GITHUB_PATH, GITHUB_ENV, GITHUB_OUTPUT  Written when set.
-# OUTPUT: channel, version, arch, cache_key, cache_path, flutter_root,
-#         pinned (true when the pinned release was installed), on stdout
+# OUTPUT: channel, version, arch, cache_key (of the archive: os, channel,
+#         version, arch and the expected sha256), cache_path (the archive
+#         directory, FLUTTER_ARCHIVE_DIR), flutter_root, pinned (true when
+#         the pinned release was installed), on stdout
 #         and, when GITHUB_OUTPUT is set, appended there. GITHUB_ENV gets
 #         FLUTTER_ROOT and PUB_CACHE (unless the job set it).
 # EXIT CODES:
@@ -49,6 +60,7 @@ pins="${TOOLCHAIN_PINS:-$script_dir/../toolchain-pins.env}"
 version="${FLUTTER_VERSION:-}"
 channel="${FLUTTER_CHANNEL:-}"
 dry_run="${FLUTTER_DRY_RUN:-false}"
+archive_dir="${FLUTTER_ARCHIVE_DIR:-}"
 base="${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}"
 base="${base%/}"
 
@@ -144,7 +156,7 @@ entry="$(jq -r --arg channel "$channel" --arg arch "$arch" --arg version "$versi
            | .[0])
      end)
   | if . == null then empty
-    else [.version, (.dart_sdk_arch // "x64"), .sha256, .archive, .hash] | join(" ") end' "$dest/releases.json")"
+    else [.version, (.dart_sdk_arch // "x64"), .sha256, .archive] | join(" ") end' "$dest/releases.json")"
 if [[ -z "$entry" ]]; then
   echo "::error::Unable to determine Flutter version for channel: $channel version: $version architecture: $arch (from $manifest_url)." >&2
   exit 1
@@ -152,7 +164,7 @@ fi
 chosen="${entry%% *}"; rest="${entry#* }"
 chosen_arch="${rest%% *}"; rest="${rest#* }"
 manifest_sha="$(printf '%s' "${rest%% *}" | tr '[:upper:]' '[:lower:]')"; rest="${rest#* }"
-archive="${rest%% *}"; hash="${rest#* }"
+archive="${rest%% *}"
 if [[ ${#manifest_sha} -ne 64 || -n "$(printf '%s' "$manifest_sha" | tr -d '0-9a-f')" ]]; then
   echo "::error::The manifest entry for Flutter $chosen ($channel, $chosen_arch) has no 64-hex sha256; refusing to download an unverified SDK." >&2
   exit 1
@@ -195,11 +207,14 @@ if [[ -z "$root" ]]; then
 fi
 sdk_dir="$root/$channel-$chosen-$chosen_arch"
 flutter_root="$sdk_dir/flutter"
-cache_key="flutter-$os-$channel-$chosen-$chosen_arch-$hash"
+# The archive cache key carries the digest the archive must have, so a key
+# names one exact file; the content is checked on every use regardless.
+cache_key="flutter-archive-$os-$channel-$chosen-$chosen_arch-$expected"
+file="$(basename "$archive")"
 
 outputs() {
   printf 'channel=%s\nversion=%s\narch=%s\ncache_key=%s\ncache_path=%s\nflutter_root=%s\npinned=%s\n' \
-    "$channel" "$chosen" "$chosen_arch" "$cache_key" "$(host_path "$sdk_dir")" "$(host_path "$flutter_root")" "$pinned"
+    "$channel" "$chosen" "$chosen_arch" "$cache_key" "${archive_dir:+$(host_path "$archive_dir")}" "$(host_path "$flutter_root")" "$pinned"
 }
 if [[ "$dry_run" == true ]]; then
   echo "Flutter $chosen ($channel, $chosen_arch) resolves to $archive; not installing (dry run)"
@@ -208,34 +223,52 @@ if [[ "$dry_run" == true ]]; then
   exit 0
 fi
 
-# A verified SDK from a cache restore: the recorded digest is the expected
-# one and the launcher is in place. Anything else is removed and replaced.
-marker="$sdk_dir/.sha256"
-if [[ -x "$flutter_root/bin/flutter" && -f "$marker" && "$(cat "$marker")" == "$expected" ]]; then
-  echo "Flutter $chosen ($channel, $chosen_arch) is already under $sdk_dir with the expected digest; not downloading."
+# The archive: one kept in FLUTTER_ARCHIVE_DIR by a cache restore is used
+# only after its sha256 matches the expected one in this run; a cache entry
+# is written by a job, so nothing in it is trusted on its own. Anything else
+# is deleted and the archive is downloaded again, then checked the same way.
+if [[ -n "$archive_dir" ]]; then
+  mkdir -p "$archive_dir"
+  keep="$archive_dir"
+  # Archives of other releases do not accumulate in the cache.
+  find "$archive_dir" -maxdepth 1 -type f \( -name 'flutter_*.zip' -o -name 'flutter_*.tar.xz' \) ! -name "$file" -exec rm -f {} +
 else
-  rm -rf "$sdk_dir"
-  mkdir -p "$sdk_dir"
-  file="$(basename "$archive")"
-  url="$base/flutter_infra_release/releases/$archive"
+  keep="$dest"
+fi
+archive_path="$keep/$file"
+url="$base/flutter_infra_release/releases/$archive"
+if [[ -f "$archive_path" ]]; then
+  actual="$(sha256_of "$archive_path")"
+  if [[ "$actual" == "$expected" ]]; then
+    echo "Using the cached archive $archive_path (sha256 $actual matches)"
+  else
+    echo "::warning::The cached archive $archive_path has sha256 $actual, not the expected $expected; deleting it and downloading again."
+    rm -f "$archive_path"
+  fi
+fi
+if [[ ! -f "$archive_path" ]]; then
   echo "Downloading $url"
-  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$dest/$file"
-  actual="$(sha256_of "$dest/$file")"
+  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$archive_path"
+  actual="$(sha256_of "$archive_path")"
   if [[ "$actual" != "$expected" ]]; then
-    rm -f "$dest/$file"
+    rm -f "$archive_path"
     echo "::error::Checksum mismatch for $file: expected $expected, got $actual." >&2
     exit 1
   fi
   echo "Verified $file (sha256 $actual)"
-  case "$file" in
-    *.zip) unzip -q -o "$dest/$file" -d "$sdk_dir" ;;
-    *) tar xf "$dest/$file" -C "$sdk_dir" ;;
-  esac
-  rm -f "$dest/$file"
-  [[ -f "$flutter_root/bin/flutter" ]] || { echo "::error::$file holds no flutter/bin/flutter." >&2; exit 1; }
-  chmod +x "$flutter_root/bin/flutter"
-  printf '%s\n' "$expected" > "$marker"
 fi
+
+# The SDK directory is rebuilt from the verified archive; nothing extracted
+# by an earlier run is reused.
+rm -rf "$sdk_dir"
+mkdir -p "$sdk_dir"
+case "$file" in
+  *.zip) unzip -q -o "$archive_path" -d "$sdk_dir" ;;
+  *) tar xf "$archive_path" -C "$sdk_dir" ;;
+esac
+[[ -n "$archive_dir" ]] || rm -f "$archive_path"
+[[ -f "$flutter_root/bin/flutter" ]] || { echo "::error::$file holds no flutter/bin/flutter." >&2; exit 1; }
+chmod +x "$flutter_root/bin/flutter"
 
 # The pub cache, where Dart looks for it unless the job set it.
 if [[ -z "${PUB_CACHE:-}" ]]; then

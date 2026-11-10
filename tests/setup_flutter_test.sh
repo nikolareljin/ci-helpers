@@ -5,8 +5,9 @@
 #              action did, installs the pinned release when no version is
 #              given on stable and refuses when the manifest's digest for it
 #              is not the pin, checks every download against the manifest's
-#              sha256, refuses the git-only channels, reuses a verified SDK,
-#              resolves without installing on a dry run, and writes PATH,
+#              sha256, refuses the git-only channels, uses a cached archive
+#              only after its sha256 matches and rebuilds the SDK from it
+#              every run, resolves without installing on a dry run, and writes PATH,
 #              env and outputs. curl and uname are stubs; the manifests and
 #              archives are fixtures built here; nothing is downloaded.
 #              Runs under bash 3.2 (macOS runners).
@@ -122,13 +123,14 @@ esac
 STUB
 chmod +x "$work/stub/curl" "$work/stub/uname"
 
-# run <name> <rc> <FLUTTER_VERSION> [FLUTTER_CHANNEL] [RUNNER_ARCH]
+# run <name> <rc> <FLUTTER_VERSION> [FLUTTER_CHANNEL] [RUNNER_ARCH]; ARCHIVE_DIR
+# in the environment is passed as FLUTTER_ARCHIVE_DIR.
 run() {
   local name="$1" want="$2" rc=0
   rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" \
     FLUTTER_VERSION="$3" FLUTTER_CHANNEL="${4-}" RUNNER_ARCH="${5-X64}" \
-    FLUTTER_INSTALL_ROOT="$work/sdk" RUNNER_TOOL_CACHE="$work/unused" \
+    FLUTTER_INSTALL_ROOT="$work/sdk" RUNNER_TOOL_CACHE="$work/unused" FLUTTER_ARCHIVE_DIR="${ARCHIVE_DIR:-}" \
     TOOLCHAIN_PINS="${TEST_PINS:-$work/pins.env}" RUNNER_TEMP="$work" HOME="$work/home" \
     GITHUB_PATH="$work/gh/path" GITHUB_ENV="$work/gh/env" GITHUB_OUTPUT="$work/gh/out" \
     "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
@@ -149,33 +151,57 @@ not_fetched() {
 output() {
   grep -q "^$1=$2$" "$work/gh/out" || { echo "FAIL $name: output $1 is not '$2':"; cat "$work/gh/out"; fail=1; }
 }
-# installed <channel> <version> <arch> <os>: env, PATH and the launcher.
+# installed <channel> <version> <arch> [archive dir]: outputs, env, PATH and
+# the launcher.
 installed() {
   local sdk="$work/sdk/$1-$2-$3"
   output channel "$1"; output version "$2"; output arch "$3"
-  output flutter_root "$sdk/flutter"; output cache_path "$sdk"
+  output flutter_root "$sdk/flutter"; output cache_path "${4-}"
   grep -q "^FLUTTER_ROOT=$sdk/flutter$" "$work/gh/env" || { echo "FAIL $name: FLUTTER_ROOT not in GITHUB_ENV:"; cat "$work/gh/env"; fail=1; }
   grep -qxF "$sdk/flutter/bin" "$work/gh/path" || { echo "FAIL $name: flutter/bin not on GITHUB_PATH:"; cat "$work/gh/path"; fail=1; }
   grep -qxF "$sdk/flutter/bin/cache/dart-sdk/bin" "$work/gh/path" || { echo "FAIL $name: dart-sdk/bin not on GITHUB_PATH"; fail=1; }
   [[ "$("$sdk/flutter/bin/flutter")" == "Flutter $2" ]] || { echo "FAIL $name: the launcher under $sdk reports '$("$sdk/flutter/bin/flutter")'"; fail=1; }
-  [[ -f "$sdk/.sha256" ]] || { echo "FAIL $name: no digest marker under $sdk"; fail=1; }
 }
+sha_of_fixture() { sha "$work/files/$1"; }
 
 name="no version on stable installs the pinned release"
 run "$name" 0 "" && installed stable 3.47.9 x64 && output pinned true \
-  && output cache_key flutter-linux-stable-3.47.9-x64-aaa \
+  && output cache_key "flutter-archive-linux-stable-3.47.9-x64-$(sha_of_fixture stable/linux/flutter_linux_3.47.9-stable.tar.xz)" \
   && fetched releases_linux.json && fetched stable/linux/flutter_linux_3.47.9-stable.tar.xz \
   && says "installing the release pinned in $work/pins.env, 3.47.9" && says "Verified flutter_linux_3.47.9-stable.tar.xz"
 grep -q "^PUB_CACHE=$work/home/.pub-cache$" "$work/gh/env" || { echo "FAIL $name: PUB_CACHE not in GITHUB_ENV:"; cat "$work/gh/env"; fail=1; }
 grep -qxF "$work/home/.pub-cache/bin" "$work/gh/path" || { echo "FAIL $name: pub cache bin not on GITHUB_PATH"; fail=1; }
 [[ -z "$(ls -d "$work"/flutter.* 2>/dev/null)" ]] || { echo "FAIL $name: the download directory was kept"; fail=1; }
 
-name="a verified SDK is reused without a download"
-run "$name" 0 "" && installed stable 3.47.9 x64 && not_fetched flutter_linux && says "already under"
-
-name="an SDK whose recorded digest is not the expected one is replaced"
-printf 'deadbeef\n' > "$work/sdk/stable-3.47.9-x64/.sha256"
+name="without an archive directory every run downloads"
 run "$name" 0 "" && installed stable 3.47.9 x64 && fetched stable/linux/flutter_linux_3.47.9-stable.tar.xz
+
+# A cache restore puts the archive in FLUTTER_ARCHIVE_DIR. It is used only
+# after its sha256 matches in this run, and the SDK is rebuilt from it every
+# run: nothing extracted earlier, however it got there, survives.
+name="with an archive directory the archive is kept, verified"
+ARCHIVE_DIR="$work/archive" run "$name" 0 "" && installed stable 3.47.9 x64 "$work/archive" \
+  && fetched stable/linux/flutter_linux_3.47.9-stable.tar.xz
+[[ -f "$work/archive/flutter_linux_3.47.9-stable.tar.xz" ]] || { echo "FAIL $name: the archive is not kept"; fail=1; }
+
+name="a cached archive whose sha256 matches is used without a download, and the SDK is rebuilt from it"
+printf '#!/usr/bin/env bash\necho evil\n' > "$work/sdk/stable-3.47.9-x64/flutter/bin/flutter"
+printf 'evil\n' > "$work/sdk/stable-3.47.9-x64/planted"
+ARCHIVE_DIR="$work/archive" run "$name" 0 "" && installed stable 3.47.9 x64 "$work/archive" \
+  && not_fetched flutter_linux && says "Using the cached archive $work/archive/flutter_linux_3.47.9-stable.tar.xz"
+[[ -e "$work/sdk/stable-3.47.9-x64/planted" ]] && { echo "FAIL $name: the SDK directory was not rebuilt"; fail=1; }
+
+name="a cached archive whose sha256 does not match is deleted and downloaded again"
+printf 'tampered\n' >> "$work/archive/flutter_linux_3.47.9-stable.tar.xz"
+ARCHIVE_DIR="$work/archive" run "$name" 0 "" && installed stable 3.47.9 x64 "$work/archive" \
+  && fetched stable/linux/flutter_linux_3.47.9-stable.tar.xz \
+  && says "::warning::The cached archive $work/archive/flutter_linux_3.47.9-stable.tar.xz has sha256" && says "deleting it and downloading again"
+[[ "$(sha "$work/archive/flutter_linux_3.47.9-stable.tar.xz")" == "$(sha_of_fixture stable/linux/flutter_linux_3.47.9-stable.tar.xz)" ]] \
+  || { echo "FAIL $name: the archive directory still holds the tampered archive"; fail=1; }
+
+name="a cached archive of another release is removed, and a wrong download leaves none"
+ARCHIVE_DIR="$work/archive" run "$name" 1 3.46.1 && says "Checksum mismatch for flutter_linux_3.46.1-stable.tar.xz"
+[[ -z "$(ls "$work/archive")" ]] || { echo "FAIL $name: the archive directory is not empty:"; ls "$work/archive"; fail=1; }
 
 name="a job's own PUB_CACHE is kept"
 rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
@@ -187,7 +213,8 @@ grep -qxF "$work/pub/bin" "$work/gh/path" || { echo "FAIL $name: the job's pub c
 
 name="an exact version is checked against the manifest's sha256"
 run "$name" 0 3.47.8 && installed stable 3.47.8 x64 && output pinned false \
-  && output cache_key flutter-linux-stable-3.47.8-x64-888 && fetched stable/linux/flutter_linux_3.47.8-stable.tar.xz
+  && output cache_key "flutter-archive-linux-stable-3.47.8-x64-$(sha_of_fixture stable/linux/flutter_linux_3.47.8-stable.tar.xz)" \
+  && fetched stable/linux/flutter_linux_3.47.8-stable.tar.xz
 [[ -d "$work/sdk/stable-3.47.9-x64" ]] || { echo "FAIL $name: another release's SDK was removed"; fail=1; }
 
 name="X.Y and X.Y.x pick the newest matching release"
@@ -234,8 +261,9 @@ FLUTTER_STORAGE_BASE_URL=http://mirror.example run "$name" 2 "" && not_fetched r
 
 name="a dry run resolves and installs nothing"
 rm -rf "${work:?}/sdk"
-FLUTTER_DRY_RUN=true run "$name" 0 "" && output version 3.47.9 && output cache_key flutter-linux-stable-3.47.9-x64-aaa \
-  && output cache_path "$work/sdk/stable-3.47.9-x64" && output pinned true && not_fetched flutter_linux && says "not installing (dry run)"
+ARCHIVE_DIR="$work/archive" FLUTTER_DRY_RUN=true run "$name" 0 "" && output version 3.47.9 \
+  && output cache_key "flutter-archive-linux-stable-3.47.9-x64-$(sha_of_fixture stable/linux/flutter_linux_3.47.9-stable.tar.xz)" \
+  && output cache_path "$work/archive" && output pinned true && not_fetched flutter_linux && says "not installing (dry run)"
 [[ -e "$work/sdk" ]] && { echo "FAIL $name: the dry run created $work/sdk"; fail=1; }
 [[ -s "$work/gh/path" || -s "$work/gh/env" ]] && { echo "FAIL $name: the dry run wrote PATH or env"; fail=1; }
 FLUTTER_DRY_RUN=maybe run "$name" 2 "" && says "FLUTTER_DRY_RUN is 'maybe'"
@@ -277,7 +305,7 @@ rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
 PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" FLUTTER_VERSION="" FLUTTER_DRY_RUN=true \
   RUNNER_TOOL_CACHE="$work/toolcache" TOOLCHAIN_PINS="$work/pins.env" RUNNER_TEMP="$work" HOME="$work/home" \
   GITHUB_OUTPUT="$work/gh/out" "$BASH" "$script" > "$work/out" 2>&1 || { echo "FAIL $name: exit $?"; cat "$work/out"; fail=1; }
-output cache_path "$work/toolcache/flutter/stable-3.47.9-x64"
+output flutter_root "$work/toolcache/flutter/stable-3.47.9-x64/flutter"
 
-[[ "$fail" = 0 ]] && echo "ok: setup_flutter resolves as the action did, pins the default release, checks every download, refuses git channels and reuses a verified SDK"
+[[ "$fail" = 0 ]] && echo "ok: setup_flutter resolves as the action did, pins the default release, checks every archive on every run, refuses git channels and rebuilds the SDK from the verified archive"
 exit "$fail"

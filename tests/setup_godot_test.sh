@@ -4,8 +4,9 @@
 #              action named for each version, variant, OS and architecture,
 #              refuses a release the pins file does not list before any
 #              download, refuses a download whose sha256 is not the pinned
-#              one, links the one editor the archive holds, reuses a
-#              verified install, and writes PATH, env and outputs. curl and
+#              one, links the one editor the archive holds, reuses a cached
+#              archive only after its sha256 matches and rebuilds the
+#              install from it every run, and writes PATH, env and outputs. curl and
 #              uname are stubs; the archives are fixtures built here;
 #              nothing is downloaded. Runs under bash 3.2 (macOS runners).
 # USAGE: bash tests/setup_godot_test.sh
@@ -107,13 +108,14 @@ esac
 STUB
 chmod +x "$work/stub/curl" "$work/stub/uname"
 
-# run <name> <rc> <GODOT_VERSION> [GODOT_USE_DOTNET] [RUNNER_ARCH]
+# run <name> <rc> <GODOT_VERSION> [GODOT_USE_DOTNET] [RUNNER_ARCH]; ARCHIVE_DIR
+# in the environment is passed as GODOT_ARCHIVE_DIR.
 run() {
   local name="$1" want="$2" rc=0
   rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" \
     GODOT_VERSION="$3" GODOT_USE_DOTNET="${4-false}" RUNNER_ARCH="${5-X64}" \
-    GODOT_INSTALL_DIR="$work/install" GODOT_BIN_DIR="$work/bin" \
+    GODOT_INSTALL_DIR="$work/install" GODOT_BIN_DIR="$work/bin" GODOT_ARCHIVE_DIR="${ARCHIVE_DIR:-}" \
     TOOLCHAIN_PINS="${TEST_PINS:-$work/pins.env}" RUNNER_TEMP="$work" GITHUB_WORKSPACE="$work/ws" \
     GITHUB_PATH="$work/gh/path" GITHUB_ENV="$work/gh/env" GITHUB_OUTPUT="$work/gh/out" \
     "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
@@ -145,21 +147,40 @@ rm -rf "${work:?}/install" "${work:?}/bin"
 run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
   && fetched https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip \
   && says "Verified Godot_v4.3-stable_linux.x86_64.zip"
-[[ -f "$work/install/.sha256-Godot_v4.3-stable_linux.x86_64" ]] || { echo "FAIL $name: no digest marker written"; fail=1; }
 [[ -f "$work/install/Godot_v4.3-stable_linux.x86_64" ]] || { echo "FAIL $name: the editor is not under the install dir"; fail=1; }
+[[ -z "$(ls -d "$work"/godot.* 2>/dev/null)" ]] || { echo "FAIL $name: the download directory was kept"; fail=1; }
 
-name="a verified install is reused without a download"
-run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 && no_download && says "already installed"
-
-name="an install whose recorded digest is not the pin is replaced"
-printf 'deadbeef\n' > "$work/install/.sha256-Godot_v4.3-stable_linux.x86_64"
+name="without an archive directory every run downloads"
 run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
   && fetched https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
 
-name="an install with the digest but no editor is replaced"
-rm -f "$work/install/Godot_v4.3-stable_linux.x86_64"
-run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
+# A cache restore puts the archive in GODOT_ARCHIVE_DIR. It is used only after
+# its sha256 matches the pin in this run, and the install is rebuilt from it
+# every run: nothing extracted earlier, however it got there, survives.
+name="with an archive directory the archive is kept, verified"
+ARCHIVE_DIR="$work/archive" run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
   && fetched https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+[[ -f "$work/archive/Godot_v4.3-stable_linux.x86_64.zip" ]] || { echo "FAIL $name: the archive is not kept in the archive directory"; fail=1; }
+
+name="a cached archive whose sha256 matches is used without a download, and the install is rebuilt from it"
+editor_script 9.9.9.evil > "$work/install/Godot_v4.3-stable_linux.x86_64"
+printf 'evil\n' > "$work/install/planted"
+ARCHIVE_DIR="$work/archive" run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
+  && no_download && says "Using the cached archive $work/archive/Godot_v4.3-stable_linux.x86_64.zip"
+[[ -e "$work/install/planted" ]] && { echo "FAIL $name: the install directory was not rebuilt"; fail=1; }
+
+name="a cached archive whose sha256 does not match is deleted and downloaded again"
+printf 'tampered\n' >> "$work/archive/Godot_v4.3-stable_linux.x86_64.zip"
+ARCHIVE_DIR="$work/archive" run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8 \
+  && fetched https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip \
+  && says "::warning::The cached archive $work/archive/Godot_v4.3-stable_linux.x86_64.zip has sha256" && says "deleting it and downloading again"
+[[ "$(sha "$work/archive/Godot_v4.3-stable_linux.x86_64.zip")" == "$(sha "$work/files/Godot_v4.3-stable_linux.x86_64.zip")" ]] \
+  || { echo "FAIL $name: the archive directory still holds the tampered archive"; fail=1; }
+
+name="a cached archive of another release is removed, and a wrong download leaves none"
+ARCHIVE_DIR="$work/archive" run "$name" 1 4.7.2 && says "Checksum mismatch for Godot_v4.7.2-stable_linux.x86_64.zip"
+[[ -z "$(ls "$work/archive")" ]] || { echo "FAIL $name: the archive directory is not empty:"; ls "$work/archive"; fail=1; }
+[[ -e "$work/bin/godot" ]] && { echo "FAIL $name: a godot link was left after the refusal"; fail=1; }
 
 name="the .NET build links GodotSharp beside the editor"
 run "$name" 0 4.3.0 true && installed 4.3-stable 4.3.stable.mono.official.77dcf97d8 \
@@ -241,5 +262,5 @@ STUB_UNAME_S=FreeBSD run "$name" 2 4.3.0 && no_download && says "Unsupported run
 name="a missing pins file"
 TEST_PINS="$work/none.env" run "$name" 2 4.3.0 && no_download && says "Pins file $work/none.env is not readable"
 
-[[ "$fail" = 0 ]] && echo "ok: setup_godot names the action's archives, refuses an unpinned release or a wrong digest, links the editor, and reuses a verified install"
+[[ "$fail" = 0 ]] && echo "ok: setup_godot names the action's archives, refuses an unpinned release or a wrong digest, links the editor, and rebuilds the install from a verified archive every run"
 exit "$fail"

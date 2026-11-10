@@ -809,9 +809,10 @@ its sha256 matches the pin in the library's `toolchain-pins.env`. The pinned
 releases are `4.3.0` (the default) and `4.7.2`, each in the GDScript and .NET
 variants for Linux x86_64, macOS and Windows x64. Any other `godot_version`
 fails at `Setup Godot` naming the pinned releases; a new release reaches
-callers through a release of this library that adds its digests. The install
-is cached by release with `actions/cache` when `cache` is on. No export
-templates are installed.
+callers through a release of this library that adds its digests. With `cache`
+on, the downloaded archive is cached (restored before the step, saved right
+after it) and checked against the pin again on every run; the editor is
+extracted fresh from it each time. No export templates are installed.
 
 ### Import before anything else
 

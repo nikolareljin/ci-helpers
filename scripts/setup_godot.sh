@@ -13,19 +13,28 @@
 #              editor is extracted under GODOT_INSTALL_DIR, linked as `godot`
 #              in GODOT_BIN_DIR, and that directory goes on PATH; GODOT and
 #              GODOT4 name the link, as the action set them. No export
-#              templates: the callers never had them installed.
+#              templates: the callers never had them installed. Nothing
+#              extracted is trusted across runs: the install directory is
+#              rebuilt every run from an archive whose sha256 matched the
+#              pin in this run, whether it was downloaded now or kept in
+#              GODOT_ARCHIVE_DIR by a cache restore.
 # USAGE: GODOT_VERSION=4.3.0 bash scripts/setup_godot.sh
 # ENVIRONMENT:
 #   GODOT_VERSION      Semantic version (required), or `global.json`.
 #   GODOT_USE_DOTNET   true for the .NET build (default false).
-#   GODOT_INSTALL_DIR  Where the archive is extracted (default $HOME/godot).
-#                      Cache this directory; a verified install there is
-#                      reused when its recorded digest is the pinned one.
+#   GODOT_ARCHIVE_DIR  Where the downloaded archive is kept (optional). An
+#                      archive already there is used only after its sha256
+#                      matches the pin; otherwise it is deleted and
+#                      downloaded again. Cache this directory, saved right
+#                      after this script, never after a caller's step.
+#   GODOT_INSTALL_DIR  Where the archive is extracted (default $HOME/godot);
+#                      removed and rebuilt every run, never cached.
 #   GODOT_BIN_DIR      Where the `godot` link goes (default $HOME/bin).
 #   GITHUB_WORKSPACE   Where global.json is read from (default: cwd).
 #   RUNNER_ARCH        X64 or ARM64 (set by the runner); else from uname -m.
 #   TOOLCHAIN_PINS     Pins file (default: toolchain-pins.env beside scripts/).
-#   RUNNER_TEMP        Where the download goes (default: mktemp -d).
+#   RUNNER_TEMP        Where a download goes without GODOT_ARCHIVE_DIR
+#                      (default: mktemp -d).
 #   GITHUB_PATH, GITHUB_ENV, GITHUB_OUTPUT  Written when set.
 # OUTPUT: godot_version=<release, e.g. 4.3-stable>, godot_bin=<the link>,
 #         on stdout and, when GITHUB_OUTPUT is set, appended there.
@@ -44,6 +53,7 @@ version="${GODOT_VERSION:-}"
 use_dotnet="${GODOT_USE_DOTNET:-false}"
 install_dir="${GODOT_INSTALL_DIR:-$HOME/godot}"
 bin_dir="${GODOT_BIN_DIR:-$HOME/bin}"
+archive_dir="${GODOT_ARCHIVE_DIR:-}"
 
 case "$use_dotnet" in
   true|false) ;;
@@ -134,9 +144,54 @@ if [[ ${#expected} -ne 64 || -n "$(printf '%s' "$expected" | tr -d '0-9a-f')" ]]
   exit 2
 fi
 
-# A verified install from a cache restore: the recorded digest is the pinned
-# one and the editor is where the archive puts it. Anything else is removed.
-marker="$install_dir/.sha256-$name"
+# The old install and its link go first, so a refusal below leaves no
+# editor of another release on PATH.
+rm -rf "$install_dir" "$bin_dir"
+
+# The archive: one kept in GODOT_ARCHIVE_DIR by a cache restore is used only
+# after its sha256 matches the pin in this run; a cache entry is written by
+# a job, so nothing in it is trusted on its own. Anything else is deleted
+# and the archive is downloaded again, then checked the same way.
+if [[ -n "$archive_dir" ]]; then
+  mkdir -p "$archive_dir"
+  dest="$archive_dir"
+  # Archives of other releases do not accumulate in the cache.
+  find "$archive_dir" -maxdepth 1 -type f -name 'Godot_v*.zip' ! -name "$file" -exec rm -f {} +
+else
+  if [[ -n "${RUNNER_TEMP:-}" ]]; then
+    dest="$(mktemp -d "${RUNNER_TEMP}/godot.XXXXXX")"
+  else
+    dest="$(mktemp -d)"
+  fi
+  trap 'rm -rf "$dest"' EXIT
+fi
+archive_path="$dest/$file"
+if [[ -f "$archive_path" ]]; then
+  actual="$(sha256_of "$archive_path")"
+  if [[ "$actual" == "$expected" ]]; then
+    echo "Using the cached archive $archive_path (sha256 $actual matches the pin)"
+  else
+    echo "::warning::The cached archive $archive_path has sha256 $actual, not the pinned $expected; deleting it and downloading again."
+    rm -f "$archive_path"
+  fi
+fi
+if [[ ! -f "$archive_path" ]]; then
+  echo "Downloading $url"
+  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$archive_path"
+  actual="$(sha256_of "$archive_path")"
+  if [[ "$actual" != "$expected" ]]; then
+    rm -f "$archive_path"
+    echo "::error::Checksum mismatch for $file: expected $expected, got $actual." >&2
+    exit 1
+  fi
+  echo "Verified $file (sha256 $actual)"
+fi
+
+# The verified archive is extracted fresh; nothing extracted by an earlier
+# run is reused.
+mkdir -p "$install_dir"
+unzip -q -o "$archive_path" -d "$install_dir"
+[[ -n "$archive_dir" ]] || rm -f "$archive_path"
 find_editor() {
   case "$os" in
     linux)   find "$install_dir" -type f -name "Godot_v*linux*.$arch" 2>/dev/null ;;
@@ -147,51 +202,19 @@ find_editor() {
   esac
   return 0
 }
-editor=""
-if [[ -f "$marker" && "$(cat "$marker")" == "$expected" ]]; then
-  editor="$(find_editor)"
+editor="$(find_editor)"
+count="$(printf '%s' "$editor" | grep -c . || true)"
+if [[ "$count" != 1 ]]; then
+  echo "::error::$file holds $count Godot editors for $suffix under $install_dir; expected one." >&2
+  [[ -z "$editor" ]] || printf '%s\n' "$editor" >&2
+  exit 1
 fi
-if [[ -n "$editor" && "$(printf '%s\n' "$editor" | wc -l | tr -d ' ')" == 1 ]]; then
-  echo "Godot $release ($suffix) is already installed under $install_dir with the pinned digest; not downloading."
-else
-  editor=""
-  # The old install and its link go first, so a refused download leaves no
-  # editor of another release on PATH.
-  rm -rf "$install_dir" "$bin_dir"
-  mkdir -p "$install_dir"
-  if [[ -n "${RUNNER_TEMP:-}" ]]; then
-    dest="$(mktemp -d "${RUNNER_TEMP}/godot.XXXXXX")"
-  else
-    dest="$(mktemp -d)"
-  fi
-  trap 'rm -rf "$dest"' EXIT
-  echo "Downloading $url"
-  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$dest/$file"
-  actual="$(sha256_of "$dest/$file")"
-  if [[ "$actual" != "$expected" ]]; then
-    rm -f "$dest/$file"
-    echo "::error::Checksum mismatch for $file: expected $expected, got $actual." >&2
-    exit 1
-  fi
-  echo "Verified $file (sha256 $actual)"
-  unzip -q -o "$dest/$file" -d "$install_dir"
-  rm -f "$dest/$file"
-  editor="$(find_editor)"
-  count="$(printf '%s' "$editor" | grep -c . || true)"
-  if [[ "$count" != 1 ]]; then
-    echo "::error::$file holds $count Godot editors for $suffix under $install_dir; expected one." >&2
-    [[ -z "$editor" ]] || printf '%s\n' "$editor" >&2
-    exit 1
-  fi
-  chmod +x "$editor"
-  printf '%s\n' "$expected" > "$marker"
-fi
+chmod +x "$editor"
 
 # A link named `godot` on PATH, as the action made it: a hard link on Linux
 # and Windows, a symlink on macOS (a hard link to the binary inside the
 # bundle is killed by the kernel). The .NET build looks for GodotSharp beside
 # the executable, so that directory is linked beside the hard link too.
-rm -rf "$bin_dir"
 mkdir -p "$bin_dir"
 alias_path="$bin_dir/godot"
 case "$os" in

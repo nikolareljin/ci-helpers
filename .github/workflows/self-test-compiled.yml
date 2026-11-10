@@ -1080,6 +1080,7 @@ jobs:
         env:
           GODOT_VERSION: ${{ steps.default.outputs.godot_version }}
           GODOT_USE_DOTNET: "false"
+          GODOT_ARCHIVE_DIR: ${{ runner.temp }}/godot-archive
         run: bash scripts/setup_godot.sh
       - name: godot and $GODOT run in a later step, at the chosen release
         shell: bash
@@ -1095,14 +1096,25 @@ jobs:
           [[ -n "${GODOT:-}" && -n "${GODOT4:-}" ]] || { echo "::error::GODOT or GODOT4 is not exported"; exit 1; }
           [[ "$("$GODOT" --version | tail -n 1 | tr -d '\r')" == "$v" ]] || { echo "::error::\$GODOT is not the same editor"; exit 1; }
           echo "godot $v reaches later steps"
-      - name: A verified install is reused, and the refusals refuse
+      - name: The cached archive is reused after its digest check, the install is rebuilt, and the refusals refuse
         shell: bash
         env:
           GODOT_VERSION: ${{ steps.default.outputs.godot_version }}
+          GODOT_ARCHIVE_DIR: ${{ runner.temp }}/godot-archive
         run: |
           set -euo pipefail
+          # Something a job left in the install directory does not survive.
+          printf 'evil\n' > "$HOME/godot/planted"
           bash scripts/setup_godot.sh > "$RUNNER_TEMP/again.log" 2>&1 || { cat "$RUNNER_TEMP/again.log"; exit 1; }
-          grep -q "already installed" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not reuse the install"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "Using the cached archive" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not use the cached archive"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "Downloading" "$RUNNER_TEMP/again.log" && { echo "::error::the second run downloaded"; exit 1; }
+          [[ -e "$HOME/godot/planted" ]] && { echo "::error::the install directory was not rebuilt"; exit 1; }
+
+          # A tampered cached archive is deleted and downloaded again.
+          printf 'tampered\n' >> "$GODOT_ARCHIVE_DIR"/Godot_v*.zip
+          bash scripts/setup_godot.sh > "$RUNNER_TEMP/tampered-archive.log" 2>&1 || { cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
+          grep -q "deleting it and downloading again" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::the tampered archive was not refused"; cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
+          grep -q "^Verified Godot_v" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::no fresh download after the tampered archive"; exit 1; }
 
           rc=0
           GODOT_VERSION=4.99.0 bash scripts/setup_godot.sh > "$RUNNER_TEMP/unpinned.log" 2>&1 || rc=$?
@@ -1151,10 +1163,13 @@ jobs:
         shell: bash
         env:
           FLUTTER_DRY_RUN: "true"
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/flutter-archive
         run: bash scripts/setup_flutter.sh
       - name: Setup Flutter
         id: flutter
         shell: bash
+        env:
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/flutter-archive
         run: bash scripts/setup_flutter.sh
       - name: flutter and dart run in a later step, at the pinned release
         shell: bash
@@ -1175,12 +1190,24 @@ jobs:
           flutter --version | grep -q "^Flutter $want " || { echo "::error::flutter --version is not $want"; exit 1; }
           dart --version
           echo "flutter $want reaches later steps"
-      - name: A verified SDK is reused, and the refusals refuse
+      - name: The cached archive is reused after its digest check, the SDK is rebuilt, and the refusals refuse
         shell: bash
+        env:
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/flutter-archive
         run: |
           set -euo pipefail
+          # Something a job left in the SDK directory does not survive.
+          printf 'evil\n' > "$FLUTTER_ROOT/../planted"
           bash scripts/setup_flutter.sh > "$RUNNER_TEMP/again.log" 2>&1 || { cat "$RUNNER_TEMP/again.log"; exit 1; }
-          grep -q "already under" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not reuse the SDK"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "Using the cached archive" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not use the cached archive"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "Downloading .*flutter_" "$RUNNER_TEMP/again.log" && { echo "::error::the second run downloaded the archive"; exit 1; }
+          [[ -e "$FLUTTER_ROOT/../planted" ]] && { echo "::error::the SDK directory was not rebuilt"; exit 1; }
+
+          # A tampered cached archive is deleted and downloaded again.
+          printf 'tampered\n' >> "$FLUTTER_ARCHIVE_DIR"/flutter_*
+          bash scripts/setup_flutter.sh > "$RUNNER_TEMP/tampered-archive.log" 2>&1 || { cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
+          grep -q "deleting it and downloading again" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::the tampered archive was not refused"; cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
+          grep -q "^Verified flutter_" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::no fresh download after the tampered archive"; exit 1; }
 
           rc=0
           FLUTTER_VERSION=3.99.0 bash scripts/setup_flutter.sh > "$RUNNER_TEMP/unknown.log" 2>&1 || rc=$?
@@ -1202,7 +1229,7 @@ jobs:
           cat "$RUNNER_TEMP/tamper.log"
           [[ "$rc" == 1 ]] || { echo "::error::exit $rc for a tampered pin, expected 1"; exit 1; }
           grep -q "The published release changed under its version; refusing" "$RUNNER_TEMP/tamper.log" || { echo "::error::no pin refusal"; exit 1; }
-          grep -q "Downloading" "$RUNNER_TEMP/tamper.log" && { echo "::error::an archive was downloaded after the pin refusal"; exit 1; }
+          grep -q "Downloading .*flutter_" "$RUNNER_TEMP/tamper.log" && { echo "::error::an archive was downloaded after the pin refusal"; exit 1; }
           echo "reuse, unknown, master and tampered all behave"
 
   rust-cache-restores-the-previous-job:

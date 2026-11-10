@@ -177,12 +177,33 @@ jobs:
       # Flutter from the official release archive, checked against the
       # manifest's sha256 and, for the pinned default, the library's
       # toolchain-pins.env. A channel name in flutter_version is honoured as
-      # the channel, as before; flutter_channel wins when both are set.
+      # the channel, as before; flutter_channel wins when both are set. The
+      # archive a CI job of the caller saved is restored; this job holds
+      # secrets and saves nothing. The script checks the archive's sha256 on
+      # every run and extracts it fresh, so a cache entry written by another
+      # job cannot put a different SDK on PATH.
+      - name: Resolve Flutter
+        id: flutter_resolve
+        working-directory: ${{ github.workspace }}
+        env:
+          FLUTTER_VERSION: ${{ inputs.flutter_version }}
+          FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
+          FLUTTER_DRY_RUN: "true"
+        run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
+
+      - name: Restore Flutter archive
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: ${{ steps.flutter_resolve.outputs.cache_path }}
+          key: ${{ steps.flutter_resolve.outputs.cache_key }}
+
       - name: Setup Flutter
         working-directory: ${{ github.workspace }}
         env:
           FLUTTER_VERSION: ${{ inputs.flutter_version }}
           FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
+          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
         run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
 
       - name: Flutter pub get
