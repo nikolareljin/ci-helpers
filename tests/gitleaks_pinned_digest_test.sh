@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# gitleaks-scan's install step with curl and uname stubbed: the archive is
-# checked against a digest held in the action, never a checksums file from
-# the release. A version without a pinned digest needs gitleaks_sha256.
+# gitleaks-scan's install step (scripts/install_gitleaks.sh) with curl and
+# uname stubbed: the archive is checked against a digest held in
+# scanner-pins.env, never a checksums file from the release. A version without a pinned digest needs gitleaks_sha256.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,16 +52,23 @@ pins="$ROOT_DIR/scanner-pins.env"
 pinned_ver="$(awk -F= '$1 == "GITLEAKS_VERSION" { print $2 }' "$pins")"
 [[ "$pinned_ver" == "$ver" ]] \
   || { echo "FAIL: gitleaks_version defaults to $default but scanner-pins.env pins GITLEAKS_VERSION=$pinned_ver"; fail=1; }
-wf_default="$(python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); print((d.get(True) or d.get("on"))["workflow_call"]["inputs"]["gitleaks_version"]["default"])' "$ROOT_DIR/.github/workflows/gitleaks-scan.yml")"
-[[ "$wf_default" == "$default" ]] \
-  || { echo "FAIL: gitleaks-scan.yml defaults gitleaks_version to $wf_default, the action to $default"; fail=1; }
+for wf in gitleaks-scan.yml gitleaks-new-findings.yml scan-new-findings.yml; do
+  wf_default="$(python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); print((d.get(True) or d.get("on"))["workflow_call"]["inputs"]["gitleaks_version"]["default"])' "$ROOT_DIR/.github/workflows/$wf")"
+  [[ "$wf_default" == "$default" ]] \
+    || { echo "FAIL: $wf defaults gitleaks_version to $wf_default, the action to $default"; fail=1; }
+done
+diff_default="$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["inputs"]["gitleaks_version"]["default"])' "$ROOT_DIR/.github/actions/gitleaks-diff/action.yml")"
+[[ "$diff_default" == "$default" ]] \
+  || { echo "FAIL: gitleaks-diff defaults gitleaks_version to $diff_default, gitleaks-scan to $default"; fail=1; }
 for key in LINUX_X64 LINUX_ARM64 DARWIN_X64 DARWIN_ARM64 WINDOWS_X64 WINDOWS_ARM64; do
   sha="$(awk -F= -v k="GITLEAKS_SHA256_$key" '$1 == k { print $2 }' "$pins")"
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL: GITLEAKS_SHA256_$key in scanner-pins.env is '$sha'"; fail=1; }
 done
-if grep -q 'pinned=[0-9a-f]\{64\}' "$ACTION"; then
-  echo "FAIL: the action still carries a digest of its own; scanner-pins.env is the one place"; fail=1
-fi
+for action in gitleaks-scan gitleaks-diff; do
+  if grep -q 'pinned=[0-9a-f]\{64\}' "$ROOT_DIR/.github/actions/$action/action.yml"; then
+    echo "FAIL: $action still carries a digest of its own; scanner-pins.env is the one place"; fail=1
+  fi
+done
 
 rc=0; out="$(run_step "$default" "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: an archive that is not the pinned one ran"; fail=1; fi
@@ -74,7 +81,7 @@ grep -q "No pinned sha256 for gitleaks_9.9.9_linux_x64.tar.gz" <<<"$out" || { ec
 
 # A pinned version keeps its pinned digest: gitleaks_sha256 may repeat it, not
 # replace it, so a caller cannot swap in another binary under the pinned tag.
-pinned_sha="$(sed -n "s/.*gitleaks_${ver}_linux_x64.tar.gz) *pinned=\([0-9a-f]*\).*/\1/p" "$ACTION" | head -n1)"
+pinned_sha="$(awk -F= '$1 == "GITLEAKS_SHA256_LINUX_X64" { print $2 }' "$pins")"
 rc=0; out="$(run_step "$default" "$fake_sha")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: gitleaks_sha256 overrode the pinned digest of $default"; fail=1; fi
 grep -q "differs from the digest pinned" <<<"$out" || { echo "FAIL: override not named: $out"; fail=1; }

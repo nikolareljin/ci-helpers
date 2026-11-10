@@ -26,7 +26,7 @@ inputs:
   gitleaks_sha256:
     description: >
       sha256 of the release archive for this runner, required with a
-      gitleaks_version other than v8.30.1, whose digests are pinned here; a different
+      gitleaks_version other than v8.30.1, whose digests are pinned in scanner-pins.env; a different
       digest for that version is refused.
     default: ""
     required: false
@@ -77,97 +77,9 @@ runs:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
         GITLEAKS_SHA256: ${{ inputs.gitleaks_sha256 }}
         ACTION_PATH: ${{ github.action_path }}
-      run: |
-        set -euo pipefail
-        # Normalize: strip any leading "v" then re-add it so both "v8.30.1"
-        # and "8.30.1" produce the correct release URL.
-        ver="${GITLEAKS_VERSION#v}"
-        tag="v${ver}"
-        # Version and digests pinned in this repository's scanner-pins.env.
-        pins="$ACTION_PATH/../../../scanner-pins.env"
-        pin() { awk -F= -v k="$1" '$1 == k { print $2; exit }' "$pins"; }
-
-        # Map uname output to gitleaks release asset naming
-        raw_os=$(uname -s | tr '[:upper:]' '[:lower:]')
-        arch=$(uname -m)
-        case "${arch}" in x86_64) arch="x64" ;; aarch64|arm64) arch="arm64" ;; esac
-
-        case "${raw_os}" in
-          linux)                os="linux"   ; ext="tar.gz" ;;
-          darwin)               os="darwin"  ; ext="tar.gz" ;;
-          mingw*|msys*|cygwin*) os="windows" ; ext="zip"    ;;
-          *)
-            echo "::error::Unsupported runner OS '${raw_os}'. gitleaks-scan supports linux, darwin, and windows." >&2
-            exit 1
-            ;;
-        esac
-
-        archive="gitleaks_${ver}_${os}_${arch}.${ext}"
-        # A private directory per run: fixed /tmp paths are shared by every job
-        # on a self-hosted runner, so one job could swap another's binary.
-        if [ -n "${RUNNER_TEMP:-}" ]; then
-          work=$(mktemp -d "${RUNNER_TEMP}/gitleaks.XXXXXX")
-        else
-          work=$(mktemp -d)
-        fi
-
-        # Direct download from GitHub Releases — no API auth needed for public repos.
-        # Using curl avoids the 401 that gh-cli triggers when github.token is scoped
-        # to a different repo than the one being downloaded from.
-        base_url="https://github.com/gitleaks/gitleaks/releases/download/${tag}"
-        curl -fsSL "${base_url}/${archive}" -o "${work}/${archive}"
-
-        # Verify against a digest held in this repository, never one fetched
-        # beside the archive: a replaced release would bring its own checksums.
-        # scanner-pins.env holds the digests of one version, for each runner.
-        pinned=""
-        if [ "${ver}" = "$(pin GITLEAKS_VERSION)" ]; then
-          pinned="$(pin "GITLEAKS_SHA256_$(printf '%s_%s' "${os}" "${arch}" | tr '[:lower:]' '[:upper:]')")"
-        fi
-        # First field only, lower-cased: a pasted checksums.txt line
-        # ("<hash>  <file>") or an upper-case digest still works.
-        expected="$(printf '%s' "${GITLEAKS_SHA256:-${pinned}}" | awk 'NR == 1 { print tolower($1) }')"
-        if [ -z "${expected}" ]; then
-          echo "::error::No pinned sha256 for ${archive}; pass gitleaks_sha256 (its digest in that release's checksums.txt, checked against a second source). Refusing to run an unverified binary." >&2
-          exit 1
-        fi
-        if [ "${#expected}" -ne 64 ] || [ -n "$(printf '%s' "${expected}" | tr -d '0-9a-f')" ]; then
-          echo "::error::gitleaks_sha256 must be 64 hex characters, got '${expected}'." >&2
-          exit 1
-        fi
-        # A pinned version keeps its pin: the input may repeat it, never replace it.
-        if [ -n "${pinned}" ] && [ "${expected}" != "${pinned}" ]; then
-          echo "::error::gitleaks_sha256 differs from the digest pinned for ${archive}; leave it empty or pass the pinned digest." >&2
-          exit 1
-        fi
-        if command -v sha256sum >/dev/null 2>&1; then
-          # From stdin: given a path with a backslash (a Windows RUNNER_TEMP),
-          # Git Bash's sha256sum prefixes the hash with "\".
-          actual=$(sha256sum < "${work}/${archive}" | awk '{ print $1 }')
-        elif command -v shasum >/dev/null 2>&1; then
-          actual=$(shasum -a 256 < "${work}/${archive}" | awk '{ print $1 }')
-        else
-          echo "::error::Neither sha256sum nor shasum is available to verify ${archive}." >&2
-          exit 1
-        fi
-        if [ "${actual}" != "${expected}" ]; then
-          echo "::error::Checksum mismatch for ${archive}: expected ${expected}, got ${actual}." >&2
-          exit 1
-        fi
-        echo "Verified ${archive} (sha256 ${actual})"
-
-        if [ "${ext}" = "zip" ]; then
-          unzip -q "${work}/${archive}" -d "${work}/bin"
-          GL_BIN="${work}/bin/gitleaks.exe"
-        else
-          mkdir -p "${work}/bin"
-          tar -xzf "${work}/${archive}" -C "${work}/bin" gitleaks
-          GL_BIN="${work}/bin/gitleaks"
-          chmod +x "${GL_BIN}"
-        fi
-        # An output, not GITHUB_ENV, which would also reach every later step
-        # of the caller's job.
-        echo "gl_bin=${GL_BIN}" >> "${GITHUB_OUTPUT}"
+      # Version and digests pinned in this repository's scanner-pins.env,
+      # read by the one installer the gitleaks-scan and gitleaks-diff actions share.
+      run: bash "$ACTION_PATH/../../../scripts/install_gitleaks.sh"
 
     - name: Security checks
       shell: bash

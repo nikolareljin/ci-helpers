@@ -141,6 +141,9 @@ Outputs:
 
 Notes:
 
+- `.gitleaksignore` is read from the pull request's base commit. gitleaks also
+  reads the scanned tree's own `.gitleaksignore`, so one that differs from the
+  base's (added, extended, or a link) fails the step.
 - The gitleaks release archive is verified before it runs against a sha256
   held in this repository (or `gitleaks_sha256`), never against a checksums
   file fetched from the same release; a mismatch or a missing digest fails
@@ -242,6 +245,141 @@ Example:
     scan_path: "."
     severity: medium
 ```
+
+## gitleaks-diff
+
+Path: `.github/actions/gitleaks-diff`
+
+Purpose: Fail on secrets the commits under review add, without exporting scanner results.
+
+Inputs:
+
+- `base_ref` (default `""`) - a full commit sha, or a branch of the remote as `main`, `origin/main` or `refs/remotes/origin/main` (a short sha, a tag, a local branch or `HEAD` is refused); empty reads the pull request's base commit or a push's `before` when that is an ancestor of `HEAD`, else the default branch
+- `scan_path` (default `"."`) - a path inside the git work tree; the scan reads commits, so a subdirectory does not narrow it
+- `config_path` (default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
+- `gitleaks_version` (default `v8.30.1`)
+- `gitleaks_sha256` (default `""`) - required with any version other than `v8.30.1`, whose digests are pinned in `scanner-pins.env`; with `v8.30.1` it may only repeat the pinned digest
+- `fail_on_findings` (default `"true"`) - `false` is refused
+
+Requires `actions/checkout` with `fetch-depth: 0`: the base commit and every
+commit between it and `HEAD` must be present.
+
+Outputs:
+
+- `gl_bin`: path of the gitleaks binary the action downloaded and verified.
+
+Notes:
+
+- The binary is installed by `scripts/install_gitleaks.sh`, the installer
+  `gitleaks-scan` uses, against the digest in `scanner-pins.env`.
+- `scripts/resolve_scan_base.py` finds the base and prints the merge base of
+  it and `HEAD`; the scan is `gitleaks git --log-opts=<merge-base>..HEAD`.
+  No base, a base that is not in the repository, no merge base or an empty
+  range fails the step. Rules and `.gitleaksignore` are read from the merge
+  base, never from the tree under review; since gitleaks also reads the
+  scanned tree's `.gitleaksignore` on its own, one that differs from the
+  merge base's fails the step.
+- No report, SARIF or artifact. A failure names Gitleaks and the branch,
+  links https://nikolareljin.github.io/leak-lock/ and says what to run
+  locally; nothing else is logged.
+
+## foxguard-diff
+
+Path: `.github/actions/foxguard-diff`
+
+Purpose: Fail on Foxguard findings the review adds, without exporting scanner results.
+
+Inputs:
+
+- `base_ref` (default `""`) - as `gitleaks-diff`
+- `scan_path` (default `"."`) - a path inside the git work tree
+- `severity` (default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
+- `config_path` (default `""`) - foxguard config file, relative to the scanned repository, read from the base commit; `.foxguard.yml` at the base when present
+- `allow_unscanned` (default `""`) - changed files foxguard may skip without failing the step; see "Unscannable files" below
+- `fail_on_findings` (default `"true"`) - `false` is refused
+- `foxguard_version` (default `v0.14.1`)
+- `foxguard_sha256` (default `""`) - required with any version other than `v0.14.1`, whose digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest
+
+Requires `actions/checkout` with `fetch-depth: 0`: the merge base's tree is
+what the scan compares with.
+
+Outputs:
+
+- `fg_bin`: path of the foxguard binary the action downloaded and verified.
+
+Notes:
+
+- The binary is installed by `scripts/install_foxguard.sh`, the installer
+  `foxguard-scan` uses, against the digest in `scanner-pins.env`.
+- The scan is `foxguard diff <merge-base>`: only findings the merge base's
+  tree does not have are reported, and a finding whose lines move is not new.
+  A move of identical content inside `scan_path` (a rename, or a swap of two
+  files) is applied to that base first, so a moved file keeps its old
+  findings old; an edited move, a copy whose source stays, one from outside
+  `scan_path`, or any move under a non-empty config is a new file. The base
+  with the moves is written to the runner's temporary directory, not to the
+  caller's repository. foxguard skips files that `.gitignore`,
+  `.git/info/exclude` or `.ignore` name, and the tree under review controls
+  those: the step fails when a `.gitignore` or `.ignore` in the repository
+  is a link, or when the head tree's rules (`git ls-files -i
+  --exclude-standard`, and `.ignore` read the same way) name a changed file.
+  An ignore file edit that hides no changed file passes. foxguard skips
+  hidden paths, names such as `a.min.js` and directories it treats as
+  vendored (`node_modules`, `vendor`, `dist`, `build`), some even when
+  named and on the base side too. So every changed regular file is also
+  copied, as the base and as the head have it, to a neutral path
+  (`f<i>/<name>`, and `g<i>/file.<ext>` for names foxguard skips such as
+  `a.min.js`) in a repository
+  under the runner's temporary directory, and all copies are scanned in one
+  `foxguard diff` call: a new finding in `vendor/x.py` fails, an old one in a
+  file moved into `vendor/` does not. A reviewed config's
+  `scan.ignore_rules` paths that name a changed file follow it to its
+  copy; `secrets.exclude_paths`, `secrets.exclude_path_files` and
+  `secrets.ignore_rules` are dropped for the copies. A changed file
+  over foxguard's `--max-file-size` (1 MiB) would be skipped, so the step
+  fails before the scan, unless its extension is one foxguard does not read
+  (images, archives, fonts, audio, video). A changed file foxguard skips as
+  minified (a line over about 2000 characters), as binary or non-UTF-8, or
+  as a parse error fails the step too; a base copy that does not parse
+  passes. A UTF-16 or UTF-32 file with a byte order mark is copied as UTF-8
+  when no character past ASCII has an ASCII byte in its encoding; a mark
+  before plain ASCII stays raw and fails.
+  A copy whose name Windows reserves (`con.py`, `AUX`, `CONIN$`, `COM` or `LPT` with a superscript digit) gets a `_`
+  prefix. `foxguard-scan` still skips those directories. The
+  reports must name their base and, together, have read at least one file,
+  unless the review adds or changes no file under
+  `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it
+  from the pull request base; a `baseline` entry is refused.
+- No report, SARIF or artifact. A failure names Foxguard and the branch,
+  links https://nikolareljin.github.io/leak-lock/ and says what to run
+  locally; nothing else is logged.
+
+Unscannable files (`allow_unscanned`):
+
+- By default a changed file foxguard cannot read (minified, over 1 MiB, not
+  UTF-8, or not parseable) fails the step: a finding in it would pass unseen.
+- `allow_unscanned` lists glob patterns, separated by commas or newlines,
+  matched against each changed file's path from the repository root,
+  case-sensitive, as UTF-8 text (a byte that is not UTF-8 is one
+  character). `*` matches within a name, a leading `.` too, `?` one
+  character of a name, and a `**` name any number of directories
+  (`static/**/*.min.js`, `**/*.min.js`, `vendor/**`). Everything else is
+  literal: no brackets, no pathspec magic, no shell expansion. An empty
+  entry, an absolute path, a `.` or `..` name, a leading `-`, a `\` or a
+  trailing `/` fails the step before the scan, naming the entry by number.
+- A matching file is exempt from that refusal only. It is copied to a
+  second neutral repository and scanned the same way; its findings fail the
+  step. It is not exempt from the `.gitignore`/`.ignore` check.
+- When any changed file matches, a passing step prints
+  `foxguard-diff: N changed file(s) matched allow_unscanned`:
+  a count, no paths. N counts matching files, read or not.
+- The patterns live in the calling workflow, not in a file of the tree under
+  review, so they are not read from a path the review itself adds. A pull
+  request can still edit the calling workflow, so protect `.github/workflows/`
+  with CODEOWNERS.
+- Trade-off: a file foxguard skips is not analysed at all. Name only files
+  that are generated or vendored and reviewed some other way, and keep the
+  patterns narrow; `**` alone switches the refusal off for the whole review.
 
 ## data-safety-scan
 

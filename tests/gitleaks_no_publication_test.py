@@ -104,6 +104,32 @@ if json.loads(os.environ['REPORT']): sys.exit(3)
         subprocess.run(["git", "-C", str(self.workspace), "add", "."], env=self.env, check=True)
         subprocess.run(["git", "-C", str(self.workspace), "-c", "core.hooksPath=/dev/null", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"], env=self.env, check=True)
 
+    def test_ignore_file_in_the_tree_must_match_the_reviewed_one(self):
+        # gitleaks reads <source>/.gitleaksignore beside the approved copy, so
+        # a tree whose file differs from the base commit's is refused.
+        self.configure('[extend]\nuseDefault = true\n')
+        (self.workspace / ".gitleaksignore").write_text("fingerprint-of-the-planted-secret\n")
+        self.run_scan(1)
+        self.assertFalse((self.base / "called").exists())
+        (self.workspace / ".gitleaksignore").unlink()
+        # Committed on the base: approved, and the same bytes in the tree.
+        (self.workspace / ".gitleaksignore").write_text("fingerprint-of-an-old-finding\n")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "."], env=self.env, check=True)
+        subprocess.run(["git", "-C", str(self.workspace), "-c", "core.hooksPath=/dev/null", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "ignore"], env=self.env, check=True)
+        self.run_scan(0)
+        (self.base / "called").unlink()
+        (self.workspace / ".gitleaksignore").write_text("fingerprint-of-an-old-finding\nfingerprint-of-the-planted-secret\n")
+        self.run_scan(1)
+        self.assertFalse((self.base / "called").exists())
+        (self.workspace / ".gitleaksignore").write_text("fingerprint-of-an-old-finding\n")
+        # Outside a work tree nothing is approved, so any list is refused.
+        external = self.base / "external"
+        external.mkdir()
+        (external / "README.txt").write_text("Ready for inspection.")
+        (external / ".gitleaksignore").write_text("fingerprint\n")
+        self.run_scan(1, SCAN_PATH=str(external))
+        self.assertFalse((self.base / "called").exists())
+
     def test_reviewed_rule_path_is_accepted(self):
         self.configure('[extend]\nuseDefault = true\n[[rules]]\nid = "fixture"\nregex = "fixture"\npath = "fixture"\n')
         self.run_scan(0)

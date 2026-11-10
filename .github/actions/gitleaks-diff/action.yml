@@ -1,0 +1,84 @@
+name: Gitleaks New Findings
+description: Fail on secrets the commits under review add, without publishing scanner output.
+inputs:
+  base_ref:
+    description: >
+      Commit, branch or `origin/` branch the review starts from. Empty reads
+      it from the event: a pull request's base commit, or a push's `before`
+      (a new branch is compared with the default branch). The scan covers
+      `<merge-base>..HEAD`; a base that cannot be resolved fails the step.
+    default: ""
+    required: false
+  scan_path:
+    description: >
+      Path inside the git work tree to review. The scan reads the commits the
+      review adds, so a subdirectory here does not narrow it.
+    default: "."
+    required: false
+  config_path:
+    description: >
+      Optional Gitleaks config file path, relative to the repository, read
+      from the base commit; a config the review adds is not used.
+    default: ""
+    required: false
+  gitleaks_version:
+    description: >
+      Gitleaks release tag to download (e.g. "v8.30.1"). Pin this explicitly
+      for reproducible scans and supply-chain safety.
+    default: "v8.30.1"
+    required: false
+  gitleaks_sha256:
+    description: >
+      sha256 of the release archive for this runner, required with a
+      gitleaks_version other than v8.30.1, whose digests are pinned in
+      scanner-pins.env; a different digest for that version is refused.
+    default: ""
+    required: false
+  fail_on_findings:
+    description: Mandatory enforcement; false is refused.
+    default: "true"
+    required: false
+outputs:
+  gl_bin:
+    description: Path of the gitleaks binary the action downloaded and verified.
+    value: ${{ steps.install.outputs.gl_bin }}
+runs:
+  using: composite
+  steps:
+    - name: Enforce local-only results
+      shell: bash
+      env:
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        if [[ "$FAIL_ON_FINDINGS" != true ]]; then
+          source "$ACTION_PATH/../../../vendor/script-helpers/scripts/security_notice.sh"
+          security_notice Gitleaks
+          exit 1
+        fi
+    - name: Set up scanner configuration interpreter
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
+      with:
+        python-version: '3.12'
+    - name: Install gitleaks binary
+      id: install
+      shell: bash
+      env:
+        GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
+        GITLEAKS_SHA256: ${{ inputs.gitleaks_sha256 }}
+        ACTION_PATH: ${{ github.action_path }}
+      # The installer gitleaks-scan uses, with the pins in scanner-pins.env.
+      run: bash "$ACTION_PATH/../../../scripts/install_gitleaks.sh"
+
+    - name: Security checks on the commits under review
+      shell: bash
+      env:
+        GL_BIN: ${{ steps.install.outputs.gl_bin }}
+        GITLEAKS_BIN: ${{ steps.install.outputs.gl_bin }}
+        BASE_REF: ${{ inputs.base_ref }}
+        SCAN_PATH: ${{ inputs.scan_path }}
+        CONFIG_PATH: ${{ inputs.config_path }}
+        FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/run.sh"

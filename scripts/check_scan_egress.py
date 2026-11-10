@@ -63,7 +63,10 @@ except ImportError:  # pragma: no cover
     print("PyYAML is required", file=sys.stderr)
     sys.exit(2)
 
-SCAN_WORKFLOWS = {"codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml"}
+SCAN_WORKFLOWS = {
+    "codeql-scan.yml", "gitleaks-check.yml", "security-weekly.yml",
+    "gitleaks-new-findings.yml", "foxguard-new-findings.yml", "scan-new-findings.yml",
+}
 
 # A `uses:` must be in canonical form or it is refused, never normalised:
 # lowercase, no empty, `.` or `..` segment, no trailing `/`, a 40-hex pin.
@@ -301,7 +304,10 @@ def main() -> int:
         p for p in yaml_files(root / ".github/workflows", "*")
         if p.stem.endswith("-scan") or p.with_suffix(".yml").name in SCAN_WORKFLOWS
     )
-    actions = sorted(yaml_files(root / ".github/actions", "*-scan/action"))
+    actions = sorted(
+        yaml_files(root / ".github/actions", "*-scan/action")
+        + yaml_files(root / ".github/actions", "*-diff/action")
+    )
     if not workflows and not actions and not yaml_files(root / ".github", "**/*"):
         print(f"no scan workflow or action under {root}", file=sys.stderr)
         return 2

@@ -100,15 +100,22 @@ def main():
     placed = None
     repo = git("rev-parse", "--show-toplevel")
     if repo.returncode == 0:
-        base = "HEAD"
-        event_path = os.environ.get("GITHUB_EVENT_PATH")
-        if event_path:
-            event = json.loads(Path(event_path).read_text())
-            pull = event.get("pull_request")
-            if pull:
-                base = pull["base"]["sha"]
-                if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
-                    return 1
+        # REVIEWED_REF names the commit a diff scan compares against; the
+        # full scans leave it unset and read the pull request's base commit.
+        base = os.environ.get("REVIEWED_REF", "")
+        if base:
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
+                return 1
+        else:
+            base = "HEAD"
+            event_path = os.environ.get("GITHUB_EVENT_PATH")
+            if event_path:
+                event = json.loads(Path(event_path).read_text())
+                pull = event.get("pull_request")
+                if pull:
+                    base = pull["base"]["sha"]
+                    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
+                        return 1
         if git("cat-file", "-e", base + "^{commit}").returncode:
             return 1
         config_ref = base + ":" + (configured or ".foxguard.yml")
