@@ -50,12 +50,17 @@ clean() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
 }
 
-# Build-affecting variables, by name.
+# Build-affecting variables, by exact name or a closed pattern: no open
+# prefix, so a name nobody listed (CC_GITHUB_PAT) is never hashed.
+arch='(x86_64|aarch64|i686|i586|armv7|arm|thumbv7em|riscv64gc|riscv32imac|wasm32|powerpc64le|s390x|loongarch64)'
+arch_uc='(X86_64|AARCH64|I686|I586|ARMV7|ARM|THUMBV7EM|RISCV64GC|RISCV32IMAC|WASM32|POWERPC64LE|S390X|LOONGARCH64)'
+pkey='(OPT_LEVEL|DEBUG|SPLIT_DEBUGINFO|STRIP|DEBUG_ASSERTIONS|OVERFLOW_CHECKS|LTO|PANIC|INCREMENTAL|CODEGEN_UNITS|RPATH)'
 allow='RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_ENCODED_RUSTDOCFLAGS|CARGO_INCREMENTAL'
-allow="$allow"'|CARGO_PROFILE_[A-Z0-9_]+|CARGO_BUILD_[A-Z0-9_]+|CARGO_TARGET_[A-Z0-9_]+_(LINKER|RUNNER|RUSTFLAGS)'
-allow="$allow"'|CC|CXX|AR|CC_[A-Za-z0-9_]+|CXX_[A-Za-z0-9_]+|AR_[A-Za-z0-9_]+'
-allow="$allow"'|CFLAGS|CFLAGS_[A-Za-z0-9_]+|CXXFLAGS|CXXFLAGS_[A-Za-z0-9_]+|LDFLAGS'
-allow="$allow"'|CMAKE_GENERATOR|CMAKE_BUILD_TYPE|CMAKE_TOOLCHAIN_FILE|RUSTC|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN'
+allow="$allow|CARGO_BUILD_(TARGET|RUSTFLAGS|RUSTDOCFLAGS|INCREMENTAL|RUSTC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER)"
+allow="$allow|CARGO_PROFILE_[A-Z0-9]+(_BUILD_OVERRIDE)?_$pkey"
+allow="$allow|CARGO_TARGET_${arch_uc}_[A-Z0-9_]+_(LINKER|RUNNER|RUSTFLAGS)"
+allow="$allow|(CC|CXX|AR|CFLAGS|CXXFLAGS|LDFLAGS)(_${arch}_[a-z0-9_]+)?|(TARGET|HOST)_(CC|CXX|AR|CFLAGS|CXXFLAGS)"
+allow="$allow|CMAKE_GENERATOR|CMAKE_BUILD_TYPE|CMAKE_TOOLCHAIN_FILE|RUSTC|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN"
 
 files="$(cd "$workspace" && find . \( -name target -prune \) -o -type f \( \
     -name Cargo.lock -o -name Cargo.toml -o -name rust-toolchain -o -name rust-toolchain.toml \
@@ -72,7 +77,7 @@ hash="$(
     # a proxy URL, a registry token or any other secret never reaches a key.
     # The secret-word exclusion is kept on top of it.
     env | LC_ALL=C grep -E "^(${allow})=" \
-      | LC_ALL=C grep -Ev '^[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASS|CREDENTIAL|AUTH|KEY|PROXY)[A-Za-z0-9_]*=' \
+      | LC_ALL=C grep -Ev '^[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASS|PWD|PW|PAT|CREDENTIAL|AUTH|KEY|PROXY)[A-Za-z0-9_]*=' \
       | LC_ALL=C sort || true
   } | sha256_stdin | head -c16
 )"

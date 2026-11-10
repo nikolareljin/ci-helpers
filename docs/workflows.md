@@ -2320,13 +2320,18 @@ build job of `tauri-release.yml`: `~/.cargo/registry/index`,
 under a key of the runner OS and architecture, the job id, the `runner` label
 (the Linux jobs), the rustc commit, and a hash of every `Cargo.lock`,
 `Cargo.toml`, `rust-toolchain[.toml]` and `.cargo/config[.toml]` under the
-workspace plus an allowlist of build-affecting variables: `RUSTFLAGS`,
-`RUSTDOCFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_INCREMENTAL`,
-`CARGO_PROFILE_*`, `CARGO_BUILD_*`, `CARGO_TARGET_*_LINKER`/`_RUNNER`/`_RUSTFLAGS`,
-`CC`, `CXX`, `AR` (and their `_<target>` forms), `CFLAGS*`, `CXXFLAGS*`,
-`LDFLAGS`, `CMAKE_GENERATOR`, `CMAKE_BUILD_TYPE`, `CMAKE_TOOLCHAIN_FILE`,
-`RUSTC`, `RUSTC_WRAPPER` and `RUSTUP_TOOLCHAIN`, less any name holding
-`TOKEN`, `SECRET`, `PASS`, `CREDENTIAL`, `AUTH`, `KEY` or `PROXY`
+workspace plus build-affecting variables named exactly: `RUSTFLAGS`,
+`RUSTDOCFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_INCREMENTAL`, the documented
+`CARGO_BUILD_*` keys (`TARGET`, `RUSTFLAGS`, `RUSTDOCFLAGS`, `INCREMENTAL`,
+`RUSTC`, `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER`),
+`CARGO_PROFILE_<name>[_BUILD_OVERRIDE]_<key>` for cargo's profile keys,
+`CARGO_TARGET_<TRIPLE>_LINKER`/`_RUNNER`/`_RUSTFLAGS`, `CC`, `CXX`, `AR`,
+`CFLAGS`, `CXXFLAGS`, `LDFLAGS` (bare or with a `_<triple>` suffix),
+`TARGET_`/`HOST_` forms of the compiler variables, `CMAKE_GENERATOR`,
+`CMAKE_BUILD_TYPE`, `CMAKE_TOOLCHAIN_FILE`, `RUSTC`, `RUSTC_WRAPPER` and
+`RUSTUP_TOOLCHAIN`. A triple must start with a known architecture (`x86_64`,
+`aarch64`, `armv7`, `wasm32`, ...). Names holding `TOKEN`, `SECRET`, `PASS`,
+`PW`, `PWD`, `PAT`, `CREDENTIAL`, `AUTH`, `KEY` or `PROXY` are dropped as well
 (`scripts/rust_cache_key.sh`). A cargo-specific cache hashes every `CARGO*`,
 `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable; this one does not, so
 a registry token or proxy URL is never hashed into a key that anyone with read
