@@ -113,6 +113,9 @@ pin() {
 run_container() {
   local image="$1" step="$2"; shift 2
   local cmd=(docker run --rm --shm-size=1025m --workdir /github/workspace
+             --security-opt no-new-privileges
+             --cap-drop NET_RAW --cap-drop MKNOD --cap-drop SYS_CHROOT
+             --cap-drop SETFCAP --cap-drop AUDIT_WRITE
              --cidfile "$work/cid"
              --env "CI_HELPERS_UNITY_STEP=$step"
              --env UNITY_EMAIL --env UNITY_PASSWORD
@@ -137,6 +140,13 @@ if [[ "$mode" == return ]]; then
   image="$(head -n 1 "$image_file" 2>/dev/null || true)"
   [[ "$image" =~ ^docker\.io/unityci/editor:ubuntu-[0-9]+\.[0-9]+\.[0-9]+[a-z][0-9]+-(linux-il2cpp|base)-[0-9]+(\.[0-9]+)*@sha256:[0-9a-f]{64}$ ]] \
     || refuse "no pinned image recorded by the test run in $image_file; cannot return the licence."
+  # A cancelled or timed-out test step kills the docker client, not the
+  # container: --rm only removes it once it exits. Stop it before a second
+  # editor opens the same home directory.
+  left="$(head -n 1 "$work/cid" 2>/dev/null || true)"
+  if [[ "$left" =~ ^[0-9a-f]{64}$ ]]; then
+    docker rm -f "$left" >/dev/null 2>&1 || true
+  fi
   echo "Returning the licence activated by this run"
   rc=0
   run_container "$image" return || rc=$?

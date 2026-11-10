@@ -34,7 +34,8 @@ step="${CI_HELPERS_UNITY_STEP:-}"
 
 # redacted <log>: the editor prints its command line one argument per line;
 # the line after -serial, -username or -password is hidden, and so is any
-# line holding one of the values. awk reads them from the environment, so
+# line holding one of the values (each line of a multi-line value, and the
+# serial as the editor masks it). awk reads them from the environment, so
 # no value is an argument here either.
 redacted() {
   awk '
@@ -42,8 +43,16 @@ redacted() {
       for (k in keys) if (keys[k] != "" && index(s, keys[k]) > 0) return 1
       return 0
     }
+    function add(v,  parts, i, n) {
+      n = split(v, parts, "\n")
+      for (i = 1; i <= n; i++) if (parts[i] != "") keys[++nk] = parts[i]
+    }
     BEGIN {
-      keys[1] = ENVIRON["UNITY_SERIAL"]; keys[2] = ENVIRON["UNITY_EMAIL"]; keys[3] = ENVIRON["UNITY_PASSWORD"]
+      nk = 0
+      s = ENVIRON["UNITY_SERIAL"]
+      add(s); add(ENVIRON["UNITY_EMAIL"]); add(ENVIRON["UNITY_PASSWORD"])
+      # The editor prints the serial with its last four characters as XXXX.
+      if (length(s) > 4) add(substr(s, 1, length(s) - 4) "XXXX")
     }
     skip { print "***"; skip = 0; next }
     $0 == "-serial" || $0 == "-username" || $0 == "-password" { print; skip = 1; next }

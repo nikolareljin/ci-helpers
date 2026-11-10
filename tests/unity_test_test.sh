@@ -145,7 +145,7 @@ no_secret_in_argv() {
 # ---- the editor run ----
 name="editmode runs the pinned image with the action's mounts and environment"
 if run "$name" 0; then
-  argv_has "run --rm --shm-size=1025m --workdir /github/workspace --cidfile $work/tmp/ci-helpers-unity/cid --env CI_HELPERS_UNITY_STEP=test --env UNITY_EMAIL --env UNITY_PASSWORD --volume $work/tmp/ci-helpers-unity/home:/root --volume $work/tmp/ci-helpers-unity/BlankProject:/BlankProject --volume $work/tmp/ci-helpers-unity/steps:/steps:ro --env UNITY_SERIAL"
+  argv_has "run --rm --shm-size=1025m --workdir /github/workspace --security-opt no-new-privileges --cap-drop NET_RAW --cap-drop MKNOD --cap-drop SYS_CHROOT --cap-drop SETFCAP --cap-drop AUDIT_WRITE --cidfile $work/tmp/ci-helpers-unity/cid --env CI_HELPERS_UNITY_STEP=test --env UNITY_EMAIL --env UNITY_PASSWORD --volume $work/tmp/ci-helpers-unity/home:/root --volume $work/tmp/ci-helpers-unity/BlankProject:/BlankProject --volume $work/tmp/ci-helpers-unity/steps:/steps:ro --env UNITY_SERIAL"
   argv_has "--env GITHUB_WORKSPACE=/github/workspace --volume $work/ws/game:/github/workspace/game --volume $work/ws/artifacts:/github/workspace/artifacts --volume $work/ws/CodeCoverage:/github/workspace/CodeCoverage"
   argv_lacks "--volume $work/ws:/github/workspace"
   argv_lacks "$root"
@@ -290,6 +290,20 @@ run "a run to return" 0
 STUB_RC=1 run "$name" 0 --return-license && says "::warning::returning the licence failed"
 name="a return without the account is refused"
 UNITY_PASSWORD='' run "$name" 4 --return-license && says "needed to return"
+name="a container left running by a cancelled run is removed before the return"
+run "a run to return" 0
+cid=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+printf '%s\n' "$cid" > "$work/tmp/ci-helpers-unity/cid"
+if run "$name" 0 --return-license; then
+  argv_has "rm -f $cid"
+  [[ "$(head -n 1 "$work/log")" == "rm -f $cid" ]] || { echo "FAIL $name: the leftover container is not removed first:"; argv; fail=1; }
+fi
+name="a cid file that is not a container id is not passed to docker"
+run "a run to return" 0
+printf '%s\n' '--help; id' > "$work/tmp/ci-helpers-unity/cid"
+run "$name" 0 --return-license && argv_lacks "rm -f" && argv_lacks "--help"
+name="the container runs without new privileges and without the capabilities the editor does not use"
+run "$name" 0 && argv_has "--security-opt no-new-privileges --cap-drop NET_RAW --cap-drop MKNOD --cap-drop SYS_CHROOT --cap-drop SETFCAP --cap-drop AUDIT_WRITE"
 
 # ---- the container script against a stub editor ----
 # The stub records each call's argv, one line, to EDITOR_LOG; writes the
@@ -301,12 +315,13 @@ cat > "$work/editor/unity-editor" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$EDITOR_LOG"
-log=""; results=""; mode=test
+log=""; results=""; mode=test; ser=""
 prev=""
 for a in "$@"; do
   case "$prev" in
     -logFile) log="$a" ;;
     -testResults) results="$a" ;;
+    -serial) ser="$a" ;;
   esac
   case "$a" in
     -serial) mode=activate ;;
@@ -315,7 +330,8 @@ for a in "$@"; do
   prev="$a"
 done
 if [[ -n "$log" ]]; then
-  { echo "COMMAND LINE ARGUMENTS:"; printf '%s\n' "$0" "$@"; echo "LICENSE SYSTEM [2026] Next license update check"; } > "$log"
+  { echo "COMMAND LINE ARGUMENTS:"; printf '%s\n' "$0" "$@"; echo "LICENSE SYSTEM [2026] Next license update check"
+    [[ -n "$ser" ]] && echo "[Licensing::Module] serial ${ser:0:${#ser}-4}XXXX"; } > "$log"
 fi
 case "$mode" in
   activate) exit "${EDITOR_ACTIVATE_RC:-0}" ;;
@@ -339,7 +355,7 @@ container() {
     TEST_PLATFORMS="${TEST_PLATFORMS-editmode}" UNITY_VERSION=6000.0.23f1 \
     COVERAGE_ENABLED="${COVERAGE_ENABLED-true}" COVERAGE_OPTIONS="opts;more" \
     CUSTOM_PARAMETERS="${CUSTOM_PARAMETERS-}" UNITY_ACTIVATION_RETRY_DELAY=0 \
-    UNITY_SERIAL="${UNITY_SERIAL-$serial}" UNITY_EMAIL="$email" UNITY_PASSWORD="$password" \
+    UNITY_SERIAL="${UNITY_SERIAL-$serial}" UNITY_EMAIL="$email" UNITY_PASSWORD="${UNITY_PASSWORD_OVERRIDE-$password}" \
     bash "$root/scripts/unity_container.sh" > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
@@ -388,6 +404,13 @@ if EDITOR_ACTIVATE_RC=1 container "$name" 1; then
   says "***"
   silent_on "$password"; silent_on "$serial"; silent_on "$email"
   if grep -q -- "-runTests" "$work/elog"; then echo "FAIL $name: tests ran after a failed activation"; fail=1; fi
+fi
+
+name="container: a multi-line password and the editor's masked serial are redacted line by line"
+pw2=$'first-pw-line\nsecond-pw-line'
+masked="${serial:0:${#serial}-4}XXXX"
+if EDITOR_ACTIVATE_RC=1 UNITY_PASSWORD_OVERRIDE="$pw2" container "$name" 1; then
+  silent_on "first-pw-line"; silent_on "second-pw-line"; silent_on "$masked"
 fi
 
 name="container: return runs -returnlicense with the account and no serial"

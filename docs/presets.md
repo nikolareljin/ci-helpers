@@ -934,7 +934,11 @@ from the step's environment, and no value is in an argument of the `docker run`
 the log shows. A Personal `.ulf` is turned into its serial by the script, as the
 action did. The activation log stays inside the container and is printed only when
 activation fails, with the serial, user and password replaced by `***`. A separate
-step returns the licence after the tests, whatever they did.
+step returns the licence after the tests, whatever they did, first removing a
+test container that a cancelled or timed-out step left running. The containers
+run with `no-new-privileges`, without the `NET_RAW`, `MKNOD`, `SYS_CHROOT`,
+`SETFCAP` and `AUDIT_WRITE` capabilities, and with no docker socket or host
+network.
 
 ### The editor image
 
