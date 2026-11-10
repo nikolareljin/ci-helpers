@@ -452,9 +452,10 @@ step() {
     summary) block=summary.sh ;;
     *) echo "FAIL $name: no such step block"; fail=1; return 1 ;;
   esac
-  : > "$work/log"; : > "$work/gh-out"
+  : > "$work/log"; : > "$work/gh-out"; : > "$work/summary"
   (cd "$wsf" && PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_ENV="$work/env" \
     RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$work/gh-out" GITHUB_ACTIONS=true \
+    GITHUB_STEP_SUMMARY="$work/summary" \
     TOOLCHAIN_PINS="$work/pins.env" GITHUB_WORKSPACE="$wsf" \
     WF_SHA="${WF_SHA-$sha}" LIB="${LIB-$lib}" LIB_HASH="${LIB_HASH-$hash}" \
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
@@ -500,7 +501,9 @@ if [[ -n "$lib" && -n "$hash" ]]; then
   step "$name" 0 return && argv_has "--env CI_HELPERS_UNITY_STEP=return"
   name="workflow: the summary step reads the results"
   mkdir -p "$wsf/artifacts" && cp "$work/cws/artifacts/editmode-results.xml" "$wsf/artifacts/" 2>/dev/null || true
-  step "$name" 0 summary && says "## Unity tests (editmode)"
+  if step "$name" 0 summary; then
+    grep -qF "## Unity tests (editmode)" "$work/summary" || { echo "FAIL $name: no heading in the step summary:"; cat "$work/summary"; fail=1; }
+  fi
 
   # Tampered, each way the check must see: a changed script, a new file, a
   # hash that is not the copy's. No step runs a script from it.
