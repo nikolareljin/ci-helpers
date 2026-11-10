@@ -72,13 +72,28 @@ EOF
 # RUN_ATTEMPT are given, so the test reads the same on a runner.
 run() {
   local name="$1" want="$2" script="$3" rc=0; shift 3
+  case "$script" in
+    setup_qemu.sh) script=setup_qemu.sh ;;
+    setup_buildx.sh) script=setup_buildx.sh ;;
+    docker_login.sh) script=docker_login.sh ;;
+    docker_build.sh) script=docker_build.sh ;;
+    *) echo "FAIL $name: no such script '$script'"; fail=1; return 1 ;;
+  esac
+  # The scripts' only flags; anything else is a mistake in this test.
+  local flag=()
+  case "${1:-}" in
+    "") ;;
+    --logout) flag=(--logout) ;;
+    --remove) flag=(--remove) ;;
+    *) echo "FAIL $name: unexpected argument"; fail=1; return 1 ;;
+  esac
   rm -rf "${work:?}/gh"; mkdir -p "$work/gh"
   : > "$work/log"; : > "$work/stdin"; rm -f "$work"/env.*
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_STDIN="$work/stdin" STUB_ENV="$work/env" \
     TOOLCHAIN_PINS="${PINS:-$work/pins.env}" RUNNER_TEMP="$work" GITHUB_OUTPUT="$work/gh/out" \
     GITHUB_SERVER_URL="${SERVER_URL:-}" GITHUB_REPOSITORY="${REPO:-}" \
     GITHUB_RUN_ID="${RUN_ID:-}" GITHUB_RUN_ATTEMPT="${RUN_ATTEMPT:-}" \
-    bash "$root/scripts/$script" "$@" > "$work/out" 2>&1 || rc=$?
+    bash "$root/scripts/$script" ${flag[@]+"${flag[@]}"} > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
   fi
@@ -254,8 +269,17 @@ if TAGS=t BUILD_SECRET_ENVS=$'npm=STUB_VAR_NPM\npem=STUB_VAR_PEM\ncr=STUB_VAR_CR
   if grep -q 'id=npm' "$work/out"; then echo "FAIL $name: the secret id is in the log"; fail=1; fi
   # Verbatim where BuildKit reads it: the stub wrote each variable's value to a file.
   seen() {
+    local var
+    case "$1" in
+      STUB_VAR_NPM) var=STUB_VAR_NPM ;;
+      STUB_VAR_PEM) var=STUB_VAR_PEM ;;
+      STUB_VAR_CR) var=STUB_VAR_CR ;;
+      STUB_VAR_SP) var=STUB_VAR_SP ;;
+      STUB_VAR_SHORT) var=STUB_VAR_SHORT ;;
+      *) echo "FAIL $name: unknown variable"; fail=1; return ;;
+    esac
     printf '%s' "$2" > "$work/want"
-    cmp -s "$work/want" "$work/env.$1" || { echo "FAIL $name: docker saw $1 as '$(cat -A "$work/env.$1" 2>/dev/null)', not '$(cat -A "$work/want")'"; fail=1; }
+    cmp -s "$work/want" "$work/env.$var" || { echo "FAIL $name: docker saw $var as '$(cat -A "$work/env.$var" 2>/dev/null)', not '$(cat -A "$work/want")'"; fail=1; }
   }
   seen STUB_VAR_NPM 'hunter2-value'
   seen STUB_VAR_PEM "$pem"
