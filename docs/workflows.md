@@ -330,6 +330,27 @@ Notes:
 
 - iOS builds/uploads require a macOS runner.
 - For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
+- Ruby comes from the runner's tool cache through `scripts/setup_ruby.sh`,
+  which the job checks out from this library at the workflow's own commit; no
+  third-party action, and no download. `ruby_version` is matched as
+  `ruby/setup-ruby` matched it: `3` is the newest 3.y.z the cache holds,
+  `3.4` the newest 3.4.z, `3.4.12` that release only; empty reads
+  `.ruby-version`, `.tool-versions` or `mise.toml` at the workspace root. The hosted Ubuntu,
+  macOS and Windows images cache Ruby 3.2, 3.3, 3.4 and 4.0; a version the
+  cache lacks fails the `Setup Ruby` step with the versions it holds. A
+  self-hosted `runner` needs the Ruby under `$RUNNER_TOOL_CACHE/Ruby/<x.y.z>/<x64|arm64>`.
+- With a `Gemfile`, gems install under `vendor/bundle` and `actions/cache`
+  holds them, keyed by OS, architecture, the Ruby chosen and the
+  `Gemfile.lock` hash; with a `Gemfile.lock` the install is frozen
+  (`bundle config set --local deployment true`), so a `Gemfile` that disagrees
+  with it fails at `Install gems`. Without a `Gemfile`, fastlane is installed
+  at the version pinned in the library's `toolchain-pins.env`
+  (`FASTLANE_VERSION`). `gem install` checks no digest, so that pin is the
+  version only; commit a `Gemfile.lock` to pin the whole dependency tree.
+- Every toolchain step (Java, Flutter, `flutter pub get`, Ruby, gems,
+  fastlane) runs before any step that reads a secret; the keystore, the Play
+  service account file and the App Store Connect key are written right
+  before the steps that use them and removed by an `always()` cleanup step.
 - This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
 
 Inputs:
@@ -2702,6 +2723,27 @@ Workflow: `.github/workflows/docker-multiarch.yml`
 Purpose: Build and push a multi-architecture Docker image (`linux/amd64` +
 `linux/arm64` by default) using QEMU + buildx. Optionally runs a Trivy
 vulnerability scan on the pushed image.
+
+Every step runs the docker CLI the runner ships, through scripts the job
+checks out from this library at the workflow's own commit; no third-party
+action. `scripts/setup_qemu.sh` registers the emulators by running the binfmt
+image pinned by tag and index digest in the library's `toolchain-pins.env`
+(`BINFMT_IMAGE`), every platform. `scripts/setup_buildx.sh` creates a
+`docker-container` builder on the BuildKit image pinned there
+(`BUILDKIT_IMAGE`); a runner without the buildx plugin fails with the message
+saying so. `scripts/docker_login.sh` hands `registry_token` to `docker login
+--password-stdin`, so the token is in no argument and no log, and logs out in a
+final step whatever the build did; an Amazon ECR host is refused (get a login
+password with `aws ecr get-login-password` in the caller and pass it as the
+token, with `registry_username: AWS`). `scripts/docker_build.sh` runs `docker
+buildx build` with the context, Dockerfile, platforms, tags, build-args, the
+Actions cache both ways (`type=gha`, exposed to buildx by GitHub's own script
+action) and `--push`; provenance is `mode=max` for a public repository and
+`mode=min,inline-only=true` for a private one. The printed command masks
+build-arg values. No build secret is passed, as before; a caller's own step can
+run `scripts/docker_build.sh` with `BUILD_SECRET_ENVS` (`id=VARIABLE` per
+line), which mounts `--secret id=<id>,env=<VARIABLE>` and never handles the
+value.
 
 Inputs:
 

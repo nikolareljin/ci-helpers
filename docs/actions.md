@@ -459,7 +459,7 @@ for each and how to turn pfx on.
 |------|------|---------------|-----|
 | `tauri_updater` | **Free** | `.sig` updater bundles (ED25519) | Checks the key; with `export_env: "true"` also sets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in `GITHUB_ENV` |
 | `pfx` | CA price, or free with a private CA | MSI + EXE Authenticode | Without `files_folder`: checks the PFX opens and holds an unexpired code-signing key. With it: signs, timestamps and verifies every `.exe` and `.msi` under it |
-| `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a separate `azure/trusted-signing-action` step |
+| `azure` | Paid | MSI + EXE Authenticode | Checks the credentials; with `export_env: "true"` also writes them to `GITHUB_ENV`. Signing is a separate `azure/artifact-signing-action` step |
 
 Inputs:
 
@@ -499,7 +499,7 @@ Notes:
 
 - All secret inputs are masked with `::add-mask::` before any output.
 - `export_env` is off by default: pass the updater key to the build step's
-  `env:` and the Azure values to `azure/trusted-signing-action` yourself, as
+  `env:` and the Azure values to `azure/artifact-signing-action` yourself, as
   `tauri-release.yml` does. Set `"true"` only when a later step must read them
   from the environment and cannot take `env:`. The cost: every later step in
   the job, including dependency installs and build scripts, can read them.
@@ -513,7 +513,7 @@ Notes:
   imported into a certificate store. Publicly trusted certificates issued
   since 2023-06-01 have hardware-bound keys and cannot be exported to a
   `.pfx`; see [Windows signing](windows-signing.md).
-- `azure` mode: the actual signing happens via `azure/trusted-signing-action`
+- `azure` mode: the actual signing happens via `azure/artifact-signing-action`
   in a separate step, in the same kind of signing-only job. This action only
   checks the credentials.
 - Generate a free updater key with: `cargo tauri signer generate -w ~/.tauri/myapp.key`

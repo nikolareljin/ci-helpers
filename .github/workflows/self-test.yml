@@ -2161,6 +2161,241 @@ jobs:
           fi
           echo "empty and whitespace are refused with a reason, a real language is not"
 
+  # docker-multiarch's build path, without a registry: the binfmt image
+  # pinned in toolchain-pins.env, a docker-container builder on the pinned
+  # BuildKit, and docker_build.sh for linux/amd64 and linux/arm64 with the
+  # Actions cache both ways. The fixture's RUN asserts its own output, so the
+  # arm64 half built under emulation. The result is an OCI layout, read
+  # back: its index must carry both platforms.
+  docker-multiarch-builds-both-platforms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU from the pinned binfmt image
+        id: qemu
+        shell: bash
+        env:
+          QEMU_PLATFORMS: linux/arm64
+        run: bash scripts/setup_qemu.sh
+
+      - name: The kernel now runs arm64 binaries
+        shell: bash
+        env:
+          PLATFORMS: ${{ steps.qemu.outputs.platforms }}
+        run: |
+          set -euo pipefail
+          case ",$PLATFORMS," in
+            *,linux/arm64,*) echo "linux/arm64 is in: $PLATFORMS" ;;
+            *) echo "::error::binfmt reports '$PLATFORMS', without linux/arm64"; exit 1 ;;
+          esac
+
+      - name: Set up a builder on the pinned BuildKit
+        id: buildx
+        shell: bash
+        run: bash scripts/setup_buildx.sh
+
+      - name: Expose the Actions cache to buildx
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
+        with:
+          script: |
+            const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+            if (!token) {
+              core.setFailed('ACTIONS_RUNTIME_TOKEN is not set; the build cache (type=gha) needs it');
+              return;
+            }
+            core.setSecret(token);
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', token);
+            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_CACHE_URL', 'ACTIONS_CACHE_SERVICE_V2']) {
+              if (process.env[name]) core.exportVariable(name, process.env[name]);
+            }
+
+      - name: Build the fixture for both platforms into an OCI layout
+        id: build
+        shell: bash
+        env:
+          CONTEXT: tests/fixtures/docker-image
+          PLATFORMS: linux/amd64,linux/arm64
+          TAGS: ci-helpers-selftest/multiarch:test
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          OUTPUTS: type=oci,dest=${{ runner.temp }}/multiarch.tar
+          CACHE_FROM: type=gha,scope=self-test-multiarch
+          CACHE_TO: type=gha,mode=max,scope=self-test-multiarch
+          PUSH: "false"
+        run: bash scripts/docker_build.sh
+
+      - name: The index carries linux/amd64 and linux/arm64
+        shell: bash
+        env:
+          TARBALL: ${{ runner.temp }}/multiarch.tar
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+        run: |
+          set -euo pipefail
+          [[ -s "$TARBALL" ]] || { echo "::error::no OCI layout at $TARBALL"; exit 1; }
+          python3 - "$TARBALL" <<'PY'
+          import json, sys, tarfile
+          tar = tarfile.open(sys.argv[1])
+          def read(name):
+              return json.load(tar.extractfile(name))
+          index = read("index.json")
+          # A multi-platform OCI output nests the image index under the top one.
+          if len(index["manifests"]) == 1 and index["manifests"][0]["mediaType"].endswith("image.index.v1+json"):
+              index = read("blobs/" + index["manifests"][0]["digest"].replace(":", "/"))
+          platforms = sorted(f"{m['platform']['os']}/{m['platform']['architecture']}"
+                             for m in index["manifests"] if m.get("platform", {}).get("os") not in (None, "unknown"))
+          print("platforms in the index:", ", ".join(platforms))
+          missing = {"linux/amd64", "linux/arm64"} - set(platforms)
+          if missing:
+              raise SystemExit(f"the index lacks {sorted(missing)}")
+          PY
+          echo "image id: ${IMAGE_ID:-none}"
+
+      - name: Remove the builder
+        if: ${{ always() && steps.buildx.outputs.name != '' }}
+        shell: bash
+        env:
+          BUILDX_NAME: ${{ steps.buildx.outputs.name }}
+        run: bash scripts/setup_buildx.sh --remove
+
+  # docker-multiarch's registry path, against a registry of this job's own:
+  # a digest-pinned registry container on 127.0.0.1:5000 with password auth.
+  # The wrong password is refused at login and not later; the right one gets
+  # a push whose digest the registry confirms, and the logout leaves no
+  # credential behind. Single platform: emulation is the leg above's.
+  docker-multiarch-logs-in-and-pushes-to-a-local-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REGISTRY: 127.0.0.1:5000
+      REGISTRY_USERNAME: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Start a registry that asks for a password
+        shell: bash
+        env:
+          TEST_LOGIN: this-is-the-self-test-login
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends apache2-utils
+          mkdir -p "$RUNNER_TEMP/auth"
+          htpasswd -Bbn ci "$TEST_LOGIN" > "$RUNNER_TEMP/auth/htpasswd"
+          docker run -d --name self-test-registry -p 127.0.0.1:5000:5000 \
+            -v "$RUNNER_TEMP/auth:/auth:ro" \
+            -e REGISTRY_AUTH=htpasswd \
+            -e REGISTRY_AUTH_HTPASSWD_REALM=self-test \
+            -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
+            docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          for _ in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/v2/ || true)"
+            [[ "$code" == 401 ]] && break
+            sleep 1
+          done
+          [[ "$code" == 401 ]] || { echo "::error::the registry answers $code, not 401"; docker logs self-test-registry; exit 1; }
+          echo "registry up and asking for a password"
+
+      - name: The wrong password is refused at login
+        shell: bash
+        env:
+          REGISTRY_PASSWORD: not-the-one
+        run: |
+          set -uo pipefail
+          rc=0
+          bash scripts/docker_login.sh > "$RUNNER_TEMP/login.log" 2>&1 || rc=$?
+          if [[ "$rc" -ne 1 ]]; then
+            echo "::error::login with the wrong password exited $rc, expected 1"; cat "$RUNNER_TEMP/login.log"; exit 1
+          fi
+          grep -q "docker login 127.0.0.1:5000 as ci failed" "$RUNNER_TEMP/login.log" || {
+            echo "::error::it failed, but not at the login"; cat "$RUNNER_TEMP/login.log"; exit 1
+          }
+          grep -q "not-the-one" "$RUNNER_TEMP/login.log" && { echo "::error::the password is in the log"; exit 1; }
+          echo "refused at login, password not logged"
+
+      - name: The right password logs in and is stored for the registry only
+        shell: bash
+        env:
+          REGISTRY_PASSWORD: this-is-the-self-test-login
+        run: |
+          set -euo pipefail
+          bash scripts/docker_login.sh
+          python3 - <<'PY'
+          import json, os
+          auths = json.load(open(os.path.expanduser("~/.docker/config.json"))).get("auths", {})
+          if "127.0.0.1:5000" not in auths:
+              raise SystemExit(f"no credential stored for 127.0.0.1:5000; auths has {sorted(auths)}")
+          print("credential stored for 127.0.0.1:5000")
+          PY
+
+      # The builder runs in a container, so 127.0.0.1 is the host only with
+      # the host network, and the registry speaks plain HTTP.
+      - name: Set up a builder that can reach the registry
+        id: buildx
+        shell: bash
+        env:
+          BUILDX_DRIVER_OPTS: network=host
+        run: |
+          set -euo pipefail
+          printf '[registry."127.0.0.1:5000"]\n  http = true\n' > "$RUNNER_TEMP/buildkitd.toml"
+          BUILDKITD_CONFIG="$RUNNER_TEMP/buildkitd.toml" bash scripts/setup_buildx.sh
+
+      - name: Build and push two tags
+        id: build
+        shell: bash
+        env:
+          CONTEXT: tests/fixtures/docker-image
+          PLATFORMS: linux/amd64
+          TAGS: 127.0.0.1:5000/ci-helpers/selftest:1.0,127.0.0.1:5000/ci-helpers/selftest:latest
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          PUSH: "true"
+          LABELS: org.opencontainers.image.title=ci-helpers self-test
+        run: bash scripts/docker_build.sh
+
+      - name: The registry holds both tags at the reported digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY_PASSWORD: this-is-the-self-test-login
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::digest output is '$DIGEST'"; exit 1; }
+          accept='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+          for tag in 1.0 latest; do
+            got="$(curl -fsS -u "ci:$REGISTRY_PASSWORD" -H "Accept: $accept" -o /dev/null -D - \
+                     "http://127.0.0.1:5000/v2/ci-helpers/selftest/manifests/$tag" \
+                   | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }')"
+            [[ "$got" == "$DIGEST" ]] || { echo "::error::tag $tag is at '$got', the build reported $DIGEST"; exit 1; }
+            echo "tag $tag is at $DIGEST"
+          done
+
+      - name: Log out, and the credential is gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/docker_login.sh --logout
+          python3 - <<'PY'
+          import json, os
+          auths = json.load(open(os.path.expanduser("~/.docker/config.json"))).get("auths", {})
+          if "127.0.0.1:5000" in auths:
+              raise SystemExit("the credential for 127.0.0.1:5000 is still stored after logout")
+          print("no credential left for 127.0.0.1:5000")
+          PY
+
+      - name: Remove the builder and the registry
+        if: ${{ always() }}
+        shell: bash
+        env:
+          BUILDX_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -uo pipefail
+          [[ -n "$BUILDX_NAME" ]] && bash scripts/setup_buildx.sh --remove
+          docker rm -f self-test-registry > /dev/null 2>&1 || true
+
   assert-ran:
     needs:
       - release-tag-gate-defaults-can-pass
@@ -2168,6 +2403,8 @@ jobs:
       - docker-defaults-can-pass
       - docker-scan-defaults-can-pass
       - docker-refuses-what-it-must
+      - docker-multiarch-builds-both-platforms
+      - docker-multiarch-logs-in-and-pushes-to-a-local-registry
       - workflow-coverage-is-declared
       - docs-cover-the-tree
       - engine-inputs-gate-refuses-a-dropped-forward

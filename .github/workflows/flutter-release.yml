@@ -129,31 +129,11 @@ jobs:
           echo "App Store uploads require a macOS runner." >&2
           exit 1
 
-      - name: Mask fastlane match secrets
-        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
-        env:
-          MATCH_GIT_URL: ${{ secrets.match_git_url }}
-          MATCH_PASSWORD: ${{ secrets.match_password }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
-        run: |
-          set -euo pipefail
-          set +x
-          secrets_to_mask=(
-            "${MATCH_GIT_URL}"
-            "${MATCH_PASSWORD}"
-            "${MATCH_GIT_BASIC_AUTHORIZATION}"
-          )
-          for secret_value in "${secrets_to_mask[@]}"; do
-            if [[ -n "${secret_value}" ]]; then
-              # Workflow commands are line-oriented. Escape command-data control
-              # characters so multiline values stay within one mask command.
-              escaped_secret="${secret_value//'%'/'%25'}"
-              escaped_secret="${escaped_secret//$'\r'/'%0D'}"
-              escaped_secret="${escaped_secret//$'\n'/'%0A'}"
-              printf '::add-mask::%s\n' "${escaped_secret}"
-            fi
-          done
-
+      # Toolchains first, secrets after. Every step below that decodes a
+      # secret or writes one to disk runs after the last toolchain step, so
+      # an installer, a resolver or a gem never runs beside a keystore or a
+      # store credential. tests/flutter_release_secret_order_test.sh holds
+      # the order.
       - name: Setup Java
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
@@ -188,6 +168,129 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers scripts commit
+        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        working-directory: ${{ github.workspace }}
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is empty"; exit 1; }
+          [[ "$(git -C .ci-helpers-scripts rev-parse HEAD)" == "$WF_SHA" ]] || { echo "::error::ci-helpers checkout is not $WF_SHA"; exit 1; }
+          if git rev-parse --git-dir >/dev/null 2>&1; then
+            printf '\n/.ci-helpers-scripts/\n' >> "$(git rev-parse --git-path info/exclude)"
+          fi
+
+      # Ruby from the runner's tool cache (3.2, 3.3, 3.4 and 4.0 on the hosted
+      # images), matched as the action matched it: `3.4` is the newest 3.4.z.
+      # Nothing is downloaded; a version the cache lacks fails with the list.
+      - name: Setup Ruby
+        id: ruby
+        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        working-directory: ${{ github.workspace }}
+        env:
+          RUBY_VERSION: ${{ inputs.ruby_version }}
+        run: bash .ci-helpers-scripts/scripts/setup_ruby.sh
+
+      # The gems the lockfile names, under vendor/bundle, keyed as the
+      # action's bundler-cache keyed them: platform, Ruby and the lockfile.
+      - name: Cache gems
+        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) != '' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: ${{ inputs.working_directory }}/vendor/bundle
+          key: gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-${{ hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) }}
+          restore-keys: |
+            gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-
+
+      # With a Gemfile.lock the install is deployment mode, as the action's
+      # bundler-cache set it: the lockfile is frozen, a Gemfile that disagrees
+      # fails here, not in a lane.
+      - name: Install gems (Gemfile)
+        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) != '' }}
+        run: |
+          set -euo pipefail
+          bundle config set --local path vendor/bundle
+          if [ -f Gemfile.lock ]; then
+            bundle config set --local deployment true
+          fi
+          bundle install --jobs 4
+
+      - name: Install Fastlane (no Gemfile)
+        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) == '' }}
+        env:
+          FASTLANE_VERSION: ${{ steps.ruby.outputs.fastlane_version }}
+        run: |
+          set -euo pipefail
+          [[ "$FASTLANE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::fastlane version '$FASTLANE_VERSION' is not X.Y.Z" >&2; exit 1; }
+          gem install fastlane -N -v "$FASTLANE_VERSION"
+
+      - name: Note for Android signing config
+        if: ${{ inputs.build_android || inputs.deploy_google_play }}
+        env:
+          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        run: |
+          echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
+          echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
+          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android/key.properties)."
+
+      - name: Note for App Store deploys
+        if: ${{ inputs.deploy_app_store }}
+        run: |
+          echo "App Store deploys expect Fastlane to build/upload in the iOS lane."
+          echo "When deploy_app_store=true, the standalone iOS build step is skipped even if build_ios=true."
+
+      # Secrets from here on. Each is env on the steps that use it and
+      # nowhere else; the files are removed in the always() cleanup step.
+      - name: Mask fastlane match secrets
+        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
+        env:
+          MATCH_GIT_URL: ${{ secrets.match_git_url }}
+          MATCH_PASSWORD: ${{ secrets.match_password }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
+        run: |
+          set -euo pipefail
+          set +x
+          secrets_to_mask=(
+            "${MATCH_GIT_URL}"
+            "${MATCH_PASSWORD}"
+            "${MATCH_GIT_BASIC_AUTHORIZATION}"
+          )
+          for secret_value in "${secrets_to_mask[@]}"; do
+            if [[ -n "${secret_value}" ]]; then
+              # Workflow commands are line-oriented. Escape command-data control
+              # characters so multiline values stay within one mask command.
+              escaped_secret="${secret_value//'%'/'%25'}"
+              escaped_secret="${escaped_secret//$'\r'/'%0D'}"
+              escaped_secret="${escaped_secret//$'\n'/'%0A'}"
+              printf '::add-mask::%s\n' "${escaped_secret}"
+            fi
+          done
+
       - name: Validate Android signing secrets
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         env:
@@ -212,7 +315,7 @@ jobs:
             if [[ -z "${ANDROID_KEYSTORE_BASE64}" && -z "${ANDROID_KEYSTORE_PASSWORD}" && -z "${ANDROID_KEY_PASSWORD}" && -z "${ANDROID_KEY_ALIAS}" ]]; then
               echo "::warning::No Android signing secrets provided; build will use the project's default signing config."
             else
-              echo "::warning::Incomplete Android signing secrets — only some of the four required secrets are set. Custom signing will be skipped and the project's default signing config will be used. To enable custom signing, provide all four: android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias."
+              echo "::warning::Incomplete Android signing secrets: only some of the four required secrets are set. Custom signing will be skipped and the project's default signing config will be used. To enable custom signing, provide all four: android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias."
             fi
           fi
 
@@ -295,15 +398,6 @@ jobs:
           fi
           set -x
 
-      - name: Note for Android signing config
-        if: ${{ inputs.build_android || inputs.deploy_google_play }}
-        env:
-          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        run: |
-          echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
-          echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
-          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android/key.properties)."
-
       - name: Build Android appbundle
         if: ${{ inputs.build_android }}
         env:
@@ -329,25 +423,6 @@ jobs:
           fi
           # Code by design, run in this shell as the inline form did.
           eval "$FR_IOS_BUILD_COMMAND"
-
-      - name: Note for App Store deploys
-        if: ${{ inputs.deploy_app_store }}
-        run: |
-          echo "App Store deploys expect Fastlane to build/upload in the iOS lane."
-          echo "When deploy_app_store=true, the standalone iOS build step is skipped even if build_ios=true."
-
-      - name: Setup Ruby
-        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
-        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0 @ 2026-11-06
-        with:
-          ruby-version: ${{ inputs.ruby_version }}
-          bundler-cache: true
-
-      - name: Install Fastlane (no Gemfile)
-        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) == '' }}
-        run: |
-          set -euo pipefail
-          gem install fastlane -N
 
       - name: Prepare Google Play credentials
         if: ${{ inputs.deploy_google_play }}
