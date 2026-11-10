@@ -139,6 +139,9 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+          # Off by name: this job holds the store credentials
+          # (scripts/check_cache_trust.py).
+          cache: ""
 
       # The library's scripts, at this workflow's commit. A directory of that
       # name already in the caller's tree is refused, not reused.
@@ -177,27 +180,11 @@ jobs:
       # Flutter from the official release archive, checked against the
       # manifest's sha256 and, for the pinned default, the library's
       # toolchain-pins.env. A channel name in flutter_version is honoured as
-      # the channel, as before; flutter_channel wins when both are set. The
-      # archive a CI job of the caller saved is restored; this job holds
-      # secrets and saves nothing. The script checks the archive's sha256 on
-      # every run and extracts it fresh, so a cache entry written by another
-      # job cannot put a different SDK on PATH.
-      - name: Resolve Flutter
-        id: flutter_resolve
-        working-directory: ${{ github.workspace }}
-        env:
-          FLUTTER_VERSION: ${{ inputs.flutter_version }}
-          FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
-          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
-          FLUTTER_DRY_RUN: "true"
-        run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
-
-      - name: Restore Flutter archive
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: ${{ steps.flutter_resolve.outputs.cache_path }}
-          key: ${{ steps.flutter_resolve.outputs.cache_key }}
-
+      # the channel, as before; flutter_channel wins when both are set. No
+      # cache: this job holds the store credentials, and a cache entry is a
+      # tar archive that restore unpacks wherever its members point, not only
+      # under the declared path (scripts/check_cache_trust.py). The archive is
+      # downloaded and checked on every run.
       - name: Setup Flutter
         working-directory: ${{ github.workspace }}
         env:
@@ -220,17 +207,9 @@ jobs:
           RUBY_VERSION: ${{ inputs.ruby_version }}
         run: bash .ci-helpers-scripts/scripts/setup_ruby.sh
 
-      # The gems the lockfile names, under vendor/bundle, keyed as the
-      # action's bundler-cache keyed them: platform, Ruby and the lockfile.
-      - name: Cache gems
-        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) != '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: ${{ inputs.working_directory }}/vendor/bundle
-          key: gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-${{ hashFiles(format('{0}/Gemfile.lock', inputs.working_directory)) }}
-          restore-keys: |
-            gems-${{ runner.os }}-${{ runner.arch }}-ruby-${{ steps.ruby.outputs.ruby_version }}-
-
+      # The gems install fresh under vendor/bundle on every run: this job holds
+      # the store credentials, and a cached vendor/bundle is whatever the run
+      # that owned the key first left there (scripts/check_cache_trust.py).
       # With a Gemfile.lock the install is deployment mode, as the action's
       # bundler-cache set it: the lockfile is frozen, a Gemfile that disagrees
       # fails here, not in a lane.

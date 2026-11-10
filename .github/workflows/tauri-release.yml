@@ -275,33 +275,21 @@ jobs:
           # Both targets required for --target universal-apple-darwin (Tauri v2 fat binary)
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      # actions/cache keyed on runner OS and architecture, job, rustc, and a
-      # hash of the cargo manifests and compiler environment; a lockfile change
-      # restores the previous dependencies through the restore key.
-      - name: Rust cache key
-        id: rust_cache_key
-        shell: bash
-        env:
-          CARGO_WORKSPACE: ${{ inputs.working_directory }}
-          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
-        run: bash .ci-helpers-scripts/scripts/rust_cache_key.sh
-
-      - name: Rust cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ${{ inputs.working_directory }}/target/
-          key: ${{ steps.rust_cache_key.outputs.key }}
-          restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
+      # No cargo cache in this job. It holds signing secrets or builds what
+      # the release job publishes, and a cache entry is whatever the run that
+      # owned the key first left under target/ and ~/.cargo; a restored one
+      # would put that into a signed installer unread. Dependencies come from
+      # the registry on every run (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
@@ -601,33 +589,21 @@ jobs:
           RUST_TOOLCHAIN: ${{ inputs.rust_toolchain }}
         run: bash .ci-helpers-scripts/scripts/setup_rust.sh
 
-      # actions/cache keyed on runner OS and architecture, job, rustc, and a
-      # hash of the cargo manifests and compiler environment; a lockfile change
-      # restores the previous dependencies through the restore key.
-      - name: Rust cache key
-        id: rust_cache_key
-        shell: bash
-        env:
-          CARGO_WORKSPACE: ${{ inputs.working_directory }}
-          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
-        run: bash .ci-helpers-scripts/scripts/rust_cache_key.sh
-
-      - name: Rust cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ${{ inputs.working_directory }}/target/
-          key: ${{ steps.rust_cache_key.outputs.key }}
-          restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
+      # No cargo cache in this job. It holds signing secrets or builds what
+      # the release job publishes, and a cache entry is whatever the run that
+      # owned the key first left under target/ and ~/.cargo; a restored one
+      # would put that into a signed installer unread. Dependencies come from
+      # the registry on every run (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
@@ -1056,37 +1032,21 @@ jobs:
           RUST_TOOLCHAIN: ${{ inputs.rust_toolchain }}
         run: bash .ci-helpers-scripts/scripts/setup_rust.sh
 
-      # actions/cache keyed on runner OS and architecture, job, rustc, and a
-      # hash of the cargo manifests and compiler environment; a lockfile change
-      # restores the previous dependencies through the restore key.
-      - name: Rust cache key
-        id: rust_cache_key
-        shell: bash
-        env:
-          CARGO_WORKSPACE: ${{ inputs.working_directory }}
-          # The runner label is part of the key. -sys crates compile against the
-          # image's C libraries, and a cache built on one Ubuntu handed to the
-          # next looks like a successful restore followed by a link error.
-          CACHE_KEY_EXTRA: ${{ inputs.runner }}
-          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
-        run: bash .ci-helpers-scripts/scripts/rust_cache_key.sh
-
-      - name: Rust cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ${{ inputs.working_directory }}/target/
-          key: ${{ steps.rust_cache_key.outputs.key }}
-          restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
+      # No cargo cache in this job. It holds signing secrets or builds what
+      # the release job publishes, and a cache entry is whatever the run that
+      # owned the key first left under target/ and ~/.cargo; a restored one
+      # would put that into a signed installer unread. Dependencies come from
+      # the registry on every run (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}

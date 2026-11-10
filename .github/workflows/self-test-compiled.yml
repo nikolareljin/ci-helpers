@@ -864,8 +864,10 @@ jobs:
 
   # scripts/setup_rust.sh is what every Rust workflow here runs now, from the
   # runner's rustup. This job installs a toolchain with components and a
-  # target, checks the job environment it exports, and fills an actions/cache
-  # entry under a key new to this run; the job after it restores that entry.
+  # target, checks the job environment it exports, and fills a cargo registry
+  # cache entry under a key new to this run the way tauri.yml does: restore,
+  # `cargo fetch`, save, in that order and nothing between; the job after it
+  # restores that entry and builds from it offline.
   rust-setup-installs-and-caches:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -903,40 +905,68 @@ jobs:
           [[ "${CARGO_HOME:-}" == "$HOME/.cargo" ]] || { echo "::error::CARGO_HOME is '${CARGO_HOME:-}'"; exit 1; }
           echo "stable with clippy, rustfmt and wasm32-unknown-unknown is installed; cargo's environment is exported"
 
+      # A crate with one registry dependency (cfg-if, which has none of its
+      # own), so the entry holds an index entry and a .crate file that the
+      # next job can build from offline. The fixture crate has no dependency.
+      - name: A crate with a dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo new --lib --vcs none "$RUNNER_TEMP/dep-crate"
+          cd "$RUNNER_TEMP/dep-crate"
+          printf 'cfg-if = "=1.0.0"\n' >> Cargo.toml
+          cargo generate-lockfile
+          grep -q 'name = "cfg-if"' Cargo.lock || { echo "::error::cfg-if is not in the lockfile"; exit 1; }
+
       - name: Rust cache key
         id: rust_cache_key
         shell: bash
         env:
-          CARGO_WORKSPACE: tests/fixtures/rust-crate
+          CARGO_WORKSPACE: ${{ runner.temp }}/dep-crate
           CACHE_KEY_EXTRA: self-test-${{ github.run_id }}-${{ github.run_attempt }}
           RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
         run: bash scripts/rust_cache_key.sh
 
-      - name: Rust cache
+      - name: Restore cargo registry
         id: cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            tests/fixtures/rust-crate/target/
           key: ${{ steps.rust_cache_key.outputs.key }}
           restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
 
-      - name: A key new to this run misses, and the build fills the entry
+      - name: Fetch cargo dependencies
         shell: bash
-        working-directory: tests/fixtures/rust-crate
+        working-directory: ${{ runner.temp }}/dep-crate
+        run: cargo fetch --locked
+
+      - name: Save cargo registry
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ steps.rust_cache_key.outputs.key }}
+
+      - name: A key new to this run misses, the fetch fills the entry, and the save ran before any build
+        shell: bash
+        working-directory: ${{ runner.temp }}/dep-crate
         env:
           HIT: ${{ steps.cache.outputs.cache-hit }}
           KEY: ${{ steps.rust_cache_key.outputs.key }}
         run: |
           set -euo pipefail
-          [[ "$HIT" != true ]] || { echo "::error::'$KEY' was an exact hit before anything built under it"; exit 1; }
+          [[ "$HIT" != true ]] || { echo "::error::'$KEY' was an exact hit before anything was fetched under it"; exit 1; }
           [[ "$KEY" =~ ^rust-Linux-X64-rust-setup-installs-and-caches-self-test-[0-9]+-[0-9]+-[0-9a-f]{12}-[0-9a-f]{16}$ ]] || { echo "::error::key '$KEY' is not runner-arch-job-label-rustc-hash"; exit 1; }
-          cargo build
-          test -d target/debug/deps || { echo "::error::cargo build left no target/debug/deps to cache"; exit 1; }
-          echo "built under $KEY; the post step saves it"
+          ls ~/.cargo/registry/cache/*/cfg-if-1.0.0.crate >/dev/null || { echo "::error::cargo fetch left no cfg-if-1.0.0.crate under ~/.cargo/registry/cache"; ls -R ~/.cargo/registry/cache || true; exit 1; }
+          test ! -d target || { echo "::error::target/ exists before the build; the save step must not have seen one"; exit 1; }
+          cargo build --offline
+          echo "fetched under $KEY; the save step stored the registry before this build"
 
   # The same three scripts on macOS and Windows: CARGO_HOME, GITHUB_PATH and
   # the corepack shims must reach the next step there too (Git Bash paths on
@@ -1252,18 +1282,20 @@ jobs:
           RUST_TOOLCHAIN: stable
         run: bash scripts/setup_rust.sh
 
-      - name: Rust cache
+      - name: Restore cargo registry
         id: cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            tests/fixtures/rust-crate/target/
           key: ${{ needs.rust-setup-installs-and-caches.outputs.key }}
 
-      - name: The same rustc gives the same cachekey, and the entry restores target/
+      # The same crate as the job before, resolved and built with --offline:
+      # the index entry and the .crate file can only come from the restored
+      # entry. A restore that brought nothing fails at generate-lockfile.
+      - name: The same rustc gives the same cachekey, and the entry restores the registry
         shell: bash
         env:
           HIT: ${{ steps.cache.outputs.cache-hit }}
@@ -1274,8 +1306,13 @@ jobs:
           set -euo pipefail
           [[ "$MINE" == "$FIRST" ]] || { echo "::error::rustc cachekey is '$MINE' here and '$FIRST' in the job before; the same image gave two keys"; exit 1; }
           [[ "$HIT" == true ]] || { echo "::error::'$KEY' written by the job before was not an exact hit"; exit 1; }
-          test -d tests/fixtures/rust-crate/target/debug/deps || { echo "::error::the hit restored no target/debug/deps"; exit 1; }
-          echo "the entry the first job saved restored here"
+          ls ~/.cargo/registry/cache/*/cfg-if-1.0.0.crate >/dev/null || { echo "::error::the hit restored no cfg-if-1.0.0.crate"; exit 1; }
+          cargo new --lib --vcs none "$RUNNER_TEMP/dep-crate"
+          cd "$RUNNER_TEMP/dep-crate"
+          printf 'cfg-if = "=1.0.0"\n' >> Cargo.toml
+          cargo generate-lockfile --offline
+          cargo build --offline
+          echo "the entry the first job saved restored here; cfg-if resolved and built offline"
 
   # The two paths a hosted runner never takes: a toolchain rustup does not
   # have, and a runner without rustup at all, which installs rustup-init from

@@ -358,6 +358,18 @@ jobs:
       # SARIF; no workflow runs a third-party action outside ALLOWED_ACTIONS.
       # The test runs the gate against what it must refuse, then the gate
       # runs against this tree.
+      # A job that holds a secret, a write token or a release to ship
+      # restores no cache and saves none; no job saves a cache after the
+      # caller's code ran. The test runs the gate against what it must
+      # refuse, then the gate runs against this tree.
+      - name: Cache-trust check reports what it must
+        shell: bash
+        run: bash tests/check_cache_trust_test.sh
+
+      - name: Trusted jobs restore no cache and no job saves one after caller code
+        shell: bash
+        run: python3 scripts/check_cache_trust.py
+
       - name: Scan-egress check reports what it must
         shell: bash
         run: bash tests/scan_egress_test.sh

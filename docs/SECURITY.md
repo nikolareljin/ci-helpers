@@ -55,3 +55,32 @@ To propose an addition: open a pull request that adds the entry to
 handles credentials, the file and job it is bound to. `workflow-yaml-check`
 fails on any `uses:` outside that list; `tests/scan_egress_test.sh` holds
 the gate to that.
+
+## Cache Trust
+A cache entry is written by whichever run owned its key first: a default
+branch build whose dependency scripts were compromised, or the post-job save
+of `actions/cache`, which stores whatever the job left under the path after
+every step ran, the caller's build scripts included. The entry is a tar
+archive, and restore unpacks it where its members point, not only under the
+declared path, so a digest check on the restored file comes too late: the
+entry can have overwritten the library checkout or the workspace already. A
+job that restores any entry and then signs, pushes or uploads what it built
+has put unread content into a release. `scripts/check_cache_trust.py`, run
+by `workflow-yaml-check`, holds every workflow and action to this:
+
+| Job | Restore | Save |
+|---|---|---|
+| trusted: reads a `secrets.*` other than `GITHUB_TOKEN`, names a deployment `environment:`, holds any `write` permission, is needed by such a job, is called by one on a publish chain or runs with a caller's write token (a called job with no `permissions:` in a workflow with none), or is in a workflow named for release, deploy, publish, sign or submit | none: no `actions/cache`, no `actions/cache/restore`, no BuildKit `type=gha` (in a step or in the job's or workflow's `env:`), no `uses:` written as an expression (a third-party cache action such as `astral-sh/setup-uv` or `ruby/setup-ruby` is refused in every job by `scripts/check_scan_egress.py`); every `actions/setup-*` step writes its action's off value (`cache: false` for setup-go and setup-dotnet, `cache: ""` for setup-python and setup-java, `cache: ""` and `package-manager-cache: false` for setup-node), as a missing key is the action's default and setup-go's is on | none |
+| plain | anything, the downloaded-archive caches of Flutter and Godot included | `actions/cache/save` two steps after its `actions/cache/restore`, right after the dependency fetch, before any step that runs `inputs.<name>command` (`inputs.install-command` and `inputs['x_command']` included), and after none when the job's or workflow's `env:` carries one |
+
+`actions/cache` itself is used nowhere: its save runs when the job ends.
+Release, deploy and publish jobs download every toolchain and dependency on
+every run and are slower for it: by the dependency fetch (npm, pip, Maven,
+NuGet, Go modules, gems, cargo registry), the toolchain archive (Flutter,
+Godot), a full `target/` build for Rust, every Docker layer for
+`docker-multiarch.yml`, and a cold `Library` import for `unity.yml`, the
+largest of these. That is time and runner minutes on each release, not
+on each pull request. A plain CI job keeps `setup-*` caches: it
+holds no secret and no write token, and nothing it restores reaches a
+release. A composite action is held to the trusted rules, as it runs inside
+whatever job calls it.

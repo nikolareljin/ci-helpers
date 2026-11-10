@@ -140,8 +140,8 @@ jobs:
           RUST_COMPONENTS: ${{ inputs.rust_components }}
         run: bash .ci-helpers-scripts/scripts/setup_rust.sh
 
-      # actions/cache keyed on runner OS and architecture, job, rustc, and a
-      # hash of the cargo manifests and compiler environment; a lockfile change
+      # The cache key: runner OS and architecture, job, rustc, and a hash of
+      # the cargo manifests and compiler environment; a lockfile change
       # restores the previous dependencies through the restore key.
       - name: Rust cache key
         id: rust_cache_key
@@ -154,16 +154,41 @@ jobs:
           RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
         run: bash .ci-helpers-scripts/scripts/rust_cache_key.sh
 
-      - name: Rust cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+      # The registry and git checkouts only, never target/: the entry is
+      # saved by the step right after `cargo fetch`, before any step runs the
+      # caller's code, not by a post-job save that would store whatever the
+      # build left there (scripts/check_cache_trust.py). target/ is built on
+      # every run.
+      - name: Restore cargo registry
+        id: rust_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
         with:
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            ${{ inputs.working_directory }}/target/
           key: ${{ steps.rust_cache_key.outputs.key }}
           restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
+
+      # `cargo fetch` downloads the crates the lockfile names and runs no
+      # build script; `--locked` where there is a lockfile, so the fetch is
+      # exactly what the build will use.
+      - name: Fetch cargo dependencies
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          if [ -f Cargo.lock ]; then cargo fetch --locked; else cargo fetch; fi
+
+      - name: Save cargo registry
+        if: ${{ steps.rust_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ steps.rust_cache_key.outputs.key }}
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}

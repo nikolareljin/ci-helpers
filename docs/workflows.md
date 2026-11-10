@@ -49,7 +49,7 @@ Inputs:
 - `submodules` (string, default `"false"`) — `false`, `true` or `recursive`, passed to `actions/checkout`. Any other value is **refused**: checkout reads anything that is not `true`/`recursive` as false, so a typo would otherwise check out no submodule and report success. **Public submodules only** — checkout authenticates with a header scoped to the calling repository, so one in a private repository fails with a 403. Note the engine already checks out with `fetch-depth: 0` and `fetch-tags: true`, so `recursive` against a large submodule tree can want more than the default `timeout_minutes`.
 - `cache` (boolean, default `true`) — restore dependency caches through each `setup-*` action's own cache option. Which toolchains are enabled is **detected from the tree**, not assumed: `setup-node` and `setup-dotnet` fail the job when told to cache with no lockfile present, so a blanket "cache everything" would be a new class of red build. The mapping is `package-lock.json`/`npm-shrinkwrap.json` → npm, `yarn.lock` → yarn (npm wins when both are present, and the summary says so), `requirements*.txt` → pip, `go.sum`, `pom.xml` → maven, a root `*.gradle`/`*.gradle.kts` → gradle, `packages.lock.json` → NuGet. Each run writes one line per toolchain to the job summary saying what was cached and whether it hit.
 
-  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which must be on PATH before `setup-node` can probe its store (the `pnpm.yml` presets put it there with corepack and do not call this engine); and **Rust and PHP**, whose setup steps have no cache option here (the Tauri workflows cache cargo with `actions/cache`). **Flutter and Godot** cache the downloaded release archive only, never the extracted SDK or editor: `actions/cache/restore` before the setup step (the Flutter key carries OS, channel, version, architecture and the archive's expected sha256; the Godot key carries OS, architecture, version, the .NET flag and a hash of the library's `toolchain-pins.env`), and `actions/cache/save` directly after it, before any step runs the caller's code, so an entry holds what the setup step verified and nothing a later step wrote. On every run the script checks the archive's sha256 against the pin or the manifest, deletes and downloads it again on a mismatch, and extracts it fresh; a cache entry written by another job cannot put a different SDK on PATH. `tests/toolchain_cache_save_test.sh` holds the step order.
+  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which must be on PATH before `setup-node` can probe its store (the `pnpm.yml` presets put it there with corepack and do not call this engine); and **Rust and PHP**, whose setup steps have no cache option here (the Tauri CI workflows cache the cargo registry with `actions/cache/restore` and `actions/cache/save`). **Flutter and Godot** cache the downloaded release archive only, never the extracted SDK or editor: `actions/cache/restore` before the setup step (the Flutter key carries OS, channel, version, architecture and the archive's expected sha256; the Godot key carries OS, architecture, version, the .NET flag and a hash of the library's `toolchain-pins.env`), and `actions/cache/save` directly after it, before any step runs the caller's code, so an entry holds what the setup step verified and nothing a later step wrote. On every run the script checks the archive's sha256 against the pin or the manifest, deletes and downloads it again on a mismatch, and extracts it fresh; a cache entry written by another job cannot put a different SDK on PATH. `tests/toolchain_cache_save_test.sh` holds the step order.
 
   One caveat worth knowing before enabling it on a matrix: `setup-java`'s cache key does not carry the JDK version, so a `java_version` matrix over one `pom.xml` shares a single cache. Pass `cache: false` if that matters.
 - `node_version` (string, default `""`)
@@ -343,9 +343,9 @@ Notes:
   macOS and Windows images cache Ruby 3.2, 3.3, 3.4 and 4.0; a version the
   cache lacks fails the `Setup Ruby` step with the versions it holds. A
   self-hosted `runner` needs the Ruby under `$RUNNER_TOOL_CACHE/Ruby/<x.y.z>/<x64|arm64>`.
-- With a `Gemfile`, gems install under `vendor/bundle` and `actions/cache`
-  holds them, keyed by OS, architecture, the Ruby chosen and the
-  `Gemfile.lock` hash; with a `Gemfile.lock` the install is frozen
+- With a `Gemfile`, gems install under `vendor/bundle` on every run; nothing
+  is cached, as this job holds the store credentials (see
+  [Cache trust](SECURITY.md#cache-trust)); with a `Gemfile.lock` the install is frozen
   (`bundle config set --local deployment true`), so a `Gemfile` that disagrees
   with it fails at `Install gems`. Without a `Gemfile`, fastlane is installed
   at the version pinned in the library's `toolchain-pins.env`
@@ -360,9 +360,9 @@ Notes:
   manifest's sha256; `beta` or `dev` without a version is the newest of the
   channel. A channel name in `flutter_version` is read as the channel, as
   before; `master` and `main` are refused (git clones, no digest). The
-  archive cache a CI job of the caller saved is restored, and the archive
-  is checked against its sha256 and extracted fresh on every run; this job
-  holds secrets and never saves a cache entry.
+  archive is downloaded, checked against its sha256 and extracted on every
+  run; this job holds secrets and neither restores nor saves a cache entry
+  (see [Cache trust](SECURITY.md#cache-trust)).
 - Every toolchain step (Java, the library checkout, Flutter, `flutter pub
   get`, Ruby, gems, fastlane) runs before any step that reads a secret; the
   keystore, the Play service account file and the App Store Connect key are
@@ -2549,10 +2549,14 @@ and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
 Runs on `ubuntu-24.04` by default; override with `runner`.
 
 Rust comes from the runner's rustup as in [rust-scan.yml](#rust-scanyml).
-Cargo is cached with `actions/cache` here, in `tauri-scan.yml` and in every
-build job of `tauri-release.yml`: `~/.cargo/registry/index`,
-`~/.cargo/registry/cache`, `~/.cargo/git/db` and `<working_directory>/target`,
-under a key of the runner OS and architecture, the job id, the `runner` label
+The cargo registry is cached here and in `tauri-scan.yml`:
+`~/.cargo/registry/index`, `~/.cargo/registry/cache` and `~/.cargo/git/db`,
+restored with `actions/cache/restore` before `cargo fetch` (`--locked` when
+there is a `Cargo.lock`) and saved with `actions/cache/save` right after it,
+before any step runs the caller's code. `target/` is not cached and is built
+on every run, and the build jobs of `tauri-release.yml` restore nothing (see
+[Cache trust](SECURITY.md#cache-trust)). The key is
+the runner OS and architecture, the job id, the `runner` label
 (the Linux jobs), the rustc commit, and a hash of every `Cargo.lock`,
 `Cargo.toml`, `rust-toolchain[.toml]` and `.cargo/config[.toml]` under the
 workspace plus build-affecting variables named exactly: `RUSTFLAGS`,
@@ -2573,12 +2577,9 @@ sets: an architecture (`x86_64`, `aarch64`, `armv7`, `wasm32`, ...), a vendor
 (`scripts/rust_cache_key.sh`). A cargo-specific cache hashes every `CARGO*`,
 `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable; this one does not, so
 a registry token or proxy URL is never hashed into a key that anyone with read
-access can see. A lockfile change restores the
-previous entry through a restore key without the hash. The entry is saved when
-the job succeeds. Unlike a cargo-specific cache, nothing is pruned before the
-save: `target/` is kept whole, workspace crates and stale dependencies
-included, so the entry grows until the key changes, and `~/.cargo/bin` (tools
-from `cargo install`) is not cached.
+access can see. A lockfile change restores the previous entry through a
+restore key without the hash. `~/.cargo/bin` (tools from `cargo install`) is
+not cached.
 
 Inputs: like `tauri-scan.yml`, but with no `check_command`, no lint and no
 components by default, and with test and build steps:
@@ -2784,9 +2785,10 @@ saying so. `scripts/docker_login.sh` hands `registry_token` to `docker login
 final step whatever the build did; an Amazon ECR host is refused (get a login
 password with `aws ecr get-login-password` in the caller and pass it as the
 token, with `registry_username: AWS`). `scripts/docker_build.sh` runs `docker
-buildx build` with the context, Dockerfile, platforms, tags, build-args, the
-Actions cache both ways (`type=gha`, exposed to buildx by GitHub's own script
-action) and `--push`; provenance is `mode=max` for a public repository and
+buildx build` with the context, Dockerfile, platforms, tags, build-args and
+`--push`, with no layer cache: the job pushes with the registry token, and a
+layer restored from the Actions cache would be a layer of the pushed image
+(see [Cache trust](SECURITY.md#cache-trust)); provenance is `mode=max` for a public repository and
 `mode=min,inline-only=true` for a private one. The printed command masks
 build-arg values. No build secret is passed, as before; a caller's own step can
 run `scripts/docker_build.sh` with `BUILD_SECRET_ENVS` (`id=VARIABLE` per

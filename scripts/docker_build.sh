@@ -57,8 +57,9 @@
 # ----------------------------------------------------
 set -euo pipefail
 
-# The workflow passes the Actions cache variables to this step only, empty
-# when the runner has none; buildx would read an empty one as a value.
+# A caller's own step may pass the Actions cache variables, empty when the
+# runner has none; buildx would read an empty one as a value. The library's
+# docker-multiarch.yml passes none: it pushes, and caches no layer.
 for v in ACTIONS_RUNTIME_TOKEN ACTIONS_RESULTS_URL ACTIONS_CACHE_URL ACTIONS_CACHE_SERVICE_V2; do
   if [[ -z "${!v:-}" ]]; then unset "$v"; fi
 done
