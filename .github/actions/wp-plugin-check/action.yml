@@ -101,11 +101,16 @@ inputs:
 runs:
   using: composite
   steps:
+    # PHP from apt (the image's own packages, else the ondrej/php PPA under
+    # the key pinned in toolchain-pins.env) and Composer at the release pinned
+    # there, through this repository's script beside the action.
     - name: Setup PHP
       if: ${{ inputs.php_version != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
-      uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0 @ 2026-10-16
-      with:
-        php-version: ${{ inputs.php_version }}
+      shell: bash
+      env:
+        PHP_VERSION: ${{ inputs.php_version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/../../../scripts/setup_php.sh"
 
     - name: PHP lint (errors only)
       if: ${{ inputs.php_lint_command != '' }}

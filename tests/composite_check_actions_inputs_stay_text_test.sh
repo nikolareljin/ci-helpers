@@ -33,6 +33,10 @@ def render(text, flag):
     # What the runner does before bash sees anything: each expression
     # becomes its value. A *_command input is code, here a no-op.
     def one(m):
+        # The action's own directory, so its Setup PHP step finds
+        # scripts/setup_php.sh beside it.
+        if re.fullmatch(r"\s*github\.action_path\s*", m.group(1)):
+            return f"{root}/.github/actions/{action}"
         n = re.fullmatch(r"\s*inputs\.(\w+)\s*", m.group(1))
         if n and n.group(1) == "composer_command":
             # Quotes must survive to the container shell.
@@ -60,7 +64,17 @@ for flag in ("true", "false"):
         with open(f"{work}/{tag}.env", "w") as f:
             for k, v in (s.get("env") or {}).items():
                 f.write(f"export {k}={shlex.quote(render(str(v), flag))}\n")
-        open(f"{work}/{tag}.sh", "w").write(render(s["run"], flag))
+        body = render(s["run"], flag)
+        if "setup_php.sh" in s["run"]:
+            # Setup PHP hands php_version to scripts/setup_php.sh as text.
+            # The value is not an X.Y version, so the script must refuse
+            # it (exit 2, naming the value) before apt or anything else
+            # runs; that refusal is this step's pass.
+            body = ("exec 3>&1 4>&2\nexec > \"$0.php\" 2>&1\n" + body.rstrip("\n") + "\nrc=$?\n"
+                    "exec 1>&3 2>&4\n"
+                    "if [[ \"$rc\" == 2 ]] && grep -qF -- " + shlex.quote(f"PHP_VERSION '{value}' is not X.Y") + " \"$0.php\"; then exit 0; fi\n"
+                    "cat \"$0.php\"; echo \"setup_php.sh did not refuse the value (exit $rc)\"; exit 1\n")
+        open(f"{work}/{tag}.sh", "w").write(body)
 open(f"{work}/steps", "w").write("\n".join(names) + "\n")
 PY
 
