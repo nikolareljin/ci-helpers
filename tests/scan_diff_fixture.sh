@@ -26,6 +26,9 @@
 #   ignored        adds shell=True in a file its own .gitignore names:
 #                  foxguard-diff fails (foxguard would skip the file)
 #   ignored-dot    the same with .ignore: foxguard-diff fails
+#   hidden-new     adds shell=True under a dot directory: foxguard-diff
+#                  fails (foxguard's walk skips hidden paths)
+#   hidden-moved   moves old.py under a dot directory: foxguard-diff passes
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -127,8 +130,18 @@ injection hidden.py
 printf 'hidden.py\n' > "$src/.ignore"
 g add -A -f; g commit -q -m "a new command injection its .ignore names"
 
+branch hidden-new
+mkdir -p "$src/.tools"
+injection .tools/run.py
+g add -A; g commit -q -m "a new command injection under a dot directory"
+
+branch hidden-moved
+mkdir -p "$src/.tools"
+g mv old.py .tools/old.py
+g commit -q -m "old.py moved under a dot directory"
+
 g checkout -q main
-for b in renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

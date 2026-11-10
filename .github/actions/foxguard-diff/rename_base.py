@@ -17,7 +17,8 @@ repository changes, and a read-only object store works.
 
 Usage: rename_base.py <work-tree> <merge-base> <tmp-dir> <config>
 
-Run foxguard with GIT_ALTERNATE_OBJECT_DIRECTORIES=<tmp-dir>/objects.
+Run foxguard with GIT_ALTERNATE_OBJECT_DIRECTORIES set to <tmp-dir>/objects,
+C-quoted ("...") so a ':' in the path does not split it.
 """
 
 import os
@@ -35,6 +36,12 @@ def git(root, *args, env_extra=None, stdin=None):
     if result.returncode:
         raise ValueError("git failed")
     return result.stdout
+
+
+def quoted(path):
+    """One GIT_ALTERNATE_OBJECT_DIRECTORIES entry: git splits the list on
+    the path separator unless the entry is C-quoted."""
+    return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def main():
@@ -90,10 +97,9 @@ def main():
     store = {
         "GIT_INDEX_FILE": os.path.join(tmp, "rename-base.index"),
         "GIT_OBJECT_DIRECTORY": objects,
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES": git(top, "rev-parse", "--git-path", "objects").decode().strip(),
     }
-    if not os.path.isabs(store["GIT_ALTERNATE_OBJECT_DIRECTORIES"]):
-        store["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.path.join(top, store["GIT_ALTERNATE_OBJECT_DIRECTORIES"])
+    caller = git(top, "rev-parse", "--git-path", "objects").decode().strip()
+    store["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = quoted(os.path.join(top, caller))
     git(top, "read-tree", base, env_extra=store)
     # Every removal before any addition: a swap (a->b, b->a) would otherwise
     # remove an entry it had just written.

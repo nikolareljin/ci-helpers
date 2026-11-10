@@ -80,9 +80,19 @@ class RenameBaseTests(unittest.TestCase):
 
     def made_git(self, *args):
         """git in the repository, reading the objects rename_base.py wrote."""
-        env = {**os.environ, "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.path.join(self.tmp.name, "objects")}
+        env = {**os.environ, "GIT_ALTERNATE_OBJECT_DIRECTORIES": '"%s"' % os.path.join(self.tmp.name, "objects")}
         return subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True,
                               check=True, env=env).stdout.strip()
+
+    def test_paths_with_a_colon_or_a_space_work(self):
+        # GIT_ALTERNATE_OBJECT_DIRECTORIES splits on ':' unless an entry is quoted.
+        odd = Path(self.tmp.name) / "a:b c"
+        odd.mkdir()
+        self.repo.rename(odd / "repo")
+        self.repo = odd / "repo"
+        commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
+        made = self.run_it()
+        self.assertEqual(self.made_git("ls-tree", "--name-only", made), "new.py\nsub")
 
     def test_pure_rename_moves_the_base_path(self):
         commit(self.repo, "rename", **{"old.py": None, "new.py": self.BODY})
@@ -317,6 +327,8 @@ if "--output" in args:
         out.write_text("{not json")
     else:
         total = int(os.environ.get("FINDINGS", "0"))
+        if os.environ.get("FINDINGS_IN") and os.environ["FINDINGS_IN"] in args[-1]:
+            total = 1
         out.write_text(json.dumps({
             "scanner": {"name": "foxguard", "version": "0.0.0"},
             "finding_counts": {"total": total},
@@ -532,17 +544,34 @@ sys.exit(rc)
                 self.run_script(FOXGUARD_RUN, 1)
                 self.assertIsNone(self.record())
                 git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
-        # Any ignore file the review adds or edits, above scan_path too, is
-        # refused; one it leaves as the base had it is not.
+        # An ignore file the review adds or edits that hides no changed file
+        # passes, above scan_path too; one that hides a changed file fails.
         sub = self.fx.clone / "sub"
         commit(self.fx.clone, "ignore build output", **{".gitignore": "out/\n", "sub/x.py": "x = 1\n"})
-        self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(sub))
-        git(self.fx.src, "checkout", "-q", "main")
-        commit(self.fx.src, "reviewed ignore", **{".gitignore": "out/\n"})
-        git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
-        git(self.fx.clone, "fetch", "-q", "origin")
-        git(self.fx.clone, "rebase", "-q", "origin/main")
+        self.run_script(FOXGUARD_RUN, 0, SCAN_PATH=str(sub))
         self.run_script(FOXGUARD_RUN, 0)
+        commit(self.fx.clone, "hide it", **{"sub/.ignore": "y.py\n"})
+        (sub / "y.py").write_text("z = 3\n")
+        git(self.fx.clone, "add", "-f", "sub/y.py")
+        git(self.fx.clone, "commit", "-q", "-m", "hidden file")
+        self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(sub))
+        self.assertIsNone(self.record())
+
+    def test_foxguard_scans_changed_files_under_a_dot_directory(self):
+        # foxguard's walk skips hidden entries, so a finding added under .h/
+        # or in .x.py would pass unread; each changed hidden file is scanned
+        # on its own.
+        for path in (".h/x.py", "a/.b/c/x.py", ".x.py"):
+            with self.subTest(path=path):
+                commit(self.fx.clone, "hidden", **{path: "z = 3\n"})
+                self.run_script(FOXGUARD_RUN, 1, FINDINGS_IN=path)
+                self.run_script(FOXGUARD_RUN, 0)
+                self.assertEqual(self.record()["args"][-1], path)
+                git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
+        # A visible file is read by the directory scan alone.
+        commit(self.fx.clone, "visible", **{"x.py": "z = 3\n"})
+        self.run_script(FOXGUARD_RUN, 0, FINDINGS_IN="/.")
+        self.assertEqual(self.record()["args"][-1], str(self.fx.clone))
 
     def test_foxguard_refuses_without_a_base(self):
         self.run_script(FOXGUARD_RUN, 1, BASE_REF="nosuch")

@@ -61,9 +61,10 @@ fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$co
 # foxguard nothing to read; only then is a scan of no files a pass.
 changed="$(git -C "$scan_path" diff --name-only --diff-filter=ACMRT "$merge_base" HEAD -- . 2>"$tmp/base.log")" || fail
 # foxguard skips what .gitignore, .git/info/exclude or .ignore names, and the
-# review controls those files. Refused: any .gitignore or .ignore in the
-# repository that the review adds or edits, or that is a link (git does not
-# read one, foxguard does), and a changed file the remaining rules name.
+# review controls those files. Refused: a .gitignore or .ignore anywhere in
+# the repository that is a link (git does not read one, foxguard does), and a
+# changed file that the head tree's rules name. An ignore file edit that
+# hides no changed file passes.
 if ! "$py" -I -c '
 import os, subprocess, sys
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -75,9 +76,6 @@ def files(*args, where="."):
 def is_rules(path):
     return path.rsplit(b"/", 1)[-1] in (b".gitignore", b".ignore")
 top = ":/"
-edited = files("diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMT", sys.argv[2], "HEAD", where=top)
-if any(is_rules(p) for p in edited):
-    sys.exit(1)
 for entry in files("ls-files", "-z", "-s", where=top):
     meta, _, path = entry.partition(b"\t")
     if is_rules(path) and meta.startswith(b"120000 "):
@@ -87,21 +85,42 @@ ignored = (files("ls-files", "-z", "-c", "-i", "--exclude-standard")
            | files("ls-files", "-z", "-c", "-i", "--exclude-per-directory=.ignore"))
 sys.exit(1 if changed & ignored else 0)
 ' "$scan_path" "$merge_base" >"$tmp/check.log" 2>&1; then fail; fi
+# git splits GIT_ALTERNATE_OBJECT_DIRECTORIES on ':' unless the entry is C-quoted.
+alt="$tmp/objects"; alt="${alt//\\/\\\\}"; alt="\"${alt//\"/\\\"}\""
 rc=0
-GIT_ALTERNATE_OBJECT_DIRECTORIES="$tmp/objects" "$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
+GIT_ALTERNATE_OBJECT_DIRECTORIES="$alt" "$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
   --output "$tmp/report.json" "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
 # 0 is clean, 1 is new findings, anything else a scanner error.
 [[ "$rc" -eq 0 ]] || fail
-# The report names the base it compared with and how many files were read. A
-# scan of nothing (a directory of files foxguard cannot parse, say) is refused
-# rather than reported clean, unless the review changed nothing there.
-if ! "$py" -I -c '
+# The report names the base it compared with and how many files were read;
+# report_ok prints that count.
+report_ok() {
+  "$py" -I -c '
 import json, sys
 with open(sys.argv[1], "rb") as fh:
     doc = json.load(fh)
-ok = (doc["scanner"]["name"] == "foxguard"
-      and doc["finding_counts"]["total"] == 0
-      and (doc["target"]["files_scanned"] > 0 or sys.argv[3] == "")
-      and doc["target"]["diff_base"] == sys.argv[2])
-sys.exit(0 if ok else 1)
-' "$tmp/report.json" "$fg_base" "$changed" >"$tmp/check.log" 2>&1; then fail; fi
+if not (doc["scanner"]["name"] == "foxguard"
+        and doc["finding_counts"]["total"] == 0
+        and doc["target"]["diff_base"] == sys.argv[2]):
+    sys.exit(1)
+print(int(doc["target"]["files_scanned"]))
+' "$tmp/report.json" "$fg_base" 2>"$tmp/check.log"
+}
+read_count="$(report_ok)" || fail
+# foxguard's directory walk skips hidden entries (.h/x.py, .x.py), so each
+# changed regular file with a hidden path component is scanned on its own.
+hidden="$tmp/hidden.list"
+git -C "$scan_path" diff --name-only -z --relative --diff-filter=ACMRT "$merge_base" HEAD -- . >"$hidden" 2>"$tmp/base.log" || fail
+while IFS= read -r -d '' path; do
+  [[ "/$path" == */.* ]] || continue
+  [[ -f "$scan_path/$path" && ! -L "$scan_path/$path" ]] || continue
+  rc=0
+  (cd "$scan_path" && GIT_ALTERNATE_OBJECT_DIRECTORIES="$alt" "$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
+    --output "$tmp/report.json" "$path") >"$tmp/scan.log" 2>&1 || rc=$?
+  [[ "$rc" -eq 0 ]] || fail
+  n="$(report_ok)" || fail
+  read_count=$((read_count + n))
+done <"$hidden"
+# A scan of nothing (files foxguard cannot parse, say) is refused rather
+# than reported clean, unless the review changed nothing there.
+[[ "$read_count" -gt 0 || -z "$changed" ]] || fail
