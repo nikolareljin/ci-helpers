@@ -29,6 +29,23 @@ runs:
         INPUT_RELEASE_BRANCH: ${{ inputs.release_branch }}
         INPUT_REPO_DIR: ${{ inputs.repo_dir }}
         INPUT_FETCH_TAGS: ${{ inputs.fetch_tags }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         ROOT_DIR="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)"

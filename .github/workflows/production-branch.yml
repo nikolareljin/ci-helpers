@@ -70,16 +70,52 @@ jobs:
           persist-credentials: false
 
       - name: Verify outbound guard revision
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
 
       - name: Guard outbound Git writes
         uses: ./.ci-helpers-security/.github/actions/publication-guard
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:

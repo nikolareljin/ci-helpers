@@ -166,13 +166,30 @@ runs:
     # --- pfx ---
     - name: Check or sign with the PFX certificate (Authenticode)
       if: ${{ inputs.sign_mode == 'pfx' }}
-      shell: pwsh
+      shell: pwsh -NoProfile -Command ". '{0}'"
       env:
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
         TS_URL: ${{ inputs.timestamp_server }}
         FILES_DIR: ${{ inputs.files_folder }}
         VERIFY_TRUST: ${{ inputs.verify_trust }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: '& (Join-Path $env:GITHUB_ACTION_PATH "sign_pfx.ps1")'
 
     # ── azure ─────────────────────────────────────────────────────────────────

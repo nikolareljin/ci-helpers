@@ -275,7 +275,7 @@ jobs:
       # sha256 over its files.
       - name: Isolate ci-helpers scripts
         id: ci_scripts_verify
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -317,7 +317,7 @@ jobs:
       # container left behind.
       - name: Run Unity tests
         id: tests
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -362,7 +362,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           /bin/bash "$run_lib/scripts/unity_test.sh"
           CI_HELPERS_RUN
           )"
@@ -372,7 +372,7 @@ jobs:
       # nothing to return.
       - name: Return the Unity licence
         if: ${{ always() && steps.ci_scripts_verify.outcome == 'success' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -412,7 +412,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           /bin/bash "$run_lib/scripts/unity_test.sh" --return-license
           CI_HELPERS_RUN
           )"
@@ -421,7 +421,7 @@ jobs:
       # the action posted a check run with the job token instead.
       - name: Test summary
         if: ${{ always() && steps.tests.outputs.artifactsPath != '' && steps.ci_scripts_verify.outcome == 'success' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -461,7 +461,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           /usr/bin/python3 -I "$run_lib/scripts/junit_summary.py" --title "Unity tests (${TEST_MODE})" --glob "${ARTIFACTS_PATH}/*-results.xml"
           CI_HELPERS_RUN
           )"
@@ -496,15 +496,33 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if git rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$(git rev-parse --git-path info/exclude)
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
@@ -512,6 +530,24 @@ jobs:
         id: ci_publication_check_1
         if: ${{ always() && steps.tests.outputs.artifactsPath != '' && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ inputs.artifact_name }}
@@ -529,7 +565,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB_0: ${{ steps.ci_scripts_verify.outputs.lib }}
           BASH_ENV: ""

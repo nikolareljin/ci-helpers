@@ -117,7 +117,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib_actions
         if: ${{ inputs.gosec_args != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -151,7 +151,7 @@ jobs:
       # `working_directory`, as lint and tests do.
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         working-directory: ${{ inputs.working_directory }}
         env:
           LIB: ${{ steps.ci_lib_actions.outputs.lib }}
@@ -191,7 +191,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           PINS="$run_lib/scanner-pins.env"
           version="$(awk -F= '$1 == "GOSEC_VERSION" { print $2; exit }' "$PINS")"
           if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -250,7 +250,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB_0: ${{ steps.ci_lib_actions.outputs.lib }}
           BASH_ENV: ""

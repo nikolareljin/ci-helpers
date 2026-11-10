@@ -33,8 +33,9 @@ with PyYAML. In every job, and in a composite action:
   blanks     the isolate, library and release steps set BLANKS below to ""
              in their env:, which wins over GITHUB_ENV before any shell
              starts;
-  env        the isolate step and every step reading `$LIB` use `shell: sh`
-             (`bash` on a Windows runner)
+  env        the isolate step and every step reading `$LIB` use
+             `shell: /bin/sh -e {0}` (`bash` on a Windows runner; a bare
+             name is looked up on PATH, GITHUB_PATH entries first)
              and run `set +xv`, refuse an exported BASH_FUNC_*, then
              `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME"
              LANG=C.UTF-8 NAME="$NAME"... /bin/bash --noprofile --norc`:
@@ -46,6 +47,18 @@ with PyYAML. In every job, and in a composite action:
   git        git on a library checkout runs only in the step right after
              that checkout, before any other step can write to its .git;
              git on `$LIB` fails;
+  path       a library step sources `$run_lib/scripts/lib_path.sh` before
+             its first library script and never sets PATH itself;
+  verify     git on a library checkout runs only as `/usr/bin/env -i
+             PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+             "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C <dir>
+             rev-parse HEAD`, with git set by GIT_DEF, under the absolute
+             bash, with OUTER_BLANKS and no empty GIT_* variable;
+  action     a `uses: ./.ci-helpers-*/...` step sets OUTER_BLANKS, and only
+             the checkout's verify, isolate and library steps, other such
+             actions and SHA-pinned actions run between the checkout and it;
+             a composite step that runs a file from the action's directory
+             sets OUTER_BLANKS, and PowerShell there runs with -NoProfile;
   mount      a `docker`/`podman` run: that mounts (`-v`, `--volume`,
              `--mount`) `$LIB`, `ci-helpers-lib` or a library checkout
              fails, and so does a job `container.volumes` entry naming one.
@@ -87,6 +100,9 @@ BLANKS = ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "LD_PRELOAD", "LD_L
           "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
           "PYTHONPATH", "PYTHONSTARTUP", "PERL5LIB", "PERL5OPT", "RUBYOPT", "NODE_OPTIONS",
           "GIT_DIR", "GIT_CONFIG_PARAMETERS", "GIT_EXEC_PATH")
+# The same, less the git variables, for a step that runs git or a library
+# action outside the env -i envelope: an empty GIT_DIR stops git outright.
+OUTER_BLANKS = tuple(k for k in BLANKS if not k.startswith("GIT_"))
 BASH_C = "/bin/bash --noprofile --norc -euo pipefail -c \"$(/bin/cat <<'CI_HELPERS_RUN'"
 CHECKOUT_FILE = re.compile(r"\.ci-helpers-[a-z]+/(?!\.github/)[A-Za-z0-9_]")
 LIB_USE = re.compile(r"\$\{?LIB\}?/")
@@ -97,6 +113,31 @@ MOUNT_TARGET = re.compile(r"\$\{?LIB\b|ci-helpers-lib|\.ci-helpers-[a-z]+")
 COPY_LINE = '/bin/cp -RP "$LIB/." "$run_lib/"'
 RUN_USE = re.compile(r'\$\{?run_lib\}?/(?:scripts/|[a-z-]+pins\.env)')
 STEP_REF = re.compile(r"^\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.(lib|hash)\s*\}\}$")
+# The runner looks a bare shell name up on PATH with the GITHUB_PATH
+# entries first, so `sh` or `bash` can be a caller's file. An absolute path
+# is used as is. A Windows runner keeps `bash`: Git Bash lives under
+# "C:\Program Files", and the runner splits `shell:` at the first space.
+SH = "/bin/sh -e {0}"
+BASH = "/bin/bash --noprofile --norc -e -o pipefail {0}"
+LIB_PATH_LINE = '. "$run_lib/scripts/lib_path.sh"'
+GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git'
+GIT_ANY = re.compile(r'(?:^|[;&|(\s"`])(?:/usr/bin/|/mingw64/bin/)?(?:git|\$\{?git\}?)(?=["\s]|$)')
+HARD_GIT = re.compile(r'/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "\$git" -c core\.fsmonitor= '
+                      r'-c core\.hooksPath=/dev/null -C (\.ci-helpers-[a-z]+) rev-parse HEAD\)')
+LOCAL_ACTION = re.compile(r"^\./(\.ci-helpers-[a-z]+)/")
+PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+ACTION_DIR = re.compile(r"github\.action_path|ACTION_PATH")
+
+
+def outer_blanks(name: str, env: dict) -> list[str]:
+    errs = []
+    missing = [k for k in OUTER_BLANKS if env.get(k) != ""]
+    if missing:
+        errs.append(f"{name}: env: must set {', '.join(missing)} to \"\"")
+    empty_git = [k for k in BLANKS if k.startswith("GIT_") and env.get(k) == ""]
+    if empty_git:
+        errs.append(f"{name}: env: sets {', '.join(empty_git)} to \"\", which stops git; leave them out")
+    return errs
 
 
 def is_checkout(step: dict) -> str | None:
@@ -204,8 +245,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         if iso:
             for e in env_errs:
                 errors.append(f"{name}: {e}")
-            if shell != ("bash" if windows else "sh"):
-                errors.append(f"{name}: shell must be sh (bash on a Windows runner, which has no sh shell)")
+            if shell != ("bash" if windows else SH):
+                errors.append(f"{name}: shell must be `{SH}` (bash on a Windows runner); a bare sh is looked up on PATH")
             missing = [k for k in BLANKS if env.get(k) != ""]
             if missing:
                 errors.append(f"{name}: env: must set {', '.join(missing)} to \"\"")
@@ -231,8 +272,9 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 if CHECKOUT_FILE.search(str(v)):
                     errors.append(f"{name}: {key}.{k} reads a file from the workspace checkout, not the verified copy")
 
+        hardened = False
         for line in logical_lines(run):
-            if not GIT_LINE.search(line):
+            if not (GIT_LINE.search(line) or GIT_ANY.search(line)):
                 continue
             if re.search(r"\$\{?LIB\b", line):
                 errors.append(f"{name}: runs git on the library copy")
@@ -241,6 +283,43 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 near = i - 1 in checkouts and checkouts[i - 1] == m.group(1)
                 if not near:
                     errors.append(f"{name}: runs git on {m.group(1)} later than the step right after its checkout")
+                if not HARD_GIT.search(line) or HARD_GIT.search(line).group(1) != m.group(1):
+                    errors.append(f"{name}: git on {m.group(1)} runs as `/usr/bin/env -i PATH=/usr/bin:/bin "
+                                  f"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "
+                                  f"\"$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C {m.group(1)} rev-parse HEAD`")
+                hardened = True
+        if hardened:
+            lines = [ln.strip() for ln in logical_lines(run)]
+            if GIT_DEF not in lines or any(re.match(r"(?:export\s+)?git=", ln) and ln != GIT_DEF for ln in lines):
+                errors.append(f"{name}: sets git only as `{GIT_DEF}`")
+            if any(GIT_LINE.search(ln) for ln in lines):
+                errors.append(f"{name}: runs git through PATH in the step that checks a library checkout")
+            if shell != ("bash" if windows else BASH):
+                errors.append(f"{name}: shell must be `{BASH}` (bash on a Windows runner); a bare bash is looked up on PATH")
+            errors += outer_blanks(name, env)
+
+        # An action from a library checkout runs from the workspace: nothing
+        # but the checkout's own checks, library steps and pinned actions
+        # may run between the checkout and the action.
+        la = LOCAL_ACTION.match(uses)
+        if la:
+            errors += outer_blanks(name, env)
+            src = [k for k in checkouts if k < i and checkouts[k] == la.group(1)]
+            if not src:
+                errors.append(f"{name}: no checkout of {la.group(1)} earlier in this job")
+            else:
+                for k in range(max(src) + 1, i):
+                    st = steps[k]
+                    if not isinstance(st, dict):
+                        continue
+                    su = str(st.get("uses") or "")
+                    sr = str(st.get("run") or "")
+                    ok = (LOCAL_ACTION.match(su) or PINNED.match(su)
+                          or ("lib_isolate.sh" in sr) or "LIB" in (st.get("env") or {})
+                          or (str(st.get("name") or "").startswith("Verify") and GIT_DEF in sr))
+                    if not ok:
+                        errors.append(f"{name}: step {k + 1} ({st.get('name') or su or 'run'}) runs between the "
+                                      f"checkout of {la.group(1)} and this action; check it out again right before")
 
         for line in logical_lines(run):
             if re.search(r"\b(?:docker|podman)\b", line) and MOUNT.search(line) and MOUNT_TARGET.search(line):
@@ -249,8 +328,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         if LIB_USE.search(run) or "LIB" in env:
             for e in env_errs:
                 errors.append(f"{name}: {e}")
-            if shell != ("bash" if windows else "sh"):
-                errors.append(f"{name}: shell must be sh (bash on a Windows runner, which has no sh shell)")
+            if shell != ("bash" if windows else SH):
+                errors.append(f"{name}: shell must be `{SH}` (bash on a Windows runner); a bare sh is looked up on PATH")
             missing = [k for k in BLANKS if env.get(k) != ""]
             if missing:
                 errors.append(f"{name}: env: must set {', '.join(missing)} to \"\"")
@@ -282,7 +361,19 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 errors.append(f"{name}: does not copy $LIB to run_lib and compare its hash to LIB_HASH")
             elif first and chk.start() > first.start():
                 errors.append(f"{name}: uses run_lib before comparing its hash to LIB_HASH")
+            blines = [ln.strip() for ln in logical_lines(body)]
+            if any(re.search(r"(?:^|[\s;])(?:export\s+)?PATH=", ln) for ln in blines):
+                errors.append(f"{name}: sets PATH itself; `{LIB_PATH_LINE}` gives the step's PATH back")
+            uses_script = [n for n, ln in enumerate(blines)
+                           if '"$run_lib/scripts/' in ln and ln != LIB_PATH_LINE]
+            if uses_script:
+                if LIB_PATH_LINE not in blines:
+                    errors.append(f"{name}: runs a library script without `{LIB_PATH_LINE}` first")
+                if LIB_PATH_LINE in blines and blines.index(LIB_PATH_LINE) > uses_script[0]:
+                    errors.append(f"{name}: `{LIB_PATH_LINE}` comes after the first library script")
             for line in logical_lines(body):
+                if line.strip() == LIB_PATH_LINE:
+                    continue
                 if re.search(r'"\$run_lib/scripts/[^"]*\.sh"', line) and not re.search(r'(?:^|\s)/bin/bash "\$run_lib/scripts/', line):
                     errors.append(f"{name}: a library shell script runs as /bin/bash, not through PATH")
                 if re.search(r'"\$run_lib/scripts/[^"]*\.py"', line) and "/usr/bin/python3 -I " not in line:
@@ -300,6 +391,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
             text = str(st.get("run") or "")
             if names and "/bin/chmod -R u+w" in text and any(f'"${n}"' in text for n in names):
                 ok = True
+                if str(st.get("shell") or "") != ("bash" if windows else SH):
+                    errors.append(f"{where}: the release step's shell must be `{SH}` (bash on a Windows runner)")
                 missing = [k for k in BLANKS if env.get(k) != ""]
                 if missing:
                     errors.append(f"{where}: the release step's env: must set {', '.join(missing)} to \"\"")
@@ -330,6 +423,19 @@ def check_file(path: Path) -> list[str]:
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)
+        # A composite step that runs a file from the action's directory gets
+        # the blanks too: the caller's GITHUB_ENV reaches it otherwise.
+        for n, st in enumerate(runs["steps"]):
+            if not isinstance(st, dict) or "run" not in st:
+                continue
+            env = st.get("env") if isinstance(st.get("env"), dict) else {}
+            text = str(st.get("run")) + " " + " ".join(str(v) for v in env.values())
+            if ACTION_DIR.search(text):
+                errors += outer_blanks(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}), which runs "
+                                       f"a file from the action's directory,", env)
+                if str(st.get("shell") or "").split(" ")[0] in ("pwsh", "powershell") and "-NoProfile" not in str(st.get("shell")):
+                    errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs PowerShell "
+                                  f"without -NoProfile")
     return errors
 
 

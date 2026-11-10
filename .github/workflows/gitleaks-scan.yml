@@ -85,13 +85,31 @@ jobs:
       # An empty job.workflow_sha would make the checkout above fall back to the
       # default branch and run today's actions after all; refuse instead.
       - name: Verify ci-helpers actions commit
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
-          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
+          got="$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-actions rev-parse HEAD)"
           [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
           echo "ci-helpers actions at $WF_SHA"
 
@@ -99,6 +117,24 @@ jobs:
       # reads git history there, so the library's files are not scanned.
       - name: Gitleaks scan
         uses: ./.ci-helpers-actions/.github/actions/gitleaks-scan
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           scan_path: ${{ inputs.scan_path }}
           report_format: ${{ inputs.report_format }}

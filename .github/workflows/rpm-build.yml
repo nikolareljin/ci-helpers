@@ -262,15 +262,33 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if git rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$(git rev-parse --git-path info/exclude)
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
@@ -278,6 +296,24 @@ jobs:
         id: ci_publication_check_1
         if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ inputs.artifact_name }}

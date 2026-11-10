@@ -92,7 +92,7 @@ jobs:
 
       - name: Isolate ci-helpers scripts
         id: ci_lib
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -124,7 +124,7 @@ jobs:
       # package.json's devEngines.packageManager or packageManager, whose hash
       # corepack checks on download.
       - name: Setup pnpm
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -163,7 +163,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_pnpm.sh"
           CI_HELPERS_RUN
@@ -255,15 +255,33 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if git rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$(git rev-parse --git-path info/exclude)
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
@@ -271,6 +289,24 @@ jobs:
         id: ci_publication_check_1
         if: ${{ (inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure()) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ format('cypress-videos{0}', inputs.artifact_suffix) }}
@@ -290,6 +326,24 @@ jobs:
         id: ci_publication_check_2
         if: ${{ (inputs.upload_cypress_artifacts && inputs.e2e_command != '' && failure()) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ format('cypress-screenshots{0}', inputs.artifact_suffix) }}
@@ -309,6 +363,24 @@ jobs:
         id: ci_publication_check_3
         if: ${{ (inputs.upload_test_results && (success() || failure())) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ format('junit-xml-cypress{0}', inputs.artifact_suffix) }}
@@ -329,7 +401,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""
@@ -388,7 +460,7 @@ jobs:
 
       - name: Isolate ci-helpers scripts
         id: ci_lib
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -418,7 +490,7 @@ jobs:
 
       - name: Summarize test results
         continue-on-error: true
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -458,7 +530,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           /usr/bin/python3 -I "$run_lib/scripts/junit_summary.py" --title "$TITLE" --glob "$RESULTS_GLOB"
           CI_HELPERS_RUN
           )"
@@ -467,7 +539,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""

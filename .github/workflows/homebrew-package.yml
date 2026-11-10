@@ -381,15 +381,33 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if git rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$(git rev-parse --git-path info/exclude)
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
@@ -397,6 +415,24 @@ jobs:
         id: ci_publication_check_1
         if: ${{ (steps.asset.outcome == 'success') && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ inputs.artifact_name }}-tarball
@@ -416,6 +452,24 @@ jobs:
         id: ci_publication_check_2
         if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ inputs.artifact_name }}
@@ -443,10 +497,96 @@ jobs:
           echo "file=$(basename "$BREW_FORMULA_PATH")" >> "$GITHUB_OUTPUT"
           echo "dir=$RUNNER_TEMP/brew-formula" >> "$GITHUB_OUTPUT"
 
+      # The steps since the checkout above could rewrite it; take a fresh one.
+      - name: Remove the .ci-helpers-publication checkout
+        if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
+        shell: /bin/sh -e {0}
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: /bin/rm -rf -- .ci-helpers-publication
+
+      - name: Check out trusted publication action
+        if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
       - name: Check publication files
         id: ci_publication_check_3
         if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         with:
           metadata: |
             name: ${{ inputs.artifact_name }}-formula
@@ -486,16 +626,52 @@ jobs:
           persist-credentials: false
 
       - name: Verify outbound guard revision
-        shell: bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
         run: |
           set -euo pipefail
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$(git -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          [[ "$(/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
 
       - name: Guard outbound Git writes
         uses: ./.ci-helpers-security/.github/actions/publication-guard
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:

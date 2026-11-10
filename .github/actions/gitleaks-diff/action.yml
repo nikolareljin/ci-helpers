@@ -50,6 +50,23 @@ runs:
       env:
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         if [[ "$FAIL_ON_FINDINGS" != true ]]; then
@@ -69,6 +86,23 @@ runs:
         GITLEAKS_VERSION: ${{ inputs.gitleaks_version }}
         GITLEAKS_SHA256: ${{ inputs.gitleaks_sha256 }}
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       # The installer gitleaks-scan uses, with the pins in scanner-pins.env.
       run: bash "$ACTION_PATH/../../../scripts/install_gitleaks.sh"
 
@@ -82,4 +116,21 @@ runs:
         CONFIG_PATH: ${{ inputs.config_path }}
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: bash "$ACTION_PATH/run.sh"

@@ -11,5 +11,22 @@ runs:
       shell: bash
       env:
         INPUT_SCAN_PATH: ${{ inputs.scan_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         bash "${{ github.action_path }}/data-safety-scan.sh" "$INPUT_SCAN_PATH"

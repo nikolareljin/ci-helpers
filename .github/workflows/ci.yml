@@ -491,7 +491,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib
         if: ${{ inputs.rust_toolchain != '' || inputs.flutter_version != '' || inputs.flutter_channel != '' || inputs.godot_version != '' || inputs.php_version != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -523,7 +523,7 @@ jobs:
       # version and sha256 in the library's toolchain-pins.env.
       - name: Setup Rust
         if: ${{ inputs.rust_toolchain != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -563,7 +563,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_rust.sh"
           CI_HELPERS_RUN
@@ -579,7 +579,7 @@ jobs:
       - name: Resolve Flutter
         id: flutter_resolve
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -621,7 +621,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_flutter.sh"
           CI_HELPERS_RUN
@@ -637,7 +637,7 @@ jobs:
 
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -678,7 +678,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_flutter.sh"
           CI_HELPERS_RUN
@@ -701,7 +701,7 @@ jobs:
       # release pinned there, installed after its sha256 matches.
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -740,7 +740,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_php.sh"
           CI_HELPERS_RUN
@@ -763,7 +763,7 @@ jobs:
 
       - name: Setup Godot
         if: ${{ inputs.godot_version != '' }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -804,7 +804,7 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          export PATH="$STEP_PATH"
+          . "$run_lib/scripts/lib_path.sh"
           export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
           /bin/bash "$run_lib/scripts/setup_godot.sh"
           CI_HELPERS_RUN
@@ -923,7 +923,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: sh
+        shell: /bin/sh -e {0}
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""

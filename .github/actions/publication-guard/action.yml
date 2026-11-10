@@ -7,4 +7,21 @@ runs:
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: bash "$ACTION_PATH/../../../vendor/script-helpers/scripts/install-publication-hooks.sh" --ci

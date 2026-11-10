@@ -63,6 +63,10 @@ for flag in ("true", "false"):
         names.append(tag)
         with open(f"{work}/{tag}.env", "w") as f:
             for k, v in (s.get("env") or {}).items():
+                # bash makes these two read-only; the runner passes them in
+                # the environment, which a sourced file cannot redo.
+                if k in ("SHELLOPTS", "BASHOPTS"):
+                    continue
                 f.write(f"export {k}={shlex.quote(render(str(v), flag))}\n")
         body = render(s["run"], flag)
         if "setup_php.sh" in s["run"]:

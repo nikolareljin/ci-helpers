@@ -119,8 +119,11 @@ included, has two layers:
   `RUBYOPT`, `NODE_OPTIONS`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS` and
   `GIT_EXEC_PATH` to `""`. A step's `env:` wins over `GITHUB_ENV`, so these
   never reach the shell the runner starts;
-- `shell: sh` (`bash` on a Windows runner, which has no `sh` shell), so
-  bash's startup handling is not on the path where `sh` is dash;
+- `shell: /bin/sh -e {0}` (`bash` on a Windows runner, which has no `sh`
+  shell), so bash's startup handling is not on the path where `sh` is
+  dash. The path is absolute because the runner looks a bare `sh` or `bash`
+  up on `PATH` with the `GITHUB_PATH` entries first, so a caller could
+  supply the shell itself;
 - `set +xv`, then a refusal when an exported `BASH_FUNC_*` is present (where
   `sh` is bash, on macOS and Git Bash);
 - `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
@@ -131,9 +134,39 @@ included, has two layers:
 
 Inside, the step copies the copy to a fresh directory, hashes that with
 tools at absolute paths, compares it to `LIB_HASH`, and only then runs a
-script from it, as `/bin/bash` or `/usr/bin/python3 -I`. The script then
-gets the step's `PATH` back (as `STEP_PATH`), because toolchains live
-there; a `GITHUB_PATH` entry can still shadow a tool the script calls.
+script from it, as `/bin/bash` or `/usr/bin/python3 -I`. Before the script
+runs, `scripts/lib_path.sh` (sourced from the checked copy) gives it the
+step's `PATH` back, because toolchains live there, behind a fresh
+directory of links to the `/usr/bin` or `/bin` copies of `git`, `gh`,
+`curl`, `wget`, `tar`, `gzip`, `xz`, `unzip`, `zip`, `sha256sum`,
+`shasum`, `gpg`, `openssl`, `ssh`, `scp`, `docker` and `cosign`, where they
+exist. A `GITHUB_PATH` entry can still shadow every other tool (`python3`,
+`node`, `php`, `cargo` and the like, which a toolchain step selects there),
+and those tools where the system has no copy (`gh` on macOS).
+
+The step that checks a library checkout's commit runs under
+`/bin/bash --noprofile --norc -e -o pipefail {0}` with the same blanks
+except the `GIT_*` ones (an empty `GIT_DIR` stops git), and runs git as
+`/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1
+GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c
+core.hooksPath=/dev/null -C <checkout> rev-parse HEAD`, with `git` set to
+`/usr/bin/git` or `/mingw64/bin/git`.
+
+A composite or node action from a library checkout (`publication-check`,
+`publication-guard`, `macos-sign`, `windows-sign` and the scan actions)
+runs from the workspace through `uses:`, so it cannot run from the copy.
+Instead:
+
+- nothing runs between its checkout and the `uses:` step but the checkout's
+  own commit check, isolate and library steps, other actions from that
+  checkout, and actions pinned to a commit SHA. Where a workflow step must
+  run in between (release notes, staging), the job removes the checkout
+  and checks it out and verifies it again right before the action;
+- the `uses:` step sets the same blanks as the commit check, so
+  `NODE_OPTIONS` or `BASH_ENV` from `GITHUB_ENV` does not reach the action;
+- inside each action under `.github/actions`, every step that runs a file
+  from the action's directory sets those blanks too, for a caller that uses
+  the action directly, and PowerShell runs with `-NoProfile`.
 
 `scripts/check_lib_isolation.py`, run by `workflow-yaml-check`, fails a
 workflow or action that:
@@ -146,12 +179,26 @@ workflow or action that:
 - reads `$LIB` outside the envelope above, passes a forbidden or renamed
   variable into it, uses the copy before comparing its hash, or runs a
   library script through `PATH`;
-- has no `always()` step that releases the read-only copy;
+- has no `always()` step that releases the read-only copy, or releases it
+  under a bare `sh`;
+- runs a library step under a bare `sh`, sets `PATH` itself, or runs a
+  library script before sourcing `lib_path.sh`;
+- runs git on a library checkout other than in the hardened form above, or
+  under a bare `bash`, or without the blanks;
+- runs a step between a library checkout and an action from it, or uses
+  such an action without the blanks; or has a composite step that runs a
+  file from the action's directory without them;
 - runs git on a library checkout later than the step right after it, or on
   the copy;
 - mounts the copy or a checkout into a container (`-v`, `--volume`,
   `--mount`, `container.volumes`).
 
-Not covered here: composite actions under `.github/actions` run their
-scripts from the action's own directory, and the gate does not yet hold
-publish steps to a job without caller code.
+Not covered here: a caller that uses one of these actions directly runs
+it after its own steps, which can rewrite the action's files in
+`_actions`; a process a caller step leaves running can still rewrite a
+checkout between two steps; on a Windows runner the outer shell is `bash`
+found on `PATH` (Git Bash lives under `C:\Program Files`, and the runner
+splits `shell:` at the first space) and `lib_path.sh` leaves the step's
+`PATH` as it is; the post step of `publication-check`
+runs from its checkout after every other step; and the gate does not yet
+hold publish steps to a job without caller code.
