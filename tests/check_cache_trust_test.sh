@@ -317,7 +317,7 @@ jobs:
       checks: write
 YAML
 
-expect "secrets read by name through an expression" 1 "restores 'target/' into a job that reads secrets[...] or toJSON(secrets)" <<YAML
+expect "secrets read by name through an expression" 1 "restores 'target/' into a job that reads secrets[" <<YAML
 on: push
 jobs:
   release:
@@ -332,6 +332,187 @@ jobs:
       - run: echo "\$TOKEN"
         env:
           TOKEN: \${{ secrets[inputs.token_name] }}
+YAML
+
+# Every form of a secrets-context read, wherever the expression sits.
+secret_form() {   # secret_form <name> <pattern> <yaml fragment under steps[0]'s env>
+  expect "$1" 1 "$2" <<YAML
+on:
+  workflow_call:
+    inputs:
+      name:
+        type: string
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo build
+        env:
+          X: $3
+YAML
+}
+secret_form "secrets['X']"              "reads secrets['"                 "\${{ secrets['STORE_KEY'] }}"
+secret_form "secrets[inputs.name]"       "reads secrets["                  "\${{ secrets[inputs.name] }}"
+secret_form "toJSON(secrets)"            "reads secrets"                   "\${{ toJSON(secrets) }}"
+secret_form "contains(secrets.X, ...)"   "reads secrets.STORE_KEY"         "\${{ contains(secrets.STORE_KEY, 'a') }}"
+secret_form "format(..., secrets.X)"     "reads secrets.STORE_KEY"         "\${{ format('{0}', secrets.STORE_KEY) }}"
+secret_form "secrets . X with spaces"    "reads secrets . STORE_KEY"       "\${{ secrets . STORE_KEY }}"
+secret_form "SECRETS.X in upper case"    "reads SECRETS.STORE_KEY"         "\${{ SECRETS.STORE_KEY }}"
+secret_form "secrets.GITHUB_TOKEN['x']"  "reads secrets.GITHUB_TOKEN["     "\${{ secrets.GITHUB_TOKEN['x'] }}"
+secret_form "a secret beside the token"  "reads secrets.OTHER"             "\${{ secrets.GITHUB_TOKEN || secrets.OTHER }}"
+
+expect "a secret in a job-level env" 1 "into a job that reads secrets.STORE_KEY" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      STORE_KEY: \${{ secrets.STORE_KEY }}
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+expect "a secret in a step if without braces" 1 "into a job that reads secrets.STORE_KEY" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - if: secrets.STORE_KEY != ''
+        run: echo signed
+YAML
+
+expect "a secret in the job-level if" 1 "into a job that reads secrets.STORE_KEY" <<YAML
+on: push
+jobs:
+  release:
+    if: \${{ secrets.STORE_KEY != '' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+expect "the word secrets in run prose is not a read" 0 "" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: echo "no secrets. Error if any."
+YAML
+
+expect "secrets.GITHUB_TOKEN in any case is not a secret of the repository" 0 "" <<YAML
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: gh api
+        env:
+          A: \${{ SECRETS.github_token }}
+          B: \${{ secrets . GITHUB_TOKEN }}
+YAML
+
+# A reusable call that passes secrets is trusted, and what it needs is too.
+expect "a reusable call passing a secrets mapping trusts what it needs" 1 "restores 'target/' into a job that is needed by trusted job publish" <<YAML
+on: push
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo build
+  publish:
+    needs: build
+    uses: ./.github/workflows/other.yml
+    secrets:
+      store_key: \${{ secrets.STORE_KEY }}
+YAML
+
+expect "secrets: inherit on a reusable call trusts what it needs" 1 "restores 'target/' into a job that is needed by trusted job publish" <<YAML
+on: push
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: cargo build
+  publish:
+    needs: build
+    uses: ./.github/workflows/other.yml
+    secrets: inherit
+YAML
+
+expect "id-token: write" 1 "restores 'target/' into a job that holds id-token: write" <<YAML
+on: push
+jobs:
+  deploy-pages:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+YAML
+
+expect "workflow-level write-all with no job permissions" 1 "restores 'target/' into a job that permissions: write-all" <<YAML
+on: push
+permissions: write-all
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
 YAML
 
 expect "a word that holds a shipping token is not one" 0 "" .github/workflows/design-check.yml <<'YAML'

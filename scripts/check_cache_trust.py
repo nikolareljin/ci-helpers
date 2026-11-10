@@ -17,11 +17,17 @@ it. The signing job is the one place a build must be clean.
 Every workflow and composite action under .github (.yml or .yaml) is read
 with PyYAML. A job is TRUSTED when any of these holds:
 
-  secrets      a step, `env:`, `with:` or `if:` of the job names `secrets.X`
-               for an X other than GITHUB_TOKEN, `secrets[...]` or
-               `toJSON(secrets)`, or the job has `secrets: inherit`;
-  write        its permissions (the job's, else the workflow's) grant any
-               scope `write`, or are `write-all`;
+  secrets      anything in the job (a step's `run:`, `env:`, `with:` or
+               `if:`, the job's `env:` or `if:`, a reusable call's `secrets:`
+               mapping) reads the secrets context in any form: `secrets.X`,
+               `secrets . X`, `SECRETS.X`, `secrets['X']`, `secrets[inputs.n]`,
+               `toJSON(secrets)`, `contains(secrets, ...)`, `format(...,
+               secrets.X)`; or the job has `secrets: inherit`. The one read
+               that is not a secret of the repository is exactly
+               `secrets.GITHUB_TOKEN`;
+  write        its permissions (the job's; else the workflow's, when the
+               job does not narrow them) grant any scope `write`, `id-token`
+               included, or are `write-all`;
   needs        a trusted job of the same workflow needs it, directly or
                through other jobs: its artifacts and outputs feed the
                publishing job;
@@ -104,9 +110,17 @@ SETUP_OFF = {
     "actions/setup-node": {"cache": ("",), "package-manager-cache": (False, "false")},
 }
 
-SECRET = re.compile(r"\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*")
-# secrets[inputs.name] and toJSON(secrets) read any secret; both count.
-SECRET_DYNAMIC = re.compile(r"\bsecrets\s*\[|\btojson\(\s*secrets\s*\)", re.IGNORECASE)
+# Every way an expression reaches the secrets context, wherever the
+# expression sits (env, with, run, if with or without braces, a reusable
+# call's secrets:): `secrets.X`, `secrets . X`, `SECRETS.X` (contexts and
+# properties are case-insensitive), `secrets['X']`, `secrets[inputs.n]`,
+# and `secrets` whole as an argument (`toJSON(secrets)`, `contains(secrets,
+# ...)`). The one read that is not a secret of the repository is exactly
+# `secrets.GITHUB_TOKEN`, with nothing dereferenced after it.
+SECRET_REF = re.compile(
+    r"\bsecrets\s*(?:\.\s*(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?P<more>\s*[.\[])?|(?P<index>\[[^\]]*\]?))"
+    r"|(?<=[(,])\s*\bsecrets\b\s*(?=[),])",
+    re.IGNORECASE)
 CALLER = re.compile(r"\$\{\{\s*inputs\.[a-z_]*command\s*\}\}")
 
 
@@ -142,17 +156,49 @@ def label(step: dict, i: int) -> str:
     return f"steps[{i}] '{name}'"
 
 
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+
+
+def expressions(job: dict) -> list[str]:
+    """Every expression of a job: each `${{ ... }}` anywhere in it, and each
+    `if:` of the job or a step, which is an expression with or without the
+    braces. Prose in a run block is not one."""
+    text = yaml.safe_dump(job, width=10**9)
+    found = EXPRESSION.findall(text)
+    for holder in [job, *steps_of(job)]:
+        cond = holder.get("if")
+        if isinstance(cond, str):
+            found.append(cond)
+    return found
+
+
+def secret_reads(exprs: list[str]) -> list[str]:
+    """Each read of the secrets context in the expressions, as written,
+    except an exact secrets.GITHUB_TOKEN."""
+    reads = []
+    for expr in exprs:
+        for m in SECRET_REF.finditer(expr):
+            name = m.group("name")
+            if name and name.lower() == "github_token" and not m.group("more"):
+                continue
+            reads.append(" ".join(m.group(0).split()))
+    return sorted(set(reads))
+
+
 def is_trusted(job: dict, wf_perms) -> list[str]:
     """Why a job is trusted: a list of reasons, empty for a plain job."""
     why = []
-    text = yaml.safe_dump(job, width=10**9)
-    hits = sorted(set(SECRET.findall(text)))
-    if SECRET_DYNAMIC.search(text):
-        hits.append("secrets[...] or toJSON(secrets)")
+    # The job's own `secrets:` key (a reusable call) is read apart: `inherit`
+    # is every secret, and a mapping's values are expressions like the rest.
+    rest = {k: v for k, v in job.items() if k != "secrets"}
+    hits = secret_reads(expressions(rest))
     if hits:
         why.append("reads " + ", ".join(hits))
-    if job.get("secrets") == "inherit":
+    passed = job.get("secrets")
+    if passed == "inherit":
         why.append("secrets: inherit")
+    elif isinstance(passed, dict) and passed:
+        why.append("passes " + ", ".join(sorted(str(k) for k in passed)) + " to the workflow it calls")
     perms = job.get("permissions", wf_perms)
     if perms == "write-all":
         why.append("permissions: write-all")
