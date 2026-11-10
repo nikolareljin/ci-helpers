@@ -41,6 +41,36 @@ def commit(root, message, **files):
     return git(root, "rev-parse", "HEAD")
 
 
+class WideTextTests(unittest.TestCase):
+    """Only text that reads the same with its NUL bytes dropped is transcoded."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("neutral_tree", NEUTRAL_TREE)
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+
+    def test_genuine_wide_text_is_transcoded(self):
+        text = "import os\nos.system(input())  # caf\u00e9\r\n"
+        for codec in ("utf-16", "utf-32"):
+            with self.subTest(codec=codec):
+                self.assertEqual(self.mod.as_utf8(b"a.py", text.encode(codec)), text.encode())
+
+    def test_a_mark_before_other_bytes_keeps_the_bytes(self):
+        # A mark followed by ASCII (an interpreter that drops the mark, or
+        # NULs, runs it) decodes to CJK that foxguard reads as nothing: the
+        # raw bytes are kept, so the scan refuses them as non-UTF-8.
+        code = b"os.system(input())\n#"
+        blobs = [b"\xff\xfe" + code, b"\xfe\xff" + code,
+                 b"\xff\xfe" + b"".join(b"\x00" + bytes([c]) for c in code),
+                 b"\xff\xfe" + "x = 1\n".encode("utf-16-le") + code,
+                 b"\xff\xfe" + "\x01\n".encode("utf-16-le"), b"\xff\xfe\x00\xd8"]
+        for blob in blobs:
+            with self.subTest(blob=blob[:12]):
+                self.assertEqual(self.mod.as_utf8(b"a.py", blob), blob)
+        self.assertEqual(self.mod.as_utf8(b"a.png", "x".encode("utf-16")), "x".encode("utf-16"))
+
+
 class Fixture:
     """An upstream with `main` and a feature branch, and a clone of the branch."""
 

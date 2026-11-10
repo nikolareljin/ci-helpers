@@ -340,7 +340,9 @@ Notes:
   (images, archives, fonts, audio, video). A changed file foxguard skips as
   minified (a line over about 2000 characters), as binary or non-UTF-8, or
   as a parse error fails the step too; a base copy that does not parse
-  passes. A UTF-16 or UTF-32 file with a byte order mark is copied as UTF-8.
+  passes. A UTF-16 or UTF-32 file with a byte order mark is copied as UTF-8
+  when no character past ASCII has an ASCII byte in its encoding; a mark
+  before plain ASCII stays raw and fails.
   A copy whose name Windows reserves (`con.py`, `AUX`, `CONIN$`) gets a `_`
   prefix. `foxguard-scan` still skips those directories. The
   reports must name their base and, together, have read at least one file,

@@ -109,10 +109,28 @@ def as_utf8(path, blob):
     for mark, codec in WIDE:
         if blob.startswith(mark):
             try:
-                return blob.decode(codec).encode("utf-8")
+                text = blob.decode(codec)
             except UnicodeError:
                 return blob
+            return text.encode("utf-8") if plain(text, codec) else blob
     return blob
+
+
+def plain(text, codec):
+    """True when no character but whitespace is a control, and no character
+    past ASCII has an ASCII byte in its encoding: a mark before ASCII, or
+    ASCII offset by one NUL, decodes to CJK foxguard reads as nothing while
+    a program that drops the mark or the NULs runs the ASCII. Such a file
+    (and wide text in scripts whose encoding has such bytes) stays raw and
+    is refused as non-UTF-8."""
+    wide = codec + "-le"
+    for char in text.lstrip("\ufeff"):
+        point = ord(char)
+        if point < 0x20 and char not in "\t\n\r\f":
+            return False
+        if point >= 0x7f and any(0 < b < 0x80 for b in char.encode(wide)):
+            return False
+    return True
 
 
 def too_large(path, size):

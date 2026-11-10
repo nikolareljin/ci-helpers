@@ -1509,6 +1509,14 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/utf16-new
           base_ref: main
 
+      - name: A UTF-16 byte order mark before plain ASCII fails
+        id: bom_ascii
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/bom-ascii
+          base_ref: main
+
       - name: A new command injection in a file that does not parse fails
         id: broken_new
         continue-on-error: true
@@ -1608,6 +1616,7 @@ jobs:
           LATIN1: ${{ steps.latin1.outcome }}
           UTF16_NEW: ${{ steps.utf16_new.outcome }}
           BROKEN_NEW: ${{ steps.broken_new.outcome }}
+          BOM_ASCII: ${{ steps.bom_ascii.outcome }}
           MAGIC_NAMES: ${{ steps.magic_names.outcome }}
           NAMED_NEW: ${{ steps.named_new.outcome }}
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
@@ -1616,7 +1625,7 @@ jobs:
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "file with a long line:$LONG_LINE" "latin-1 file:$LATIN1" "UTF-16 file:$UTF16_NEW" "file that does not parse:$BROKEN_NEW" "files named like pathspecs:$MAGIC_NAMES" "files foxguard knows by name:$NAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "file with a long line:$LONG_LINE" "latin-1 file:$LATIN1" "UTF-16 file:$UTF16_NEW" "file that does not parse:$BROKEN_NEW" "mark before plain ASCII:$BOM_ASCII" "files named like pathspecs:$MAGIC_NAMES" "files foxguard knows by name:$NAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"

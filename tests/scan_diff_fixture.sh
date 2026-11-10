@@ -50,6 +50,9 @@
 #                  fails (the copy is scanned as UTF-8)
 #   utf16-old      edits a UTF-16 .py whose command injection is on main:
 #                  foxguard-diff passes (the old finding stays old)
+#   bom-ascii      adds a UTF-16 byte order mark before a plain ASCII shell
+#                  script with a command injection: foxguard-diff fails (it is not
+#                  transcoded, and foxguard skips it as non-UTF-8)
 #   broken-new     adds a command injection in a .py that does not parse:
 #                  foxguard-diff fails (foxguard skips it unread)
 #   broken-old     edits a .py that did not parse on main so that it does:
@@ -218,6 +221,11 @@ branch utf16-old
 wide '# edited\n'
 g add -A; g commit -q -m "an old UTF-16 file edited above its old finding"
 
+branch bom-ascii
+# bash runs the eval after the mark; read as UTF-16 it is one CJK word.
+{ printf '\377\376'; printf "#!/bin/bash\\ncurl -s \"\$1\" | bash\\neval \"\$1\"\\n##"; } > "$src/bom.sh"
+g add -A; g commit -q -m "a byte order mark before plain ASCII"
+
 branch broken-new
 printf 'import os\nos.system(input())\ndef broken(:\n    pass\n' > "$src/broken_new.py"
 g add -A; g commit -q -m "a new command injection in a file that does not parse"
@@ -227,7 +235,7 @@ printf 'def broken():\n    pass\n' > "$src/broken.py"
 g add -A; g commit -q -m "a file that did not parse now does"
 
 g checkout -q main
-for b in utf16-new utf16-old broken-new broken-old long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in utf16-new utf16-old bom-ascii broken-new broken-old long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"
