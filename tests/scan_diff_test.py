@@ -652,7 +652,8 @@ sys.exit(rc)
 
     def test_foxguard_neutral_config_drops_secret_exclusions(self):
         # secrets.exclude_paths and exclude_path_files would silence the copies
-        # by path or glob: dropped. secrets.ignore_rules paths move like scan's.
+        # by path or glob: dropped. foxguard 0.14.1 reads secrets.ignore_rules
+        # as strings only and diff runs no secret rules: dropped too.
         git(self.fx.src, "checkout", "-q", "main")
         commit(self.fx.src, "reviewed config", **{"cfg/.foxguard.yml": (
             "secrets:\n  exclude_paths: ['../new.py', '**/*.py', 'f0']\n"
@@ -665,9 +666,8 @@ sys.exit(rc)
         config = self.neutral_call()["config"]
         self.assertNotIn("exclude_path", config)
         self.assertNotIn("*.py", config)
-        self.assertIn("path: f0/new.py", config)
-        self.assertIn("path: g0/file.py", config)
-        self.assertNotIn("old.py", config)
+        self.assertNotIn("ignore_rules", config)
+        self.assertNotIn("path:", config)
 
     def test_foxguard_refuses_a_changed_file_over_the_size_limit_before_the_scan(self):
         # Refused whatever foxguard logs; a binary type no rule reads passes.
@@ -684,6 +684,9 @@ sys.exit(rc)
     def test_foxguard_refuses_a_changed_file_it_skips_for_size(self):
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="warning: skipping ./f0/file.py (1048577 bytes exceeds --max-file-size)")
         self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 1 file: 1 too large.")
+        # One line over about 2000 characters makes foxguard skip a file as
+        # minified, whatever its size or name.
+        self.run_script(FOXGUARD_RUN, 1, STUB_SAY="Skipped 2 files: 1 unsupported extension, 1 minified.")
         self.run_script(FOXGUARD_RUN, 0, STUB_SAY="Skipped 2 files: 2 unsupported extensions.")
 
     def test_foxguard_refuses_a_scan_path_that_reads_as_an_option(self):

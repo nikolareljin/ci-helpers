@@ -332,12 +332,13 @@ Notes:
   under the runner's temporary directory, and all copies are scanned in one
   `foxguard diff` call: a new finding in `vendor/x.py` fails, an old one in a
   file moved into `vendor/` does not. A reviewed config's
-  `scan.ignore_rules` and `secrets.ignore_rules` paths that name a changed
-  file follow it to its copy; `secrets.exclude_paths` and
-  `secrets.exclude_path_files` are dropped for the copies. A changed file
+  `scan.ignore_rules` paths that name a changed file follow it to its
+  copy; `secrets.exclude_paths`, `secrets.exclude_path_files` and
+  `secrets.ignore_rules` are dropped for the copies. A changed file
   over foxguard's `--max-file-size` (1 MiB) would be skipped, so the step
   fails before the scan, unless its extension is one foxguard does not read
-  (images, archives, fonts, audio, video). `foxguard-scan` still skips those directories. The
+  (images, archives, fonts, audio, video). A changed file foxguard skips as
+  minified (a line over about 2000 characters) fails the step too. `foxguard-scan` still skips those directories. The
   reports must name their base and, together, have read at least one file,
   unless the review adds or changes no file under
   `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it

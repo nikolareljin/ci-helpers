@@ -97,10 +97,11 @@ def too_large(path, size):
 
 
 def neutral_config(text, folder, names):
-    """The reviewed config with its ignore paths moved to the neutral names.
-    The keys that exclude files by path or by a list file
-    (secrets.exclude_paths, secrets.exclude_path_files) are dropped, so they
-    silence nothing on the copies."""
+    """The reviewed config with its scan.ignore_rules paths moved to the
+    neutral names. secrets.exclude_paths and secrets.exclude_path_files would
+    silence the copies by path, so they are dropped; secrets.ignore_rules is
+    dropped too (foxguard 0.14.1 reads it as strings and diff runs no secret
+    rules)."""
     import yaml
     doc = yaml.safe_load(text)
     if not isinstance(doc, dict):
@@ -112,8 +113,9 @@ def neutral_config(text, folder, names):
         if not table:
             continue
         if section == "secrets":
-            table.pop("exclude_paths", None)
-            table.pop("exclude_path_files", None)
+            for key in ("exclude_paths", "exclude_path_files", "ignore_rules"):
+                table.pop(key, None)
+            continue
         if "ignore_rules" not in table:
             continue
         rules = table["ignore_rules"]
@@ -122,9 +124,7 @@ def neutral_config(text, folder, names):
         moved = []
         for rule in rules:
             if not (isinstance(rule, dict) and isinstance(rule.get("path"), str)):
-                if section == "scan":
-                    raise ValueError("ignore rule without a path")
-                continue
+                raise ValueError("ignore rule without a path")
             target = posixpath.normpath(posixpath.join(folder, rule["path"]))
             if target in names:
                 moved.extend({**rule, "path": name} for name in names[target])

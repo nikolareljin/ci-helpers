@@ -139,8 +139,9 @@ rc=0
   --output "$tmp/report.json" -- .) >"$tmp/scan.log" 2>&1 || rc=$?
 [[ "$rc" -eq 0 ]] || fail
 # neutral_tree.py refuses a changed file over foxguard's --max-file-size
-# (1 MiB) before the scan; a skip the log reports is refused too.
-if grep -q -e 'exceeds --max-file-size' -e '[0-9] too large' "$tmp/scan.log"; then fail; fi
+# (1 MiB) before the scan; a skip the log reports is refused too, and so is
+# a file skipped as minified (one line over about 2000 characters).
+if grep -q -e 'exceeds --max-file-size' -e '[0-9] too large' -e 'minified' "$tmp/scan.log"; then fail; fi
 n="$(report_ok "$neutral_base")" || fail
 read_count=$((read_count + n))
 # A scan of nothing (files foxguard cannot parse, say) is refused rather
