@@ -57,6 +57,12 @@ on:
       registry_token:
         description: Token for registry login (GITHUB_TOKEN or PAT)
         required: true
+      build_secrets:
+        description: >-
+          Build secrets, one id=value per line, each mounted with
+          --secret id=<id> (read in the Dockerfile with
+          RUN --mount=type=secret,id=<id>); never a build-arg
+        required: false
     outputs:
       image_digest:
         description: SHA digest of the pushed image
@@ -85,18 +91,67 @@ jobs:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
 
-      - name: Set up QEMU (cross-arch emulation)
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0 @ 2026-09-21
+      # The library's scripts and pins at this workflow's commit: the QEMU,
+      # buildx, login and build steps and the Trivy installer. `./scripts`
+      # would resolve in the caller's checkout, so the library is checked out
+      # beside it. A directory of that name already in the caller's tree is
+      # refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1 @ 2026-09-21
-
-      - name: Log in to registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0 @ 2026-11-06
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
-          registry: ${{ inputs.registry }}
-          username: ${{ inputs.registry_username || github.actor }}
-          password: ${{ secrets.registry_token }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's scripts after all; refuse instead.
+      - name: Verify ci-helpers scripts commit
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$(git -C .ci-helpers-scripts rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers scripts at $WF_SHA"
+
+      # QEMU user-mode emulators from the binfmt image pinned by digest in
+      # the library's toolchain-pins.env; every platform, as before.
+      - name: Set up QEMU (cross-arch emulation)
+        shell: bash
+        env:
+          QEMU_PLATFORMS: all
+        run: bash .ci-helpers-scripts/scripts/setup_qemu.sh
+
+      # A docker-container builder on the runner's buildx, running the
+      # BuildKit image pinned in toolchain-pins.env.
+      - name: Set up Docker Buildx
+        id: buildx
+        shell: bash
+        run: bash .ci-helpers-scripts/scripts/setup_buildx.sh
+
+      # The token reaches docker on stdin; it is in no argument and no log.
+      - name: Log in to registry
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          REGISTRY_USERNAME: ${{ inputs.registry_username || github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.registry_token }}
+        run: bash .ci-helpers-scripts/scripts/docker_login.sh
 
       - name: Compute image tags
         id: tags
@@ -115,49 +170,45 @@ jobs:
           echo "primary=${primary}" >> "${GITHUB_OUTPUT}"
           echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
 
+      # The GitHub Actions cache (`type=gha`) needs the job's runtime token
+      # and service URL, which the runner hands to a JavaScript action and
+      # not to a run step. GitHub's own script action exports them to the
+      # job, as the replaced build action read them; the token is masked.
+      - name: Expose the Actions cache to buildx
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
+        with:
+          script: |
+            const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+            if (!token) {
+              core.setFailed('ACTIONS_RUNTIME_TOKEN is not set; the build cache (type=gha) needs it');
+              return;
+            }
+            core.setSecret(token);
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', token);
+            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_CACHE_URL', 'ACTIONS_CACHE_SERVICE_V2']) {
+              if (process.env[name]) core.exportVariable(name, process.env[name]);
+            }
+
+      # Every former input, as an environment variable: the caller's build
+      # context and Dockerfile, the platforms, the tags computed above, the
+      # build-args, the Actions cache both ways, and a push. A build secret
+      # is mounted by id from this step's environment, never as a build-arg.
       - name: Build and push multi-arch image
         id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0 @ 2026-09-21
-        with:
-          # The caller's build context; its Dockerfile runs caller code anyway.
-          context: ${{ inputs.context }} # zizmor: ignore[template-injection]
-          file: ${{ inputs.dockerfile }}
-          platforms: ${{ inputs.platforms }}
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: ${{ inputs.build_args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # The library's own files at the commit of this workflow file: the
-      # Trivy installer and its pins. `./scripts` would resolve in the
-      # caller's checkout, so the library is checked out beside it.
-      - name: Check out ci-helpers scripts at this workflow's commit
-        if: ${{ inputs.scan_after_build }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ci-helpers-actions
-          sparse-checkout: |
-            scripts
-            vendor/script-helpers
-          fetch-depth: 1
-          persist-credentials: false
-
-      # An empty job.workflow_sha would make the checkout above fall back to the
-      # default branch and run today's scripts after all; refuse instead.
-      - name: Verify ci-helpers scripts commit
-        if: ${{ inputs.scan_after_build }}
         shell: bash
         env:
-          WF_SHA: ${{ job.workflow_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
-          got="$(git -C .ci-helpers-actions rev-parse HEAD)"
-          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
-          echo "ci-helpers scripts at $WF_SHA"
+          CONTEXT: ${{ inputs.context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          PLATFORMS: ${{ inputs.platforms }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+          BUILD_ARGS: ${{ inputs.build_args }}
+          BUILD_SECRETS: ${{ secrets.build_secrets }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          PUSH: "true"
+          CACHE_FROM: type=gha
+          CACHE_TO: type=gha,mode=max
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: bash .ci-helpers-scripts/scripts/docker_build.sh
 
       # The Trivy binary, not the vendor's action: a release pinned by version
       # and sha256 in the library's scanner-pins.env, downloaded and checked
@@ -167,7 +218,7 @@ jobs:
         if: ${{ inputs.scan_after_build }}
         id: trivy
         shell: bash
-        run: bash .ci-helpers-actions/scripts/install_trivy.sh --download-db
+        run: bash .ci-helpers-scripts/scripts/install_trivy.sh --download-db
 
       - name: Trivy scan (post-push)
         if: ${{ inputs.scan_after_build }}
@@ -184,3 +235,19 @@ jobs:
             --skip-db-update --offline-scan --format table \
             --severity "$SEVERITY" --ignore-unfixed --exit-code "$EXIT_CODE" \
             "$IMAGE_REF"
+
+      # The registry session ends with the job, whatever the build did, as
+      # the login action's post step did.
+      - name: Log out of registry
+        if: ${{ always() }}
+        shell: bash
+        env:
+          REGISTRY: ${{ inputs.registry }}
+        run: bash .ci-helpers-scripts/scripts/docker_login.sh --logout
+
+      - name: Remove the builder
+        if: ${{ always() && steps.buildx.outputs.name != '' }}
+        shell: bash
+        env:
+          BUILDX_NAME: ${{ steps.buildx.outputs.name }}
+        run: bash .ci-helpers-scripts/scripts/setup_buildx.sh --remove

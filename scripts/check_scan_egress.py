@@ -108,12 +108,6 @@ KEPT_THIRD_PARTY = {
     # Signs Windows installers; receives the Azure tenant, client id and
     # client secret and the installers.
     "azure/trusted-signing-action",
-    # Multi-arch Docker builds: binfmt setup, buildx, the registry
-    # credential, and the whole build context.
-    "docker/setup-qemu-action",
-    "docker/setup-buildx-action",
-    "docker/login-action",
-    "docker/build-push-action",
 }
 
 SARIF_UPLOADERS = re.compile(r"(github/codeql-action/|/actions/trivy-scan$|/codeql-scan\.yml$)")
