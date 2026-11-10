@@ -29,7 +29,9 @@
 #                      after this script, never after a caller's step.
 #   GODOT_INSTALL_DIR  Where the archive is extracted (default $HOME/godot);
 #                      removed and rebuilt every run, never cached.
-#   GODOT_BIN_DIR      Where the `godot` link goes (default $HOME/bin).
+#   GODOT_BIN_DIR      Where the `godot` link goes (default $HOME/bin); its
+#                      godot, godot.exe and GodotSharp entries are replaced,
+#                      the rest of the directory is left alone.
 #   GITHUB_WORKSPACE   Where global.json is read from (default: cwd).
 #   RUNNER_ARCH        X64 or ARM64 (set by the runner); else from uname -m.
 #   TOOLCHAIN_PINS     Pins file (default: toolchain-pins.env beside scripts/).
@@ -144,9 +146,12 @@ if [[ ${#expected} -ne 64 || -n "$(printf '%s' "$expected" | tr -d '0-9a-f')" ]]
   exit 2
 fi
 
-# The old install and its link go first, so a refusal below leaves no
-# editor of another release on PATH.
-rm -rf "$install_dir" "$bin_dir"
+# The old install and its links go first, so a refusal below leaves no
+# editor of another release on PATH. Only this script's entries in the bin
+# directory are removed; the action emptied the whole directory.
+[[ -n "$install_dir" && "$install_dir" != "/" && "$install_dir" != "$HOME" ]] || { echo "::error::GODOT_INSTALL_DIR '$install_dir' is not a directory of its own." >&2; exit 2; }
+[[ -n "$bin_dir" && "$bin_dir" != "/" && "$bin_dir" != "$HOME" ]] || { echo "::error::GODOT_BIN_DIR '$bin_dir' is not a directory of its own." >&2; exit 2; }
+rm -rf "$install_dir" "$bin_dir/godot" "$bin_dir/godot.exe" "$bin_dir/GodotSharp"
 
 # The archive: one kept in GODOT_ARCHIVE_DIR by a cache restore is used only
 # after its sha256 matches the pin in this run; a cache entry is written by

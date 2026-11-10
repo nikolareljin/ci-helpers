@@ -1111,7 +1111,7 @@ jobs:
           [[ -e "$HOME/godot/planted" ]] && { echo "::error::the install directory was not rebuilt"; exit 1; }
 
           # A tampered cached archive is deleted and downloaded again.
-          printf 'tampered\n' >> "$GODOT_ARCHIVE_DIR"/Godot_v*.zip
+          find "$GODOT_ARCHIVE_DIR" -name 'Godot_v*.zip' -exec sh -c 'printf tampered >> "$1"' _ {} \;
           bash scripts/setup_godot.sh > "$RUNNER_TEMP/tampered-archive.log" 2>&1 || { cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
           grep -q "deleting it and downloading again" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::the tampered archive was not refused"; cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
           grep -q "^Verified Godot_v" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::no fresh download after the tampered archive"; exit 1; }
@@ -1204,7 +1204,7 @@ jobs:
           [[ -e "$FLUTTER_ROOT/../planted" ]] && { echo "::error::the SDK directory was not rebuilt"; exit 1; }
 
           # A tampered cached archive is deleted and downloaded again.
-          printf 'tampered\n' >> "$FLUTTER_ARCHIVE_DIR"/flutter_*
+          find "$FLUTTER_ARCHIVE_DIR" -name 'flutter_*' -exec sh -c 'printf tampered >> "$1"' _ {} \;
           bash scripts/setup_flutter.sh > "$RUNNER_TEMP/tampered-archive.log" 2>&1 || { cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
           grep -q "deleting it and downloading again" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::the tampered archive was not refused"; cat "$RUNNER_TEMP/tampered-archive.log"; exit 1; }
           grep -q "^Verified flutter_" "$RUNNER_TEMP/tampered-archive.log" || { echo "::error::no fresh download after the tampered archive"; exit 1; }

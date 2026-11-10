@@ -259,6 +259,18 @@ STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 2 4.3.0 true ARM64 && says "Godot_v4.3-
 name="another OS is refused"
 STUB_UNAME_S=FreeBSD run "$name" 2 4.3.0 && no_download && says "Unsupported runner OS 'FreeBSD'"
 
+name="other entries of the bin directory are left alone"
+mkdir -p "$work/bin"; printf '#!/usr/bin/env bash\n' > "$work/bin/mine"
+run "$name" 0 4.3.0 && installed 4.3-stable 4.3.stable.official.77dcf97d8
+[[ -f "$work/bin/mine" ]] || { echo "FAIL $name: bin/mine was removed"; fail=1; }
+
+name="an install or bin directory that is HOME or / is refused"
+rm -rf "${work:?}/gh"; mkdir -p "$work/gh"
+rc=0; GODOT_VERSION=4.3.0 GODOT_INSTALL_DIR="$HOME" GODOT_BIN_DIR="$work/bin" TOOLCHAIN_PINS="$work/pins.env" PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
+if [[ "$rc" != 2 ]] || ! grep -q "GODOT_INSTALL_DIR '$HOME' is not a directory of its own" "$work/out"; then echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1; fi
+rc=0; GODOT_VERSION=4.3.0 GODOT_INSTALL_DIR="$work/install" GODOT_BIN_DIR=/ TOOLCHAIN_PINS="$work/pins.env" PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" "$BASH" "$script" > "$work/out" 2>&1 || rc=$?
+if [[ "$rc" != 2 ]] || ! grep -q "GODOT_BIN_DIR '/' is not a directory of its own" "$work/out"; then echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1; fi
+
 name="a missing pins file"
 TEST_PINS="$work/none.env" run "$name" 2 4.3.0 && no_download && says "Pins file $work/none.env is not readable"
 
