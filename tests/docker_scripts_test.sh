@@ -33,6 +33,9 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$STUB_LOG"
 if [[ ! -t 0 ]]; then cat >> "$STUB_STDIN"; fi
 for v in ${!STUB_VAR_@}; do printf '%s' "${!v}" > "$STUB_ENV.$v"; done
+for v in ACTIONS_RUNTIME_TOKEN ACTIONS_RESULTS_URL ACTIONS_CACHE_URL ACTIONS_CACHE_SERVICE_V2; do
+  if [[ -n "${!v+x}" ]]; then printf '%s' "${!v}" > "$STUB_ENV.$v"; fi
+done
 sub="$1"; [[ "$1" == buildx ]] && sub="buildx $2"
 if [[ "$sub" == "${STUB_FAIL:-}" ]]; then echo "stub: $sub failed" >&2; exit 1; fi
 case "$sub" in
@@ -347,6 +350,39 @@ if TAGS=$'a:1, a:2\n a:3 ' PLATFORMS=$'linux/amd64\n linux/arm64' run "$name" 0 
   build_has " --tag a:1 --tag a:2 --tag a:3 "
   build_has " --platform linux/amd64,linux/arm64 "
 fi
+
+
+# The workflow passes every cache variable, empty when the runner has none;
+# buildx reads a set-but-empty ACTIONS_CACHE_URL as the cache URL.
+name="an empty Actions cache variable is unset before buildx runs"
+if ACTIONS_RUNTIME_TOKEN=tok ACTIONS_RESULTS_URL=https://results.example ACTIONS_CACHE_URL='' ACTIONS_CACHE_SERVICE_V2='' \
+    TAGS=t run "$name" 0 docker_build.sh; then
+  [[ -f "$work/env.ACTIONS_CACHE_URL" || -f "$work/env.ACTIONS_CACHE_SERVICE_V2" ]] && { echo "FAIL $name: an empty variable reached docker"; fail=1; }
+  [[ "$(cat "$work/env.ACTIONS_RESULTS_URL" 2>/dev/null)" == https://results.example ]] || { echo "FAIL $name: the results URL did not reach docker"; fail=1; }
+fi
+
+# ---- docker-multiarch.yml: the runtime token reaches the build step only ----
+# The cache token is a job credential. Exported to GITHUB_ENV it would reach
+# every later step (the scan, the logout, the cleanup); passed by `env:` it
+# reaches the one step that hands it to buildx.
+name="the Actions runtime token reaches only the build step"
+if ! python3 - "$root/.github/workflows/docker-multiarch.yml" <<'PY'
+import sys, yaml
+wf = yaml.safe_load(open(sys.argv[1]))
+bad = []
+for job in wf["jobs"].values():
+    for step in job.get("steps", []):
+        text = yaml.safe_dump(step)
+        if "exportVariable" in text or "GITHUB_ENV" in text:
+            bad.append("%s writes the job environment" % step.get("name"))
+        if "ACTIONS_RUNTIME_TOKEN" in yaml.safe_dump(step.get("env", {})) and step.get("id") != "build":
+            bad.append("%s gets the runtime token" % step.get("name"))
+        if "ACTIONS_RUNTIME_TOKEN" in text and step.get("id") not in ("build", "gha"):
+            bad.append("%s names the runtime token" % step.get("name"))
+for b in bad: print(b)
+sys.exit(1 if bad else 0)
+PY
+then echo "FAIL $name"; fail=1; fi
 
 [[ "$fail" = 0 ]] && echo "ok: the docker scripts build the command lines the actions built, keep the credential and the secrets out of argv, and refuse an unpinned image"
 exit "$fail"

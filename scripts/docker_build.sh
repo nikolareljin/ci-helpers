@@ -39,6 +39,10 @@
 #                      action set it; otherwise `mode=max`. No provenance is
 #                      added when the image is loaded into the docker engine.
 #   BUILDER            Builder name (default: the current one).
+#   ACTIONS_RUNTIME_TOKEN, ACTIONS_RESULTS_URL, ACTIONS_CACHE_URL,
+#   ACTIONS_CACHE_SERVICE_V2
+#                      Read by buildx for a type=gha cache; an empty one is
+#                      unset first.
 #   RUNNER_TEMP        Where the iid and metadata files go (default: mktemp -d).
 #   GITHUB_OUTPUT      Written when set.
 # OUTPUT: imageid=<image id>, digest=<manifest digest> and
@@ -52,6 +56,12 @@
 #      a variable name after it), a repeated id, or an unset variable.
 # ----------------------------------------------------
 set -euo pipefail
+
+# The workflow passes the Actions cache variables to this step only, empty
+# when the runner has none; buildx would read an empty one as a value.
+for v in ACTIONS_RUNTIME_TOKEN ACTIONS_RESULTS_URL ACTIONS_CACHE_URL ACTIONS_CACHE_SERVICE_V2; do
+  if [[ -z "${!v:-}" ]]; then unset "$v"; fi
+done
 
 context="${CONTEXT:-.}"
 dockerfile="${DOCKERFILE:-}"

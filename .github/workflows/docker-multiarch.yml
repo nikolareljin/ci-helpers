@@ -23,7 +23,7 @@ on:
         type: string
         default: "."
       build_args:
-        description: Newline-delimited ARG=VALUE pairs passed to docker build
+        description: Newline-delimited ARG=VALUE pairs passed to docker build. Not for secrets - on a public repository the provenance attestation (mode=max) publishes every build-arg value with the image
         type: string
         default: ""
       push_latest:
@@ -165,10 +165,12 @@ jobs:
           echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
 
       # The GitHub Actions cache (`type=gha`) needs the job's runtime token
-      # and service URL, which the runner hands to a JavaScript action and
-      # not to a run step. GitHub's own script action exports them to the
-      # job, as the replaced build action read them; the token is masked.
-      - name: Expose the Actions cache to buildx
+      # and service URLs, which the runner hands to a JavaScript action and
+      # not to a run step. GitHub's own script action reads them and returns
+      # them as masked step outputs; only the build step's `env:` takes them,
+      # so the scan, the logout and the cleanup never hold the token.
+      - name: Read the Actions cache credentials
+        id: gha
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 @ 2026-09-10
         with:
           script: |
@@ -178,10 +180,10 @@ jobs:
               return;
             }
             core.setSecret(token);
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', token);
-            for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_CACHE_URL', 'ACTIONS_CACHE_SERVICE_V2']) {
-              if (process.env[name]) core.exportVariable(name, process.env[name]);
-            }
+            core.setOutput('token', token);
+            core.setOutput('results_url', process.env.ACTIONS_RESULTS_URL || '');
+            core.setOutput('cache_url', process.env.ACTIONS_CACHE_URL || '');
+            core.setOutput('cache_service_v2', process.env.ACTIONS_CACHE_SERVICE_V2 || '');
 
       # Every former input, as an environment variable: the caller's build
       # context and Dockerfile, the platforms, the tags computed above, the
@@ -200,6 +202,10 @@ jobs:
           CACHE_FROM: type=gha
           CACHE_TO: type=gha,mode=max
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          ACTIONS_RUNTIME_TOKEN: ${{ steps.gha.outputs.token }}
+          ACTIONS_RESULTS_URL: ${{ steps.gha.outputs.results_url }}
+          ACTIONS_CACHE_URL: ${{ steps.gha.outputs.cache_url }}
+          ACTIONS_CACHE_SERVICE_V2: ${{ steps.gha.outputs.cache_service_v2 }}
         run: bash .ci-helpers-scripts/scripts/docker_build.sh
 
       # The Trivy binary, not the vendor's action: a release pinned by version
