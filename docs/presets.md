@@ -938,7 +938,7 @@ reports it as a missing file rather than a missing secret.
 - `unity_version`: `auto`, read from `ProjectSettings/ProjectVersion.txt`
 - `cache`: `true`, ignored; kept so callers keep parsing. `Library` is not cached
 - `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
-- `timeout_minutes`: `60`, not `20` — the cold `Library` import can take most of it
+- `timeout_minutes`: `60`, not `20`: the cold `Library` import can take most of it
 - `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate
 - `lfs`: `true` - check out Git LFS objects; a missing object fails deep inside the import otherwise
 - `artifact_name`: `unity-test-results`
