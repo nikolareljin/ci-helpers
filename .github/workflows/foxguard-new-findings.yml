@@ -37,6 +37,14 @@ on:
           digest for that version is refused.
         type: string
         default: ""
+      allow_unscanned:
+        description: >
+          Changed files foxguard may skip (minified, over 1 MiB, not UTF-8, not
+          parseable) without failing: glob patterns from the repository root,
+          comma- or newline-separated, such as `static/**/*.min.js`. A matching
+          file is still scanned when foxguard can read it. Default: none.
+        type: string
+        default: ""
       fail_on_findings:
         description: Mandatory enforcement; false is refused
         type: boolean
@@ -100,6 +108,7 @@ jobs:
           scan_path: repo/${{ inputs.scan_path }}
           severity: ${{ inputs.severity }}
           config_path: ${{ inputs.config_path }}
+          allow_unscanned: ${{ inputs.allow_unscanned }}
           foxguard_version: ${{ inputs.foxguard_version }}
           foxguard_sha256: ${{ inputs.foxguard_sha256 }}
           fail_on_findings: ${{ inputs.fail_on_findings }}

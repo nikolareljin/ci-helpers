@@ -17,6 +17,9 @@ scan_path="${SCAN_PATH:-.}"
 # A scan_path a tool could read as an option ("-s") is refused; every
 # scanner call also passes it after "--".
 [[ "$scan_path" != -* ]] || fail
+# allow_unscanned is checked before anything is scanned; a bad pattern is
+# named by its number, not its text.
+"$py" -I "$dir/neutral_tree.py" --check-patterns || exit 1
 tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/security.XXXXXX")" || fail
 # The vetted config may sit in the caller's tree (see prepare_config.py);
 # its path is in $tmp/config.path and it goes when the action does.
@@ -120,24 +123,32 @@ read_count="$(report_ok "$fg_base")" || fail
 # decides whether a changed file is read.
 # A reviewed config comes along with its ignore paths moved to the neutral
 # names; it is read on stdin, so neutral_tree.py opens no path.
-neutral_config="$config"
 neutral_arg=""
 [[ "$config_set" == 1 ]] && neutral_arg="$config"
 "$py" -I "$dir/neutral_tree.py" "$scan_path" "$merge_base" "$fg_base" "$tmp" "$neutral_arg" \
   <"$config" >"$tmp/neutral.out" 2>"$tmp/base.log" || fail
-neutral_base="$(head -n 1 "$tmp/neutral.out")"
-[[ "$neutral_base" =~ ^[0-9a-f]{40}$ || "$neutral_base" =~ ^[0-9a-f]{64}$ ]] || fail
-if [[ "$config_set" == 1 ]]; then
-  tail -n +2 "$tmp/neutral.out" >"$tmp/neutral/.foxguard-reviewed.yml" || fail
-  neutral_config="$tmp/neutral/.foxguard-reviewed.yml"
-fi
+is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ || "$1" =~ ^[0-9a-f]{64}$ ]]; }
+neutral_base="$(sed -n 1p "$tmp/neutral.out")"
+allowed_base="$(sed -n 2p "$tmp/neutral.out")"
+read -r n_allowed n_strict < <(sed -n 3p "$tmp/neutral.out") || fail
+is_sha "$neutral_base" || fail
+[[ "$allowed_base" == - ]] || is_sha "$allowed_base" || fail
+[[ "$n_allowed" =~ ^[0-9]+$ && "$n_strict" =~ ^[0-9]+$ ]] || fail
 mkdir "$tmp/home" || fail
-rc=0
-(cd "$tmp/neutral" && env -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_DIR -u GIT_WORK_TREE \
-  HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
-  "$FG_BIN" diff "$neutral_base" --config "$neutral_config" -f json -s "$severity" \
-  --output "$tmp/report.json" -- .) >"$tmp/scan.log" 2>&1 || rc=$?
-[[ "$rc" -eq 0 ]] || fail
+# Scans one neutral repository: $1 its directory, $2 its base commit.
+neutral_scan() {
+  local config="$config" rc=0
+  if [[ "$config_set" == 1 ]]; then
+    tail -n +4 "$tmp/neutral.out" >"$1/.foxguard-reviewed.yml" || return 1
+    config="$1/.foxguard-reviewed.yml"
+  fi
+  (cd "$1" && env -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_DIR -u GIT_WORK_TREE \
+    HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    "$FG_BIN" diff "$2" --config "$config" -f json -s "$severity" \
+    --output "$tmp/report.json" -- .) >"$tmp/scan.log" 2>&1 || rc=$?
+  return "$rc"
+}
+neutral_scan "$tmp/neutral" "$neutral_base" || fail
 # neutral_tree.py refuses a changed file over foxguard's --max-file-size
 # (1 MiB) before the scan; a skip the log reports is refused too, and so is
 # a file skipped as minified (one line over about 2000 characters) or as
@@ -149,6 +160,17 @@ if grep -q -E -e '\(.*exceeds --max-file-size\)$' -e '\(binary or non-UTF-8 cont
   -e '^Skipped .*[0-9] (too large|minified|binary or non-UTF-8)' "$tmp/scan.log"; then fail; fi
 n="$(report_ok "$neutral_base")" || fail
 read_count=$((read_count + n))
+# The changed files allow_unscanned names: scanned the same way, and their
+# findings fail the step, but a skip of theirs is not refused.
+if [[ "$allowed_base" != - ]]; then
+  neutral_scan "$tmp/neutral-allowed" "$allowed_base" || fail
+  n="$(report_ok "$allowed_base")" || fail
+  read_count=$((read_count + n))
+fi
 # A scan of nothing (files foxguard cannot parse, say) is refused rather
-# than reported clean, unless the review changed nothing there.
-[[ "$read_count" -gt 0 || -z "$changed" ]] || fail
+# than reported clean, unless the review changed nothing there, or nothing
+# allow_unscanned does not name.
+[[ "$read_count" -gt 0 || -z "$changed" || "$n_strict" -eq 0 ]] || fail
+if [[ "$n_allowed" -gt 0 ]]; then
+  echo "foxguard-diff: $n_allowed changed file(s) allowed unscanned by allow_unscanned"
+fi

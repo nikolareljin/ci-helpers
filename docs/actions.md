@@ -295,6 +295,7 @@ Inputs:
 - `scan_path` (default `"."`) - a path inside the git work tree
 - `severity` (default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
 - `config_path` (default `""`) - foxguard config file, relative to the scanned repository, read from the base commit; `.foxguard.yml` at the base when present
+- `allow_unscanned` (default `""`) - changed files foxguard may skip without failing the step; see "Unscannable files" below
 - `fail_on_findings` (default `"true"`) - `false` is refused
 - `foxguard_version` (default `v0.14.1`)
 - `foxguard_sha256` (default `""`) - required with any version other than `v0.14.1`, whose digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest
@@ -343,7 +344,7 @@ Notes:
   passes. A UTF-16 or UTF-32 file with a byte order mark is copied as UTF-8
   when no character past ASCII has an ASCII byte in its encoding; a mark
   before plain ASCII stays raw and fails.
-  A copy whose name Windows reserves (`con.py`, `AUX`, `CONIN$`) gets a `_`
+  A copy whose name Windows reserves (`con.py`, `AUX`, `CONIN$`, `COM` or `LPT` with a superscript digit) gets a `_`
   prefix. `foxguard-scan` still skips those directories. The
   reports must name their base and, together, have read at least one file,
   unless the review adds or changes no file under
@@ -352,6 +353,32 @@ Notes:
 - No report, SARIF or artifact. A failure names Foxguard and the branch,
   links https://nikolareljin.github.io/leak-lock/ and says what to run
   locally; nothing else is logged.
+
+Unscannable files (`allow_unscanned`):
+
+- By default a changed file foxguard cannot read (minified, over 1 MiB, not
+  UTF-8, or not parseable) fails the step: a finding in it would pass unseen.
+- `allow_unscanned` lists glob patterns, separated by commas or newlines,
+  matched against each changed file's path from the repository root, as
+  exact bytes and case-sensitive. `*` matches within a name, `?` one
+  character of a name, and a `**` name any number of directories
+  (`static/**/*.min.js`, `**/*.min.js`, `vendor/**`). Everything else is
+  literal: no brackets, no pathspec magic, no shell expansion. An empty
+  entry, an absolute path, a `.` or `..` name, a leading `-`, a `\` or a
+  trailing `/` fails the step before the scan, naming the entry by number.
+- A matching file is exempt from that refusal only. It is copied to a
+  second neutral repository and scanned the same way; its findings fail the
+  step. It is not exempt from the `.gitignore`/`.ignore` check.
+- When any changed file matches, the step prints
+  `foxguard-diff: N changed file(s) allowed unscanned by allow_unscanned`:
+  a count, no paths. N counts matching files, read or not.
+- The patterns live in the calling workflow, not in a file of the tree under
+  review, so they are not read from a path the review itself adds. A pull
+  request can still edit the calling workflow, so protect `.github/workflows/`
+  with CODEOWNERS.
+- Trade-off: a file foxguard skips is not analysed at all. Name only files
+  that are generated or vendored and reviewed some other way, and keep the
+  patterns narrow; `**` alone switches the refusal off for the whole review.
 
 ## data-safety-scan
 

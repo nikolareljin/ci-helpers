@@ -71,6 +71,51 @@ class WideTextTests(unittest.TestCase):
         self.assertEqual(self.mod.as_utf8(b"a.png", "x".encode("utf-16")), "x".encode("utf-16"))
 
 
+class AllowPatternTests(unittest.TestCase):
+    """allow_unscanned patterns match exact path bytes from the repository root."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("neutral_tree", NEUTRAL_TREE)
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+
+    def matches(self, pattern, path):
+        return self.mod.allowed(self.mod.allow_patterns(pattern), path)
+
+    def test_globs(self):
+        yes = {"static/**/*.min.js": [b"static/a.min.js", b"static/x/y/a.min.js"],
+               "**/*.min.js": [b"a.min.js", b"x/.y/a.min.js"], "a/**": [b"a/b", b"a/b/c"],
+               "a/**/b": [b"a/b", b"a/x/y/b"], "*.py": [b"x.py", b".x.py"], "?.py": [b"x.py"],
+               "**": [b"x", b"a/b"], "[x].py": [b"[x].py"], ":(glob)*.py": [b":(glob)*.py"],
+               "a b.py": [b"a b.py"], "caf\u00e9.py": ["caf\u00e9".encode() + b".py"],
+               "a*": [b"a\nb"]}
+        no = {"static/**/*.min.js": [b"x/static/a.min.js", b"static/a.js"], "*.py": [b"a/x.py"],
+              "a/**": [b"a", b"ab/c"], "?.py": [b"xy.py", b"/.py"], "[x].py": [b"x.py"],
+              "a/**/b": [b"a/bc", b"ab"], "caf\u00e9.py": [b"caf\xe9.py"], "A.py": [b"a.py"],
+              "x.py": [b"sub/x.py"]}
+        for pattern, paths in yes.items():
+            for path in paths:
+                with self.subTest(pattern=pattern, path=path):
+                    self.assertTrue(self.matches(pattern, path))
+        for pattern, paths in no.items():
+            for path in paths:
+                with self.subTest(pattern=pattern, path=path):
+                    self.assertFalse(self.matches(pattern, path))
+
+    def test_lists(self):
+        self.assertEqual(len(self.mod.allow_patterns("a, b\n\n c\n")), 3)
+        self.assertEqual(self.mod.allow_patterns(""), [])
+        self.assertEqual(self.mod.allow_patterns(" \n "), [])
+
+    def test_bad_patterns(self):
+        for pattern in ("a,,b", ",a", "a,", "/a", "../a", "a/..", "./a", ".", "-a", "a//b", "a/",
+                        "a\\b", "\\\\host\\x", "C:/x"):
+            with self.subTest(pattern=pattern):
+                with self.assertRaises(ValueError):
+                    self.mod.allow_patterns(pattern)
+
+
 class Fixture:
     """An upstream with `main` and a feature branch, and a clone of the branch."""
 
@@ -384,7 +429,8 @@ if "--output" in args:
         }))
         if total and rc == 0:
             rc = 1
-if os.environ.get("STUB_SAY"):
+if os.environ.get("STUB_SAY") and (not os.environ.get("STUB_SAY_IF") or any(
+        os.environ["STUB_SAY_IF"] in t for t in record.get("tree", {}).values())):
     print(os.environ["STUB_SAY"])
 sys.exit(rc)
 """)
@@ -403,7 +449,7 @@ sys.exit(rc)
             "GITHUB_HEAD_REF": "fixture-branch", "GITHUB_EVENT_PATH": "", "GITHUB_EVENT_NAME": "",
         }
 
-    def run_script(self, script, expected, dirty=False, **changes):
+    def run_script(self, script, expected, dirty=False, stdout="", **changes):
         for stale in (self.called, Path(str(self.called) + ".all")):
             if stale.exists():
                 stale.unlink()
@@ -411,7 +457,7 @@ sys.exit(rc)
         proc = subprocess.run(["bash", str(script)], cwd=self.workspace, env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
         self.assertNotIn(self.canary, proc.stdout + proc.stderr)
-        self.assertEqual(proc.stdout, "")
+        self.assertEqual(proc.stdout, stdout)
         if expected == 0:
             self.assertEqual(proc.stderr, "")
         else:
@@ -634,7 +680,8 @@ sys.exit(rc)
                  ":(glob)*.py": [":(glob)*.py", "file.py"], ":(exclude)a.py": [":(exclude)a.py", "file.py"],
                  ".con.py": ["_con.py", "file.py"], ".Aux": ["_Aux"], ".lpt1.c.py": ["_lpt1.c.py", "file.py"],
                  ".console.py": ["console.py", "file.py"], ".conin$.py": ["_conin$.py", "file.py"],
-                 ".CONOUT$": ["_CONOUT$"],
+                 ".CONOUT$": ["_CONOUT$"], "com\u00b9.py": ["_com\u00b9.py", "file.py"],
+                 "LPT\u00b3": ["_LPT\u00b3"],
                  ":!b.py": [":!b.py", "file.py"], "*.py": ["*.py", "file.py"], "[x].py": ["[x].py", "file.py"]}
         for path, neutral in cases.items():
             with self.subTest(path=path):
@@ -756,6 +803,66 @@ sys.exit(rc)
         self.assertEqual(tree["old.ps1"], "# old\n# more\n")
         base = {p.split("/", 1)[1]: t for p, t in call["base_tree"].items() if p.startswith("f")}
         self.assertEqual(base["old.ps1"], "# old\n")
+
+    # allow_unscanned: changed files the caller lets foxguard skip
+
+    MINIFIED = "var a=1;" * 400 + "\n"
+    ALLOWED = "foxguard-diff: %d changed file(s) allowed unscanned by allow_unscanned\n"
+
+    def test_foxguard_refuses_an_unscannable_file_unless_a_pattern_allows_it(self):
+        commit(self.fx.clone, "minified", **{"static/js/lib.min.js": self.MINIFIED})
+        skip = {"STUB_SAY": "Skipped 2 files: 2 minifieds.", "STUB_SAY_IF": "var a=1;"}
+        self.run_script(FOXGUARD_RUN, 1, **skip)
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1, ALLOW_UNSCANNED="static/**/*.min.js", **skip)
+        # Comma- or newline-separated, blank lines ignored.
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1,
+                        ALLOW_UNSCANNED="\n  docs/** ,static/**/*.min.js\n\n", **skip)
+        # A pattern that names another file leaves the refusal in place.
+        for pattern in ("other/**", "*.min.js", "static/*.min.js", "static/js", "Static/**/*.min.js"):
+            with self.subTest(pattern=pattern):
+                self.run_script(FOXGUARD_RUN, 1, ALLOW_UNSCANNED=pattern, **skip)
+
+    def test_foxguard_allowed_file_is_still_scanned_and_its_findings_fail(self):
+        commit(self.fx.clone, "scannable", **{"static/app.min.js": "marker = 3\n"})
+        self.run_script(FOXGUARD_RUN, 1, ALLOW_UNSCANNED="static/**", FINDINGS_TEXT="marker")
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1, ALLOW_UNSCANNED="static/**")
+        calls = [json.loads(line) for line in Path(str(self.called) + ".all").read_text().splitlines()]
+        self.assertEqual(len(calls), 3)
+        allowed = calls[2]
+        self.assertEqual(Path(allowed["cwd"]).name, "neutral-allowed")
+        self.assertEqual(sorted(allowed["tree"].values()), ["marker = 3\n"] * 2)
+        self.assertNotIn("marker = 3\n", calls[1]["tree"].values())
+
+    def test_foxguard_allowed_file_over_the_size_limit_passes(self):
+        commit(self.fx.clone, "big", **{"data/big.py": "#" * 1048577 + "\n"})
+        self.run_script(FOXGUARD_RUN, 1)
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1, ALLOW_UNSCANNED="data/*.py")
+
+    def test_foxguard_allowed_file_skip_does_not_cover_other_files(self):
+        commit(self.fx.clone, "two", **{"static/lib.min.js": self.MINIFIED, "app.py": "var b=2;" * 400 + "\n"})
+        self.run_script(FOXGUARD_RUN, 1, ALLOW_UNSCANNED="static/**",
+                        STUB_SAY="Skipped 2 files: 2 minifieds.", STUB_SAY_IF="var b=2;")
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1, ALLOW_UNSCANNED="static/**",
+                        STUB_SAY="Skipped 2 files: 2 minifieds.", STUB_SAY_IF="var a=1;")
+
+    def test_foxguard_allow_unscanned_matches_from_the_repository_root(self):
+        sub = self.fx.clone / "web"
+        commit(self.fx.clone, "sub", **{"web/static/lib.min.js": self.MINIFIED})
+        skip = {"STUB_SAY": "Skipped 2 files: 2 minifieds.", "STUB_SAY_IF": "var a=1;", "SCAN_PATH": str(sub)}
+        self.run_script(FOXGUARD_RUN, 1, ALLOW_UNSCANNED="static/**", **skip)
+        self.run_script(FOXGUARD_RUN, 0, stdout=self.ALLOWED % 1, ALLOW_UNSCANNED="web/static/**", **skip)
+
+    def test_foxguard_allow_unscanned_refuses_a_bad_pattern(self):
+        for pattern in ("a,,b", "a,", "/static/**", "../x", "a/../b", "./a", "a/./b", "-x", "a//b",
+                        "static/", "a\\b"):
+            with self.subTest(pattern=pattern):
+                proc = subprocess.run(["bash", str(FOXGUARD_RUN)], cwd=self.workspace,
+                                      env={**self.env, "ALLOW_UNSCANNED": pattern}, capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 1)
+                self.assertEqual(proc.stdout, "")
+                self.assertRegex(proc.stderr, r"^::error::allow_unscanned entry \d+ ")
+                self.assertNotIn(pattern.strip(","), proc.stderr.replace("allow_unscanned", ""))
+                self.assertIsNone(self.record())
 
     def test_foxguard_refuses_a_scan_path_that_reads_as_an_option(self):
         dash = self.fx.clone / "-s"

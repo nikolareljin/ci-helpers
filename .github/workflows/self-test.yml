@@ -1453,6 +1453,41 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/broken-old
           base_ref: main
 
+      - name: A minified file allow_unscanned names passes
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/allowed-min
+          base_ref: main
+          allow_unscanned: |
+            docs/**
+            static/**/*.min.js
+
+      - name: The same minified file fails without allow_unscanned
+        id: allowed_default
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/allowed-min
+          base_ref: main
+
+      - name: The same minified file fails when no pattern names it
+        id: allowed_other
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/allowed-min
+          base_ref: main
+          allow_unscanned: other/**/*.min.js,static/*.min.js
+
+      - name: A new command injection in a file allow_unscanned names fails
+        id: allowed_new
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/allowed-new
+          base_ref: main
+          allow_unscanned: static/**
+
       - name: A new command injection under vendor/ and build/ fails
         id: noise_new
         continue-on-error: true
@@ -1622,10 +1657,13 @@ jobs:
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
           NO_BASE: ${{ steps.no_base.outcome }}
           FULL_SCAN: ${{ steps.full_scan.outcome }}
+          ALLOWED_DEFAULT: ${{ steps.allowed_default.outcome }}
+          ALLOWED_OTHER: ${{ steps.allowed_other.outcome }}
+          ALLOWED_NEW: ${{ steps.allowed_new.outcome }}
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "file with a long line:$LONG_LINE" "latin-1 file:$LATIN1" "UTF-16 file:$UTF16_NEW" "file that does not parse:$BROKEN_NEW" "mark before plain ASCII:$BOM_ASCII" "files named like pathspecs:$MAGIC_NAMES" "files foxguard knows by name:$NAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "file with a long line:$LONG_LINE" "latin-1 file:$LATIN1" "UTF-16 file:$UTF16_NEW" "file that does not parse:$BROKEN_NEW" "mark before plain ASCII:$BOM_ASCII" "files named like pathspecs:$MAGIC_NAMES" "files foxguard knows by name:$NAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN" "minified file, no allow_unscanned:$ALLOWED_DEFAULT" "minified file no pattern names:$ALLOWED_OTHER" "new injection in an allowed file:$ALLOWED_NEW"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"

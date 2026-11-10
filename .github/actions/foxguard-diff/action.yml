@@ -27,6 +27,17 @@ inputs:
       Default: `.foxguard.yml` at the base when present.
     default: ""
     required: false
+  allow_unscanned:
+    description: >
+      Changed files foxguard may skip (minified, over 1 MiB, not UTF-8, or
+      not parseable) without failing the step: glob patterns from the
+      repository root, separated by commas or newlines, such as
+      `static/**/*.min.js`. `*` and `?` match within a name, a `**` name any
+      number of directories; the rest is literal. A matching file is still
+      scanned when foxguard can read it, and its findings still fail.
+      Default: none, every unscannable changed file fails.
+    default: ""
+    required: false
   fail_on_findings:
     description: Mandatory enforcement; false is refused.
     default: "true"
@@ -81,6 +92,7 @@ runs:
         SCAN_PATH: ${{ inputs.scan_path }}
         SEVERITY: ${{ inputs.severity }}
         CONFIG_PATH: ${{ inputs.config_path }}
+        ALLOW_UNSCANNED: ${{ inputs.allow_unscanned }}
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
       run: bash "$ACTION_PATH/run.sh"

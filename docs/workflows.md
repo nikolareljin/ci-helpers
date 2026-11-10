@@ -774,6 +774,7 @@ Inputs:
 - `scan_path` (string, default `"."`)
 - `severity` (string, default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
 - `config_path` (string, default `""`) - foxguard config file, relative to the repository; read from the base commit
+- `allow_unscanned` (string, default `""`) - glob patterns from the repository root (comma- or newline-separated) naming changed files foxguard may skip (minified, over 1 MiB, not UTF-8, not parseable) without failing; matching files are still scanned and their findings still fail. Set here, in the calling workflow, rather than in the tree under review. Syntax and trade-off: `foxguard-diff` in `docs/actions.md`
 - `foxguard_version` (string, default `v0.14.1`) - release tag to download. Pin it for reproducible scans.
 - `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
 - `fail_on_findings` (boolean, default `true`) - `false` is refused
@@ -829,6 +830,7 @@ Inputs:
 - `severity` (string, default `medium`) - lowest Foxguard severity that fails the scan
 - `gitleaks_config_path` (string, default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
 - `foxguard_config_path` (string, default `""`) - foxguard config file, relative to the repository, read from the base commit
+- `allow_unscanned` (string, default `""`) - as `foxguard-new-findings.yml`: changed files Foxguard may skip without failing
 - `gitleaks_version` (string, default `v8.30.1`)
 - `gitleaks_sha256` (string, default `""`) - required with any version other than `v8.30.1`; with `v8.30.1` it may only repeat the pinned digest
 - `foxguard_version` (string, default `v0.14.1`)

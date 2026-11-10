@@ -57,6 +57,11 @@
 #                  foxguard-diff fails (foxguard skips it unread)
 #   broken-old     edits a .py that did not parse on main so that it does:
 #                  foxguard-diff passes (a base copy may fail to parse)
+#   allowed-min    adds a minified static/js/lib.min.js (one long line, no
+#                  finding): foxguard-diff fails, and passes with
+#                  allow_unscanned: static/**/*.min.js
+#   allowed-new    adds a command injection in static/gen/tool.py:
+#                  foxguard-diff fails even with allow_unscanned: static/**
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
 #                  fingerprint: gitleaks-diff fails (gitleaks reads the tree's
 #                  ignore list, so one that differs from the base's is refused)
@@ -234,8 +239,18 @@ branch broken-old
 printf 'def broken():\n    pass\n' > "$src/broken.py"
 g add -A; g commit -q -m "a file that did not parse now does"
 
+branch allowed-min
+mkdir -p "$src/static/js"
+{ printf 'var a=1;'; head -c 3000 /dev/zero | tr '\0' ' '; printf 'var b=2;\n'; } > "$src/static/js/lib.min.js"
+g add -A; g commit -q -m "a minified file foxguard skips"
+
+branch allowed-new
+mkdir -p "$src/static/gen"
+injection static/gen/tool.py
+g add -A; g commit -q -m "a new command injection under static/"
+
 g checkout -q main
-for b in utf16-new utf16-old bom-ascii broken-new broken-old long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in allowed-min allowed-new utf16-new utf16-old bom-ascii broken-new broken-old long-line latin1 named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"
