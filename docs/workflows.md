@@ -49,7 +49,7 @@ Inputs:
 - `submodules` (string, default `"false"`) — `false`, `true` or `recursive`, passed to `actions/checkout`. Any other value is **refused**: checkout reads anything that is not `true`/`recursive` as false, so a typo would otherwise check out no submodule and report success. **Public submodules only** — checkout authenticates with a header scoped to the calling repository, so one in a private repository fails with a 403. Note the engine already checks out with `fetch-depth: 0` and `fetch-tags: true`, so `recursive` against a large submodule tree can want more than the default `timeout_minutes`.
 - `cache` (boolean, default `true`) — restore dependency caches through each `setup-*` action's own cache option. Which toolchains are enabled is **detected from the tree**, not assumed: `setup-node` and `setup-dotnet` fail the job when told to cache with no lockfile present, so a blanket "cache everything" would be a new class of red build. The mapping is `package-lock.json`/`npm-shrinkwrap.json` → npm, `yarn.lock` → yarn (npm wins when both are present, and the summary says so), `requirements*.txt` → pip, `go.sum`, `pom.xml` → maven, a root `*.gradle`/`*.gradle.kts` → gradle, `packages.lock.json` → NuGet. Each run writes one line per toolchain to the job summary saying what was cached and whether it hit.
 
-  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which needs `pnpm/action-setup` before `setup-node` (the `pnpm.yml` presets do this and do not call this engine); and **Rust, PHP and Flutter**, whose setup actions have no cache option.
+  Not cached, deliberately: **poetry and pipenv**, because `setup-python` resolves their cache directories by running those binaries and the setup step runs *before* `install_command`, so neither is on PATH yet; **pnpm**, which must be on PATH before `setup-node` can probe its store (the `pnpm.yml` presets put it there with corepack and do not call this engine); and **Rust, PHP and Flutter**, whose setup steps have no cache option here (the Tauri workflows cache cargo with `actions/cache`).
 
   One caveat worth knowing before enabling it on a matrix: `setup-java`'s cache key does not carry the JDK version, so a `java_version` matrix over one `pom.xml` shares a single cache. Pass `cache: false` if that matters.
 - `node_version` (string, default `""`)
@@ -1247,6 +1247,19 @@ Workflow: `.github/workflows/rust-scan.yml`
 
 Purpose: Run Rust lint, tests, and cargo-audit.
 
+The toolchain comes from the rustup the runner ships (`rustup toolchain
+install <rust_toolchain> --profile minimal` with each component), through
+`scripts/setup_rust.sh`, which the job checks out from this library at the
+workflow's own commit; no third-party action. A runner without rustup gets
+`rustup-init` at the version and sha256 pinned in the library's
+`toolchain-pins.env`, run only after the digest matches. `rust_toolchain` takes
+what rustup takes (`stable`, `beta`, `nightly`, `nightly-2026-01-01`, `1.75.0`,
+`1.75`) and the relative forms `stable minus 2 releases` and `stable 3 months
+ago`. The step exports `CARGO_INCREMENTAL=0` and `CARGO_TERM_COLOR=always` to
+the job unless the caller set them. The same step and script serve `rust.yml`,
+`ci.yml`, `pr-gate.yml`, `rust-release.yml`, `rust-release-tarballs.yml` and
+the three Tauri workflows.
+
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `working_directory` (string, default `"."`)
@@ -2299,6 +2312,21 @@ Workflow: `.github/workflows/tauri.yml`
 Purpose: Standalone Tauri CI preset — installs Tauri system deps, runs tests
 and a full `cargo build`. Does not wrap `ci.yml` (which has no apt step).
 Runs on `ubuntu-24.04` by default; override with `runner`.
+
+Rust comes from the runner's rustup as in [rust-scan.yml](#rust-scanyml).
+Cargo is cached with `actions/cache` here, in `tauri-scan.yml` and in every
+build job of `tauri-release.yml`: `~/.cargo/registry/index`,
+`~/.cargo/registry/cache`, `~/.cargo/git/db` and `<working_directory>/target`,
+under a key of the runner OS and architecture, the job id, the `runner` label
+(the Linux jobs), the rustc commit, and a hash of every `Cargo.lock`,
+`Cargo.toml`, `rust-toolchain[.toml]` and `.cargo/config[.toml]` under the
+workspace plus the `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*`
+environment (`scripts/rust_cache_key.sh`). A lockfile change restores the
+previous entry through a restore key without the hash. The entry is saved when
+the job succeeds. Unlike a cargo-specific cache, nothing is pruned before the
+save: `target/` is kept whole, workspace crates and stale dependencies
+included, so the entry grows until the key changes, and `~/.cargo/bin` (tools
+from `cargo install`) is not cached.
 
 Inputs: like `tauri-scan.yml`, but with no `check_command`, no lint and no
 components by default, and with test and build steps:

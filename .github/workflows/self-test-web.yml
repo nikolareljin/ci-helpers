@@ -616,9 +616,61 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 @ 2026-11-06
-        with:
-          version: 'latest'
+      - name: Setup pnpm
+        shell: bash
+        env:
+          PNPM_VERSION: latest
+        run: bash scripts/setup_pnpm.sh
+
+      # scripts/setup_pnpm.sh is what every pnpm preset runs now, with the
+      # runner's corepack. Each probe gets an empty corepack cache, so a hash
+      # is checked on a real download and a version comes from the registry.
+      - name: The pnpm version is resolved as before, and a packageManager hash is checked
+        shell: bash
+        env:
+          # The registry's integrity for pnpm 10.0.0, in corepack's spelling.
+          GOOD: pnpm@10.0.0+sha512.b8fef5494bd3fe4cbd4edabd0745df2ee5be3e4b0b8b08fa643aa3e4c6702ccc0f00d68fa8a8c9858a735a0032485a44990ed2810526c875e416f001b17df12b
+          BAD: pnpm@10.0.0+sha512.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+        run: |
+          set -uo pipefail
+          ws="$(mktemp -d)"
+          neutral="$(mktemp -d)"
+          # probe <name> <expected rc> <PNPM_VERSION> <package.json body or ->
+          # Leaves the resolved pnpm's version in $got when the run passed.
+          probe() {
+            local name="$1" want="$2" version="$3" manifest="$4" rc=0 bin
+            rm -f "$ws/package.json" "$RUNNER_TEMP/probe.out"
+            [[ "$manifest" != "-" ]] && printf '%s\n' "$manifest" > "$ws/package.json"
+            export COREPACK_HOME="$(mktemp -d)"
+            PNPM_VERSION="$version" GITHUB_WORKSPACE="$ws" GITHUB_OUTPUT="$RUNNER_TEMP/probe.out" \
+              bash scripts/setup_pnpm.sh > "$RUNNER_TEMP/probe.log" 2>&1 || rc=$?
+            if [[ "$rc" != "$want" ]]; then
+              echo "::error::$name: exit $rc, expected $want"
+              tail -20 "$RUNNER_TEMP/probe.log"
+              exit 1
+            fi
+            got=""
+            if [[ "$rc" == 0 ]]; then
+              bin="$(sed -n 's/^pnpm_bin=//p' "$RUNNER_TEMP/probe.out")"
+              got="$(cd "$neutral" && "$bin/pnpm" --version)"
+            fi
+            echo "$name: exit $rc${got:+, pnpm $got}"
+          }
+          probe "pnpm_version that disagrees with packageManager" 2 9.1.0 '{"packageManager":"pnpm@10.0.0"}'
+          grep -q "Multiple versions of pnpm specified" "$RUNNER_TEMP/probe.log" || { echo "::error::the disagreement is not named"; exit 1; }
+          probe "no version anywhere" 2 "" '{"name":"x"}'
+          grep -q "No pnpm version is specified" "$RUNNER_TEMP/probe.log" || { echo "::error::the missing version is not named"; exit 1; }
+          probe "packageManager with a hash that does not match" 1 "" "{\"packageManager\":\"$BAD\"}"
+          grep -q "Mismatch hashes" "$RUNNER_TEMP/probe.log" || { echo "::error::corepack did not refuse on the hash"; tail -20 "$RUNNER_TEMP/probe.log"; exit 1; }
+          probe "packageManager with the registry's hash" 0 "" "{\"packageManager\":\"$GOOD\"}"
+          [[ "$got" == 10.0.0 ]] || { echo "::error::packageManager pnpm@10.0.0 gave pnpm $got"; exit 1; }
+          probe "pnpm_version equal to packageManager" 0 10.0.0 "{\"packageManager\":\"$GOOD\"}"
+          [[ "$got" == 10.0.0 ]] || { echo "::error::pnpm_version 10.0.0 beside packageManager gave pnpm $got"; exit 1; }
+          probe "devEngines before packageManager" 0 "" '{"packageManager":"pnpm@10.0.0","devEngines":{"packageManager":{"name":"pnpm","version":"9.15.9"}}}'
+          [[ "$got" == 9.15.9 ]] || { echo "::error::devEngines 9.15.9 over packageManager 10.0.0 gave pnpm $got"; exit 1; }
+          probe "pnpm_version alone, a range" 0 '^9' -
+          [[ "$got" == 9.* ]] || { echo "::error::pnpm_version ^9 gave pnpm $got"; exit 1; }
+          echo "the version is resolved in the action's order, a disagreement and a bad hash are refused, a good hash installs"
 
       - name: A repository with no lockfile is told which flag to drop
         shell: bash
