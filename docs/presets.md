@@ -1039,6 +1039,21 @@ package inside a monorepo caches on its own lockfile. Keyed at the repository
 root -- which is `setup-node`'s default -- every such consumer fails at that
 same step.
 
+pnpm itself comes from corepack, which ships with Node, through
+`scripts/setup_pnpm.sh`, which the job checks out from this library at the
+workflow's own commit; no third-party action. The version is `pnpm_version`
+when set (a version, a range such as `^9`, or `latest`); otherwise the root
+`package.json`'s `devEngines.packageManager` (name `pnpm`), then its
+`packageManager` field `pnpm@<version>[+<hash>]`; none of the three refuses.
+`pnpm_version` and a `packageManager` that name different versions refuse too,
+as before: a repository with `packageManager` must pass that same version in
+`pnpm_version` or leave `pnpm_version` empty. A `packageManager` hash goes to
+corepack as written, and corepack refuses the download when the release does
+not match it. The same step serves `pnpm-scan.yml`, `pnpm-cypress.yml`,
+`pnpm-playwright.yml`, `pnpm-pages.yml` and, from `package.json` only,
+`cloudflare-build.yml` and `cloudflare-deploy.yml` with `package_manager:
+pnpm`.
+
 Optional test result upload:
 
 - `upload_test_results`: `false` — set to `true` to upload the JUnit XML as an artifact and write a test summary (totals and failures) to the job summary

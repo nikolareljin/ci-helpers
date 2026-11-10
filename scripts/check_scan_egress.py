@@ -88,9 +88,6 @@ TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 # Adding one here is a decision, not a convenience.
 TOOLCHAIN_EXCEPTIONS = {
     "shivammathur/setup-php",
-    "pnpm/action-setup",
-    "dtolnay/rust-toolchain",
-    "swatinem/rust-cache",
 }
 
 # Third-party actions the other workflows still run, each on its way out:
@@ -102,12 +99,6 @@ KEPT_THIRD_PARTY = {
     # Installs PHP and Composer; runs with the checkout (composer.json) and
     # the job token for API rate limits; downloads tools from its own CDN.
     "shivammathur/setup-php",
-    # Installs pnpm; reads package.json's packageManager from the checkout.
-    "pnpm/action-setup",
-    # Installs Rust; runs with the checkout.
-    "dtolnay/rust-toolchain",
-    # Caches cargo; reads Cargo.lock and the target directory.
-    "swatinem/rust-cache",
     # Installs the Flutter SDK; reads pubspec.yaml from the checkout.
     "subosito/flutter-action",
     # Installs Godot and its export templates; runs with the checkout.

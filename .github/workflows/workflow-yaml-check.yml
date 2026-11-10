@@ -284,6 +284,22 @@ jobs:
         shell: bash
         run: python3 tests/junit_summary_test.py
 
+      # pnpm comes from corepack and Rust from the runner's rustup, through
+      # scripts the workflows check out at their own commit; a runner without
+      # rustup gets the installer pinned in toolchain-pins.env. Stub tools,
+      # nothing downloaded.
+      - name: setup_pnpm.sh resolves the version as the action did and keeps the hash
+        shell: bash
+        run: bash tests/setup_pnpm_test.sh
+
+      - name: setup_rust.sh drives rustup as the action did and installs it only from a verified pin
+        shell: bash
+        run: bash tests/setup_rust_test.sh
+
+      - name: rust_cache_key.sh is deterministic and follows the lockfile
+        shell: bash
+        run: bash tests/rust_cache_key_test.sh
+
       # A scan job runs only allowlisted actions, digest-pinned containers and
       # token-free checkouts, inherits no secrets and writes nothing but
       # SARIF; no workflow runs a third-party action outside the kept list.

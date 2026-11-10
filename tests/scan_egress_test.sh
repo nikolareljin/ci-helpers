@@ -440,7 +440,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: "false"
-      - uses: swatinem/rust-cache@0000000000000000000000000000000000000000
       - uses: nikolareljin/ci-helpers/.github/workflows/x.yml@production
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
   report:
@@ -527,6 +526,35 @@ jobs:
     steps:
       - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
 YAML
+# The pnpm and Rust installers and the cargo cache are first-party steps now
+# (corepack, rustup, actions/cache); the actions they replaced are refused
+# in every workflow, scan or not, so none can come back by habit.
+for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
+            dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec \
+            swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0; do
+  expect "the replaced $gone in a build workflow" 1 "uses: '$gone' is not" .github/workflows/build.yml <<YAML
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: $gone
+YAML
+  expect "the replaced $gone in a scan workflow" 1 "uses: '$gone' is not" <<YAML
+on: push
+jobs:
+  scan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: $gone
+YAML
+done
 expect "third-party reusable workflow as a job" 1 "jobs.call: uses: 'some/repo/.github/workflows/x.yml@0000000000000000000000000000000000000000' is not" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
