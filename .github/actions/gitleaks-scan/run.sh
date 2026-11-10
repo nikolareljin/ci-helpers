@@ -30,6 +30,13 @@ sys.exit(p.returncode == 0 and p.stdout.strip() == b"true")
 ' "$tmp" >"$tmp/check.log" 2>&1; then fail; fi
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! "$py" -I "$dir/prepare_rules.py" "$tmp" >"$tmp/check.log" 2>&1; then fail; fi
+# gitleaks also reads <source>/.gitleaksignore, beside the approved copy it is
+# given, so a work tree whose file differs from the base's could silence what
+# the review adds. Refused rather than merged: the two must be the same bytes.
+tree_ignore="$scan_path/.gitleaksignore"
+if [[ -e "$tree_ignore" || -L "$tree_ignore" ]]; then
+  if [[ -L "$tree_ignore" || ! -f "$tree_ignore" ]] || ! cmp -s "$tree_ignore" "$tmp/approved-ignore"; then fail; fi
+fi
 args=(detect --source "$scan_path" --config "$tmp/rules.toml" --gitleaks-ignore-path "$tmp/approved-ignore"
   --ignore-gitleaks-allow --max-archive-depth 3 --no-color --no-banner
   --exit-code 3 --redact)

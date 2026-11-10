@@ -35,7 +35,9 @@ refuses a tree where those pins and `vendor/script-helpers` disagree.
 
 Composite actions have no same-commit `uses:` form, so the workflows that use
 one (`gitleaks-scan.yml` with `gitleaks-scan`, `foxguard-scan.yml` with
-`foxguard-scan`, `tauri-release.yml` with `macos-sign` and `windows-sign`)
+`foxguard-scan`, `gitleaks-new-findings.yml`, `foxguard-new-findings.yml` and
+`scan-new-findings.yml` with `gitleaks-diff` and `foxguard-diff`,
+`tauri-release.yml` with `macos-sign` and `windows-sign`)
 check the library out at `job.workflow_sha` into `.ci-helpers-actions` and
 call the action from there.
 Pinning those workflows pins the actions they run.

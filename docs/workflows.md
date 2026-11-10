@@ -622,8 +622,12 @@ Notes:
   https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
   Results and report paths never appear in CI output.
 - `scan_path` and `config_path` are honored. The scan
-  runs a pinned `gitleaks` binary, verified against a sha256 held in the
-  action (or `gitleaks_sha256`), not one fetched from the same release.
+  runs a pinned `gitleaks` binary, verified against a sha256 held in
+  `scanner-pins.env` (or `gitleaks_sha256`), not one fetched from the same release.
+- Rules and `.gitleaksignore` are read from the pull request's base commit.
+  gitleaks also reads the `.gitleaksignore` in the scanned tree on its own,
+  so one that differs from the base's (added, extended, or a link) fails the
+  scan; change the ignore list in its own pull request first.
 - **In a git work tree the scan reads the repository's history**, so naming a
   subdirectory in `scan_path` does not narrow it -- every commit is still
   scanned. Outside a work tree the files under `scan_path` are scanned instead.
@@ -692,6 +696,170 @@ jobs:
     with:
       scan_path: "."
       severity: medium
+```
+
+## gitleaks-new-findings.yml
+
+Workflow: `.github/workflows/gitleaks-new-findings.yml`
+
+Purpose: Fail a pull request only on secrets the commits it adds contain, without exporting scanner results.
+
+Note: When findings are detected, the workflow prints a link to Leak-Lock for help
+removing leaked credentials.
+
+Inputs:
+
+- `runner` (string, default `ubuntu-latest`)
+- `base_ref` (string, default `""`) - commit or branch the review starts from; empty reads it from the event (see notes)
+- `scan_path` (string, default `"."`) - path inside the repository; the scan reads the commits the review adds, so a subdirectory does not narrow it
+- `config_path` (string, default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
+- `gitleaks_version` (string, default `v8.30.1`) - release tag to download. Pin it for reproducible scans.
+- `gitleaks_sha256` (string, default `""`) - sha256 of the release archive for the runner; required with any version other than `v8.30.1`, whose archive digests are pinned in `scanner-pins.env`; with `v8.30.1` it may only repeat the pinned digest, a different one is refused
+- `fail_on_findings` (boolean, default `true`) - `false` is refused
+
+Notes:
+
+- The scan is `gitleaks git` over `<merge-base>..HEAD`: the merge base of
+  `HEAD` and the base commit, so a secret added in one commit of the review
+  and removed in a later one is still found, and a secret already on the base
+  is not reported. `gitleaks-scan.yml` scans the whole history and fails on
+  it; use that one for a periodic full scan.
+- The base, in order: `base_ref`; a pull request's base commit; a push's
+  `before`, when it is a commit in the repository and an ancestor of `HEAD`
+  (the state the branch was pushed from). Otherwise (a new branch's all-zero
+  `before`, a force push whose `before` is gone or rewritten) the push is
+  compared with the repository's default branch, so the first push of the
+  default branch itself has an empty range. `pull_request_target` is
+  refused: its checkout is the base branch, so the range would hold none of
+  the pull request's commits. Call the workflow from a `pull_request`
+  trigger instead. Any other event needs `base_ref`. A base that is not in the repository, no merge base, or an
+  empty range (`HEAD` is the base, or behind it) fails the run: nothing
+  passes because the base could not be found.
+- `base_ref` is a full commit sha, or a branch of the remote written as
+  `main`, `origin/main` or `refs/remotes/origin/main`. A short sha, a tag, a
+  local branch or `HEAD` is refused: those are names a pull request can
+  create or shadow, so no bare `git rev-parse <name>` is ever run.
+- Rules and `.gitleaksignore` are read from the merge base, never from the
+  tree under review, so a pull request cannot silence what it adds. gitleaks
+  also reads the `.gitleaksignore` in the scanned tree on its own, so one
+  that differs from the merge base's (added, extended, or a link) fails the
+  run; change the ignore list in its own pull request first.
+- Failures identify Gitleaks and the branch and link
+  https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
+  Results and report paths never appear in CI output.
+- The repository is checked out with full history under `repo/`, beside the
+  library's own checkout.
+
+Example:
+
+```yaml
+jobs:
+  secrets:
+    uses: nikolareljin/ci-helpers/.github/workflows/gitleaks-new-findings.yml@production
+```
+
+## foxguard-new-findings.yml
+
+Workflow: `.github/workflows/foxguard-new-findings.yml`
+
+Purpose: Fail a pull request only on Foxguard findings its changes add, without exporting scanner results.
+
+Note: When findings are detected, the workflow prints a link to Leak-Lock for help
+reproducing and fixing them locally.
+
+Inputs:
+
+- `runner` (string, default `ubuntu-latest`)
+- `base_ref` (string, default `""`) - commit or branch the review starts from; empty reads it from the event (see `gitleaks-new-findings.yml`)
+- `scan_path` (string, default `"."`)
+- `severity` (string, default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
+- `config_path` (string, default `""`) - foxguard config file, relative to the repository; read from the base commit
+- `allow_unscanned` (string, default `""`) - glob patterns from the repository root (comma- or newline-separated) naming changed files foxguard may skip (minified, over 1 MiB, not UTF-8, not parseable) without failing; matching files are still scanned and their findings still fail. Set here, in the calling workflow, rather than in the tree under review. Syntax and trade-off: `foxguard-diff` in `docs/actions.md`
+- `foxguard_version` (string, default `v0.14.1`) - release tag to download. Pin it for reproducible scans.
+- `foxguard_sha256` (string, default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose binary digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+- `fail_on_findings` (boolean, default `true`) - `false` is refused
+
+Notes:
+
+- The scan is `foxguard diff <merge-base>`: findings in the tree under review
+  that the merge base's tree does not have. A finding whose lines move is not
+  new, and neither is one in a file the review renames without changing it
+  (inside `scan_path`, with no config): the base foxguard compares with has
+  those renames applied. An edited rename is a new file. `foxguard-scan.yml` reports every finding; use that one for a
+  periodic full scan.
+- The base is resolved as `gitleaks-new-findings.yml` describes (same
+  `base_ref` forms, same push rule), and fails the run the same way when it
+  cannot be.
+- Configuration comes from the merge base: `config_path`, or `.foxguard.yml`
+  when present, and otherwise an empty config. A config the review adds is
+  not read, and a config with a `baseline` entry is refused.
+- A scan that reads no file fails rather than reporting no findings, unless
+  the review adds or changes no file under `scan_path` (a deletion); a
+  repository with no file foxguard parses runs `scan-new-findings.yml` with
+  `tools: gitleaks` instead.
+- Failures identify Foxguard and the branch and link
+  https://nikolareljin.github.io/leak-lock/ for local Scan Repository and test runs.
+  Results, counts, rule ids, file paths and report paths never appear in CI output.
+
+Example:
+
+```yaml
+jobs:
+  static-analysis:
+    uses: nikolareljin/ci-helpers/.github/workflows/foxguard-new-findings.yml@production
+    with:
+      severity: medium
+```
+
+## scan-new-findings.yml
+
+Workflow: `.github/workflows/scan-new-findings.yml`
+
+Purpose: Fail a pull request only on what it adds: secrets (Gitleaks) and static-analysis findings (Foxguard), as two parallel jobs.
+
+This is the workflow to adopt. `gitleaks-new-findings.yml` and
+`foxguard-new-findings.yml` stay for a repository that wants one tool and
+nothing else.
+
+Inputs:
+
+- `runner` (string, default `ubuntu-latest`)
+- `tools` (string, default `gitleaks,foxguard`) - which scanners run; empty, an unknown name or a repeated name fails the run before anything is checked out or downloaded
+- `base_ref` (string, default `""`) - commit or branch the review starts from; empty reads it from the event (see `gitleaks-new-findings.yml`)
+- `scan_path` (string, default `"."`)
+- `severity` (string, default `medium`) - lowest Foxguard severity that fails the scan
+- `gitleaks_config_path` (string, default `""`) - `.gitleaks.toml`, relative to the repository, read from the base commit
+- `foxguard_config_path` (string, default `""`) - foxguard config file, relative to the repository, read from the base commit
+- `allow_unscanned` (string, default `""`) - as `foxguard-new-findings.yml`: changed files Foxguard may skip without failing
+- `gitleaks_version` (string, default `v8.30.1`)
+- `gitleaks_sha256` (string, default `""`) - required with any version other than `v8.30.1`; with `v8.30.1` it may only repeat the pinned digest
+- `foxguard_version` (string, default `v0.14.1`)
+- `foxguard_sha256` (string, default `""`) - required with any version other than `v0.14.1`; with `v0.14.1` it may only repeat the pinned digest
+- `fail_on_findings` (boolean, default `true`) - `false` is refused
+
+Notes:
+
+- Three jobs: `tools` reads the input and runs no checkout; `gitleaks` and
+  `foxguard` each wait on `tools` only, never on each other, and neither has
+  `continue-on-error`, so one failing leaves the other's verdict visible.
+- Each scan job behaves as the single-tool workflow of the same name.
+
+Example:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  new-findings:
+    uses: nikolareljin/ci-helpers/.github/workflows/scan-new-findings.yml@production
+    with:
+      tools: gitleaks,foxguard
 ```
 
 ## ppa-deb.yml

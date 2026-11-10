@@ -103,7 +103,12 @@ sys.exit(1 if total else 0)
         self.assertIn("-q", args)
         self.assertEqual(args[args.index("-s") + 1], "high")
         self.assertEqual(args[args.index("-f") + 1], "json")
-        self.assertEqual(args[-1], str(self.workspace))
+        self.assertEqual(args[-2:], ["--", str(self.workspace)])
+
+    def test_scan_path_that_reads_as_an_option_is_refused(self):
+        (self.workspace / "-s").mkdir()
+        self.run_scan(1, SCAN_PATH="-s")
+        self.assertIsNone(self.called())
 
     def test_own_checkout_inside_the_scan_path_is_refused(self):
         # foxguard-scan.yml checks this library out beside the caller's tree,

@@ -77,6 +77,7 @@ jobs:
           path: .ci-helpers-actions
           sparse-checkout: |
             .github/actions
+            scripts
             vendor/script-helpers
           fetch-depth: 1
           persist-credentials: false
