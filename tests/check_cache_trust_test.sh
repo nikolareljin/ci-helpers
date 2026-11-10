@@ -13,7 +13,11 @@
 #              before it, not right after a run step, or after a caller step;
 #              a save in a trusted job. It stays quiet on restore, fetch,
 #              save in a plain job, on setup-* caches in a plain job and on
-#              the off values in a trusted one.
+#              the off values in a trusted one. Hostile forms refused too:
+#              a deployment environment, odd uses: casing or a trailing
+#              slash, write passed to a called workflow, type=gha in env:,
+#              a hyphenated or env-carried caller input, third-party cache
+#              actions, a uses: expression; unity.yml warns on cache: true.
 # USAGE: bash tests/check_cache_trust_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -855,6 +859,156 @@ runs:
       shell: bash
 YAML
 
+# --- hostile forms ------------------------------------------------------------
+
+expect "a job with a deployment environment is trusted" 1 "restores 't' into a job that uses environment prod" <<YAML
+on: push
+jobs:
+  a:
+    environment: prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+YAML
+
+expect "an environment as a mapping is trusted" 1 "into a job that uses environment \${{ inputs.env }}" <<YAML
+on: push
+jobs:
+  a:
+    environment:
+      name: \${{ inputs.env }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+YAML
+
+expect "uses: with a trailing slash and odd casing" 1 "restores 't' into a job that holds contents: write" <<YAML
+on: push
+jobs:
+  a:
+    permissions: {contents: write}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Actions/Cache/Restore/@$pin
+        with: {path: t, key: k}
+YAML
+
+expect "a called workflow alone is plain" 0 "" .github/workflows/inner.yml <<YAML
+on: workflow_call
+jobs:
+  b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+YAML
+expect "a caller with workflow write and secrets: inherit trusts the workflow it calls" 1 "is called by trusted job .github/workflows/x.yml: jobs.a" .github/workflows/x.yml keep <<'YAML'
+on: push
+permissions: {contents: write}
+jobs:
+  a:
+    uses: ./.github/workflows/inner.yml
+    secrets: inherit
+YAML
+
+expect "type=gha through the job's env" 1 "a BuildKit cache from the Actions cache in a job that holds packages: write" <<'YAML'
+on: push
+jobs:
+  a:
+    permissions: {packages: write}
+    runs-on: ubuntu-latest
+    env: {C: "--cache-from type=gha"}
+    steps:
+      - run: docker buildx build $C .
+YAML
+
+expect "TYPE=GHA through the workflow's env" 1 "a BuildKit cache from the Actions cache in a job that holds packages: write" <<'YAML'
+on: push
+env: {C: "--cache-from TYPE=GHA"}
+jobs:
+  a:
+    permissions: {packages: write}
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker buildx build $C .
+YAML
+
+expect "a hyphenated caller input before a save" 1 "which runs the caller's inputs.<name>command" <<YAML
+on: workflow_call
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: \${{ inputs.install-command }}
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+      - run: fetch
+      - uses: actions/cache/save@$pin
+        with: {path: t, key: k}
+YAML
+
+expect "a caller input in the job's env before a save" 1 "the job's env carries the caller's inputs.<name>command" <<YAML
+on: workflow_call
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    env: {CMD: "\${{ inputs.build_command }}"}
+    steps:
+      - uses: actions/cache/restore@$pin
+        with: {path: t, key: k}
+      - run: eval "\$CMD"
+      - uses: actions/cache/save@$pin
+        with: {path: t, key: k}
+YAML
+
+expect "a third-party cache action in a trusted job" 1 "swatinem/rust-cache restores a cache into a job that holds contents: write" <<'YAML'
+on: push
+jobs:
+  a:
+    permissions: {contents: write}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Swatinem/rust-cache@v2
+YAML
+
+expect "setup-ruby bundler-cache in a trusted job" 1 "ruby/setup-ruby with bundler-cache: true" <<'YAML'
+on: push
+jobs:
+  a:
+    permissions: {contents: write}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with: {bundler-cache: true}
+YAML
+
+expect "setup-ruby without bundler-cache in a trusted job is quiet" 0 "" <<'YAML'
+on: push
+jobs:
+  a:
+    permissions: {contents: write}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with: {ruby-version: "3.3"}
+YAML
+
+expect "uses: from a matrix expression in a trusted job" 1 "uses: is an expression" <<'YAML'
+on: push
+jobs:
+  a:
+    permissions: {contents: write}
+    strategy:
+      matrix:
+        act: [actions/cache/restore@v4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ${{ matrix.act }}
+        with: {path: t, key: k}
+YAML
+
 # --- the tree is read whole ---------------------------------------------------
 
 expect "a .yaml workflow is read" 1 "y.yaml: jobs.release" .github/workflows/y.yaml <<YAML
@@ -879,6 +1033,17 @@ rm -rf "${work:?}/t"; mkdir -p "$work/t/.github/workflows"
 printf 'on: push\njobs: [\n' > "$work/t/.github/workflows/bad.yml"
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 2 ] || ! grep -q "cannot read" "$work/out"; then echo "FAIL a file that does not parse: exit $rc, expected 2"; cat "$work/out"; fail=1; fi
+
+# unity.yml cannot cache Library; a caller still passing cache: true is told so.
+python3 - "$root/.github/workflows/unity.yml" > "$work/out" 2>&1 <<'PY' || { echo "FAIL unity.yml cache input:"; cat "$work/out"; fail=1; }
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+on = doc.get("on", doc.get(True))
+assert on["workflow_call"]["inputs"]["cache"]["default"] is False, "cache input must default to false"
+steps = doc["jobs"]["decide"]["steps"]
+warn = [s for s in steps if "inputs.cache" in str(s.get("env", "")) and "::warning" in s.get("run", "")]
+assert warn, "decide job must warn when cache: true is passed"
+PY
 
 [[ "$fail" = 0 ]] && echo "ok: the cache-trust check passes on this tree, refuses every restore into a trusted job and every save after the caller's code, and stays quiet on the rest"
 exit "$fail"

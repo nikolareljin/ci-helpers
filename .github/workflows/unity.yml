@@ -51,9 +51,10 @@ on:
         description: all, editmode or playmode. Refused if it is anything else.
       cache:
         type: boolean
-        default: true
+        default: false
         description: >
-          Ignored; kept so callers keep parsing. The Library folder is not
+          Has no effect; kept so callers keep parsing, and `true` logs a
+          warning annotation. The Library folder is not
           cached: the test job holds the licence secrets, and a restored
           Library (compiled script assemblies included) is whatever the run
           that owned the key first left there (scripts/check_cache_trust.py).
@@ -131,6 +132,13 @@ jobs:
     outputs:
       mode: ${{ steps.decide.outputs.mode }}
     steps:
+      - name: Warn that the cache input has no effect
+        if: ${{ inputs.cache }}
+        shell: bash
+        env:
+          IN_CACHE: ${{ inputs.cache }}
+        run: |
+          echo "::warning title=unity.yml cache::cache: $IN_CACHE has no effect. Library is not cached, as the test job holds the licence secrets; every run imports cold. Drop the input."
       - name: Decide whether this run does anything
         id: decide
         shell: bash

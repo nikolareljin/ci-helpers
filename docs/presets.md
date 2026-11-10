@@ -936,7 +936,7 @@ reports it as a missing file rather than a missing secret.
 
 - `test_mode`: `editmode` — `all`, `editmode` or `playmode`; anything else is refused
 - `unity_version`: `auto`, read from `ProjectSettings/ProjectVersion.txt`
-- `cache`: `true`, ignored; kept so callers keep parsing. `Library` is not cached
+- `cache`: `false`, no effect; kept so callers keep parsing, and `true` logs a warning annotation. `Library` is not cached
 - `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
 - `timeout_minutes`: `60`, not `20`: the cold `Library` import can take most of it
 - `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate

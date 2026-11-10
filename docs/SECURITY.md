@@ -72,12 +72,17 @@ by `workflow-yaml-check`, holds every workflow and action to this:
 
 | Job | Restore | Save |
 |---|---|---|
-| trusted: reads a `secrets.*` other than `GITHUB_TOKEN`, holds any `write` permission, is needed by such a job, is called by one on a publish chain, or is in a workflow named for release, deploy, publish, sign or submit | none: no `actions/cache`, no `actions/cache/restore`, no BuildKit `type=gha`; every `actions/setup-*` step writes its action's off value (`cache: false` for setup-go and setup-dotnet, `cache: ""` for setup-python and setup-java, `cache: ""` and `package-manager-cache: false` for setup-node), as a missing key is the action's default and setup-go's is on | none |
-| plain | anything, the downloaded-archive caches of Flutter and Godot included | `actions/cache/save` two steps after its `actions/cache/restore`, right after the dependency fetch, before any step that runs `inputs.<name>command` |
+| trusted: reads a `secrets.*` other than `GITHUB_TOKEN`, names a deployment `environment:`, holds any `write` permission, is needed by such a job, is called by one on a publish chain or runs with a caller's write token (a called job with no `permissions:` in a workflow with none), or is in a workflow named for release, deploy, publish, sign or submit | none: no `actions/cache`, no `actions/cache/restore`, no BuildKit `type=gha` (in a step or in the job's or workflow's `env:`), no `uses:` written as an expression, no third-party cache action (`Swatinem/rust-cache`, `mozilla-actions/sccache-action`, `hendrikmuhs/ccache-action`, `gradle/actions/setup-gradle`, `gradle/gradle-build-action`, `ruby/setup-ruby` with `bundler-cache`, `astral-sh/setup-uv` with `enable-cache`); every `actions/setup-*` step writes its action's off value (`cache: false` for setup-go and setup-dotnet, `cache: ""` for setup-python and setup-java, `cache: ""` and `package-manager-cache: false` for setup-node), as a missing key is the action's default and setup-go's is on | none |
+| plain | anything, the downloaded-archive caches of Flutter and Godot included | `actions/cache/save` two steps after its `actions/cache/restore`, right after the dependency fetch, before any step that runs `inputs.<name>command` (`inputs.install-command` and `inputs['x_command']` included), and after none when the job's or workflow's `env:` carries one |
 
 `actions/cache` itself is used nowhere: its save runs when the job ends.
 Release, deploy and publish jobs download every toolchain and dependency on
-every run and are slower for it. A plain CI job keeps `setup-*` caches: it
+every run and are slower for it: by the dependency fetch (npm, pip, Maven,
+NuGet, Go modules, gems, cargo registry), the toolchain archive (Flutter,
+Godot), a full `target/` build for Rust, every Docker layer for
+`docker-multiarch.yml`, and a cold `Library` import for `unity.yml`, the
+largest of these. That is time and runner minutes on each release, not
+on each pull request. A plain CI job keeps `setup-*` caches: it
 holds no secret and no write token, and nothing it restores reaches a
 release. A composite action is held to the trusted rules, as it runs inside
 whatever job calls it.

@@ -25,6 +25,8 @@ with PyYAML. A job is TRUSTED when any of these holds:
                secrets.X)`; or the job has `secrets: inherit`. The one read
                that is not a secret of the repository is exactly
                `secrets.GITHUB_TOKEN`;
+  environment  it names a deployment `environment:`, which holds secrets
+               the gate cannot see;
   write        its permissions (the job's; else the workflow's, when the
                job does not narrow them) grant any scope `write`, `id-token`
                included, or are `write-all`;
@@ -34,9 +36,11 @@ with PyYAML. A job is TRUSTED when any of these holds:
   called       a job trusted that way calls its workflow with
                `uses: ./.github/workflows/<file>`: what the called
                workflow builds is what the caller publishes. A caller
-               trusted only by its own secrets or permissions passes
-               nothing on; the called workflow declares what its jobs hold
-               and is read on its own;
+               trusted by its own write permissions passes them to each
+               called job that sets no `permissions:`, in a workflow that
+               sets none, as that job runs with the caller's token; a
+               caller trusted by its secrets alone passes nothing on, as
+               a called job reads a secret only by naming it;
   named        a token of its workflow file name (between `-`, `_` and `.`)
                is release, deploy, publish, sign or submit: a
                `deploy_command` the caller supplies ships with credentials
@@ -64,9 +68,13 @@ In a trusted job, and in a composite action:
                manager's store whenever package.json names one. An
                expression fails too, as nothing here can read it, and so
                does a setup action the table does not know;
-  buildkit     a step whose text holds `type=gha`, or a `with:` of
-               `cache-from` or `cache-to`, fails: a layer cache restored
-               from the Actions cache is a layer in the pushed image.
+  buildkit     a step, or the job's or workflow's `env:`, whose text holds
+               `type=gha` (any case), or a `with:` of `cache-from` or
+               `cache-to`, fails: a layer cache restored from the Actions
+               cache is a layer in the pushed image;
+  others       a third-party cache action from CACHING_ACTIONS fails, and
+               a `uses:` written as an expression fails, as nothing here
+               can tell what it names.
 
 In every job, trusted or plain, and in a composite action:
 
@@ -76,8 +84,10 @@ In every job, trusted or plain, and in a composite action:
   placement    `actions/cache/save` at step k must have `actions/cache/restore`
                with the same `path` and `key` at step k-2 and a `run:` step at
                k-1 (the dependency fetch); no run step before the save may
-               name `inputs.<name>command`, the caller's own code, in its
-               `run:` or its `env:`.
+               name `inputs.<name>command` (any case, `-` or `_`, dotted or
+               indexed), the caller's own code, in its `run:` or its
+               `env:`, and when the job's or workflow's `env:` names one,
+               no run step may come before the save.
 
 EXIT_CODES:
   0  nothing found
@@ -121,7 +131,23 @@ SECRET_REF = re.compile(
     r"\bsecrets\s*(?:\.\s*(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?P<more>\s*[.\[])?|(?P<index>\[[^\]]*\]?))"
     r"|(?<=[(,])\s*\bsecrets\b\s*(?=[),])",
     re.IGNORECASE)
-CALLER = re.compile(r"\$\{\{\s*inputs\.[a-z_]*command\s*\}\}")
+# The caller's own code: inputs.<name>command, any case,
+# `-` or `_` in the name, dotted or indexed.
+CALLER = re.compile(r"\binputs\s*(?:\.\s*[A-Za-z0-9_-]*|\[\s*['\"][A-Za-z0-9_-]*)command\b",
+                    re.IGNORECASE)
+GHA = re.compile(r"type\s*=\s*gha\b", re.IGNORECASE)
+
+# Third-party actions that restore a cache, and the with: key that turns it
+# on (None: the action caches whatever it is given). Refused in a trusted job.
+CACHING_ACTIONS = {
+    "swatinem/rust-cache": None,
+    "mozilla-actions/sccache-action": None,
+    "hendrikmuhs/ccache-action": None,
+    "ruby/setup-ruby": "bundler-cache",
+    "astral-sh/setup-uv": "enable-cache",
+    "gradle/actions/setup-gradle": None,
+    "gradle/gradle-build-action": None,
+}
 
 
 def steps_of(body: dict) -> list[dict]:
@@ -131,7 +157,7 @@ def steps_of(body: dict) -> list[dict]:
 def action_of(step: dict) -> str:
     """owner/repo[/path] of a step's uses:, lowercased, no pin; '' for a run step."""
     uses = step.get("uses")
-    return uses.partition("@")[0].lower() if isinstance(uses, str) else ""
+    return uses.strip().partition("@")[0].lower().rstrip("/") if isinstance(uses, str) else ""
 
 
 def with_text(step: dict, key: str) -> str:
@@ -199,14 +225,24 @@ def is_trusted(job: dict, wf_perms) -> list[str]:
         why.append("secrets: inherit")
     elif isinstance(passed, dict) and passed:
         why.append("passes " + ", ".join(sorted(str(k) for k in passed)) + " to the workflow it calls")
+    env = job.get("environment")
+    if env:
+        name = env.get("name") if isinstance(env, dict) else env
+        why.append(f"uses environment {name}: a deployment environment holds secrets")
     perms = job.get("permissions", wf_perms)
     if perms == "write-all":
         why.append("permissions: write-all")
-    elif isinstance(perms, dict):
-        writes = sorted(k for k, v in perms.items() if v == "write")
-        if writes:
-            why.append("holds " + ", ".join(f"{k}: write" for k in writes))
+    elif write_scopes(perms):
+        why.append("holds " + ", ".join(f"{k}: write" for k in write_scopes(perms)))
     return why
+
+
+def write_scopes(perms) -> list[str]:
+    if perms == "write-all":
+        return ["write-all"]
+    if isinstance(perms, dict):
+        return sorted(str(k) for k, v in perms.items() if v == "write")
+    return []
 
 
 def close_needs(jobs: dict[str, dict], out: dict[str, str]) -> bool:
@@ -264,14 +300,20 @@ def trusted_everywhere(docs: dict[str, dict]) -> dict[str, dict[str, str]]:
         for rel, doc in docs.items():
             jobs = {n: j for n, j in (doc.get("jobs") or {}).items() if isinstance(j, dict)}
             for name, why in list(out[rel].items()):
-                if not why.startswith(("is needed by", "is called by")):
-                    continue
                 uses = jobs[name].get("uses")
                 called = LOCAL_WORKFLOW.match(uses) if isinstance(uses, str) else None
                 if not called or called.group(1) not in docs:
                     continue
                 target = called.group(1)
+                whole = why.startswith(("is needed by", "is called by"))
+                # A called job that sets no permissions, in a workflow that
+                # sets none, runs with the caller's token: write passes on.
+                writes = not whole and bool(write_scopes(jobs[name].get("permissions", doc.get("permissions"))))
+                narrowed = "permissions" in docs[target]
                 for job, body in (docs[target].get("jobs") or {}).items():
+                    if not whole and not (writes and not narrowed and isinstance(body, dict)
+                                          and "permissions" not in body):
+                        continue
                     if isinstance(body, dict) and job not in out[target]:
                         out[target][job] = f"is called by trusted job {rel}: jobs.{name}"
                         changed = True
@@ -280,12 +322,19 @@ def trusted_everywhere(docs: dict[str, dict]) -> dict[str, dict[str, str]]:
     return out
 
 
-def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str]) -> None:
+def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str],
+                        env_text: str = "") -> None:
+    if GHA.search(env_text):
+        out.append(f"{where}: env: names type=gha, a BuildKit cache from the Actions cache in a "
+                   f"job that {why}; a restored layer is a layer of the pushed image")
     for i, step in enumerate(steps):
         here = f"{where}.{label(step, i)}"
         act = action_of(step)
         path = with_text(step, "path")
-        if act == "actions/cache":
+        if "${{" in act:
+            out.append(f"{here}: uses: is an expression in a job that {why}; nothing here can "
+                       "tell whether it names a cache action, so a trusted job names its actions")
+        elif act == "actions/cache":
             out.append(f"{here}: restores and saves '{path}' in a job that {why}; "
                        "a job that holds a secret or a write token builds clean")
         elif act == "actions/cache/save":
@@ -294,6 +343,15 @@ def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str])
             out.append(f"{here}: restores '{path}' into a job that {why}; a cache entry is a tar "
                        "archive unpacked wherever its members point, so a trusted job restores "
                        "none and downloads what it needs")
+        elif act in CACHING_ACTIONS:
+            key = CACHING_ACTIONS[act]
+            with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
+            if key is None:
+                out.append(f"{here}: {act} restores a cache into a job that {why}; a trusted "
+                           "job restores none")
+            elif with_.get(key) not in (None, False, "false", ""):
+                out.append(f"{here}: {act} with {key}: {yaml_text(with_[key])} restores a cache "
+                           f"into a job that {why}; leave {key} unset or false")
         elif act.startswith("actions/setup-"):
             off = SETUP_OFF.get(act)
             with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
@@ -312,15 +370,17 @@ def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str])
                                    f"cache into a job that {why}; write {key}: {yaml_text(values[0])}")
         text = yaml.safe_dump(step, width=10**9)
         with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
-        if "type=gha" in text or "cache-from" in with_ or "cache-to" in with_:
+        if GHA.search(text) or "cache-from" in with_ or "cache-to" in with_:
             out.append(f"{here}: a BuildKit cache from the Actions cache in a job that {why}; "
                        "a restored layer is a layer of the pushed image")
 
 
-def check_all_steps(steps: list[dict], where: str, out: list[str]) -> None:
+def check_all_steps(steps: list[dict], where: str, out: list[str], env_text: str = "") -> None:
     # A caller step runs inputs.<name>command, in its run: or through env:.
+    # When the job's or workflow's env: carries one, every run step can.
+    env_caller = bool(CALLER.search(env_text))
     first_caller = next((j for j, s in enumerate(steps)
-                         if "uses" not in s and CALLER.search(yaml.safe_dump(s, width=10**9))), None)
+                         if "uses" not in s and (env_caller or CALLER.search(yaml.safe_dump(s, width=10**9)))), None)
     for i, step in enumerate(steps):
         here = f"{where}.{label(step, i)}"
         act = action_of(step)
@@ -341,8 +401,10 @@ def check_all_steps(steps: list[dict], where: str, out: list[str]) -> None:
                 out.append(f"{here}: the step before actions/cache/save is not a run step; "
                            "the save follows the dependency fetch directly")
             if first_caller is not None and first_caller < i:
+                what = ("the job's env carries the caller's inputs.<name>command" if env_caller
+                        else "which runs the caller's inputs.<name>command")
                 out.append(f"{here}: actions/cache/save after {label(steps[first_caller], first_caller)}, "
-                           "which runs the caller's inputs.<name>command; save before any caller step")
+                           f"{what}; save before any caller step")
 
 
 def check_workflow(doc: dict, rel: str, trusted: dict[str, str]) -> tuple[list[str], int, int]:
@@ -353,11 +415,12 @@ def check_workflow(doc: dict, rel: str, trusted: dict[str, str]) -> tuple[list[s
             continue
         where = f"{rel}: jobs.{name}"
         steps = steps_of(job)
+        env_text = yaml.safe_dump([doc.get("env"), job.get("env")], width=10**9)
         if name in trusted:
-            check_trusted_steps(steps, where, trusted[name], out)
+            check_trusted_steps(steps, where, trusted[name], out, env_text)
         else:
             plain += 1
-        check_all_steps(steps, where, out)
+        check_all_steps(steps, where, out, env_text)
     return out, len(trusted), plain
 
 
