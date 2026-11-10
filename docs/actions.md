@@ -369,7 +369,7 @@ Unscannable files (`allow_unscanned`):
 - A matching file is exempt from that refusal only. It is copied to a
   second neutral repository and scanned the same way; its findings fail the
   step. It is not exempt from the `.gitignore`/`.ignore` check.
-- When any changed file matches, the step prints
+- When any changed file matches, a passing step prints
   `foxguard-diff: N changed file(s) allowed unscanned by allow_unscanned`:
   a count, no paths. N counts matching files, read or not.
 - The patterns live in the calling workflow, not in a file of the tree under
