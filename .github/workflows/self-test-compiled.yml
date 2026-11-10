@@ -200,10 +200,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
-      - uses: chickensoft-games/setup-godot@ac93246ea68518a384c1c280a496e5989341f2f6 # v2.4.3 @ 2026-10-01
-        with:
-          version: "4.3.0"
-          use-dotnet: false
+      - name: Setup Godot
+        shell: bash
+        env:
+          GODOT_VERSION: "4.3.0"
+          GODOT_USE_DOTNET: "false"
+        run: bash scripts/setup_godot.sh
       - name: The declared lint default must reject it, and accept the good one
         shell: bash
         run: |
@@ -1047,6 +1049,162 @@ jobs:
           grep -q "No Ruby 2.0 in the runner's tool cache" "$RUNNER_TEMP/bad.log" || { echo "::error::no refusal message"; exit 1; }
           grep -q "Available: " "$RUNNER_TEMP/bad.log" || { echo "::error::the cached versions are not listed"; exit 1; }
 
+  # scripts/setup_godot.sh is what godot.yml, ci.yml and pr-gate.yml run now:
+  # the official release archive at the sha256 pinned in toolchain-pins.env.
+  # The preset's default godot_version must install on each hosted image,
+  # `godot --version` and $GODOT must work in the next step, a verified
+  # install must be reused, and an unpinned release, a two-part version and
+  # a tampered pin must each be refused.
+  godot-setup-on-every-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: The preset's default godot_version
+        id: default
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="$(awk '/^      godot_version:/ { f = 1; next } f && /^        default:/ { gsub(/[" ]/, "", $2); print $2; exit } f && /^      [a-z]/ { exit }' .github/workflows/godot.yml)"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::godot.yml godot_version default is '$v'"; exit 1; }
+          echo "godot_version=$v" >> "$GITHUB_OUTPUT"
+      - name: Setup Godot
+        id: godot
+        shell: bash
+        env:
+          GODOT_VERSION: ${{ steps.default.outputs.godot_version }}
+          GODOT_USE_DOTNET: "false"
+        run: bash scripts/setup_godot.sh
+      - name: godot and $GODOT run in a later step, at the chosen release
+        shell: bash
+        env:
+          RELEASE: ${{ steps.godot.outputs.godot_version }}
+          WANT: ${{ steps.default.outputs.godot_version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE" == "${WANT%.0}-stable" || "$RELEASE" == "$WANT-stable" ]] || { echo "::error::release output '$RELEASE' for $WANT"; exit 1; }
+          v="$(godot --version | tail -n 1 | tr -d '\r')"
+          echo "godot --version: $v"
+          [[ "$v" == "${RELEASE//-/.}".* ]] || { echo "::error::godot --version is '$v', not $RELEASE"; exit 1; }
+          [[ -n "${GODOT:-}" && -n "${GODOT4:-}" ]] || { echo "::error::GODOT or GODOT4 is not exported"; exit 1; }
+          [[ "$("$GODOT" --version | tail -n 1 | tr -d '\r')" == "$v" ]] || { echo "::error::\$GODOT is not the same editor"; exit 1; }
+          echo "godot $v reaches later steps"
+      - name: A verified install is reused, and the refusals refuse
+        shell: bash
+        env:
+          GODOT_VERSION: ${{ steps.default.outputs.godot_version }}
+        run: |
+          set -euo pipefail
+          bash scripts/setup_godot.sh > "$RUNNER_TEMP/again.log" 2>&1 || { cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "already installed" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not reuse the install"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+
+          rc=0
+          GODOT_VERSION=4.99.0 bash scripts/setup_godot.sh > "$RUNNER_TEMP/unpinned.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/unpinned.log"
+          [[ "$rc" == 2 ]] || { echo "::error::exit $rc for an unpinned release, expected 2"; exit 1; }
+          grep -q "No sha256 pinned for Godot 4.99-stable" "$RUNNER_TEMP/unpinned.log" || { echo "::error::no refusal message"; exit 1; }
+          grep -q "Pinned for this platform: " "$RUNNER_TEMP/unpinned.log" || { echo "::error::the pinned releases are not listed"; exit 1; }
+
+          rc=0
+          GODOT_VERSION=4.3 bash scripts/setup_godot.sh > "$RUNNER_TEMP/twopart.log" 2>&1 || rc=$?
+          [[ "$rc" == 2 ]] || { echo "::error::exit $rc for '4.3', expected 2"; cat "$RUNNER_TEMP/twopart.log"; exit 1; }
+          grep -q "write 4.3.0, not 4.3" "$RUNNER_TEMP/twopart.log" || { echo "::error::no fix in the message"; cat "$RUNNER_TEMP/twopart.log"; exit 1; }
+
+          # A pins file whose digest for this platform is wrong: the archive
+          # downloads and is refused, and the editor of the previous install
+          # is gone from PATH.
+          sed 's/^\(GODOT_SHA256_[A-Z0-9_]*=\)[0-9a-f]/\10/; s/^\(GODOT_SHA256_[A-Z0-9_]*=0\)0/\11/' toolchain-pins.env > "$RUNNER_TEMP/tampered.env"
+          ! cmp -s toolchain-pins.env "$RUNNER_TEMP/tampered.env" || { echo "::error::the tampered pins file is unchanged"; exit 1; }
+          rc=0
+          TOOLCHAIN_PINS="$RUNNER_TEMP/tampered.env" bash scripts/setup_godot.sh > "$RUNNER_TEMP/tamper.log" 2>&1 || rc=$?
+          tail -3 "$RUNNER_TEMP/tamper.log"
+          [[ "$rc" == 1 ]] || { echo "::error::exit $rc for a tampered pin, expected 1"; exit 1; }
+          grep -q "Checksum mismatch for Godot_v" "$RUNNER_TEMP/tamper.log" || { echo "::error::no checksum refusal"; exit 1; }
+          [[ -e "$HOME/bin/godot" || -e "$HOME/bin/godot.exe" ]] && { echo "::error::a godot link survived the refusal"; exit 1; }
+          echo "reuse, unpinned, two-part and tampered all behave"
+
+  # scripts/setup_flutter.sh is what ci.yml, pr-gate.yml, release-build.yml
+  # and flutter-release.yml run now: the official release archive at the
+  # manifest's sha256, the default pinned in toolchain-pins.env. The pinned
+  # release must resolve and install on each hosted image, flutter and dart
+  # must work in the next step, a verified SDK must be reused, and an unknown
+  # version, a git channel and a tampered pin must each be refused.
+  flutter-setup-on-every-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: Resolve Flutter
+        id: resolve
+        shell: bash
+        env:
+          FLUTTER_DRY_RUN: "true"
+        run: bash scripts/setup_flutter.sh
+      - name: Setup Flutter
+        id: flutter
+        shell: bash
+        run: bash scripts/setup_flutter.sh
+      - name: flutter and dart run in a later step, at the pinned release
+        shell: bash
+        env:
+          RESOLVED: ${{ steps.resolve.outputs.version }}
+          RESOLVED_KEY: ${{ steps.resolve.outputs.cache_key }}
+          VERSION: ${{ steps.flutter.outputs.version }}
+          KEY: ${{ steps.flutter.outputs.cache_key }}
+          PINNED: ${{ steps.flutter.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          want="$(awk -F= '$1 == "FLUTTER_VERSION" { print $2 }' toolchain-pins.env)"
+          [[ "$VERSION" == "$want" && "$RESOLVED" == "$want" ]] || { echo "::error::installed '$VERSION', resolved '$RESOLVED', pinned $want"; exit 1; }
+          [[ "$KEY" == "$RESOLVED_KEY" ]] || { echo "::error::the dry run's cache key '$RESOLVED_KEY' is not the install's '$KEY'"; exit 1; }
+          [[ "$PINNED" == true ]] || { echo "::error::pinned output is '$PINNED'"; exit 1; }
+          [[ -n "${FLUTTER_ROOT:-}" && -n "${PUB_CACHE:-}" ]] || { echo "::error::FLUTTER_ROOT or PUB_CACHE is not exported"; exit 1; }
+          flutter --version
+          flutter --version | grep -q "^Flutter $want " || { echo "::error::flutter --version is not $want"; exit 1; }
+          dart --version
+          echo "flutter $want reaches later steps"
+      - name: A verified SDK is reused, and the refusals refuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/setup_flutter.sh > "$RUNNER_TEMP/again.log" 2>&1 || { cat "$RUNNER_TEMP/again.log"; exit 1; }
+          grep -q "already under" "$RUNNER_TEMP/again.log" || { echo "::error::the second run did not reuse the SDK"; cat "$RUNNER_TEMP/again.log"; exit 1; }
+
+          rc=0
+          FLUTTER_VERSION=3.99.0 bash scripts/setup_flutter.sh > "$RUNNER_TEMP/unknown.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/unknown.log"
+          [[ "$rc" == 1 ]] || { echo "::error::exit $rc for 3.99.0, expected 1"; exit 1; }
+          grep -q "Unable to determine Flutter version for channel: stable version: 3.99.0" "$RUNNER_TEMP/unknown.log" || { echo "::error::no refusal message"; exit 1; }
+
+          rc=0
+          FLUTTER_CHANNEL=master bash scripts/setup_flutter.sh > "$RUNNER_TEMP/master.log" 2>&1 || rc=$?
+          [[ "$rc" == 2 ]] || { echo "::error::exit $rc for master, expected 2"; cat "$RUNNER_TEMP/master.log"; exit 1; }
+          grep -q "is a git clone" "$RUNNER_TEMP/master.log" || { echo "::error::no git-channel refusal"; cat "$RUNNER_TEMP/master.log"; exit 1; }
+
+          # A pins file whose digests are wrong: the manifest disagrees with
+          # the pin for the default release, and nothing is downloaded.
+          sed 's/^\(FLUTTER_SHA256_[A-Z0-9_]*=\)[0-9a-f]/\10/; s/^\(FLUTTER_SHA256_[A-Z0-9_]*=0\)0/\11/' toolchain-pins.env > "$RUNNER_TEMP/tampered.env"
+          ! cmp -s toolchain-pins.env "$RUNNER_TEMP/tampered.env" || { echo "::error::the tampered pins file is unchanged"; exit 1; }
+          rc=0
+          TOOLCHAIN_PINS="$RUNNER_TEMP/tampered.env" bash scripts/setup_flutter.sh > "$RUNNER_TEMP/tamper.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/tamper.log"
+          [[ "$rc" == 1 ]] || { echo "::error::exit $rc for a tampered pin, expected 1"; exit 1; }
+          grep -q "The published release changed under its version; refusing" "$RUNNER_TEMP/tamper.log" || { echo "::error::no pin refusal"; exit 1; }
+          grep -q "Downloading" "$RUNNER_TEMP/tamper.log" && { echo "::error::an archive was downloaded after the pin refusal"; exit 1; }
+          echo "reuse, unknown, master and tampered all behave"
+
   rust-cache-restores-the-previous-job:
     needs: rust-setup-installs-and-caches
     runs-on: ubuntu-latest
@@ -1309,6 +1467,10 @@ jobs:
       - godot-imports-and-tests-a-real-project
       - godot-default-test-command-refuses-to-pass
       - godot-lint-default-rejects-a-project-that-does-not-parse
+      - godot-setup-on-every-os
+      - flutter-setup-on-every-os
+      - toolchain-scripts-on-every-os
+      - ruby-setup-on-every-os
       - govulncheck-fails-on-a-known-advisory
       - go-modules-runs-every-module
       - go-modules-resolver-refuses-bad-input

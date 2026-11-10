@@ -796,10 +796,22 @@ jobs:
 
 ### Write the version with three parts
 
-`setup-godot` parses `godot_version` as a full version. `project.godot` records
-a two-part one, and copying it across gives `Invalid version: 4.3` **before any
-step runs** — the job fails at setup, which reads as infrastructure trouble
-rather than a typo. Write `4.3.0`.
+`scripts/setup_godot.sh` reads `godot_version` as a full version, as the action
+it replaced did. `project.godot` records a two-part one, and copying it across
+is refused with `write 4.3.0, not 4.3` **before any download**. Write `4.3.0`.
+
+### Only a pinned release installs
+
+The editor comes from the official release archive on
+`github.com/godotengine/godot-builds`, downloaded by the library's script from
+a checkout of this library at the workflow's commit, and extracted only after
+its sha256 matches the pin in the library's `toolchain-pins.env`. The pinned
+releases are `4.3.0` (the default) and `4.7.2`, each in the GDScript and .NET
+variants for Linux x86_64, macOS and Windows x64. Any other `godot_version`
+fails at `Setup Godot` naming the pinned releases; a new release reaches
+callers through a release of this library that adds its digests. The install
+is cached by release with `actions/cache` when `cache` is on. No export
+templates are installed.
 
 ### Import before anything else
 

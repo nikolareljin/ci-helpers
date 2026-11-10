@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# SCRIPT: setup_godot.sh
+# DESCRIPTION: Install the Godot editor from the official release archive, so
+#              a workflow runs no third-party action for it. The archive for
+#              the requested release, variant and platform is downloaded from
+#              github.com/godotengine/godot-builds and run only after its
+#              sha256 matches toolchain-pins.env; a release the pins file does
+#              not list is refused before anything is downloaded. The version
+#              is read as the action this replaces read it: a full semantic
+#              version (`4.3.0`, `4.4.0-beta1`), where `4.3.0` names the
+#              `4.3-stable` release; `global.json` reads the version from the
+#              project's global.json (msbuild-sdks / Godot.NET.Sdk). The
+#              editor is extracted under GODOT_INSTALL_DIR, linked as `godot`
+#              in GODOT_BIN_DIR, and that directory goes on PATH; GODOT and
+#              GODOT4 name the link, as the action set them. No export
+#              templates: the callers never had them installed.
+# USAGE: GODOT_VERSION=4.3.0 bash scripts/setup_godot.sh
+# ENVIRONMENT:
+#   GODOT_VERSION      Semantic version (required), or `global.json`.
+#   GODOT_USE_DOTNET   true for the .NET build (default false).
+#   GODOT_INSTALL_DIR  Where the archive is extracted (default $HOME/godot).
+#                      Cache this directory; a verified install there is
+#                      reused when its recorded digest is the pinned one.
+#   GODOT_BIN_DIR      Where the `godot` link goes (default $HOME/bin).
+#   GITHUB_WORKSPACE   Where global.json is read from (default: cwd).
+#   RUNNER_ARCH        X64 or ARM64 (set by the runner); else from uname -m.
+#   TOOLCHAIN_PINS     Pins file (default: toolchain-pins.env beside scripts/).
+#   RUNNER_TEMP        Where the download goes (default: mktemp -d).
+#   GITHUB_PATH, GITHUB_ENV, GITHUB_OUTPUT  Written when set.
+# OUTPUT: godot_version=<release, e.g. 4.3-stable>, godot_bin=<the link>,
+#         on stdout and, when GITHUB_OUTPUT is set, appended there.
+#         GITHUB_ENV gets GODOT and GODOT4.
+# EXIT CODES:
+#   0  godot is on PATH at the requested release.
+#   1  Download or checksum failed, the archive holds no editor, or the
+#      installed editor does not run or reports another release.
+#   2  Usage error, unsupported platform, or no pin for this release.
+# ----------------------------------------------------
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+pins="${TOOLCHAIN_PINS:-$script_dir/../toolchain-pins.env}"
+version="${GODOT_VERSION:-}"
+use_dotnet="${GODOT_USE_DOTNET:-false}"
+install_dir="${GODOT_INSTALL_DIR:-$HOME/godot}"
+bin_dir="${GODOT_BIN_DIR:-$HOME/bin}"
+
+case "$use_dotnet" in
+  true|false) ;;
+  *) echo "::error::GODOT_USE_DOTNET is '$use_dotnet'; it takes true or false." >&2; exit 2 ;;
+esac
+
+# KEY=value, first match; comments and blank lines are not keys.
+pin() {
+  awk -F= -v k="$1" '$1 == k { print $2; exit }' "$pins"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum < "$1" | awk '{ print $1 }'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 < "$1" | awk '{ print $1 }'
+  else
+    echo "::error::Neither sha256sum nor shasum is available to verify a download." >&2
+    exit 1
+  fi
+}
+
+# A Windows path for GITHUB_PATH and GITHUB_ENV when running under Git Bash.
+host_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi
+}
+
+# As the action: `global.json` reads msbuild-sdks / Godot.NET.Sdk.
+if [[ "$version" == "global.json" ]]; then
+  file="${GITHUB_WORKSPACE:-.}/global.json"
+  [[ -f "$file" ]] || { echo "::error::GODOT_VERSION is global.json and $file does not exist." >&2; exit 2; }
+  command -v jq >/dev/null 2>&1 || { echo "::error::jq is needed to read $file and is not on PATH." >&2; exit 2; }
+  version="$(jq -r '."msbuild-sdks"."Godot.NET.Sdk" // empty' "$file")"
+  [[ -n "$version" ]] || { echo "::error::$file has no msbuild-sdks / Godot.NET.Sdk entry." >&2; exit 2; }
+  echo "Using Godot $version from global.json"
+fi
+
+[[ -n "$version" ]] || { echo "::error::GODOT_VERSION is empty; name a release such as 4.3.0." >&2; exit 2; }
+semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$'
+if [[ ! "$version" =~ $semver ]]; then
+  echo "::error::GODOT_VERSION '$version' is not a full semantic version such as 4.3.0 or 4.4.0-beta1 (write 4.3.0, not 4.3)." >&2
+  exit 2
+fi
+major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"; patch="${BASH_REMATCH[3]}"; label="${BASH_REMATCH[5]}"
+# The release tag as godot-builds names it: 4.3.0 is 4.3-stable, 4.3.1 is
+# 4.3.1-stable, 4.4.0-beta.1 is 4.4-beta1.
+release="$major.$minor"
+[[ "$patch" == 0 ]] || release="$release.$patch"
+label="${label//./}"
+if [[ -n "$label" ]]; then release="$release-$label"; else release="$release-stable"; fi
+
+# The archive suffix per platform, as the action chose it.
+case "${RUNNER_ARCH:-$(uname -m)}" in
+  X64|x86_64|amd64) arch=x86_64 ;;
+  ARM64|aarch64|arm64) arch=arm64 ;;
+  *) echo "::error::Unsupported architecture '${RUNNER_ARCH:-$(uname -m)}'; Godot is pinned for x86_64 and arm64." >&2; exit 2 ;;
+esac
+os="$(uname -s)"
+case "$os" in
+  Linux)
+    os=linux
+    if [[ "$use_dotnet" == true ]]; then suffix="mono_linux_$arch"; else suffix="linux.$arch"; fi ;;
+  Darwin)
+    os=macos
+    if [[ "$use_dotnet" == true ]]; then suffix="mono_macos.universal"; else suffix="macos.universal"; fi ;;
+  MINGW*|MSYS*|CYGWIN*)
+    os=windows
+    if [[ "$arch" == x86_64 ]]; then win=win64; else win=windows_arm64; fi
+    if [[ "$use_dotnet" == true ]]; then suffix="mono_$win"; else suffix="$win.exe"; fi ;;
+  *) echo "::error::Unsupported runner OS '$os'; Godot is pinned for Linux, macOS and Windows." >&2; exit 2 ;;
+esac
+name="Godot_v${release}_${suffix}"
+file="$name.zip"
+url="https://github.com/godotengine/godot-builds/releases/download/${release}/${file}"
+
+[[ -r "$pins" ]] || { echo "::error::Pins file $pins is not readable." >&2; exit 2; }
+key="GODOT_SHA256_$(printf '%s_%s' "$release" "$suffix" | tr '[:lower:].-' '[:upper:]__')"
+expected="$(pin "$key" | tr '[:upper:]' '[:lower:]')"
+if [[ ${#expected} -ne 64 || -n "$(printf '%s' "$expected" | tr -d '0-9a-f')" ]]; then
+  # The releases pinned for this platform and variant, so the message says
+  # what would work.
+  tail="_$(printf '%s' "$suffix" | tr '[:lower:].-' '[:upper:]__')"
+  pinned="$(awk -F= -v t="$tail" '$1 ~ /^GODOT_SHA256_/ && substr($1, length($1) - length(t) + 1) == t {
+      r = substr($1, 14, length($1) - 13 - length(t)); if (r ~ /^[0-9]+_[0-9]+(_[0-9]+)?_[A-Z0-9]+$/) print r }' "$pins" \
+    | tr '[:upper:]' '[:lower:]' | sed 's/_\([a-z]\)/-\1/; s/_/./g' | tr '\n' ' ')"
+  pinned="${pinned% }"
+  echo "::error::No sha256 pinned for Godot $release ($file; $key in $pins). Pinned for this platform: ${pinned:-none}. Refusing to download an unverified editor." >&2
+  exit 2
+fi
+
+# A verified install from a cache restore: the recorded digest is the pinned
+# one and the editor is where the archive puts it. Anything else is removed.
+marker="$install_dir/.sha256-$name"
+find_editor() {
+  case "$os" in
+    linux)   find "$install_dir" -type f -name "Godot_v*linux*.$arch" 2>/dev/null ;;
+    macos)
+      if [[ "$use_dotnet" == true ]]; then app=Godot_mono.app; else app=Godot.app; fi
+      [[ -f "$install_dir/$app/Contents/MacOS/Godot" ]] && printf '%s\n' "$install_dir/$app/Contents/MacOS/Godot" ;;
+    windows) find "$install_dir" -type f -name "Godot_v*_$win.exe" 2>/dev/null ;;
+  esac
+  return 0
+}
+editor=""
+if [[ -f "$marker" && "$(cat "$marker")" == "$expected" ]]; then
+  editor="$(find_editor)"
+fi
+if [[ -n "$editor" && "$(printf '%s\n' "$editor" | wc -l | tr -d ' ')" == 1 ]]; then
+  echo "Godot $release ($suffix) is already installed under $install_dir with the pinned digest; not downloading."
+else
+  editor=""
+  # The old install and its link go first, so a refused download leaves no
+  # editor of another release on PATH.
+  rm -rf "$install_dir" "$bin_dir"
+  mkdir -p "$install_dir"
+  if [[ -n "${RUNNER_TEMP:-}" ]]; then
+    dest="$(mktemp -d "${RUNNER_TEMP}/godot.XXXXXX")"
+  else
+    dest="$(mktemp -d)"
+  fi
+  trap 'rm -rf "$dest"' EXIT
+  echo "Downloading $url"
+  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$dest/$file"
+  actual="$(sha256_of "$dest/$file")"
+  if [[ "$actual" != "$expected" ]]; then
+    rm -f "$dest/$file"
+    echo "::error::Checksum mismatch for $file: expected $expected, got $actual." >&2
+    exit 1
+  fi
+  echo "Verified $file (sha256 $actual)"
+  unzip -q -o "$dest/$file" -d "$install_dir"
+  rm -f "$dest/$file"
+  editor="$(find_editor)"
+  count="$(printf '%s' "$editor" | grep -c . || true)"
+  if [[ "$count" != 1 ]]; then
+    echo "::error::$file holds $count Godot editors for $suffix under $install_dir; expected one." >&2
+    [[ -z "$editor" ]] || printf '%s\n' "$editor" >&2
+    exit 1
+  fi
+  chmod +x "$editor"
+  printf '%s\n' "$expected" > "$marker"
+fi
+
+# A link named `godot` on PATH, as the action made it: a hard link on Linux
+# and Windows, a symlink on macOS (a hard link to the binary inside the
+# bundle is killed by the kernel). The .NET build looks for GodotSharp beside
+# the executable, so that directory is linked beside the hard link too.
+rm -rf "$bin_dir"
+mkdir -p "$bin_dir"
+alias_path="$bin_dir/godot"
+case "$os" in
+  macos) ln -s "$editor" "$alias_path" ;;
+  linux) ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path" ;;
+  windows)
+    alias_path="$bin_dir/godot.exe"
+    ln "$editor" "$alias_path" 2>/dev/null || cp "$editor" "$alias_path"
+    ln "$editor" "$bin_dir/godot" 2>/dev/null || cp "$editor" "$bin_dir/godot" ;;
+esac
+if [[ "$use_dotnet" == true && "$os" != macos ]]; then
+  sharp="$(find "$install_dir" -type d -name GodotSharp | head -n 1)"
+  [[ -n "$sharp" ]] || { echo "::error::$file holds no GodotSharp directory; is it the .NET build?" >&2; exit 1; }
+  # Git Bash copies the directory when it cannot symlink; either serves.
+  ln -s "$sharp" "$bin_dir/GodotSharp" 2>/dev/null || cp -R "$sharp" "$bin_dir/GodotSharp"
+fi
+
+# The editor runs and is the release asked for: `--version` prints
+# `4.3.stable.official.<hash>` (`4.3.stable.mono.official.<hash>` for .NET).
+reported="$("$alias_path" --version 2>/dev/null | tail -n 1 | tr -d '\r')" || reported=""
+want="$(printf '%s' "$release" | tr '-' '.')"
+if [[ "$reported" != "$want".* ]]; then
+  echo "::error::$alias_path --version reports '$reported', not $want.*; the installed editor is not Godot $release." >&2
+  exit 1
+fi
+echo "Godot $reported at $alias_path"
+
+PATH="$bin_dir:$PATH"
+export PATH
+if [[ -n "${GITHUB_PATH:-}" ]]; then host_path "$bin_dir" >> "$GITHUB_PATH"; fi
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  printf 'GODOT=%s\nGODOT4=%s\n' "$(host_path "$alias_path")" "$(host_path "$alias_path")" >> "$GITHUB_ENV"
+fi
+printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$alias_path"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'godot_version=%s\ngodot_bin=%s\n' "$release" "$(host_path "$alias_path")" >> "$GITHUB_OUTPUT"
+fi

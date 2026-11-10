@@ -471,7 +471,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
 YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
@@ -527,17 +527,20 @@ jobs:
     steps:
       - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
 YAML
-# The pnpm, Rust and Ruby installers and the cargo cache are first-party
-# steps now (corepack, rustup, the tool cache, actions/cache), and the Azure
-# signing action is used under its new name; the actions they replaced are
-# refused in every workflow, scan or not, so none can come back by habit.
-# The multi-arch Docker build runs the docker CLI from scripts (binfmt and
+# The pnpm, Rust, Ruby, Godot and Flutter installers and the cargo cache are
+# first-party steps now (corepack, rustup, the tool cache, the official
+# release archives at pinned digests, actions/cache), and the Azure signing
+# action is used under its new name; the actions they replaced are refused
+# in every workflow, scan or not, so none can come back by habit. The
+# multi-arch Docker build runs the docker CLI from scripts (binfmt and
 # BuildKit images pinned in toolchain-pins.env); the four docker/* actions
 # are refused the same way.
 for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
             dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec \
             swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 \
             ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
+            chickensoft-games/setup-godot@ac93246ea68518a384c1c280a496e5989341f2f6 \
+            subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 \
             azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 \
             docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 \
             docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 \
@@ -681,13 +684,13 @@ runs:
   steps:
     - uses: some/new-action@0000000000000000000000000000000000000000
 YAML
-expect "unpinned kept action in a build workflow" 1 "uses: 'subosito/flutter-action@v2' is not canonical" .github/workflows/build.yml <<'YAML'
+expect "unpinned kept action in a build workflow" 1 "uses: 'game-ci/unity-test-runner@v4' is not canonical" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: subosito/flutter-action@v2
+      - uses: game-ci/unity-test-runner@v4
 YAML
 expect "kept actions in a build workflow stay quiet" 0 "" .github/workflows/build.yml <<'YAML'
 on: push
@@ -696,7 +699,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/local
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
@@ -704,7 +707,7 @@ jobs:
 YAML
 # The kept list is for the other workflows; a scan workflow still allows
 # only the toolchain installers.
-expect "kept action in a scan workflow" 1 "uses: 'subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2' is not" <<'YAML'
+expect "kept action in a scan workflow" 1 "uses: 'game-ci/unity-test-runner@0000000000000000000000000000000000000000' is not" <<'YAML'
 on: push
 jobs:
   scan:
@@ -712,7 +715,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
 YAML
 # The kept list in the script is exactly the set of third-party actions this
 # tree runs outside ALLOWED_ACTIONS: an entry nobody uses is a leftover,
