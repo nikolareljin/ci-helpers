@@ -83,7 +83,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify outbound guard revision
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -443,7 +443,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify outbound guard revision
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""

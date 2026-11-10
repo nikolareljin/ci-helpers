@@ -121,11 +121,14 @@ included, has two layers:
   `RUBYOPT`, `NODE_OPTIONS`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS` and
   `GIT_EXEC_PATH` to `""`. A step's `env:` wins over `GITHUB_ENV`, so these
   never reach the shell the runner starts;
-- `shell: /bin/sh -e {0}` (`bash` on a Windows runner, which has no `sh`
-  shell), so bash's startup handling is not on the path where `sh` is
+- `shell: /bin/sh -e {0}` in a job whose `runs-on` names a Linux or macOS
+  runner, so bash's startup handling is not on the path where `sh` is
   dash. The path is absolute because the runner looks a bare `sh` or `bash`
   up on `PATH` with the `GITHUB_PATH` entries first, so a caller could
-  supply the shell itself;
+  supply the shell itself. A job whose `runs-on` is an expression (a
+  `runner` input, a matrix) can land on Windows, where `/bin/sh` is not a
+  path the runner can start, so it keeps `shell: sh`; a Windows job uses
+  `bash`. In those jobs a `GITHUB_PATH` entry can still supply the shell;
 - `set +xv`, then a refusal when an exported `BASH_FUNC_*` is present (where
   `sh` is bash, on macOS and Git Bash);
 - `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
@@ -151,7 +154,8 @@ its `PATH` is the links, `/usr/bin` and `/bin` only, and the step's `PATH`
 is dropped.
 
 The step that checks a library checkout's commit runs under
-`/bin/bash --noprofile --norc -e -o pipefail {0}` with the same blanks
+`/bin/bash --noprofile --norc -e -o pipefail {0}` (bare `bash` where
+`runs-on` is an expression or Windows) with the same blanks
 except the `GIT_*` ones (an empty `GIT_DIR` stops git), and runs git as
 `/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1
 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c
@@ -171,11 +175,14 @@ Instead:
 - the `uses:` step sets the same blanks as the commit check, so
   `NODE_OPTIONS` or `BASH_ENV` from `GITHUB_ENV` does not reach the action;
 - inside each action under `.github/actions`, every step sets those blanks
-  too, for a caller that uses the action directly, and names its shell by
-  absolute path: `/bin/bash --noprofile --norc -e -o pipefail {0}`, or on
-  Windows `powershell.exe` under `C:\Windows\System32` with `-NoProfile`,
-  which starts `C:\Program Files\PowerShell\7\pwsh.exe -NoProfile` on the
-  step's file. Scripts in the action's directory run as `/bin/bash`, and
+  too, for a caller that uses the action directly. The Linux and macOS
+  actions (`macos-sign`, `trivy-scan`, `wp-plugin-check`,
+  `pimcore-bundle-check`) name their shell as `/bin/bash --noprofile
+  --norc -e -o pipefail {0}`; the actions callers also run on Windows (the
+  gitleaks, foxguard and data-safety scans, `publication-guard`,
+  `check-release-tag`, `semver-compare`, `windows-sign`) keep `bash`, or
+  `pwsh -NoProfile -NonInteractive`, found on `PATH`. Scripts in the
+  action's directory run as `/bin/bash`, and
   `macos-sign` sets `PATH=/usr/bin:/bin:/usr/sbin:/sbin` before it touches
   the certificate.
 
@@ -208,9 +215,10 @@ workflow or action that:
 Not covered here: a caller that uses one of these actions directly runs
 it after its own steps, which can rewrite the action's files in
 `_actions`; a process a caller step leaves running can still rewrite a
-checkout between two steps; on a Windows runner the outer shell is `bash`
-found on `PATH` (Git Bash lives under `C:\Program Files`, and the runner
-splits `shell:` at the first space) and `lib_path.sh` leaves the step's
+checkout between two steps; where `runs-on` is an expression or Windows,
+and in the actions that run on Windows, the shell is found on `PATH` (Git
+Bash and pwsh live under `C:\Program Files`, and the runner splits
+`shell:` at the first space); on Windows `lib_path.sh` leaves the step's
 `PATH` as it is; the post step of `publication-check`
 runs from its checkout after every other step; and the gate does not yet
 hold publish steps to a job without caller code.

@@ -175,7 +175,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' || inputs.php_version != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -213,7 +213,7 @@ jobs:
       # on every run.
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -266,7 +266,7 @@ jobs:
       # release pinned there, installed after its sha256 matches.
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -362,7 +362,7 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -558,7 +558,7 @@ jobs:
       # The steps since the checkout above could rewrite it; take a fresh one.
       - name: Remove the .ci-helpers-publication checkout
         if: ${{ (steps.stage.outputs.count != '' && steps.stage.outputs.count != '0') && steps.ci_publication_verify.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           BASH_ENV: ""
           ENV: ""
@@ -593,7 +593,7 @@ jobs:
 
       - name: Verify publication action revision
         if: ${{ (steps.stage.outputs.count != '' && steps.stage.outputs.count != '0') && steps.ci_publication_verify.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -705,7 +705,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""
@@ -752,7 +752,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify outbound guard revision
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -844,7 +844,7 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -877,7 +877,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib_publication
         if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -937,7 +937,7 @@ jobs:
 
       - name: Create GitHub release (with files)
         if: ${{ (needs.build.outputs.files_id != '') && steps.ci_publication_check_1.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib_publication.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib_publication.outputs.hash }}
@@ -1019,7 +1019,7 @@ jobs:
 
       - name: Create GitHub release (no files)
         if: ${{ (needs.build.outputs.files_id == '') && steps.ci_publication_check_2.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib_publication.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib_publication.outputs.hash }}
@@ -1073,7 +1073,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib_publication.outputs.lib }}
           BASH_ENV: ""

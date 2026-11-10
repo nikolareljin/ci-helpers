@@ -381,7 +381,7 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -500,7 +500,7 @@ jobs:
       # The steps since the checkout above could rewrite it; take a fresh one.
       - name: Remove the .ci-helpers-publication checkout
         if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           BASH_ENV: ""
           ENV: ""
@@ -535,7 +535,7 @@ jobs:
 
       - name: Verify publication action revision
         if: ${{ (inputs.publish == 'true') && steps.ci_publication_verify.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""

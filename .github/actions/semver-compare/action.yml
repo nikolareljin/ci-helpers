@@ -17,7 +17,7 @@ runs:
   using: composite
   steps:
     - id: compare
-      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       # Versions arrive through env, never pasted into the script: they are
       # often read from a branch name or a file a PR can change.
       env:

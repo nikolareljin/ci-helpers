@@ -181,6 +181,8 @@ expect "isolate step without the LD_PRELOAD blank" 1 "$(wf "$checkout" "${isolat
 expect "release step without the BASH_ENV blank" 1 "$(printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%s\n' "$checkout" "$isolate" "$use" "${release/          BASH_ENV: \"\"
 /}")"
 expect "bash shell on a Windows runner" 0 "$(printf 'jobs:\n  j:\n    runs-on: windows-latest\n    steps:\n'; printf '%s\n' "$checkout" "${isolate/$SH/shell: bash}" "${use/$SH/shell: bash}" "${release/$SH/shell: bash}")"
+expect "bare sh where runs-on is an expression" 0 "$(printf 'jobs:\n  j:\n    runs-on: ${{ inputs.runner }}\n    steps:\n'; printf '%s\n' "$checkout" "${isolate/$SH/shell: sh}" "${use/$SH/shell: sh}" "${release/$SH/shell: sh}")"
+expect "/bin/sh where runs-on is an expression, which a Windows runner cannot start" 1 "$(printf 'jobs:\n  j:\n    runs-on: ${{ inputs.runner }}\n    steps:\n'; printf '%s\n' "$checkout" "$isolate" "$use" "$release")"
 expect "sh shell on a Windows runner" 1 "$(printf 'jobs:\n  j:\n    runs-on: windows-latest\n    steps:\n'; printf '%s\n' "$checkout" "$isolate" "$use" "$release")"
 expect "isolate passing an extra variable" 1 "$(wf "$checkout" "${isolate/WF_SHA=\"\$WF_SHA\"/WF_SHA=\"\$WF_SHA\" GIT_DIR=\"\$GIT_DIR\"}" "$use")"
 expect "no always() step releases the read-only copy" 1 "$(wf_raw "$checkout" "$isolate" "$use")"
@@ -270,10 +272,10 @@ expect "verify step without the git= line" 1 "$(wf_raw "$pubco" "${pubverify/git
 expect "verify step also running git through PATH" 1 "$(wf_raw "$pubco" "$pubverify
           git status" "$pubuse")"
 
-expect_action() {  # expect_action <name> <rc> <action yaml>
-  local name="$1" want="$2" rc=0
-  rm -rf "$work/r"; mkdir -p "$work/r/.github/actions/x"
-  printf '%s\n' "$3" > "$work/r/.github/actions/x/action.yml"
+expect_action() {  # expect_action <name> <rc> <action yaml> [action dir]
+  local name="$1" want="$2" rc=0 dir="${4:-x}"
+  rm -rf "$work/r"; mkdir -p "$work/r/.github/actions/$dir"
+  printf '%s\n' "$3" > "$work/r/.github/actions/$dir/action.yml"
   python3 "$gate" --root "$work/r" > "$work/out" 2>&1 || rc=$?
   [[ "$rc" == "$want" ]] || { echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; }
 }
@@ -291,8 +293,11 @@ expect_action "composite step running a library script without the BASH_ENV blan
 /}"
 expect_action "composite step under a bare bash" 1 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: bash}"
 expect_action "composite step calling bash through PATH" 1 "${act/run: \/bin\/bash/run: bash}"
-expect_action "composite PowerShell step without -NoProfile" 1 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: C:\\\\x\\\\powershell.exe -Command x}"
-expect_action "composite PowerShell step with -NoProfile" 0 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: C:\\\\x\\\\powershell.exe -NoProfile -Command x}"
+expect_action "composite PowerShell step without -NoProfile" 1 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: pwsh}" windows-sign
+pwsh_sh="shell: pwsh -NoProfile -NonInteractive -Command \". '{0}'\""
+expect_action "composite PowerShell step with -NoProfile" 0 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/$pwsh_sh}" windows-sign
+expect_action "cross-platform composite step under bash" 0 "${act/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: bash}" gitleaks-scan
+expect_action "cross-platform composite step under /bin/bash" 1 "$act" gitleaks-scan
 expect_action "composite step running a script by github.action_path without blanks" 1 'runs:
   using: composite
   steps:
@@ -359,7 +364,8 @@ sha="$(mk_checkout)"
 mkfifo "$work/ws/.ci-helpers-scripts/scripts/pipe"
 run_iso "$sha" && { echo "FAIL isolate accepted a fifo in scripts/"; fail=1; }
 
-# The real isolate and Setup Rust steps of tauri.yml, run as the runner
+# The real isolate and Setup Rust steps of tauri-release.yml (build-macos, a
+# fixed runner, so the step names /bin/sh), run as the runner
 # runs them: the caller's GITHUB_ENV first, then the step's own env: on top
 # (it wins), then `sh -e <file>`; once with dash and once with bash --posix,
 # which is sh on macOS. What a caller can set: BASH_ENV, ENV, SHELLOPTS=xtrace,
@@ -372,8 +378,8 @@ python3 - "$root/.github/workflows" "$work" <<'PY'
 import pathlib, sys, yaml
 wf = pathlib.Path(sys.argv[1])
 out = pathlib.Path(sys.argv[2])
-for fname, job, nm, tag in (("tauri.yml", "ci", "Isolate ci-helpers scripts", "isolate"),
-                            ("tauri.yml", "ci", "Setup Rust", "use"),
+for fname, job, nm, tag in (("tauri-release.yml", "build-macos", "Isolate ci-helpers scripts", "isolate"),
+                            ("tauri-release.yml", "build-macos", "Setup Rust and universal targets", "use"),
                             ("create-github-release.yml", "release", "Create GitHub Release", "release")):
     for st in yaml.safe_load((wf / fname).read_text())["jobs"][job]["steps"]:
         if st.get("name") == nm:

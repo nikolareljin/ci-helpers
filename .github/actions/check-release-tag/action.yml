@@ -21,7 +21,7 @@ runs:
   using: composite
   steps:
     - id: check
-      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       # Inputs arrive through env, never pasted into the script: a branch name
       # is chosen by whoever pushed it (github.head_ref on a fork PR), and git
       # accepts `$(...)` in one.

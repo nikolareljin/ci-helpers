@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - name: Scan JSON data files
-      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
         INPUT_SCAN_PATH: ${{ inputs.scan_path }}
         BASH_ENV: ""

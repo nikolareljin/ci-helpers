@@ -34,8 +34,9 @@ with PyYAML. In every job, and in a composite action:
              in their env:, which wins over GITHUB_ENV before any shell
              starts;
   env        the isolate step and every step reading `$LIB` use
-             `shell: /bin/sh -e {0}` (`bash` on a Windows runner; a bare
-             name is looked up on PATH, GITHUB_PATH entries first)
+             `shell: /bin/sh -e {0}` where runs-on names a Linux or macOS
+             runner (a bare name is looked up on PATH, GITHUB_PATH entries
+             first), `sh` where runs-on is an expression, `bash` on Windows
              and run `set +xv`, refuse an exported BASH_FUNC_*, then
              `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME"
              LANG=C.UTF-8 NAME="$NAME"... /bin/bash --noprofile --norc`:
@@ -132,6 +133,12 @@ GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git'
 GIT_ANY = re.compile(r'(?:^|[;&|(\s"`])(?:/usr/bin/|/mingw64/bin/)?(?:git|\$\{?git\}?)(?=["\s]|$)')
 HARD_GIT = re.compile(r'/usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "\$git" -c core\.fsmonitor= '
                       r'-c core\.hooksPath=/dev/null -C (\.ci-helpers-[a-z]+) rev-parse HEAD\)')
+# Actions callers run on Windows runners too: their steps keep `bash` and
+# pwsh, found on PATH, since no absolute path works on every runner.
+CROSS_PLATFORM = {"gitleaks-scan", "gitleaks-diff", "foxguard-scan", "foxguard-diff",
+                  "data-safety-scan", "publication-guard", "check-release-tag",
+                  "semver-compare", "windows-sign"}
+PWSH = "pwsh -NoProfile -NonInteractive -Command \". '{0}'\""
 LOCAL_ACTION = re.compile(r"^\./(\.ci-helpers-[a-z]+)/")
 PINNED = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
 
@@ -210,7 +217,12 @@ def envelope(run: str) -> tuple[list[str], str, str | None, list[str]]:
     return names, tail, body, errs
 
 
-def check_steps(where: str, steps: list, container: dict | None, windows: bool = False) -> list[str]:
+def check_steps(where: str, steps: list, container: dict | None, windows: bool = False,
+                dynamic: bool = False) -> list[str]:
+    # A runs-on with an expression can be a Windows runner, where /bin/sh is
+    # not a path the runner can start: those jobs keep the bare names.
+    env_shell = "bash" if windows else ("sh" if dynamic else SH)
+    git_shell = "bash" if (windows or dynamic) else BASH
     errors: list[str] = []
     checkouts: dict[int, str] = {}
     isolates: dict[str, int] = {}
@@ -252,8 +264,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         if iso:
             for e in env_errs:
                 errors.append(f"{name}: {e}")
-            if shell != ("bash" if windows else SH):
-                errors.append(f"{name}: shell must be `{SH}` (bash on a Windows runner); a bare sh is looked up on PATH")
+            if shell != env_shell:
+                errors.append(f"{name}: shell must be `{env_shell}` here (`{SH}` where runs-on names a Linux or macOS runner)")
             missing = [k for k in BLANKS if env.get(k) != ""]
             if missing:
                 errors.append(f"{name}: env: must set {', '.join(missing)} to \"\"")
@@ -301,8 +313,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 errors.append(f"{name}: sets git only as `{GIT_DEF}`")
             if any(GIT_LINE.search(ln) for ln in lines):
                 errors.append(f"{name}: runs git through PATH in the step that checks a library checkout")
-            if shell != ("bash" if windows else BASH):
-                errors.append(f"{name}: shell must be `{BASH}` (bash on a Windows runner); a bare bash is looked up on PATH")
+            if shell != git_shell:
+                errors.append(f"{name}: shell must be `{git_shell}` here (`{BASH}` where runs-on names a Linux or macOS runner)")
             errors += outer_blanks(name, env)
 
         # An action from a library checkout runs from the workspace: nothing
@@ -335,8 +347,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         if LIB_USE.search(run) or "LIB" in env:
             for e in env_errs:
                 errors.append(f"{name}: {e}")
-            if shell != ("bash" if windows else SH):
-                errors.append(f"{name}: shell must be `{SH}` (bash on a Windows runner); a bare sh is looked up on PATH")
+            if shell != env_shell:
+                errors.append(f"{name}: shell must be `{env_shell}` here (`{SH}` where runs-on names a Linux or macOS runner)")
             missing = [k for k in BLANKS if env.get(k) != ""]
             if missing:
                 errors.append(f"{name}: env: must set {', '.join(missing)} to \"\"")
@@ -401,8 +413,8 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
             text = str(st.get("run") or "")
             if names and "/bin/chmod -R u+w" in text and any(f'"${n}"' in text for n in names):
                 ok = True
-                if str(st.get("shell") or "") != ("bash" if windows else SH):
-                    errors.append(f"{where}: the release step's shell must be `{SH}` (bash on a Windows runner)")
+                if str(st.get("shell") or "") != env_shell:
+                    errors.append(f"{where}: the release step's shell must be `{env_shell}`")
                 missing = [k for k in BLANKS if env.get(k) != ""]
                 if missing:
                     errors.append(f"{where}: the release step's env: must set {', '.join(missing)} to \"\"")
@@ -428,8 +440,9 @@ def check_file(path: Path) -> list[str]:
     if isinstance(jobs, dict):
         for jid, job in jobs.items():
             if isinstance(job, dict) and isinstance(job.get("steps"), list):
+                ro = str(job.get("runs-on") or "")
                 errors += check_steps(f"{path}: job {jid}", job["steps"], job.get("container"),
-                                     "windows" in str(job.get("runs-on") or "").lower())
+                                      "windows" in ro.lower() and "${{" not in ro, "${{" in ro)
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)
@@ -441,7 +454,11 @@ def check_file(path: Path) -> list[str]:
                 continue
             env = st.get("env") if isinstance(st.get("env"), dict) else {}
             sh = str(st.get("shell") or "")
-            if not (sh.startswith("/") or sh.startswith("C:\\")):
+            if path.parent.name in CROSS_PLATFORM:
+                if sh not in ("bash", PWSH):
+                    errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) of an action "
+                                  f"that runs on Windows uses `bash` or `{PWSH}`")
+            elif not sh.startswith("/"):
                 errors.append(f"{path}: composite step {n + 1} ({st.get('name') or 'run'}) runs under `{sh}`, "
                               f"which the runner looks up on PATH; give the shell by absolute path")
             if re.search(r'(?:^|[\s;&|(])bash "', str(st.get("run"))):

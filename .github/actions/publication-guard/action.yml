@@ -4,7 +4,7 @@ runs:
   using: composite
   steps:
     - name: Install mandatory outbound hooks
-      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+      shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
         BASH_ENV: ""

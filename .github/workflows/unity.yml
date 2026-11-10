@@ -275,7 +275,7 @@ jobs:
       # sha256 over its files.
       - name: Isolate ci-helpers scripts
         id: ci_scripts_verify
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -317,7 +317,7 @@ jobs:
       # container left behind.
       - name: Run Unity tests
         id: tests
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -372,7 +372,7 @@ jobs:
       # nothing to return.
       - name: Return the Unity licence
         if: ${{ always() && steps.ci_scripts_verify.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -421,7 +421,7 @@ jobs:
       # the action posted a check run with the job token instead.
       - name: Test summary
         if: ${{ always() && steps.tests.outputs.artifactsPath != '' && steps.ci_scripts_verify.outcome == 'success' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_scripts_verify.outputs.lib }}
           LIB_HASH: ${{ steps.ci_scripts_verify.outputs.hash }}
@@ -496,7 +496,7 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -565,7 +565,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_scripts_verify.outputs.lib }}
           BASH_ENV: ""

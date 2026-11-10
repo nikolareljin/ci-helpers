@@ -107,7 +107,7 @@ runs:
   using: composite
   steps:
     - name: Check sign mode
-      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
+      shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:
         SIGN_MODE: ${{ inputs.sign_mode }}
         CERT_B64: ${{ inputs.certificate_base64 }}
@@ -146,7 +146,7 @@ runs:
     # ── tauri_updater ─────────────────────────────────────────────────────────
     - name: Configure Tauri updater signing (free ED25519)
       if: ${{ inputs.sign_mode == 'tauri_updater' }}
-      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
+      shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:
         PRIV_KEY: ${{ inputs.tauri_signing_private_key }}
         PRIV_KEY_PW: ${{ inputs.tauri_signing_private_key_password }}
@@ -200,7 +200,7 @@ runs:
     # --- pfx ---
     - name: Check or sign with the PFX certificate (Authenticode)
       if: ${{ inputs.sign_mode == 'pfx' }}
-      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
+      shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
@@ -229,7 +229,7 @@ runs:
     # ── azure ─────────────────────────────────────────────────────────────────
     - name: Configure Azure Trusted Signing credentials
       if: ${{ inputs.sign_mode == 'azure' }}
-      shell: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Set-Content -LiteralPath ''{0}.ps1'' -Encoding UTF8 -Value (''$ErrorActionPreference=''''Stop'''''' + [Environment]::NewLine + [IO.File]::ReadAllText(''{0}'')); & ''C:\Program Files\PowerShell\7\pwsh.exe'' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ''{0}.ps1''; exit $LASTEXITCODE"'
+      shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:
         AZ_TENANT: ${{ inputs.azure_tenant_id }}
         AZ_CLIENT: ${{ inputs.azure_client_id }}

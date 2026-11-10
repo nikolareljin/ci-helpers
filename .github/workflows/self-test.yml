@@ -994,7 +994,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify ci-helpers actions commit
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""

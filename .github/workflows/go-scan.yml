@@ -117,7 +117,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib_actions
         if: ${{ inputs.gosec_args != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -151,7 +151,7 @@ jobs:
       # `working_directory`, as lint and tests do.
       - name: Gosec scan
         if: ${{ inputs.gosec_args != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         working-directory: ${{ inputs.working_directory }}
         env:
           LIB: ${{ steps.ci_lib_actions.outputs.lib }}
@@ -250,7 +250,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib_actions.outputs.lib }}
           BASH_ENV: ""

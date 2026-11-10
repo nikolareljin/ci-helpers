@@ -90,7 +90,7 @@ jobs:
       # default branch and run today's scripts after all; refuse instead.
       - name: Isolate ci-helpers scripts
         id: ci_lib_actions
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -124,7 +124,7 @@ jobs:
       # below has no network call of its own.
       - name: Install Trivy
         id: trivy
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib_actions.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib_actions.outputs.hash }}
@@ -206,7 +206,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib_actions.outputs.lib }}
           BASH_ENV: ""

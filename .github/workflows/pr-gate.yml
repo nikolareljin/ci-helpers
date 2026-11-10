@@ -382,7 +382,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib
         if: ${{ inputs.rust_toolchain != '' || inputs.flutter_version != '' || inputs.flutter_channel != '' || inputs.godot_version != '' || inputs.php_version != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -414,7 +414,7 @@ jobs:
       # version and sha256 in the library's toolchain-pins.env.
       - name: Setup Rust
         if: ${{ inputs.rust_toolchain != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -470,7 +470,7 @@ jobs:
       - name: Resolve Flutter
         id: flutter_resolve
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -528,7 +528,7 @@ jobs:
 
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -592,7 +592,7 @@ jobs:
       # release pinned there, installed after its sha256 matches.
       - name: Setup PHP
         if: ${{ inputs.php_version != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -654,7 +654,7 @@ jobs:
 
       - name: Setup Godot
         if: ${{ inputs.godot_version != '' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -807,7 +807,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""

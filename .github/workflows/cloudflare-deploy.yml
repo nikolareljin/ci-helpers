@@ -473,7 +473,7 @@ jobs:
       - name: Isolate ci-helpers scripts
         id: ci_lib
         if: ${{ inputs.package_manager == 'pnpm' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -506,7 +506,7 @@ jobs:
       # on download.
       - name: Setup pnpm
         if: ${{ inputs.package_manager == 'pnpm' }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -927,7 +927,7 @@ jobs:
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""

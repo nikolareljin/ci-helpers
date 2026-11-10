@@ -79,7 +79,7 @@ jobs:
       # An empty job.workflow_sha would make the checkout above fall back to the
       # default branch and run today's actions after all; refuse instead.
       - name: Verify ci-helpers actions commit
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""

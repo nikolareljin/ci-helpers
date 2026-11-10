@@ -262,7 +262,7 @@ jobs:
       - name: Verify publication action revision
         id: ci_publication_verify
         if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        shell: bash
         env:
           TRUSTED_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
