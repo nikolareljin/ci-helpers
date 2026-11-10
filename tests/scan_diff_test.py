@@ -597,7 +597,8 @@ sys.exit(rc)
         cases = {".h/x.py": "file.py", "a/.b/c/x.py": "file.py", ".x.py": "file.py",
                  "-s/x.py": "file.py", "vendor/x.py": "file.py", "a/build/y.py": "file.py",
                  "node_modules/z.js": "file.js", "a.min.js": "file.js", "sub/Dockerfile": "Dockerfile",
-                 ".bashrc": "bashrc"}
+                 ".bashrc": "bashrc", ":(glob)*.py": "file.py",
+                 ":(exclude)a.py": "file.py", ":!b.py": "file.py", "*.py": "file.py", "[x].py": "file.py"}
         for path, neutral in cases.items():
             with self.subTest(path=path):
                 commit(self.fx.clone, "changed", **{path: "marker = 3\n"})

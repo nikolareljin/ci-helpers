@@ -35,6 +35,8 @@
 #                  (foxguard skips that name even when it is named)
 #   noise-moved    moves old.py into vendor/ and edits an old vendored file:
 #                  foxguard-diff passes (the old findings stay old)
+#   magic-names    adds shell=True in files named ":(exclude)a.py", "*.py"
+#                  and "[x].py": foxguard-diff fails (names are not pathspecs)
 #   too-large      adds a parseable file over foxguard's 1 MiB limit:
 #                  foxguard-diff fails (a file it would skip is refused)
 #   head-ignore    adds a key and a .gitleaksignore naming that key's
@@ -166,12 +168,18 @@ g mv old.py vendor/old.py
 printf '# edited\n' >> "$src/vendor/lib.py"
 g add -A; g commit -q -m "old.py moved into vendor/, an old vendored file edited"
 
+branch magic-names
+injection ':(exclude)a.py'
+injection '*.py'
+injection '[x].py'
+g add -A; g commit -q -m "new command injections in names git could read as pathspecs"
+
 branch too-large
 { printf 'x = 1\n'; head -c 1048576 /dev/zero | tr '\0' '#'; printf '\n'; } > "$src/big.py"
 g add -A; g commit -q -m "a file over foxguard's size limit"
 
 g checkout -q main
-for b in noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

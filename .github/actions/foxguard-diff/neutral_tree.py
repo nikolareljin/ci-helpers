@@ -62,14 +62,22 @@ def neutral_name(index, path):
     return b"f%d/" % index + name
 
 
-def entry(root, commit, path, env_extra):
-    """(mode, sha) of path in commit, or None when absent or not a regular file."""
-    out = git(root, "ls-tree", "-z", "--full-tree", commit, "--", path, env_extra=env_extra)
-    if not out:
-        return None
-    meta, _, _ = out.rstrip(b"\0").partition(b"\t")
-    mode, kind, sha = meta.split(b" ")
-    return (mode, sha) if kind == b"blob" and mode in REGULAR else None
+def tree(root, commit, env_extra):
+    """Every blob of commit: exact path bytes -> (mode, sha). No pathspec is
+    passed, so a file named ":(exclude)a.py", "*.py" or "[x].py" is a path."""
+    out = git(root, "ls-tree", "-r", "-z", "--full-tree", commit, env_extra=env_extra)
+    entries = {}
+    for item in out.split(b"\0"):
+        if item:
+            meta, _, path = item.partition(b"\t")
+            mode, kind, sha = meta.split(b" ")
+            entries[path] = (mode, kind, sha)
+    return entries
+
+
+def regular(entries, path):
+    found = entries.get(path)
+    return (found[0], found[2]) if found and found[1] == b"blob" and found[0] in REGULAR else None
 
 
 def neutral_config(text, folder, names):
@@ -109,20 +117,24 @@ def main():
     store = {**IDENT, "GIT_INDEX_FILE": os.path.join(tmp, "neutral.index")}
     copied = {}
     names = {}
+    head_tree = tree(top, "HEAD", None)
+    old_tree = tree(top, renamed, caller)
     base_info = b""
     head_info = b""
     for index, path in enumerate(p for p in changed if p):
         full = prefix + path
-        head = entry(top, "HEAD", full, None)
+        if full not in head_tree:
+            raise ValueError("a changed file is not in the head tree")
+        head = regular(head_tree, full)
         if head is None:
             continue
         name = neutral_name(index, path)
         names[full.decode()] = name.decode()
-        for mode, sha in filter(None, (head, entry(top, renamed, full, caller))):
+        for mode, sha in filter(None, (head, regular(old_tree, full))):
             if sha not in copied:
                 blob = git(top, "cat-file", "blob", sha.decode(), env_extra=caller)
                 copied[sha] = git(neutral, "hash-object", "-w", "--stdin", env_extra=store, stdin=blob).strip()
-        old = entry(top, renamed, full, caller)
+        old = regular(old_tree, full)
         if old is not None:
             base_info += old[0] + b" " + copied[old[1]] + b"\t" + name + b"\0"
         head_info += head[0] + b" " + copied[head[1]] + b"\t" + name + b"\0"
@@ -131,8 +143,8 @@ def main():
     base_tree = git(neutral, "write-tree", env_extra=store).decode().strip()
     base_commit = git(neutral, "commit-tree", base_tree, "-m", "base", env_extra=store).decode().strip()
     git(neutral, "update-index", "-z", "--index-info", env_extra=store, stdin=head_info)
-    head_tree = git(neutral, "write-tree", env_extra=store).decode().strip()
-    head_commit = git(neutral, "commit-tree", head_tree, "-p", base_commit, "-m", "head",
+    head_sha = git(neutral, "write-tree", env_extra=store).decode().strip()
+    head_commit = git(neutral, "commit-tree", head_sha, "-p", base_commit, "-m", "head",
                       env_extra=store).decode().strip()
     if not (SHA.match(base_commit) and SHA.match(head_commit)):
         raise ValueError("commit-tree printed no sha")
