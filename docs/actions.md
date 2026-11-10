@@ -322,15 +322,20 @@ Notes:
   those: the step fails when a `.gitignore` or `.ignore` in the repository
   is a link, or when the head tree's rules (`git ls-files -i
   --exclude-standard`, and `.ignore` read the same way) name a changed file.
-  An ignore file edit that hides no changed file passes. foxguard's walk
-  skips hidden paths (such as `.github/`) and reads the ignore rules with its
-  own matcher, and its report lists no files, so each changed file is also
-  scanned on its own: a file named on the command line is read whatever the
-  ignore rules say. That costs about half a second per changed file.
-  Directories foxguard treats as vendored (`node_modules`, `vendor`,
-  `dist`, `build`) are skipped even when named, here and in
-  `foxguard-scan`. The reports must name that base and, together, have read
-  at least one file, unless the review adds or changes no file under
+  An ignore file edit that hides no changed file passes. foxguard skips
+  hidden paths, names such as `a.min.js` and directories it treats as
+  vendored (`node_modules`, `vendor`, `dist`, `build`), some even when
+  named and on the base side too. So every changed regular file is also
+  copied, as the base and as the head have it, to a neutral path
+  (`f<i>/file.<ext>`, or `f<i>/<name>` without an extension) in a repository
+  under the runner's temporary directory, and all copies are scanned in one
+  `foxguard diff` call: a new finding in `vendor/x.py` fails, an old one in a
+  file moved into `vendor/` does not. A reviewed config's
+  `scan.ignore_rules` paths that name a changed file follow it to its copy.
+  A changed file over foxguard's `--max-file-size` (1 MiB) would be skipped,
+  so the step fails. `foxguard-scan` still skips those directories. The
+  reports must name their base and, together, have read at least one file,
+  unless the review adds or changes no file under
   `scan_path`, or the step fails. Configuration is read from the merge base as `foxguard-scan` reads it
   from the pull request base; a `baseline` entry is refused.
 - No report, SARIF or artifact. A failure names Foxguard and the branch,

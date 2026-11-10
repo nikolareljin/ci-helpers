@@ -15,7 +15,9 @@ its tree are written to <tmp-dir>/objects, which reads the caller's objects
 as an alternate; foxguard is given it the same way. Nothing in the caller's
 repository changes, and a read-only object store works.
 
-Usage: rename_base.py <work-tree> <merge-base> <tmp-dir> <config>
+Usage: rename_base.py <work-tree> <merge-base> <tmp-dir> <config-set>
+
+<config-set> is 1 when the reviewed config has content, else 0.
 
 Run foxguard with GIT_ALTERNATE_OBJECT_DIRECTORIES set to <tmp-dir>/objects,
 C-quoted ("...") so a ':' in the path does not split it.
@@ -45,14 +47,12 @@ def quoted(path):
 
 
 def main():
-    root, base, tmp, config = sys.argv[1:5]
-    if not SHA.match(base):
-        raise ValueError("base is not a commit sha")
-    # The config path is the one run.sh wrote under its own temporary directory.
-    with open(config, "rb") as fh:  # foxguard: ignore[py/no-path-traversal]
-        if fh.read().strip():
-            sys.stdout.write(base + "\n")
-            return 0
+    root, base, tmp, config_set = sys.argv[1:5]
+    if not SHA.match(base) or config_set not in ("0", "1"):
+        raise ValueError("bad arguments")
+    if config_set == "1":
+        sys.stdout.write(base + "\n")
+        return 0
     prefix = git(root, "rev-parse", "--show-prefix").strip()
     top = git(root, "rev-parse", "--show-toplevel").decode().strip()
     raw = git(top, "diff", "--no-renames", "--raw", "--abbrev=64", "-z", base, "HEAD").split(b"\0")

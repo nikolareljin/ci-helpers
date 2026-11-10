@@ -58,7 +58,9 @@ if root="$(cd "$scan_path" 2>/dev/null && pwd -P)" && [[ "$own" == "$root"/* ]];
 # foxguard matches findings by path: a file the review only renames would
 # report its old findings as new, so the base it is given has the renames
 # (identical content, inside scan_path, and only with an empty config).
-fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$config" 2>"$tmp/base.log")" || fail
+config_set=0
+if grep -q '[^[:space:]]' "$config"; then config_set=1; fi
+fg_base="$("$py" -I "$dir/rename_base.py" "$scan_path" "$merge_base" "$tmp" "$config_set" 2>"$tmp/base.log")" || fail
 [[ "$fg_base" =~ ^[0-9a-f]{40}$ || "$fg_base" =~ ^[0-9a-f]{64}$ ]] || fail
 # A review that adds or changes nothing under scan_path (a deletion) may leave
 # foxguard nothing to read; only then is a scan of no files a pass.
@@ -107,24 +109,40 @@ if not (doc["scanner"]["name"] == "foxguard"
         and doc["target"]["diff_base"] == sys.argv[2]):
     sys.exit(1)
 print(int(doc["target"]["files_scanned"]))
-' "$tmp/report.json" "$fg_base" 2>"$tmp/check.log"
+' "$tmp/report.json" "$1" 2>"$tmp/check.log"
 }
-read_count="$(report_ok)" || fail
-# foxguard's directory walk skips hidden entries (.h/x.py, .x.py) and what
-# its own reading of the ignore files names; a file named on the command line
-# is read regardless. So each changed regular file is also scanned on its
-# own, and no ignore rule decides whether a changed file is read.
-changed_list="$tmp/changed.list"
-git -C "$scan_path" diff --name-only -z --relative --diff-filter=ACMRT "$merge_base" HEAD -- . >"$changed_list" 2>"$tmp/base.log" || fail
-while IFS= read -r -d '' path; do
-  [[ -f "$scan_path/$path" && ! -L "$scan_path/$path" ]] || continue
-  rc=0
-  (cd "$scan_path" && GIT_ALTERNATE_OBJECT_DIRECTORIES="$alt" "$FG_BIN" diff "$fg_base" --config "$config" -f json -s "$severity" \
-    --output "$tmp/report.json" -- "$path") >"$tmp/scan.log" 2>&1 || rc=$?
-  [[ "$rc" -eq 0 ]] || fail
-  n="$(report_ok)" || fail
-  read_count=$((read_count + n))
-done <"$changed_list"
+read_count="$(report_ok "$fg_base")" || fail
+# foxguard skips hidden entries, what its own reading of the ignore files
+# names, and some paths and names (vendor/, build/, a.min.js) even when they
+# are named, on the base side too. So every changed regular file is also
+# copied, base and head, to neutral paths in a repository of its own
+# (neutral_tree.py) and scanned there in one call; no path of the review
+# decides whether a changed file is read.
+# A reviewed config comes along with its ignore paths moved to the neutral
+# names; it is read on stdin, so neutral_tree.py opens no path.
+neutral_config="$config"
+neutral_arg=""
+[[ "$config_set" == 1 ]] && neutral_arg="$config"
+"$py" -I "$dir/neutral_tree.py" "$scan_path" "$merge_base" "$fg_base" "$tmp" "$neutral_arg" \
+  <"$config" >"$tmp/neutral.out" 2>"$tmp/base.log" || fail
+neutral_base="$(head -n 1 "$tmp/neutral.out")"
+[[ "$neutral_base" =~ ^[0-9a-f]{40}$ || "$neutral_base" =~ ^[0-9a-f]{64}$ ]] || fail
+if [[ "$config_set" == 1 ]]; then
+  tail -n +2 "$tmp/neutral.out" >"$tmp/neutral/.foxguard-reviewed.yml" || fail
+  neutral_config="$tmp/neutral/.foxguard-reviewed.yml"
+fi
+mkdir "$tmp/home" || fail
+rc=0
+(cd "$tmp/neutral" && env -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_DIR -u GIT_WORK_TREE \
+  HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  "$FG_BIN" diff "$neutral_base" --config "$neutral_config" -f json -s "$severity" \
+  --output "$tmp/report.json" -- .) >"$tmp/scan.log" 2>&1 || rc=$?
+[[ "$rc" -eq 0 ]] || fail
+# A changed file over foxguard's --max-file-size (1 MiB) is skipped, not
+# read: refused.
+if grep -q -e 'exceeds --max-file-size' -e '[0-9] too large' "$tmp/scan.log"; then fail; fi
+n="$(report_ok "$neutral_base")" || fail
+read_count=$((read_count + n))
 # A scan of nothing (files foxguard cannot parse, say) is refused rather
 # than reported clean, unless the review changed nothing there.
 [[ "$read_count" -gt 0 || -z "$changed" ]] || fail
