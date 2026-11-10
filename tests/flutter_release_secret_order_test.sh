@@ -2,9 +2,10 @@
 # SCRIPT: flutter_release_secret_order_test.sh
 # DESCRIPTION: In flutter-release.yml, no step that reads a secret runs
 #              before the last toolchain step (Java, Flutter, pub get, the
-#              library checkout, Ruby, gems, fastlane), the Ruby step is a
-#              script from the library checkout and not a third-party
-#              action, every file a secret is written to is removed by the
+#              library checkout, Ruby, gems, fastlane), the Flutter and Ruby
+#              steps are scripts from the library checkout and not
+#              third-party actions, that checkout is unconditional and
+#              precedes Flutter, every file a secret is written to is removed by the
 #              always() cleanup step, and no job-level env holds a secret.
 #              The same check runs on a fixture with the old order and must
 #              fail there.
@@ -21,8 +22,8 @@ cat > "$work/check.py" <<'PY'
 import re, sys
 import yaml
 
-TOOLCHAIN_USES = re.compile(r"^(actions/setup-|actions/cache@|subosito/flutter-action@|actions/checkout@)")
-TOOLCHAIN_RUN = re.compile(r"flutter pub get|setup_ruby\.sh|bundle install|gem install|\.ci-helpers-scripts")
+TOOLCHAIN_USES = re.compile(r"^(actions/setup-|actions/cache@|actions/checkout@)")
+TOOLCHAIN_RUN = re.compile(r"flutter pub get|setup_flutter\.sh|setup_ruby\.sh|bundle install|gem install|\.ci-helpers-scripts")
 SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.")
 
 doc = yaml.safe_load(open(sys.argv[1]))
@@ -55,11 +56,20 @@ for i, s in enumerate(before):
     if i < last_tool and reads_secret(s):
         problems.append(f"step {i} '{s.get('name')}' reads a secret before toolchain step {last_tool} '{before[last_tool].get('name')}'")
 
-ruby = [s for s in steps if (s.get("name") or "") == "Setup Ruby"]
-if not ruby:
-    problems.append("no 'Setup Ruby' step")
-elif "uses" in ruby[0] or ".ci-helpers-scripts/scripts/setup_ruby.sh" not in (ruby[0].get("run") or ""):
-    problems.append("'Setup Ruby' is not scripts/setup_ruby.sh from the library checkout")
+for tool, script in (("Ruby", "setup_ruby.sh"), ("Flutter", "setup_flutter.sh")):
+    found = [s for s in steps if (s.get("name") or "") == f"Setup {tool}"]
+    if not found:
+        problems.append(f"no 'Setup {tool}' step")
+    elif "uses" in found[0] or f".ci-helpers-scripts/scripts/{script}" not in (found[0].get("run") or ""):
+        problems.append(f"'Setup {tool}' is not scripts/{script} from the library checkout")
+# The library checkout the scripts run from precedes the first of them and
+# runs unconditionally: Flutter is installed on every run.
+checkout = next((i for i, s in enumerate(steps) if (s.get("name") or "") == "Check out ci-helpers scripts"), None)
+flutter = next((i for i, s in enumerate(steps) if (s.get("name") or "") == "Setup Flutter"), None)
+if checkout is None or flutter is None or checkout > flutter:
+    problems.append("'Check out ci-helpers scripts' does not precede 'Setup Flutter'")
+elif steps[checkout].get("if"):
+    problems.append("'Check out ci-helpers scripts' is conditional; 'Setup Flutter' runs on every run")
 
 # Every file a secret is written to is removed by the cleanup step.
 cleanup_run = steps[cleanup].get("run") if cleanup < len(steps) else ""
@@ -98,18 +108,38 @@ if [ "$rc" != 1 ] || ! grep -q "'Configure Android signing' reads a secret befor
   echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
 fi
 
-# The action is refused even in the right place.
-python3 - "$root/.github/workflows/flutter-release.yml" "$work/action.yml" <<'PY'
+# The actions are refused even in the right place.
+for pair in "Ruby:ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94:setup_ruby.sh" \
+            "Flutter:subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2:setup_flutter.sh"; do
+tool="${pair%%:*}"; rest="${pair#*:}"; action="${rest%:*}"; script="${rest##*:}"
+python3 - "$root/.github/workflows/flutter-release.yml" "$work/action.yml" "$tool" "$action" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
 for s in doc["jobs"]["flutter_release"]["steps"]:
-    if s.get("name") == "Setup Ruby":
-        s.pop("run"); s["uses"] = "ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94"
+    if s.get("name") == f"Setup {sys.argv[3]}":
+        s.pop("run"); s["uses"] = sys.argv[4]
 yaml.safe_dump(doc, open(sys.argv[2], "w"), sort_keys=False)
 PY
-name="ruby/setup-ruby in place of the script is refused"
+name="${action%%@*} in place of the script is refused"
 rc=0; python3 "$work/check.py" "$work/action.yml" > "$work/out" 2>&1 || rc=$?
-if [ "$rc" != 1 ] || ! grep -q "'Setup Ruby' is not scripts/setup_ruby.sh" "$work/out"; then
+if [ "$rc" != 1 ] || ! grep -q "'Setup $tool' is not scripts/$script" "$work/out"; then
+  echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
+fi
+done
+
+# The library checkout gated on the deploy inputs, as it was when only Ruby
+# ran from it, is refused: Flutter runs from it on every run.
+python3 - "$root/.github/workflows/flutter-release.yml" "$work/gated.yml" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for s in doc["jobs"]["flutter_release"]["steps"]:
+    if s.get("name") == "Check out ci-helpers scripts":
+        s["if"] = "${{ inputs.deploy_google_play || inputs.deploy_app_store }}"
+yaml.safe_dump(doc, open(sys.argv[2], "w"), sort_keys=False)
+PY
+name="a conditional library checkout is refused"
+rc=0; python3 "$work/check.py" "$work/gated.yml" > "$work/out" 2>&1 || rc=$?
+if [ "$rc" != 1 ] || ! grep -q "'Check out ci-helpers scripts' is conditional" "$work/out"; then
   echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
 fi
 
