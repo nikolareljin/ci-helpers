@@ -752,10 +752,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable @ 2026-10-16
-        with:
-          toolchain: stable
-          components: clippy, rustfmt
+      - name: Setup Rust
+        shell: bash
+        env:
+          RUST_TOOLCHAIN: stable
+          RUST_COMPONENTS: clippy, rustfmt
+        run: bash scripts/setup_rust.sh
 
       - name: A warning in test code is invisible without --all-targets
         shell: bash
@@ -857,6 +859,248 @@ jobs:
             exit 1
           }
           echo "rustfmt refuses unformatted code and accepts the fixture"
+
+  # scripts/setup_rust.sh is what every Rust workflow here runs now, from the
+  # runner's rustup. This job installs a toolchain with components and a
+  # target, checks the job environment it exports, and fills an actions/cache
+  # entry under a key new to this run; the job after it restores that entry.
+  rust-setup-installs-and-caches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      key: ${{ steps.rust_cache_key.outputs.key }}
+      cachekey: ${{ steps.rust.outputs.cachekey }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        id: rust
+        shell: bash
+        env:
+          RUST_TOOLCHAIN: stable
+          RUST_COMPONENTS: clippy, rustfmt
+          RUST_TARGETS: wasm32-unknown-unknown
+        run: bash scripts/setup_rust.sh
+
+      - name: The toolchain, components and target are installed and the job sees cargo's environment
+        shell: bash
+        env:
+          CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+          NAME: ${{ steps.rust.outputs.name }}
+        run: |
+          set -euo pipefail
+          [[ "$CACHEKEY" =~ ^[0-9a-f]{12}$ ]] || { echo "::error::cachekey output is '$CACHEKEY', not 12 hex"; exit 1; }
+          [[ "$NAME" == stable ]] || { echo "::error::name output is '$NAME', not stable"; exit 1; }
+          rustup show active-toolchain | grep -q '^stable-' || { echo "::error::stable is not the default toolchain"; rustup show; exit 1; }
+          rustup target list --installed | grep -qx wasm32-unknown-unknown || { echo "::error::RUST_TARGETS did not add wasm32-unknown-unknown"; exit 1; }
+          cargo clippy --version
+          cargo fmt --version
+          [[ "${CARGO_INCREMENTAL:-}" == 0 ]] || { echo "::error::CARGO_INCREMENTAL=0 did not reach the job"; exit 1; }
+          [[ "${CARGO_TERM_COLOR:-}" == always ]] || { echo "::error::CARGO_TERM_COLOR=always did not reach the job"; exit 1; }
+          [[ "${CARGO_HOME:-}" == "$HOME/.cargo" ]] || { echo "::error::CARGO_HOME is '${CARGO_HOME:-}'"; exit 1; }
+          echo "stable with clippy, rustfmt and wasm32-unknown-unknown is installed; cargo's environment is exported"
+
+      - name: Rust cache key
+        id: rust_cache_key
+        shell: bash
+        env:
+          CARGO_WORKSPACE: tests/fixtures/rust-crate
+          CACHE_KEY_EXTRA: self-test-${{ github.run_id }}-${{ github.run_attempt }}
+          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+        run: bash scripts/rust_cache_key.sh
+
+      - name: Rust cache
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            tests/fixtures/rust-crate/target/
+          key: ${{ steps.rust_cache_key.outputs.key }}
+          restore-keys: ${{ steps.rust_cache_key.outputs.restore_key }}
+
+      - name: A key new to this run misses, and the build fills the entry
+        shell: bash
+        working-directory: tests/fixtures/rust-crate
+        env:
+          HIT: ${{ steps.cache.outputs.cache-hit }}
+          KEY: ${{ steps.rust_cache_key.outputs.key }}
+        run: |
+          set -euo pipefail
+          [[ "$HIT" != true ]] || { echo "::error::'$KEY' was an exact hit before anything built under it"; exit 1; }
+          [[ "$KEY" =~ ^rust-Linux-X64-rust-setup-installs-and-caches-self-test-[0-9]+-[0-9]+-[0-9a-f]{12}-[0-9a-f]{16}$ ]] || { echo "::error::key '$KEY' is not runner-arch-job-label-rustc-hash"; exit 1; }
+          cargo build
+          test -d target/debug/deps || { echo "::error::cargo build left no target/debug/deps to cache"; exit 1; }
+          echo "built under $KEY; the post step saves it"
+
+  # The same three scripts on macOS and Windows: CARGO_HOME, GITHUB_PATH and
+  # the corepack shims must reach the next step there too (Git Bash paths on
+  # Windows, BSD tools on macOS).
+  toolchain-scripts-on-every-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        id: rust
+        shell: bash
+        env:
+          RUST_TOOLCHAIN: stable
+          RUST_COMPONENTS: rustfmt
+        run: bash scripts/setup_rust.sh
+      - name: Rust cache key
+        id: rust_cache_key
+        shell: bash
+        env:
+          CARGO_WORKSPACE: tests/fixtures/rust-crate
+          RUSTC_CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+        run: bash scripts/rust_cache_key.sh
+      - name: Setup pnpm
+        shell: bash
+        env:
+          PNPM_VERSION: "10.0.0"
+        run: bash scripts/setup_pnpm.sh
+      - name: cargo, rustfmt and pnpm are on PATH in a later step, and CARGO_HOME is where the cache looks
+        shell: bash
+        env:
+          CACHEKEY: ${{ steps.rust.outputs.cachekey }}
+          KEY: ${{ steps.rust_cache_key.outputs.key }}
+        run: |
+          set -euo pipefail
+          [[ "$CACHEKEY" =~ ^[0-9a-f]{12}$ ]] || { echo "::error::cachekey output is '$CACHEKEY'"; exit 1; }
+          [[ "$KEY" =~ ^rust-(macOS|Windows)-(X64|ARM64)-toolchain-scripts-on-every-os--[0-9a-f]{12}-[0-9a-f]{16}$ ]] || { echo "::error::key '$KEY'"; exit 1; }
+          rustup show active-toolchain | grep -q '^stable-' || { echo "::error::stable is not the default"; rustup show; exit 1; }
+          cargo fmt --version
+          [[ "$(pnpm --version)" == 10.0.0 ]] || { echo "::error::pnpm --version is $(pnpm --version)"; exit 1; }
+          home="$CARGO_HOME"
+          if command -v cygpath >/dev/null 2>&1; then home="$(cygpath -u "$CARGO_HOME")"; fi
+          # Compared as text: ~/.cargo need not exist yet (Homebrew rustup on macOS).
+          [[ "${home%/}" == "${HOME%/}/.cargo" ]] || { echo "::error::CARGO_HOME '$CARGO_HOME' is not ~/.cargo, which actions/cache saves"; exit 1; }
+          echo "rust and pnpm reach later steps; CARGO_HOME is ~/.cargo"
+
+  rust-cache-restores-the-previous-job:
+    needs: rust-setup-installs-and-caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        id: rust
+        shell: bash
+        env:
+          RUST_TOOLCHAIN: stable
+        run: bash scripts/setup_rust.sh
+
+      - name: Rust cache
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            tests/fixtures/rust-crate/target/
+          key: ${{ needs.rust-setup-installs-and-caches.outputs.key }}
+
+      - name: The same rustc gives the same cachekey, and the entry restores target/
+        shell: bash
+        env:
+          HIT: ${{ steps.cache.outputs.cache-hit }}
+          KEY: ${{ needs.rust-setup-installs-and-caches.outputs.key }}
+          FIRST: ${{ needs.rust-setup-installs-and-caches.outputs.cachekey }}
+          MINE: ${{ steps.rust.outputs.cachekey }}
+        run: |
+          set -euo pipefail
+          [[ "$MINE" == "$FIRST" ]] || { echo "::error::rustc cachekey is '$MINE' here and '$FIRST' in the job before; the same image gave two keys"; exit 1; }
+          [[ "$HIT" == true ]] || { echo "::error::'$KEY' written by the job before was not an exact hit"; exit 1; }
+          test -d tests/fixtures/rust-crate/target/debug/deps || { echo "::error::the hit restored no target/debug/deps"; exit 1; }
+          echo "the entry the first job saved restored here"
+
+  # The two paths a hosted runner never takes: a toolchain rustup does not
+  # have, and a runner without rustup at all, which installs rustup-init from
+  # toolchain-pins.env, only after its digest matches.
+  rust-setup-refuses-what-it-must:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: A toolchain rustup does not have fails the step
+        shell: bash
+        run: |
+          set -uo pipefail
+          rc=0
+          RUST_TOOLCHAIN=not-a-toolchain bash scripts/setup_rust.sh > "$RUNNER_TEMP/bad.log" 2>&1 || rc=$?
+          if [[ "$rc" -eq 0 ]]; then
+            echo "::error::an unknown toolchain installed; the step gates nothing"
+            exit 1
+          fi
+          grep -q "rustup toolchain install not-a-toolchain failed" "$RUNNER_TEMP/bad.log" || {
+            echo "::error::the failure no longer names the toolchain"
+            tail -20 "$RUNNER_TEMP/bad.log"
+            exit 1
+          }
+          echo "an unknown toolchain fails and is named"
+
+      - name: With no rustup on PATH, a digest that does not match refuses the installer
+        shell: bash
+        run: |
+          set -uo pipefail
+          # The image's rustup lives under the runner's home, so a PATH of the
+          # system directories alone has curl, awk and sha256sum and no rustup.
+          case "$(command -v rustup)" in
+            /usr/bin/*|/bin/*) echo "::error::rustup is in a system directory on this image; the no-rustup legs need another PATH"; exit 1 ;;
+          esac
+          sed 's/^\(RUSTUP_INIT_SHA256_X86_64_UNKNOWN_LINUX_GNU=\).*/\10000000000000000000000000000000000000000000000000000000000000000/' \
+            toolchain-pins.env > "$RUNNER_TEMP/bad-pins.env"
+          grep -q "LINUX_GNU=0000" "$RUNNER_TEMP/bad-pins.env" || { echo "::error::the tampered pins file is not tampered"; exit 1; }
+          rc=0
+          PATH=/usr/bin:/bin CARGO_HOME="$RUNNER_TEMP/cargo-bad" RUSTUP_HOME="$RUNNER_TEMP/rustup-bad" \
+            TOOLCHAIN_PINS="$RUNNER_TEMP/bad-pins.env" RUST_TOOLCHAIN=stable \
+            bash scripts/setup_rust.sh > "$RUNNER_TEMP/tamper.log" 2>&1 || rc=$?
+          if [[ "$rc" -ne 1 ]]; then
+            echo "::error::a tampered digest exited $rc, not 1"
+            tail -20 "$RUNNER_TEMP/tamper.log"
+            exit 1
+          fi
+          grep -q "Checksum mismatch for rustup-init" "$RUNNER_TEMP/tamper.log" || {
+            echo "::error::the refusal does not name the checksum"
+            tail -20 "$RUNNER_TEMP/tamper.log"
+            exit 1
+          }
+          if [[ -e "$RUNNER_TEMP/cargo-bad/bin/rustup" ]]; then
+            echo "::error::rustup was installed from an installer whose digest did not match"
+            exit 1
+          fi
+          echo "a digest that does not match stops before the installer runs"
+
+      - name: With no rustup on PATH, the pinned installer is downloaded, verified and run
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATH=/usr/bin:/bin CARGO_HOME="$RUNNER_TEMP/cargo-new" RUSTUP_HOME="$RUNNER_TEMP/rustup-new" \
+            RUST_TOOLCHAIN=stable GITHUB_PATH="$RUNNER_TEMP/path.txt" GITHUB_OUTPUT="$RUNNER_TEMP/out.txt" \
+            bash scripts/setup_rust.sh > "$RUNNER_TEMP/install.log" 2>&1 || { tail -30 "$RUNNER_TEMP/install.log"; exit 1; }
+          version="$(awk -F= '$1 == "RUSTUP_VERSION" { print $2 }' toolchain-pins.env)"
+          grep -q "Verified rustup-init $version" "$RUNNER_TEMP/install.log" || { echo "::error::the installer was not reported verified"; tail -20 "$RUNNER_TEMP/install.log"; exit 1; }
+          "$RUNNER_TEMP/cargo-new/bin/rustup" --version 2>/dev/null | grep -q "^rustup $version " || { echo "::error::the installed rustup is not $version"; "$RUNNER_TEMP/cargo-new/bin/rustup" --version; exit 1; }
+          RUSTUP_HOME="$RUNNER_TEMP/rustup-new" "$RUNNER_TEMP/cargo-new/bin/cargo" +stable --version
+          grep -qx "$RUNNER_TEMP/cargo-new/bin" "$RUNNER_TEMP/path.txt" || { echo "::error::CARGO_HOME/bin was not appended to GITHUB_PATH"; cat "$RUNNER_TEMP/path.txt"; exit 1; }
+          grep -q "^cachekey=[0-9a-f]\{12\}$" "$RUNNER_TEMP/out.txt" || { echo "::error::no cachekey after a fresh install"; cat "$RUNNER_TEMP/out.txt"; exit 1; }
+          echo "rustup $version installed from the pinned installer and stable with it"
 
   jvm-refuses-what-it-must:
     runs-on: ubuntu-latest
@@ -992,6 +1236,9 @@ jobs:
       - rust-defaults-can-pass
       - rust-scan-defaults-can-pass
       - rust-refuses-what-it-must
+      - rust-setup-installs-and-caches
+      - rust-cache-restores-the-previous-job
+      - rust-setup-refuses-what-it-must
       - java-scan-defaults-can-pass
       - csharp-defaults-can-pass
       - csharp-lint-still-fails-on-bad-input
