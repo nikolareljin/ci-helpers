@@ -238,7 +238,7 @@ jobs:
       # run, the licence return and the test summary. actions/checkout can
       # only write under the workspace, and the project directory in the
       # workspace is mounted into the editor's container, so the files are
-      # copied to a read-only directory under RUNNER_TEMP before anything
+      # copied to a directory under RUNNER_TEMP, files read-only, before anything
       # runs from them, their content hash is recorded, and the checkout is
       # removed: a container (a third-party image running project code)
       # cannot rewrite a script the host runs after it. A directory of that
@@ -267,7 +267,7 @@ jobs:
       # default branch and run today's scripts after all; refuse instead. git
       # runs here once, before any untrusted step, with no hooks, no fsmonitor
       # and no user or system config; later steps never run git on the copy,
-      # which has no .git at all. `lib` is the read-only copy, `hash` the
+      # which has no .git at all. `lib` is the copy, `hash` the
       # sha256 over its files.
       - name: Verify ci-helpers scripts commit
         id: ci_scripts_verify

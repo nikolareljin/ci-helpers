@@ -955,8 +955,8 @@ The container sees `project_path`, the artifacts directory and `CodeCoverage`,
 each at its workspace path, and nothing else: a package the manifest references
 by a `file:` path outside `project_path` is not visible to the editor. A path
 with a symlink in any component is refused, so the project's tree cannot point
-the mount elsewhere. This library's own scripts run from a read-only copy
-outside the workspace that is never mounted, and each step that runs one first
+the mount elsewhere. This library's own scripts run from a copy outside
+the workspace, its files read-only, that is never mounted, and each step that runs one first
 hashes the copy again and stops on a mismatch.
 
 ### Defaults
