@@ -22,7 +22,10 @@
 #                      value with line breaks (a PEM key, JSON) is written as
 #                      id=base64:<base64 of the value> and decoded here. No
 #                      part of a line is printed; an error names the line
-#                      number, and under Actions every value is masked.
+#                      number, and under Actions every value (each line of
+#                      it, four characters or longer) is masked. Lines are
+#                      read as given: no trimming, blank lines skipped but
+#                      counted.
 #   BUILD_SECRET_ENVS  id=VARIABLE pairs, one per line; the secret is read from
 #                      that variable of this environment (optional).
 #   PUSH, LOAD         true or false (default: false).
@@ -134,9 +137,18 @@ platform_list="$(each_item "${PLATFORMS:-}" | paste -sd, -)"
 # value is masked before it is looked at.
 mask() {
   # One ::add-mask:: per line of the value: the runner masks line by line.
+  # Under four characters a mask would blank every such run in the log.
   [[ "${GITHUB_ACTIONS:-}" == true ]] || return 0
   printf '%s\n' "$1" | while IFS= read -r part; do
-    [[ -n "$part" ]] && printf '::add-mask::%s\n' "$part"
+    [[ ${#part} -ge 4 ]] && printf '::add-mask::%s\n' "$part"
+  done
+  return 0
+}
+# Secret lines are read as given (no trimming: a value keeps its spaces) and
+# counted as given, so the line number in an error is the caller's.
+secret_lines() {
+  printf '%s\n' "$1" | while IFS= read -r line; do
+    printf '%s\n' "$line"
   done
   return 0
 }
@@ -156,6 +168,7 @@ n=0
 count=0
 while IFS= read -r line; do
   count=$((count + 1))
+  [[ -n "${line//[[:space:]]/}" ]] || continue
   mask "${line#*=}"
   [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRETS line $count has no '='. One id=value per line; a value with line breaks goes as id=base64:<base64 of the value>." >&2; exit 2; }
   id="${line%%=*}"
@@ -172,11 +185,12 @@ while IFS= read -r line; do
   n=$((n + 1))
   export "CI_HELPERS_SECRET_$n=$value"
   args+=(--secret "id=$id,env=CI_HELPERS_SECRET_$n"); shown+=(--secret "id=***,env=CI_HELPERS_SECRET_$n")
-done < <(each_line "${BUILD_SECRETS:-}")
+done < <(secret_lines "${BUILD_SECRETS:-}")
 unset value
 count=0
 while IFS= read -r line; do
   count=$((count + 1))
+  [[ -n "${line//[[:space:]]/}" ]] || continue
   [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRET_ENVS line $count has no '='. One id=VARIABLE per line." >&2; exit 2; }
   id="${line%%=*}"
   var="${line#*=}"
@@ -184,7 +198,7 @@ while IFS= read -r line; do
   [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::BUILD_SECRET_ENVS line $count: what follows '=' is not a variable name." >&2; exit 2; }
   [[ -n "${!var+x}" ]] || { echo "::error::BUILD_SECRET_ENVS line $count: the named variable is not set." >&2; exit 2; }
   args+=(--secret "id=$id,env=$var"); shown+=(--secret "id=***,env=$var")
-done < <(each_line "${BUILD_SECRET_ENVS:-}")
+done < <(secret_lines "${BUILD_SECRET_ENVS:-}")
 
 # Attestations, as the action chose them. No provenance by default when the
 # image goes to the docker engine, which cannot store it.

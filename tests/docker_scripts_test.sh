@@ -264,6 +264,15 @@ if TAGS=t BUILD_SECRETS="key=base64:$b64" run "$name" 0 docker_build.sh; then
   if grep -q "fakekeybody\|$b64" "$work/out" "$work/log"; then echo "FAIL $name: key material is in the output"; fail=1; fi
 fi
 
+name="a blank line counts and a value keeps its spaces"
+if TAGS=t BUILD_SECRETS=$'a=with trailing space \n\n   \nnope' run "$name" 2 docker_build.sh; then
+  says "BUILD_SECRETS line 4 has no '='"
+fi
+if TAGS=t BUILD_SECRETS=$'a=with trailing space \n\nb= lead' run "$name" 0 docker_build.sh; then
+  grep -qxF 'CI_HELPERS_SECRET_1=with trailing space ' "$work/env" || { echo "FAIL $name: the value was trimmed:"; cat "$work/env"; fail=1; }
+  grep -qxF 'CI_HELPERS_SECRET_2= lead' "$work/env" || { echo "FAIL $name: the leading space was trimmed:"; cat "$work/env"; fail=1; }
+fi
+
 name="base64 that does not decode names the line only"
 if TAGS=t BUILD_SECRETS='key=base64:!!not-base64!!' run "$name" 2 docker_build.sh; then
   says "BUILD_SECRETS line 1: the value after base64: does not decode"

@@ -2559,7 +2559,7 @@ history; the Dockerfile reads it with `RUN --mount=type=secret,id=<id>`. A
 value with line breaks (a PEM key, JSON) is written as `id=base64:<base64 of
 the value>` and decoded in the step. No part of a `build_secrets` line is
 printed: an error names the line number, and every value is masked in the log
-before it is read.
+before it is read (each line of it, four characters or longer).
 
 Inputs:
 
