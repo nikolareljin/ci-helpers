@@ -226,7 +226,12 @@ candidate() {
 ppa_sources="$apt_etc/sources.list.d/ci-helpers-ondrej-php.sources"
 ppa_keyring="$apt_etc/keyrings/ci-helpers-ondrej-php.gpg"
 if [[ -n "$missing" ]]; then
+  # Hosted images ship with empty apt lists, so the image's own sources are
+  # read only after an update; before it every version looks absent.
+  echo "apt-get update"
+  as_root apt-get update -qq || die "apt-get update failed." 1
   cand="$(candidate "php$version-cli")"
+  ppa_added=""
   if [[ -z "$cand" || "$cand" == "(none)" ]]; then
     if [[ ! -f "$ppa_sources" ]]; then
       [[ "$ppa_suite" =~ ^[a-z]+$ ]] || die "php$version-cli is not in this runner's apt sources, and the ondrej/php PPA builds for Ubuntu only ('$os_id' names no Ubuntu release). Use an Ubuntu runner or a version the runner's sources hold." 2
@@ -248,10 +253,19 @@ if [[ -n "$missing" ]]; then
       printf 'Types: deb\nURIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/\nSuites: %s\nComponents: main\nSigned-By: %s\n' "$ppa_suite" "$ppa_keyring" > "$keytmp/php.sources"
       as_root install -m 0644 "$keytmp/php.sources" "$ppa_sources"
       rm -rf "$keytmp"; trap - EXIT
+      ppa_added=1
+    fi
+    echo "apt-get update"
+    if ! as_root apt-get update -qq; then
+      # Most often the PPA has no suite for this Ubuntu yet. A source apt
+      # cannot read would fail every later apt-get update in the job.
+      if [[ -n "$ppa_added" ]]; then
+        as_root rm -f "$ppa_sources" "$ppa_keyring"
+        die "apt-get update failed with the ondrej/php PPA added; most likely the PPA has no build for $ppa_suite yet. The source is removed again. PHP $version is not in this runner's own sources; use a runner whose Ubuntu the PPA builds for (such as ubuntu-24.04) or a version the image holds." 1
+      fi
+      die "apt-get update failed." 1
     fi
   fi
-  echo "apt-get update"
-  as_root apt-get update -qq || die "apt-get update failed." 1
   cand="$(candidate "php$version-cli")"
   if [[ -z "$cand" || "$cand" == "(none)" ]]; then
     die "No php$version-cli package for $os_codename in the runner's sources or the ondrej/php PPA; PHP $version is not packaged there. Choose a version the PPA builds for this Ubuntu." 1

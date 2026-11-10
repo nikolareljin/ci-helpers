@@ -36,6 +36,18 @@ sed "s/^COMPOSER_PHAR_SHA256=.*/COMPOSER_PHAR_SHA256=$phar_sha/" "$pins" > "$wor
 # A valid-looking key file (gpg is a stub; it reads the fingerprint list).
 printf 'fake key\n' > "$work/key.asc"
 
+# The system directories, minus any composer: a hosted runner ships the
+# pinned composer in /usr/bin, which would otherwise answer for the stubs.
+# SETUP_PHP_TEST_SYSBIN adds a directory in front (the test of this guard).
+sysbin="$work/sysbin"; mkdir -p "$sysbin"
+for d in ${SETUP_PHP_TEST_SYSBIN:-} /bin /usr/bin; do
+  for f in "$d"/*; do
+    b="${f##*/}"
+    [[ "$b" != composer && ! -e "$sysbin/$b" && ! -L "$sysbin/$b" ]] || continue
+    ln -s "$f" "$sysbin/$b"
+  done
+done
+
 # --- stubs -----------------------------------------------------------------
 stubs="$work/stubs"; mkdir -p "$stubs"
 state="$work/state"
@@ -48,7 +60,13 @@ cat > "$stubs/apt-get" <<'SH'
 #!/usr/bin/env bash
 echo "apt-get $*" >> "$STATE/log"
 case "$1" in
-  update) [[ ! -f "$APT_ETC/sources.list.d/ci-helpers-ondrej-php.sources" ]] || touch "$STATE/ppa_updated"; exit 0 ;;
+  update)
+    touch "$STATE/updated"
+    if [[ -f "$APT_ETC/sources.list.d/ci-helpers-ondrej-php.sources" ]]; then
+      [[ ! -f "$STATE/ppa_no_suite" ]] || { echo "E: The repository 'https://ppa.launchpadcontent.net/ondrej/php/ubuntu x Release' does not have a Release file."; exit 100; }
+      touch "$STATE/ppa_updated"
+    fi
+    exit 0 ;;
   install)
     for a in "$@"; do
       case "$a" in
@@ -67,6 +85,9 @@ case "$1" in
     have=0
     if ! grep -qx -- "$2" "$STATE/unavailable" 2>/dev/null; then
       while IFS= read -r pat; do [[ -n "$pat" ]] || continue; case "$2" in $pat) have=1 ;; esac; done < "$STATE/available"
+      if [[ -f "$STATE/updated" ]]; then
+        while IFS= read -r pat; do [[ -n "$pat" ]] || continue; case "$2" in $pat) have=1 ;; esac; done < "$STATE/available_after_update"
+      fi
       [[ ! -f "$STATE/ppa_updated" ]] || have=1
     fi
     if [[ "$have" == 1 ]]; then printf '%s:\n  Installed: (none)\n  Candidate: 1.0\n' "$2"; else printf '%s:\n  Installed: (none)\n  Candidate: (none)\n' "$2"; fi ;;
@@ -129,6 +150,8 @@ run() {
   printf '%s\n' ${STATE_AVAILABLE:-} > "$state/available"
   printf '%s\n' ${STATE_UNAVAILABLE:-} > "$state/unavailable"
   printf '%s\n' ${STATE_PROVIDED:-} > "$state/provided"
+  printf '%s\n' ${STATE_AVAILABLE_AFTER_UPDATE:-} > "$state/available_after_update"
+  [[ -z "${STATE_PPA_NO_SUITE:-}" ]] || touch "$state/ppa_no_suite"
   printf '%s' "${STATE_PHP_VERSION:-8.4.3}" > "$state/php_version"
   printf '%s\n' "${STATE_MODULES:-core|date|xdebug}" | tr '|' '\n' > "$state/modules"
   [[ -z "${STATE_PPA_PRESENT:-}" ]] || { mkdir -p "$work/etc/apt/sources.list.d"; printf 'Types: deb\n' > "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources"; }
@@ -146,8 +169,8 @@ run() {
   [[ -z "${STATE_MODS:-}" ]] || for m in $STATE_MODS; do mkdir -p "$work/etc/php/$v/mods-available"; touch "$work/etc/php/$v/mods-available/$m.ini"; done
   # As on the runner, /usr/local/bin precedes /usr/bin; STATE_SHADOW puts
   # the pre-existing composer first instead.
-  local path="$work/usr/local/bin:$work/path:$stubs:/usr/bin:/bin"
-  [[ -z "${STATE_SHADOW:-}" ]] || path="$work/path:$work/usr/local/bin:$stubs:/usr/bin:/bin"
+  local path="$work/usr/local/bin:$work/path:$stubs:$sysbin"
+  [[ -z "${STATE_SHADOW:-}" ]] || path="$work/path:$work/usr/local/bin:$stubs:$sysbin"
   env -i PATH="$path" HOME="$work" STATE="$state" PHP_ETC="$work/etc/php" APT_ETC="$work/etc/apt" \
     TOOLCHAIN_PINS="${TEST_PINS:-$work/pins.env}" \
     PHP_SETUP_OS_RELEASE="$work/etc/os-release" PHP_SETUP_APT_ETC="$work/etc/apt" PHP_SETUP_PHP_ETC="$work/etc/php" \
@@ -217,12 +240,12 @@ STATE_FPR="0123456789ABCDEF0123456789ABCDEF01234567" run "$name" 1 PHP_VERSION=8
   says "not the pinned $fpr"
   [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: source written under a wrong key"; fail=1; }
   [[ ! -e "$work/etc/apt/keyrings/ci-helpers-ondrej-php.gpg" ]] || { echo "FAIL $name: keyring installed under a wrong key"; fail=1; }
-  not_logged "apt-get"
+  not_logged "apt-get install"
 }
 
 name="a Debian runner lacking the version is refused, the Ubuntu PPA is not added"
 STATE_OS_RELEASE="$(printf 'ID=debian\nVERSION_CODENAME=bookworm')" run "$name" 2 PHP_VERSION=8.4 && {
-  says "builds for Ubuntu only"; not_logged "keyserver"; not_logged "apt-get"
+  says "builds for Ubuntu only"; not_logged "keyserver"; not_logged "apt-get install"
   [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: Ubuntu PPA written on Debian"; fail=1; }
 }
 name="an Ubuntu derivative gets the PPA suite of its Ubuntu base"
@@ -230,8 +253,20 @@ STATE_OS_RELEASE="$(printf 'ID=linuxmint\nID_LIKE="ubuntu debian"\nVERSION_CODEN
   grep -qx "Suites: noble" "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" || { echo "FAIL $name: suite:"; cat "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources"; fail=1; }
 }
 
+name="empty apt lists: the image's own version is found after an update, no PPA"
+STATE_AVAILABLE_AFTER_UPDATE="php8.4-*" run "$name" 0 PHP_VERSION=8.4 && {
+  logged "apt-get update"; not_logged "keyserver"
+  [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: PPA added for a version the image holds"; fail=1; }
+}
+name="a PPA with no suite for this Ubuntu is removed again and refused"
+STATE_PPA_NO_SUITE=1 run "$name" 1 PHP_VERSION=8.4 && {
+  says "no build for noble"
+  [[ ! -e "$work/etc/apt/sources.list.d/ci-helpers-ondrej-php.sources" ]] || { echo "FAIL $name: broken PPA source left for later apt steps"; fail=1; }
+  [[ ! -e "$work/etc/apt/keyrings/ci-helpers-ondrej-php.gpg" ]] || { echo "FAIL $name: keyring left"; fail=1; }
+}
+
 name="a key fetch that fails is an error, not a retry with add-apt-repository"
-run "$name" 1 PHP_VERSION=8.4 CURL_FAIL=1 && { says "Could not fetch the PPA signing key"; not_logged "apt-get"; }
+run "$name" 1 PHP_VERSION=8.4 CURL_FAIL=1 && { says "Could not fetch the PPA signing key"; not_logged "apt-get install"; }
 
 name="a version the PPA does not build is refused after the update"
 STATE_UNAVAILABLE="php7.0-cli" run "$name" 1 PHP_VERSION=7.0 && {
