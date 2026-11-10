@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""A job that holds a secret or a write token restores no cache it has not
-verified, and no job saves a cache after the caller's code ran.
+"""A job that holds a secret, a write token or a release to ship restores no
+cache and saves none, and no job saves a cache after the caller's code ran.
 
     python3 scripts/check_cache_trust.py              # check this repository
     python3 scripts/check_cache_trust.py --root DIR   # check a tree elsewhere
