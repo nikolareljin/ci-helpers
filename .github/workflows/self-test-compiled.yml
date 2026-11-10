@@ -989,7 +989,7 @@ jobs:
 
   # scripts/setup_ruby.sh is what flutter-release.yml runs for its store
   # deploys: a Ruby from the runner's tool cache, nothing downloaded. The
-  # default ruby_version of that workflow must resolve on both hosted images
+  # default ruby_version of that workflow must resolve on the hosted images
   # the deploys run on, ruby and bundle must reach the next step, the pinned
   # fastlane must install under it, and a version the cache lacks must be
   # refused with the list.
@@ -997,7 +997,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -1009,8 +1009,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # PyYAML reads the `on:` key as the boolean True.
-          v="$(python3 -c 'import yaml; d = yaml.safe_load(open(".github/workflows/flutter-release.yml")); on = d.get("on", d.get(True)); print(on["workflow_call"]["inputs"]["ruby_version"]["default"])')"
+          # The `default:` under `ruby_version:`; no PyYAML on every image.
+          v="$(awk '/^      ruby_version:/ { f = 1; next } f && /^        default:/ { gsub(/[" ]/, "", $2); print $2; exit } f && /^      [a-z]/ { exit }' .github/workflows/flutter-release.yml)"
           [[ "$v" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "::error::flutter-release.yml ruby_version default is '$v'"; exit 1; }
           echo "ruby_version=$v" >> "$GITHUB_OUTPUT"
       - name: Setup Ruby

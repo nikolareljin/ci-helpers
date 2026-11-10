@@ -334,7 +334,8 @@ Notes:
   which the job checks out from this library at the workflow's own commit; no
   third-party action, and no download. `ruby_version` is matched as
   `ruby/setup-ruby` matched it: `3` is the newest 3.y.z the cache holds,
-  `3.4` the newest 3.4.z, `3.4.12` that release only. The hosted Ubuntu,
+  `3.4` the newest 3.4.z, `3.4.12` that release only; empty reads
+  `.ruby-version`, `.tool-versions` or `mise.toml` at the workspace root. The hosted Ubuntu,
   macOS and Windows images cache Ruby 3.2, 3.3, 3.4 and 4.0; a version the
   cache lacks fails the `Setup Ruby` step with the versions it holds. A
   self-hosted `runner` needs the Ruby under `$RUNNER_TOOL_CACHE/Ruby/<x.y.z>/<x64|arm64>`.
@@ -344,7 +345,8 @@ Notes:
   (`bundle config set --local deployment true`), so a `Gemfile` that disagrees
   with it fails at `Install gems`. Without a `Gemfile`, fastlane is installed
   at the version pinned in the library's `toolchain-pins.env`
-  (`FASTLANE_VERSION`).
+  (`FASTLANE_VERSION`). `gem install` checks no digest, so that pin is the
+  version only; commit a `Gemfile.lock` to pin the whole dependency tree.
 - Every toolchain step (Java, Flutter, `flutter pub get`, Ruby, gems,
   fastlane) runs before any step that reads a secret; the keystore, the Play
   service account file and the App Store Connect key are written right

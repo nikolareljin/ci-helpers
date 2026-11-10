@@ -39,7 +39,8 @@ def is_toolchain(step):
     return bool(TOOLCHAIN_USES.match(uses) or TOOLCHAIN_RUN.search(run))
 
 def reads_secret(step):
-    return bool(SECRET.search(yaml.safe_dump({"env": step.get("env"), "with": step.get("with")})))
+    # Anywhere in the step: env, with, run, if.
+    return bool(SECRET.search(yaml.safe_dump(step, width=10**9)))
 
 # The publication steps at the end check out the library again; they are
 # not toolchain steps. The toolchain ends at the last step before the first
@@ -124,6 +125,31 @@ rc=0; python3 "$work/check.py" "$work/jobenv.yml" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 1 ] || ! grep -q "job-level env holds a secret" "$work/out"; then
   echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
 fi
+
+# A secret read in run: or if: before a toolchain step is refused, as is
+# one in env:.
+for where in run if env; do
+python3 - "$root/.github/workflows/flutter-release.yml" "$work/early-$where.yml" "$where" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+steps = doc["jobs"]["flutter_release"]["steps"]
+at = next(i for i, s in enumerate(steps) if s.get("name") == "Setup Ruby")
+step = {"name": "Early secret", "run": "true"}
+if sys.argv[3] == "run":
+    step["run"] = 'echo "${{ secrets.match_password }}" > /tmp/x'
+elif sys.argv[3] == "if":
+    step["if"] = "${{ secrets.match_password != '' }}"
+else:
+    step["env"] = {"X": "${{ secrets.match_password }}"}
+steps.insert(at, step)
+yaml.safe_dump(doc, open(sys.argv[2], "w"), sort_keys=False)
+PY
+name="a secret in $where: before a toolchain step is refused"
+rc=0; python3 "$work/check.py" "$work/early-$where.yml" > "$work/out" 2>&1 || rc=$?
+if [ "$rc" != 1 ] || ! grep -q "'Early secret' reads a secret before toolchain step" "$work/out"; then
+  echo "FAIL $name: exit $rc"; cat "$work/out"; fail=1
+fi
+done
 
 # A cleanup step that forgets the keystore is refused.
 python3 - "$root/.github/workflows/flutter-release.yml" "$work/cleanup.yml" <<'PY'

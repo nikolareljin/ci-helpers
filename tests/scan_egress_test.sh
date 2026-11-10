@@ -582,6 +582,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: $azure
 YAML
+expect "a reusable workflow from the signing repository, called as the signing job" 1 "jobs.sign-windows: uses: 'azure/artifact-signing-action/.github/workflows/sign.yml@c7ab2a863ab5f9a846ddb8265964877ef296ee82' is allowed only in" .github/workflows/tauri-release.yml <<YAML
+on: push
+jobs:
+  sign-windows:
+    uses: azure/artifact-signing-action/.github/workflows/sign.yml@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+YAML
+expect "the signing action under a subpath of its repository" 1 "is allowed only in" .github/workflows/tauri-release.yml <<YAML
+on: push
+jobs:
+  sign-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: azure/artifact-signing-action/other@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+YAML
 expect "the signing action in another workflow" 1 "uses: '$azure' is allowed only in" .github/workflows/build.yml <<YAML
 on: push
 jobs:

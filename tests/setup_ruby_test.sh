@@ -45,7 +45,7 @@ run() {
   RUBY_VERSION="$version" RUNNER_ARCH="$arch" RUNNER_TOOL_CACHE="$cache" \
     TOOLCHAIN_PINS="${TEST_PINS:-$pins}" \
     GITHUB_PATH="$work/gh/path" GITHUB_OUTPUT="$work/gh/out" \
-    bash "$script" > "$work/out" 2>&1 || rc=$?
+    bash -c 'cd "$1" && shift && exec bash "$@"' _ "${RUN_DIR:-$work}" "$script" > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
   fi
@@ -99,6 +99,19 @@ name="a ruby that reports another version is refused"
 cached 3.5.0 x64 3.5.1
 run "$name" 1 3.5 && says "reports '3.5.1', not 3.5.0"
 
+name="a Windows cache (bin/ruby.exe, no bin/ruby) is found"
+mkdir -p "$work/cache/Ruby/3.1.9/x64/bin"
+printf '' > "$work/cache/Ruby/3.1.9/x64/bin/ruby.exe"; chmod +x "$work/cache/Ruby/3.1.9/x64/bin/ruby.exe"
+# Found and chosen; the stub .exe does not run here, so the version check
+# refuses it. "No Ruby 3.1" would mean it was never seen.
+run "$name" 1 3.1 && says "Ruby/3.1.9/x64/bin/ruby reports ''"
+
+name="a cached ruby without bundle is refused, even with bundle elsewhere on PATH"
+cached 3.0.7 x64
+rm "$work/cache/Ruby/3.0.7/x64/bin/bundle"
+mkdir -p "$work/elsewhere"; printf '#!/usr/bin/env bash\nexit 0\n' > "$work/elsewhere/bundle"; chmod +x "$work/elsewhere/bundle"
+PATH="$work/elsewhere:$PATH" run "$name" 1 3.0 && says "holds no bundle"
+
 name="an empty cache"
 mkdir -p "$work/empty"
 run "$name" 1 3.4 X64 "$work/empty" && says "No Ruby in the runner's tool cache"
@@ -106,8 +119,42 @@ run "$name" 1 3.4 X64 "$work/empty" && says "No Ruby in the runner's tool cache"
 name="no RUNNER_TOOL_CACHE"
 run "$name" 2 3.4 X64 "" && says "RUNNER_TOOL_CACHE is empty"
 
-name="no version"
-run "$name" 2 "" && says "RUBY_VERSION is empty"
+# ruby/setup-ruby read an empty or `default` version from .ruby-version,
+# then .tool-versions, then mise.toml, in the directory it ran in, and took
+# those file names and a `ruby-` prefix as the version too.
+proj="$work/proj"
+mkdir -p "$proj"
+name="an empty version and no version file"
+RUN_DIR="$proj" run "$name" 2 "" && says "RUBY_VERSION is empty and no .ruby-version, .tool-versions or mise.toml"
+
+name="an empty version reads .tool-versions"
+printf 'nodejs 22.1.0\nruby 3.3.5 # pinned\n' > "$proj/.tool-versions"
+RUN_DIR="$proj" run "$name" 0 "" && chose 3.3.5 x64 && says "from .tool-versions"
+
+name="an empty version reads .ruby-version before .tool-versions"
+printf 'ruby-3.2.6\n' > "$proj/.ruby-version"
+RUN_DIR="$proj" run "$name" 0 "" && chose 3.2.6 x64 && says "from .ruby-version"
+
+name="default reads .ruby-version"
+RUN_DIR="$proj" run "$name" 0 default && chose 3.2.6 x64
+
+name="the file name as the version"
+RUN_DIR="$proj" run "$name" 0 .tool-versions && chose 3.3.5 x64
+
+name="mise.toml"
+mkdir -p "$work/mise"
+printf '[tools]\nruby = "3.3" # newest\n' > "$work/mise/mise.toml"
+RUN_DIR="$work/mise" run "$name" 0 "" && chose 3.3.5 x64
+
+name="a ruby- prefix is the engine, not part of the version"
+run "$name" 0 ruby-3.3 && chose 3.3.5 x64
+
+name="another engine is refused"
+run "$name" 2 jruby-9.4 && says "is not X, X.Y or X.Y.Z"
+
+name="a version file that names a bad version"
+printf 'latest\n' > "$work/mise/.ruby-version"
+RUN_DIR="$work/mise" run "$name" 2 "" && says "RUBY_VERSION 'latest' (from .ruby-version) is not X, X.Y or X.Y.Z"
 
 name="a version that is not X, X.Y or X.Y.Z"
 run "$name" 2 latest && says "is not X, X.Y or X.Y.Z"

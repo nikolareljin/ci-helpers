@@ -159,8 +159,9 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
                at: tuple[str, str] | None = None) -> None:
     """One `uses:` reference. `kept` is the temporary allowlist for the
     file: empty for a scan file, KEPT_THIRD_PARTY for every other workflow.
-    `at` is (workflow file, job) for a file-scoped ALLOWED_ACTIONS entry;
-    None (a composite action, or unknown) matches no scope."""
+    `at` is (workflow file, job) of a step, for a file-scoped
+    ALLOWED_ACTIONS entry; None (a composite action, a reusable-workflow
+    call, or unknown) matches no scope."""
     if LOCAL_USES.match(ref):
         if any(seg in ("", ".", "..") for seg in ref.split("/")[1:]):
             out.append(f"{where}: uses: local path '{ref}' has an empty, '.' or '..' segment")
@@ -179,7 +180,9 @@ def check_uses(ref: str, where: str, out: list[str], kept: frozenset = frozenset
     entry = allowed_entry(base)
     if entry:
         _, reason, scope = entry
-        if scope is None or at in scope:
+        # A scoped entry is the action itself, as a step: no subpath, and
+        # never a reusable workflow from the same repository.
+        if scope is None or (at in scope and uses_name(ref) == base):
             return
         places = ", ".join(f"{f} job {j}" for f, j in sorted(scope))
         out.append(f"{where}: uses: '{ref}' is allowed only in {places} ({reason})")
@@ -365,7 +368,8 @@ def main() -> int:
                 if not isinstance(job, dict):
                     continue
                 if isinstance(job.get("uses"), str):
-                    check_uses(job["uses"], f"{rel}: jobs.{name}", findings, kept, (rel, name))
+                    # A reusable-workflow call is not a step: no scope.
+                    check_uses(job["uses"], f"{rel}: jobs.{name}", findings, kept)
                 for i, step in enumerate(steps_of(job)):
                     if isinstance(step.get("uses"), str):
                         check_uses(step["uses"], f"{rel}: jobs.{name}.steps[{i}]", findings, kept, (rel, name))
