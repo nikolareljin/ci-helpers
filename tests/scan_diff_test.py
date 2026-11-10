@@ -32,10 +32,10 @@ def commit(root, message, **files):
         path = Path(root) / name
         path.parent.mkdir(parents=True, exist_ok=True)
         if text is None:
-            git(root, "rm", "-q", name)
+            git(root, "rm", "-q", "--", name)
         else:
             path.write_text(text)
-            git(root, "add", name)
+            git(root, "add", "--", name)
     git(root, "commit", "-q", "--allow-empty", "-m", message)
     return git(root, "rev-parse", "HEAD")
 
@@ -318,6 +318,8 @@ for flag in ("--config", "-c"):
 if "--gitleaks-ignore-path" in args:
     record["ignore"] = pathlib.Path(args[args.index("--gitleaks-ignore-path") + 1]).read_text()
 pathlib.Path(os.environ["CALLED"]).write_text(json.dumps(record))
+with open(os.environ["CALLED"] + ".all", "a") as fh:
+    fh.write(json.dumps(record) + "\\n")
 print(os.environ["CANARY"])
 print(os.environ["CANARY"], file=sys.stderr)
 rc = int(os.environ.get("STUB_RC", "0"))
@@ -358,8 +360,9 @@ sys.exit(rc)
         }
 
     def run_script(self, script, expected, dirty=False, **changes):
-        if self.called.exists():
-            self.called.unlink()
+        for stale in (self.called, Path(str(self.called) + ".all")):
+            if stale.exists():
+                stale.unlink()
         env = {**self.env, **changes}
         proc = subprocess.run(["bash", str(script)], cwd=self.workspace, env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
@@ -389,7 +392,7 @@ sys.exit(rc)
         args = self.record()["args"]
         self.assertEqual(args[0], "git")
         self.assertIn("--log-opts=%s..HEAD" % self.fx.base, args)
-        self.assertEqual(args[-1], str(self.fx.clone))
+        self.assertEqual(args[-2:], ["--", str(self.fx.clone)])
         for flag in ("--redact", "--no-banner", "--no-color", "--ignore-gitleaks-allow", "--exit-code", "3"):
             self.assertIn(flag, args)
         self.assertNotIn("detect", args)
@@ -451,6 +454,13 @@ sys.exit(rc)
         self.assertIn('paths = ["docs/.*"]', rec["config"])
         self.assertIn("--log-opts=%s..HEAD" % reviewed, rec["args"])
 
+    def test_gitleaks_refuses_a_scan_path_that_reads_as_an_option(self):
+        commit(self.fx.clone, "dash", **{"-s/x.txt": "z\n"})
+        proc = subprocess.run(["bash", str(GITLEAKS_RUN)], cwd=self.fx.clone,
+                              env={**self.env, "SCAN_PATH": "-s"}, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIsNone(self.record())
+
     def test_gitleaks_refuses_without_a_base(self):
         self.run_script(GITLEAKS_RUN, 1, BASE_REF="nosuch")
         self.assertIsNone(self.record())
@@ -473,9 +483,11 @@ sys.exit(rc)
 
     def test_foxguard_diffs_against_the_merge_base(self):
         self.run_script(FOXGUARD_RUN, 0)
-        args = self.record()["args"]
+        calls = [json.loads(line) for line in Path(str(self.called) + ".all").read_text().splitlines()]
+        self.assertEqual([c["args"][-1] for c in calls], [str(self.fx.clone), "new.py"])
+        args = calls[0]["args"]
         self.assertEqual(args[:2], ["diff", self.fx.base])
-        self.assertEqual(args[-1], str(self.fx.clone))
+        self.assertEqual(args[-2:], ["--", str(self.fx.clone)])
         self.assertIn("--config", args)
         self.assertIn("json", args)
         self.assertEqual(args[args.index("-s") + 1], "medium")
@@ -557,21 +569,27 @@ sys.exit(rc)
         self.run_script(FOXGUARD_RUN, 1, SCAN_PATH=str(sub))
         self.assertIsNone(self.record())
 
-    def test_foxguard_scans_changed_files_under_a_dot_directory(self):
-        # foxguard's walk skips hidden entries, so a finding added under .h/
-        # or in .x.py would pass unread; each changed hidden file is scanned
-        # on its own.
-        for path in (".h/x.py", "a/.b/c/x.py", ".x.py"):
+    def test_foxguard_scans_each_changed_file_on_its_own(self):
+        # foxguard's walk skips hidden entries and what its own reading of
+        # the ignore files names; a file named on the command line is read
+        # regardless, so each changed file is scanned on its own, after "--".
+        for path in (".h/x.py", "a/.b/c/x.py", ".x.py", "x.py", "-s/x.py"):
             with self.subTest(path=path):
-                commit(self.fx.clone, "hidden", **{path: "z = 3\n"})
+                commit(self.fx.clone, "changed", **{path: "z = 3\n"})
                 self.run_script(FOXGUARD_RUN, 1, FINDINGS_IN=path)
                 self.run_script(FOXGUARD_RUN, 0)
-                self.assertEqual(self.record()["args"][-1], path)
+                calls = [json.loads(line)["args"][-2:] for line in Path(str(self.called) + ".all").read_text().splitlines()]
+                self.assertIn(["--", path], calls)
                 git(self.fx.clone, "reset", "-q", "--hard", "HEAD~1")
-        # A visible file is read by the directory scan alone.
-        commit(self.fx.clone, "visible", **{"x.py": "z = 3\n"})
-        self.run_script(FOXGUARD_RUN, 0, FINDINGS_IN="/.")
-        self.assertEqual(self.record()["args"][-1], str(self.fx.clone))
+
+    def test_foxguard_refuses_a_scan_path_that_reads_as_an_option(self):
+        dash = self.fx.clone / "-s"
+        commit(self.fx.clone, "dash", **{"-s/x.py": "z = 3\n"})
+        proc = subprocess.run(["bash", str(FOXGUARD_RUN)], cwd=self.fx.clone,
+                              env={**self.env, "SCAN_PATH": "-s"}, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIsNone(self.record())
+        self.assertTrue(dash.is_dir())
 
     def test_foxguard_refuses_without_a_base(self):
         self.run_script(FOXGUARD_RUN, 1, BASE_REF="nosuch")

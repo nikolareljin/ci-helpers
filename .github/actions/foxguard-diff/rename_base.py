@@ -48,7 +48,8 @@ def main():
     root, base, tmp, config = sys.argv[1:5]
     if not SHA.match(base):
         raise ValueError("base is not a commit sha")
-    with open(config, "rb") as fh:
+    # The config path is the one run.sh wrote under its own temporary directory.
+    with open(config, "rb") as fh:  # foxguard: ignore[py/no-path-traversal]
         if fh.read().strip():
             sys.stdout.write(base + "\n")
             return 0

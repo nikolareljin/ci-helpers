@@ -13,6 +13,9 @@ severity="$(printf '%s' "${SEVERITY:-medium}" | tr '[:upper:]' '[:lower:]')"
 case "$severity" in low|medium|high|critical) ;; *) fail ;; esac
 scan_path="${SCAN_PATH:-.}"
 [[ -e "$scan_path" ]] || fail
+# A scan_path a tool could read as an option ("-s") is refused; every
+# scanner call also passes it after "--".
+[[ "$scan_path" != -* ]] || fail
 tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/security.XXXXXX")" || fail
 # The vetted config may sit in the caller's tree (see prepare_config.py);
 # its path is in $tmp/config.path and it goes when the action does.
@@ -49,7 +52,7 @@ own="$(cd "$dir/../../.." && pwd -P)"
 if root="$(cd "$scan_path" 2>/dev/null && pwd -P)" && [[ "$own" == "$root"/* ]]; then fail; fi
 rc=0
 "$FG_BIN" --config "$config" -f json -q -s "$severity" \
-  --output "$tmp/report.json" "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
+  --output "$tmp/report.json" -- "$scan_path" >"$tmp/scan.log" 2>&1 || rc=$?
 # 0 is clean, 1 is findings, anything else a scanner error.
 [[ "$rc" -eq 0 ]] || fail
 # The report says how many files were read. A scan of nothing (a directory of

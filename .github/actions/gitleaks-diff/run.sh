@@ -13,6 +13,9 @@ py="$(security_python)" || fail
 [[ -n "${GL_BIN:-}" && -x "$GL_BIN" ]] || fail
 scan_path="${SCAN_PATH:-.}"
 [[ -d "$scan_path" ]] || fail
+# A scan_path a tool could read as an option ("-s") is refused; every
+# scanner call also passes it after "--".
+[[ "$scan_path" != -* ]] || fail
 tmp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/security.XXXXXX")" || fail
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
@@ -48,7 +51,7 @@ fi
 # added in one commit and removed in a later one of the same review is found.
 args=(git --log-opts="${merge_base}..HEAD" --config "$tmp/rules.toml"
   --gitleaks-ignore-path "$tmp/approved-ignore" --ignore-gitleaks-allow
-  --max-archive-depth 3 --no-color --no-banner --exit-code 3 --redact "$scan_path")
+  --max-archive-depth 3 --no-color --no-banner --exit-code 3 --redact -- "$scan_path")
 rc=0
 diagnostics="$("$GL_BIN" "${args[@]}" 2>&1)" || rc=$?
 [[ "$rc" -eq 0 ]] || fail

@@ -322,11 +322,12 @@ Notes:
   those: the step fails when a `.gitignore` or `.ignore` in the repository
   is a link, or when the head tree's rules (`git ls-files -i
   --exclude-standard`, and `.ignore` read the same way) name a changed file.
-  An ignore file edit that hides no changed file passes. foxguard reads
-  those rules with its own matcher, so a pattern git and foxguard read
-  differently could still hide a file. foxguard's walk skips hidden paths
-  (such as `.github/`), so each changed file under one is scanned on its
-  own. Directories foxguard treats as vendored (`node_modules`, `vendor`,
+  An ignore file edit that hides no changed file passes. foxguard's walk
+  skips hidden paths (such as `.github/`) and reads the ignore rules with its
+  own matcher, and its report lists no files, so each changed file is also
+  scanned on its own: a file named on the command line is read whatever the
+  ignore rules say. That costs about half a second per changed file.
+  Directories foxguard treats as vendored (`node_modules`, `vendor`,
   `dist`, `build`) are skipped even when named, here and in
   `foxguard-scan`. The reports must name that base and, together, have read
   at least one file, unless the review adds or changes no file under
