@@ -30,23 +30,33 @@ with PyYAML. A job is TRUSTED when any of these holds:
                workflow builds is what the caller publishes. A caller
                trusted only by its own secrets or permissions passes
                nothing on; the called workflow declares what its jobs hold
-               and is read on its own.
+               and is read on its own;
+  named        its workflow file name holds release, deploy, publish, sign
+               or submit: a `deploy_command` the caller supplies ships
+               with credentials the gate cannot see.
 
 Every other job is PLAIN. A composite action runs inside whatever job
 calls it, so its steps are held to the trusted rules.
 
 In a trusted job, and in a composite action:
 
-  restore      `actions/cache` and `actions/cache/restore` fail, unless the
-               restore's `path` is an entry of VERIFIED_ARCHIVES and the
-               step right after it runs the script named there, which
-               checks the archive's digest on every run before unpacking
-               it, so a tampered entry is refused, never used;
+  restore      `actions/cache` and `actions/cache/restore` fail, whatever the
+               path. A cache entry is a tar archive, and restore unpacks it
+               where its members point, not only under the declared path:
+               an entry can overwrite the library checkout or the
+               workspace before any digest check runs. A trusted job
+               downloads and checks what it needs on every run;
   save         `actions/cache` and `actions/cache/save` fail: a trusted job
                writes no cache;
-  setup        `actions/setup-*` with `cache:` other than `false`, `"false"`
-               or empty fails; an expression that may be empty at run time
-               fails too, as nothing here can read it;
+  setup        every `actions/setup-*` step must carry its action's off
+               value for each cache input, from SETUP_OFF below: setup-go
+               and setup-dotnet `cache: false`, setup-python and setup-java
+               `cache: ""`, setup-node `cache: ""` and
+               `package-manager-cache: false`. A missing key fails: setup-go
+               caches by default, and setup-node 5 caches the package
+               manager's store whenever package.json names one. An
+               expression fails too, as nothing here can read it, and so
+               does a setup action the table does not know;
   buildkit     a step whose text holds `type=gha`, or a `with:` of
                `cache-from` or `cache-to`, fails: a layer cache restored
                from the Actions cache is a layer in the pushed image.
@@ -79,21 +89,21 @@ except ImportError:  # pragma: no cover
     print("PyYAML is required", file=sys.stderr)
     sys.exit(2)
 
-# The archive caches a trusted job may restore: the step after the restore
-# runs this script, which checks the archive's sha256 against a pin held in
-# this repository before it unpacks anything, every run. The entry is the
-# downloaded archive only, never the unpacked tool. Adding one is a pull
-# request that names the script and its test.
-VERIFIED_ARCHIVES = {
-    # tests/setup_godot_test.sh
-    "${{ runner.temp }}/ci-helpers-godot-archive": "setup_godot.sh",
-    # tests/setup_flutter_test.sh
-    "${{ steps.flutter_resolve.outputs.cache_path }}": "setup_flutter.sh",
+# The value that turns each cache input of a setup action off, per action.
+# A boolean input refuses "" and a package-manager input refuses "false",
+# so the off value is the action's, not one word for all. A trusted job
+# must write it: a missing key is the action's default, and setup-go's is
+# on. Adding an action here is a pull request that reads its action.yml.
+SETUP_OFF = {
+    "actions/setup-go": {"cache": (False, "false")},
+    "actions/setup-dotnet": {"cache": (False, "false")},
+    "actions/setup-python": {"cache": ("",)},
+    "actions/setup-java": {"cache": ("",)},
+    "actions/setup-node": {"cache": ("",), "package-manager-cache": (False, "false")},
 }
 
 SECRET = re.compile(r"\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*")
 CALLER = re.compile(r"\$\{\{\s*inputs\.[a-z_]*command\s*\}\}")
-CACHE_OFF = (None, False, "", "false")
 
 
 def steps_of(body: dict) -> list[dict]:
@@ -110,6 +120,11 @@ def with_text(step: dict, key: str) -> str:
     with_ = step.get("with")
     value = with_.get(key) if isinstance(with_, dict) else None
     return " ".join(str(value).split()) if value is not None else ""
+
+
+def yaml_text(value) -> str:
+    """A with: value as it is written in a workflow."""
+    return {False: "false", True: "true", "": '""'}.get(value, repr(value))
 
 
 def label(step: dict, i: int) -> str:
@@ -148,13 +163,19 @@ def close_needs(jobs: dict[str, dict], out: dict[str, str]) -> bool:
     return changed
 
 
-def trusted_jobs(doc: dict) -> dict[str, str]:
+PUBLISHING_NAME = re.compile(r"release|deploy|publish|sign|submit")
+
+
+def trusted_jobs(doc: dict, rel: str = "") -> dict[str, str]:
     """Job name -> reason, closed over `needs`: a job a trusted job needs
     builds what that job publishes."""
     jobs = {n: j for n, j in (doc.get("jobs") or {}).items() if isinstance(j, dict)}
     out: dict[str, str] = {}
+    named = PUBLISHING_NAME.search(Path(rel).name) if rel else None
     for name, job in jobs.items():
         why = is_trusted(job, doc.get("permissions"))
+        if named:
+            why.append(f"is a job of {Path(rel).name}, a workflow named for what it ships")
         if why:
             out[name] = "; ".join(why)
     while close_needs(jobs, out):
@@ -172,7 +193,7 @@ def trusted_everywhere(docs: dict[str, dict]) -> dict[str, dict[str, str]]:
     publishes what that workflow built. A caller trusted only by its own
     secrets or permissions does not: the called workflow declares the
     secrets and permissions its jobs hold, and is read on its own."""
-    out = {rel: trusted_jobs(doc) for rel, doc in docs.items()}
+    out = {rel: trusted_jobs(doc, rel) for rel, doc in docs.items()}
     changed = True
     while changed:
         changed = False
@@ -206,21 +227,25 @@ def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str])
         elif act == "actions/cache/save":
             out.append(f"{here}: saves '{path}' from a job that {why}; a trusted job writes no cache")
         elif act == "actions/cache/restore":
-            script = VERIFIED_ARCHIVES.get(path)
-            nxt = steps[i + 1] if i + 1 < len(steps) else {}
-            run = nxt.get("run") if isinstance(nxt.get("run"), str) else ""
-            if script is None:
-                out.append(f"{here}: restores '{path}' into a job that {why}; only an archive "
-                           "listed in VERIFIED_ARCHIVES, checked against its pinned digest by the "
-                           "next step, may be restored there")
-            elif "uses" in nxt or f"scripts/{script}" not in run:
-                out.append(f"{here}: restores '{path}' but the next step does not run "
-                           f"scripts/{script}, which checks the archive before it is unpacked")
+            out.append(f"{here}: restores '{path}' into a job that {why}; a cache entry is a tar "
+                       "archive unpacked wherever its members point, so a trusted job restores "
+                       "none and downloads what it needs")
         elif act.startswith("actions/setup-"):
-            cache = (step.get("with") or {}).get("cache") if isinstance(step.get("with"), dict) else None
-            if cache not in CACHE_OFF:
-                out.append(f"{here}: {act} with cache: {cache!r} restores a dependency cache into "
-                           f"a job that {why}; set cache: false there")
+            off = SETUP_OFF.get(act)
+            with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
+            if off is None:
+                out.append(f"{here}: {act} is not in SETUP_OFF, so nothing here knows how its "
+                           f"cache is turned off; a job that {why} runs only a setup action "
+                           "whose off value is listed there")
+            else:
+                for key, values in off.items():
+                    if key not in with_:
+                        out.append(f"{here}: {act} without {key}: in a job that {why}; the "
+                                   f"action's default may restore a dependency cache there, "
+                                   f"so write {key}: {yaml_text(values[0])}")
+                    elif with_[key] not in values:
+                        out.append(f"{here}: {act} with {key}: {yaml_text(with_[key])} restores a dependency "
+                                   f"cache into a job that {why}; write {key}: {yaml_text(values[0])}")
         text = yaml.safe_dump(step, width=10**9)
         with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
         if "type=gha" in text or "cache-from" in with_ or "cache-to" in with_:
@@ -277,8 +302,9 @@ def check_action(doc: dict, rel: str) -> list[str]:
     if not isinstance(runs, dict):
         return out
     steps = steps_of(runs)
-    check_trusted_steps(steps, rel, "may run inside a job that holds a secret (a composite action)", out)
-    check_all_steps(steps, rel, out)
+    where = f"{rel}: runs"
+    check_trusted_steps(steps, where, "may run inside a job that holds a secret (a composite action)", out)
+    check_all_steps(steps, where, out)
     return out
 
 
@@ -321,11 +347,11 @@ def main() -> int:
     for line in sorted(set(findings)):
         print(line)
     if findings:
-        print(f"{len(set(findings))} finding(s): a job that holds a secret or a write token restores "
-              "only a digest-checked archive and saves nothing; no job saves a cache after the "
+        print(f"{len(set(findings))} finding(s): a job that holds a secret, a write token or a "
+              "release to ship restores no cache and saves none; no job saves a cache after the "
               "caller's code ran", file=sys.stderr)
         return 1
-    print(f"ok: {trusted} trusted jobs restore only digest-checked archives and save no cache; "
+    print(f"ok: {trusted} trusted jobs restore no cache and save none; "
           f"{plain} plain jobs and {len(actions)} actions save only right after a dependency fetch")
     return 0
 

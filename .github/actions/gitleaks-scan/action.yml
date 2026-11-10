@@ -70,6 +70,9 @@ runs:
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
       with:
         python-version: '3.12'
+        # Off by name: a composite action runs in the caller's job
+        # (scripts/check_cache_trust.py).
+        cache: ""
     - name: Install gitleaks binary
       id: install
       shell: bash

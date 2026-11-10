@@ -286,6 +286,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
@@ -596,6 +600,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}
@@ -1035,6 +1043,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Off by name: setup-node 5 caches the package manager's store on its
+          # own when package.json names one (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Frontend install
         if: ${{ inputs.node_version != '' && inputs.frontend_dir != '' }}

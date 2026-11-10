@@ -110,6 +110,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
         with:
           node-version: ${{ inputs.node_version }}
+          # Every cache off by name: the release job publishes what this job
+          # builds (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Setup Java
         if: ${{ inputs.java_version != '' }}
@@ -117,18 +121,21 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+          cache: ""
 
       - name: Setup .NET
         if: ${{ inputs.dotnet_version != '' }}
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0 @ 2026-11-06
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
+          cache: false
 
       - name: Setup Python
         if: ${{ inputs.python_version != '' }}
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0 @ 2026-10-22
         with:
           python-version: ${{ inputs.python_version }}
+          cache: ""
 
       - name: Setup Go
         if: ${{ inputs.go_version != '' }}
@@ -179,28 +186,11 @@ jobs:
       # Flutter from the official release archive, checked against the
       # manifest's sha256 and, for the pinned default, the library's
       # toolchain-pins.env. An empty flutter_version on stable installs the
-      # pinned release. The archive a CI job of the caller saved is
-      # restored; this job publishes and saves nothing. The script checks
-      # the archive's sha256 on every run and extracts it fresh, so a cache
-      # entry written by another job cannot put a different SDK on PATH.
-      - name: Resolve Flutter
-        id: flutter_resolve
-        if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        shell: bash
-        env:
-          FLUTTER_VERSION: ${{ inputs.flutter_version }}
-          FLUTTER_CHANNEL: ${{ inputs.flutter_channel }}
-          FLUTTER_ARCHIVE_DIR: ${{ runner.temp }}/ci-helpers-flutter-archive
-          FLUTTER_DRY_RUN: "true"
-        run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
-
-      - name: Restore Flutter archive
-        if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 @ 2026-09-21
-        with:
-          path: ${{ steps.flutter_resolve.outputs.cache_path }}
-          key: ${{ steps.flutter_resolve.outputs.cache_key }}
-
+      # pinned release. No cache: the release job publishes what this job
+      # builds, and a cache entry is a tar archive that restore unpacks
+      # wherever its members point, not only under the declared path
+      # (scripts/check_cache_trust.py). The archive is downloaded and checked
+      # on every run.
       - name: Setup Flutter
         if: ${{ inputs.flutter_version != '' || inputs.flutter_channel != '' }}
         shell: bash

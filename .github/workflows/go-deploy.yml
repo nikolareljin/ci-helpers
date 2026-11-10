@@ -79,6 +79,9 @@ jobs:
         with:
           go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
           go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
+          # setup-go caches the module and build caches by default; this job
+          # holds the SSH key and ships what it builds (scripts/check_cache_trust.py).
+          cache: false
 
       - name: Build binary
         shell: bash

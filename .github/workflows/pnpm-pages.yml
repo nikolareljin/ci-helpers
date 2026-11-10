@@ -121,6 +121,8 @@ jobs:
           # No pnpm store cache: the deploy job publishes what this job builds,
           # and a restored store is whatever the run that owned the key first
           # left there (scripts/check_cache_trust.py).
+          cache: ""
+          package-manager-cache: false
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}

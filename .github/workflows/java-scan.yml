@@ -70,6 +70,8 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
+          # Off by name: this job reads the NVD API key (scripts/check_cache_trust.py).
+          cache: ""
 
       - name: Java lint
         if: ${{ inputs.lint_command != '' }}

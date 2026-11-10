@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # SCRIPT: check_cache_trust_test.sh
 # DESCRIPTION: scripts/check_cache_trust.py passes on this tree, and fails on
-#              each way a cache could put unread content into a release: a
-#              cargo, gem, Library or package-store cache restored into a
-#              job that reads a secret, holds a write token, is needed by
-#              such a job or is called by one through a publish chain; a
-#              BuildKit cache from the Actions cache in a push job; a
-#              post-job actions/cache save anywhere; an actions/cache/save
-#              with no restore two steps before it, not right after a run
-#              step, or after a caller step; a save in a trusted job; a
-#              verified-archive restore not followed by its script. It stays
-#              quiet on a verified archive restore in a trusted job, on
-#              restore, fetch, save in a plain job, on setup-* caches in a
-#              plain job and on cache: false in a trusted one.
+#              each way a cache could put unread content into a release: any
+#              cache restored into a job that reads a secret, holds a write
+#              token, is needed by such a job, is called by one through a
+#              publish chain or is in a workflow named deploy, release,
+#              publish, sign or submit (cargo, gem, Library, package store,
+#              a verified toolchain archive, BuildKit type=gha); a setup-*
+#              step there without its action's off value written, setup-go's
+#              and setup-node's defaults being on; a post-job actions/cache
+#              save anywhere; an actions/cache/save with no restore two steps
+#              before it, not right after a run step, or after a caller step;
+#              a save in a trusted job. It stays quiet on restore, fetch,
+#              save in a plain job, on setup-* caches in a plain job and on
+#              the off values in a trusted one.
 # USAGE: bash tests/check_cache_trust_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -418,9 +419,9 @@ jobs:
           STORE_KEY: \${{ secrets.STORE_KEY }}
 YAML
 
-# --- verified archives ------------------------------------------------------
+# --- no restore of any kind in a trusted job -------------------------------
 
-expect "a verified archive restored into a job with secrets, then its script" 0 "" <<YAML
+expect "a verified toolchain archive restored into a job with secrets" 1 "restores '\${{ steps.flutter_resolve.outputs.cache_path }}' into a job that reads secrets.ANDROID_KEYSTORE; a cache entry is a tar archive" <<YAML
 on: push
 jobs:
   release:
@@ -434,20 +435,15 @@ jobs:
           key: \${{ steps.flutter_resolve.outputs.cache_key }}
       - name: Setup Flutter
         run: bash .ci-helpers-scripts/scripts/setup_flutter.sh
-      - uses: actions/cache/restore@$pin
-        with:
-          path: \${{ runner.temp }}/ci-helpers-godot-archive
-          key: godot-x
-      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
       - run: flutter build appbundle
         env:
           KEYSTORE: \${{ secrets.ANDROID_KEYSTORE }}
 YAML
 
-expect "a verified archive path whose next step is not its script" 1 "restores '\${{ runner.temp }}/ci-helpers-godot-archive' but the next step does not run scripts/setup_godot.sh" <<YAML
+expect "the Godot archive restored into a job the release job needs" 1 "restores '\${{ runner.temp }}/ci-helpers-godot-archive' into a job that is needed by trusted job release" <<YAML
 on: push
 jobs:
-  release:
+  build:
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -456,52 +452,82 @@ jobs:
         with:
           path: \${{ runner.temp }}/ci-helpers-godot-archive
           key: godot-x
+      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
       - run: godot --export-release
-        env:
-          STORE_KEY: \${{ secrets.STORE_KEY }}
+  release:
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release upload
 YAML
 
-expect "a verified archive path whose next step is an action" 1 "but the next step does not run scripts/setup_godot.sh" <<YAML
-on: push
+# --- a workflow named for what it ships ---------------------------------------
+
+expect "setup-go with no cache key in a deploy workflow" 1 "deploy.yml: jobs.deploy.steps[0] 'Setup Go': actions/setup-go without cache: in a job that is a job of deploy.yml, a workflow named for what it ships; the action's default may restore a dependency cache there, so write cache: false" .github/workflows/deploy.yml <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      deploy_command:
+        type: string
 jobs:
-  release:
+  deploy:
     permissions:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/cache/restore@$pin
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          path: \${{ runner.temp }}/ci-helpers-godot-archive
-          key: godot-x
+          go-version: '1.25'
+      - run: ${{ inputs.deploy_command }}
+YAML
+
+expect "setup-node without package-manager-cache in a release workflow" 1 "actions/setup-node without package-manager-cache: in a job that is a job of go-release.yml, a workflow named for what it ships; the action's default may restore a dependency cache there, so write package-manager-cache: false" .github/workflows/go-release.yml <<'YAML'
+on: push
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24'
-      - run: godot --export-release
-        env:
-          STORE_KEY: \${{ secrets.STORE_KEY }}
+          cache: ""
+      - run: npm run build
 YAML
 
-expect "an archive path not in the list" 1 "restores '\${{ runner.temp }}/other-archive' into a job that reads secrets.STORE_KEY; only an archive listed in VERIFIED_ARCHIVES" <<YAML
+expect "a setup action the off table does not know, in a trusted job" 1 "actions/setup-ruby is not in SETUP_OFF" <<'YAML'
 on: push
 jobs:
   release:
     permissions:
-      contents: read
+      contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/cache/restore@$pin
+      - uses: actions/setup-ruby@0000000000000000000000000000000000000000
         with:
-          path: \${{ runner.temp }}/other-archive
-          key: other-x
-      - run: bash .ci-helpers-scripts/scripts/setup_godot.sh
-      - run: godot --export-release
-        env:
-          STORE_KEY: \${{ secrets.STORE_KEY }}
+          ruby-version: '3.4'
+YAML
+
+expect "the wrong off value for the action" 1 "actions/setup-python with cache: false restores a dependency cache into a job that holds contents: write; write cache: \"\"" <<'YAML'
+on: push
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: false
 YAML
 
 # --- what stays quiet -------------------------------------------------------
 
-expect "cache: false and \"false\" in a trusted job" 0 "" <<'YAML'
+expect "every action's off value, written, in a trusted job" 0 "" <<'YAML'
 on: push
 jobs:
   release:
@@ -511,11 +537,18 @@ jobs:
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          cache: false
-      - uses: actions/setup-go@4b8ab7c2a8ba6ca2a2ac2d2b8b4f3a6d8c1e0f9b
+          cache: ""
+          package-manager-cache: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           cache: "false"
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
+        with:
+          cache: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          cache: ""
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with:
           cache: ""
       - run: go build
@@ -571,7 +604,7 @@ YAML
 
 # --- composite actions ------------------------------------------------------
 
-expect "actions/cache in a composite action" 1 "action.yml: steps[0] 'actions/cache': restores and saves 'node_modules' in a job that may run inside a job that holds a secret" .github/actions/x/action.yml <<YAML
+expect "actions/cache in a composite action" 1 "action.yml: runs.steps[0] 'actions/cache': restores and saves 'node_modules' in a job that may run inside a job that holds a secret" .github/actions/x/action.yml <<YAML
 name: x
 runs:
   using: composite
@@ -609,5 +642,5 @@ printf 'on: push\njobs: [\n' > "$work/t/.github/workflows/bad.yml"
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 2 ] || ! grep -q "cannot read" "$work/out"; then echo "FAIL a file that does not parse: exit $rc, expected 2"; cat "$work/out"; fail=1; fi
 
-[[ "$fail" = 0 ]] && echo "ok: the cache-trust check passes on this tree, refuses every unverified restore into a trusted job and every save after the caller's code, and stays quiet on the rest"
+[[ "$fail" = 0 ]] && echo "ok: the cache-trust check passes on this tree, refuses every restore into a trusted job and every save after the caller's code, and stays quiet on the rest"
 exit "$fail"

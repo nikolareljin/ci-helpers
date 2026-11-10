@@ -882,9 +882,12 @@ way while CI reported success.
 Workflow: `.github/workflows/unity.yml`
 
 Separate from the C# preset on purpose. Unity needs licence activation against
-Unity's servers, a cached `Library` folder that dwarfs every other cache here,
-and a macOS runner for an iOS export. An editor run takes minutes where
-`dotnet build` takes seconds.
+Unity's servers, a cold `Library` import on every run, and a macOS runner for
+an iOS export. An editor run takes minutes where `dotnet build` takes seconds.
+The `Library` folder is not cached: the test job holds the licence secrets,
+and `Library/ScriptAssemblies` is code the editor loads, so a restored entry
+would be whatever the run that owned the key first left there (see
+[Cache trust](SECURITY.md#cache-trust)).
 
 **A .NET test harness that lives outside the asset tree keeps using `csharp.yml`.**
 That harness exists so some tests run on a Linux runner without the editor; this
@@ -933,9 +936,9 @@ reports it as a missing file rather than a missing secret.
 
 - `test_mode`: `editmode` — `all`, `editmode` or `playmode`; anything else is refused
 - `unity_version`: `auto`, read from `ProjectSettings/ProjectVersion.txt`
-- `cache`: `true`, caching `Library` keyed on `Assets/`, `Packages/` and `ProjectSettings/`
+- `cache`: `true`, ignored; kept so callers keep parsing. `Library` is not cached
 - `fetch_depth`: `1`, not `0` — nothing here reads history and these repositories are large
-- `timeout_minutes`: `60`, not `20` — a cold `Library` import can take most of it
+- `timeout_minutes`: `60`, not `20` — the cold `Library` import can take most of it
 - `runner`: `ubuntu-latest`; an iOS export needs macOS, which bills at roughly ten times the rate
 - `lfs`: `true` - check out Git LFS objects; a missing object fails deep inside the import otherwise
 - `artifact_name`: `unity-test-results`
@@ -1172,7 +1175,7 @@ Defaults:
 - `node_version`: `""` — set to install Node before building
 - `requirements_file`: `""` — a pip requirements file relative to
   `working_directory`; when set and `install_command` is empty it is installed
-  for you and used as the pip cache key
+  for you, with no pip cache: `pages.yml` deploys what this job builds
 - `install_command`: `""` — overrides the `requirements_file` install
 - `build_command`: `""` — the command that writes the site into `pages_path`.
   Leave it empty to publish a directory already committed to the repository: a
