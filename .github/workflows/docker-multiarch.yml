@@ -61,7 +61,8 @@ on:
         description: >-
           Build secrets, one id=value per line, each mounted with
           --secret id=<id> (read in the Dockerfile with
-          RUN --mount=type=secret,id=<id>); never a build-arg
+          RUN --mount=type=secret,id=<id>); never a build-arg. A value with
+          line breaks goes as id=base64:<base64 of the value>
         required: false
     outputs:
       image_digest:

@@ -101,7 +101,9 @@ if ! docker "${args[@]}"; then
   exit 1
 fi
 
-platforms="$(docker buildx inspect "$name" | awk -F': *' '/^Platforms:/ { print $2; exit }' | tr -d ' ')"
+# awk reads the whole report: an early exit would close the pipe under
+# docker, which then dies with SIGPIPE and pipefail makes that the status.
+platforms="$(docker buildx inspect "$name" | awk -F': *' '/^Platforms:/ && !seen { print $2; seen = 1 }' | tr -d ' ')"
 echo "Builder $name is ready; platforms: ${platforms:-unknown}"
 printf 'name=%s\ndriver=docker-container\nplatforms=%s\n' "$name" "$platforms"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

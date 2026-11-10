@@ -2555,7 +2555,11 @@ action) and `--push`; provenance is `mode=max` for a public repository and
 `mode=min,inline-only=true` for a private one. The printed command masks
 build-arg values. A `build_secrets` line `id=value` is mounted as `--secret
 id=<id>` from the step's environment: not a build-arg, not in the image's
-history; the Dockerfile reads it with `RUN --mount=type=secret,id=<id>`.
+history; the Dockerfile reads it with `RUN --mount=type=secret,id=<id>`. A
+value with line breaks (a PEM key, JSON) is written as `id=base64:<base64 of
+the value>` and decoded in the step. No part of a `build_secrets` line is
+printed: an error names the line number, and every value is masked in the log
+before it is read.
 
 Inputs:
 
@@ -2577,7 +2581,7 @@ Inputs:
 
 Secrets:
 - `registry_token` (required) — registry password / token (e.g. `secrets.GITHUB_TOKEN` for GHCR)
-- `build_secrets` (optional) — build secrets, one `id=value` per line, mounted with `--secret id=<id>`
+- `build_secrets` (optional) — build secrets, one `id=value` per line, mounted with `--secret id=<id>`; a multi-line value as `id=base64:<base64>`
 
 Outputs:
 - `image_digest` — SHA digest of the pushed manifest

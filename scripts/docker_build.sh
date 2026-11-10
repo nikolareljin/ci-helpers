@@ -12,13 +12,17 @@
 # USAGE: TAGS=ghcr.io/o/r:1.0 PUSH=true bash scripts/docker_build.sh
 # ENVIRONMENT:
 #   CONTEXT            Build context path (default: .).
-#   DOCKERFILE         Dockerfile path, relative to the context (empty: default).
+#   DOCKERFILE         Dockerfile path, as --file takes it (empty: default).
 #   PLATFORMS          Platforms, comma- or newline-separated (optional).
 #   TAGS               Image tags, comma- or newline-separated (optional).
 #   LABELS             Image labels, one per line (optional).
 #   BUILD_ARGS         ARG=VALUE pairs, one per line (optional).
 #   BUILD_SECRETS      id=value pairs, one per line; each is passed by
-#                      environment as --secret id=<id>,env=... (optional).
+#                      environment as --secret id=<id>,env=... (optional). A
+#                      value with line breaks (a PEM key, JSON) is written as
+#                      id=base64:<base64 of the value> and decoded here. No
+#                      part of a line is printed; an error names the line
+#                      number, and under Actions every value is masked.
 #   BUILD_SECRET_ENVS  id=VARIABLE pairs, one per line; the secret is read from
 #                      that variable of this environment (optional).
 #   PUSH, LOAD         true or false (default: false).
@@ -46,7 +50,8 @@
 #   1  docker buildx build failed, or the pushed image has no digest.
 #   2  No docker or no buildx plugin on PATH, a true/false value that is
 #      neither, a secret id that is not [A-Za-z0-9._-]+ or is repeated, a
-#      secret line without `=`, or a secret variable that is unset.
+#      secret line without `=`, a base64 value that does not decode, or a
+#      secret variable that is unset.
 # ----------------------------------------------------
 set -euo pipefail
 
@@ -124,34 +129,61 @@ platform_list="$(each_item "${PLATFORMS:-}" | paste -sd, -)"
 
 # Secrets: the value is exported under a name of this script's own and
 # BuildKit reads it from the environment, so neither argv nor the image
-# history nor this log carries it.
+# history nor this log carries it. No part of a BUILD_SECRETS line is ever
+# printed: an error names the line number only, and under Actions every
+# value is masked before it is looked at.
+mask() {
+  # One ::add-mask:: per line of the value: the runner masks line by line.
+  [[ "${GITHUB_ACTIONS:-}" == true ]] || return 0
+  printf '%s\n' "$1" | while IFS= read -r part; do
+    [[ -n "$part" ]] && printf '::add-mask::%s\n' "$part"
+  done
+  return 0
+}
 id_re='^[A-Za-z0-9._-]+$'
 seen_ids=" "
-n=0
+# secret_id <list> <line number> <id>: refuse an id that is not a name or
+# that was given before; say where, never what.
 secret_id() {
-  local id="$1"
-  [[ "$id" =~ $id_re ]] || { echo "::error::build secret id '$id' is not [A-Za-z0-9._-]+." >&2; exit 2; }
+  local list="$1" n="$2" id="$3"
+  [[ "$id" =~ $id_re ]] || { echo "::error::$list line $n: the id is not [A-Za-z0-9._-]+." >&2; exit 2; }
   case "$seen_ids" in
-    *" $id "*) echo "::error::build secret id '$id' is given twice." >&2; exit 2 ;;
+    *" $id "*) echo "::error::$list line $n repeats an id given before." >&2; exit 2 ;;
   esac
   seen_ids="$seen_ids$id "
 }
+n=0
+count=0
 while IFS= read -r line; do
-  [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRETS line without '=': the id is '${line}'." >&2; exit 2; }
+  count=$((count + 1))
+  mask "${line#*=}"
+  [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRETS line $count has no '='. One id=value per line; a value with line breaks goes as id=base64:<base64 of the value>." >&2; exit 2; }
   id="${line%%=*}"
-  secret_id "$id"
+  value="${line#*=}"
+  secret_id BUILD_SECRETS "$count" "$id"
+  if [[ "$value" == base64:* ]]; then
+    mask "${value#base64:}"
+    if ! value="$(printf '%s' "${value#base64:}" | openssl base64 -d -A 2>/dev/null)" || [[ -z "$value" ]]; then
+      echo "::error::BUILD_SECRETS line $count: the value after base64: does not decode." >&2
+      exit 2
+    fi
+    mask "$value"
+  fi
   n=$((n + 1))
-  export "CI_HELPERS_SECRET_$n=${line#*=}"
-  add --secret "id=$id,env=CI_HELPERS_SECRET_$n"
+  export "CI_HELPERS_SECRET_$n=$value"
+  args+=(--secret "id=$id,env=CI_HELPERS_SECRET_$n"); shown+=(--secret "id=***,env=CI_HELPERS_SECRET_$n")
 done < <(each_line "${BUILD_SECRETS:-}")
+unset value
+count=0
 while IFS= read -r line; do
-  [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRET_ENVS line without '=': the id is '${line}'." >&2; exit 2; }
+  count=$((count + 1))
+  [[ "$line" == *=* ]] || { echo "::error::BUILD_SECRET_ENVS line $count has no '='. One id=VARIABLE per line." >&2; exit 2; }
   id="${line%%=*}"
   var="${line#*=}"
-  secret_id "$id"
-  [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::'$var' is not a variable name (secret id '$id')." >&2; exit 2; }
-  [[ -n "${!var+x}" ]] || { echo "::error::variable $var for build secret '$id' is not set." >&2; exit 2; }
-  add --secret "id=$id,env=$var"
+  secret_id BUILD_SECRET_ENVS "$count" "$id"
+  [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "::error::BUILD_SECRET_ENVS line $count: what follows '=' is not a variable name." >&2; exit 2; }
+  [[ -n "${!var+x}" ]] || { echo "::error::BUILD_SECRET_ENVS line $count: the named variable is not set." >&2; exit 2; }
+  args+=(--secret "id=$id,env=$var"); shown+=(--secret "id=***,env=$var")
 done < <(each_line "${BUILD_SECRET_ENVS:-}")
 
 # Attestations, as the action chose them. No provenance by default when the
@@ -222,7 +254,7 @@ except ValueError:
     pass
 ' "$metadata")"
   else
-    digest="$(sed -n 's/.*"containerimage\.digest": *"\([^"]*\)".*/\1/p' "$metadata" | head -n 1)"
+    digest="$(sed -n '/"containerimage\.digest"/{ s/.*"containerimage\.digest": *"\([^"]*\)".*/\1/p; q; }' "$metadata")"
   fi
 fi
 if [[ "$push" == true && -z "$digest" ]]; then
