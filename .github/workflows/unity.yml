@@ -285,7 +285,9 @@ jobs:
           cp -R .ci-helpers-scripts/scripts "$lib/scripts"
           cp .ci-helpers-scripts/toolchain-pins.env "$lib/toolchain-pins.env"
           rm -rf -- "$PWD/.ci-helpers-scripts"
-          chmod -R a-w "$lib"
+          # Files only: a directory without the write bit would stop a
+          # self-hosted runner from clearing its _temp between jobs.
+          find "$lib" -type f -exec chmod a-w {} +
           hash="$(cd "$lib" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
           [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::could not hash the library copy."; exit 1; }
           echo "lib=$lib" >> "$GITHUB_OUTPUT"

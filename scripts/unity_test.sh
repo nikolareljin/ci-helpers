@@ -171,10 +171,13 @@ rel_dir() {
   local name="$1" value="$2"
   [[ "$value" != *$'\n'* ]] || refuse "$name must be one line."
   value="${value%/}"
+  value="${value#./}"
   [[ -n "$value" ]] || value=.
+  [[ "$value" == . ]] && { printf '.\n'; return 0; }
   [[ "$value" != /* ]] || refuse "$name must be relative to the workspace, not '$value'."
   case "/$value/" in
     */../*) refuse "$name must not contain '..': '$value'." ;;
+    */./*) refuse "$name must not contain a '.' segment: '$value'." ;;
   esac
   printf '%s\n' "$value"
 }
@@ -296,7 +299,7 @@ mount_dir() {
 }
 mount_dir "$project_path"
 mount_dir "$artifacts_path"
-mount_dir CodeCoverage
+[[ "$coverage_enabled" == true ]] && mount_dir CodeCoverage
 
 # ---- outputs first: a failing run still uploads its results ----
 printf 'artifactsPath=%s\ncoveragePath=CodeCoverage\nimage=%s\n' "$artifacts_path" "$image"

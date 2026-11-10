@@ -186,14 +186,22 @@ fi
 name="a licence file without DeveloperData is refused"
 UNITY_SERIAL='' UNITY_LICENSE="<root/>" run "$name" 4 && says "no <DeveloperData Value=...>" && not_called
 
-name="a named version is used over ProjectVersion.txt"
-UNITY_VERSION=6000.0.23f1 PROJECT_PATH=old run "$name" 0 && env_is UNITY_VERSION 6000.0.23f1
+name="a leading ./ is dropped and a . segment is refused, so the mount path is plain"
+if PROJECT_PATH=./game run "$name" 0; then
+  argv_has "--volume $work/ws/game:/github/workspace/game"
+  env_is PROJECT_PATH game
+fi
+PROJECT_PATH=game/./Assets run "a . segment in the project path is refused" 4 && says "must not contain a '.' segment" && not_called
 
-name="custom parameters and coverage off reach the container"
+name="custom parameters and coverage off reach the container, and CodeCoverage is not mounted"
 if CUSTOM_PARAMETERS="-nographics -extra x" COVERAGE_ENABLED=false run "$name" 0; then
   env_is CUSTOM_PARAMETERS "-nographics -extra x"
   env_is COVERAGE_ENABLED false
+  argv_lacks "CodeCoverage"
 fi
+
+name="a named version is used over ProjectVersion.txt"
+UNITY_VERSION=6000.0.23f1 PROJECT_PATH=old run "$name" 0 && env_is UNITY_VERSION 6000.0.23f1
 
 name="a version before 2019.3 uses the base image, as the action did"
 PROJECT_PATH=ancient run "$name" 0 && argv_has "docker.io/unityci/editor:ubuntu-2019.2.21f1-base-3@sha256:$digest"
@@ -466,7 +474,8 @@ if step "$name" 0 verify; then
   [[ -n "$lib" && -f "$lib/scripts/unity_test.sh" && -f "$lib/toolchain-pins.env" ]] || { echo "FAIL $name: no lib output or no copy there: '$lib'"; fail=1; }
   [[ "$lib" == "$work/rt/"* ]] || { echo "FAIL $name: lib '$lib' is not under RUNNER_TEMP"; fail=1; }
   [[ -e "$lib/.git" ]] && { echo "FAIL $name: the copy carries .git"; fail=1; }
-  [[ -w "$lib/scripts/unity_test.sh" ]] && { echo "FAIL $name: the copy is writable"; fail=1; }
+  [[ -w "$lib/scripts/unity_test.sh" ]] && { echo "FAIL $name: the copy's files are writable"; fail=1; }
+  [[ -w "$lib/scripts" ]] || { echo "FAIL $name: the copy's directories are read-only; a self-hosted runner could not clear them"; fail=1; }
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL $name: hash output '$hash'"; fail=1; }
   [[ -e "$wsf/.ci-helpers-scripts" ]] && { echo "FAIL $name: .ci-helpers-scripts is still in the workspace"; fail=1; }
   [[ -e "$canary" ]] && { echo "FAIL $name: the planted fsmonitor or hook ran during the verify step"; fail=1; }
