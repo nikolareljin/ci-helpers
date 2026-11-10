@@ -310,6 +310,19 @@ jobs:
         shell: bash
         run: bash tests/setup_flutter_test.sh
 
+      # PHP comes from apt (the ondrej/php PPA under a pinned key when the
+      # image lacks the version) and Composer from getcomposer.org at a
+      # pinned digest. Stub apt, gpg, curl and php; nothing downloaded.
+      - name: setup_php.sh installs from apt under the pinned key and keeps composer to its digest
+        shell: bash
+        run: bash tests/setup_php_test.sh
+
+      # The ondrej/php PPA has no suite for ubuntu-latest (26.04) yet: every
+      # PHP job defaults to ubuntu-24.04 until it does.
+      - name: PHP jobs default to ubuntu-24.04
+        shell: bash
+        run: bash tests/php_runner_gate_test.sh
+
       - name: The Godot and Flutter archive caches are saved right after the verified download and never from a release job
         shell: bash
         run: bash tests/toolchain_cache_save_test.sh
@@ -334,7 +347,7 @@ jobs:
 
       # A scan job runs only allowlisted actions, digest-pinned containers and
       # token-free checkouts, inherits no secrets and writes nothing but
-      # SARIF; no workflow runs a third-party action outside the kept list.
+      # SARIF; no workflow runs a third-party action outside ALLOWED_ACTIONS.
       # The test runs the gate against what it must refuse, then the gate
       # runs against this tree.
       - name: Scan-egress check reports what it must

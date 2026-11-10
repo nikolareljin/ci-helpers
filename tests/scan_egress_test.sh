@@ -6,8 +6,8 @@
 #              token, secrets: inherit, write permissions, security-events
 #              without an upload), stays quiet on what is allowed, holds every
 #              other workflow and action to ALLOWED_ACTIONS (file-scoped
-#              entries in their file and job only) plus the temporary kept
-#              list and nothing else, and leaves the scan-only rules off them.
+#              entries in their file and job only) and nothing else, and
+#              leaves the scan-only rules off them.
 # USAGE: bash tests/scan_egress_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -52,7 +52,7 @@ jobs:
       - uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
 YAML
 
-expect "toolchain exception without a commit pin" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" <<'YAML'
+expect "third-party action without a commit pin" 1 "uses: 'game-ci/unity-test-runner@v4' is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -60,7 +60,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: shivammathur/setup-php@v2
+      - uses: game-ci/unity-test-runner@v4
 YAML
 
 expect "docker run by tag" 1 "docker: container run or create without an @sha256: image" <<'YAML'
@@ -430,7 +430,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/trivy-scan
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: |
@@ -471,15 +470,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+      - run: docker run --rm alpine:3 true
 YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
 
-# Every other workflow and action: a third-party `uses:` outside the kept
-# list is a finding, in a step, in a job that calls a reusable workflow, and
-# in a composite action. A kept one is not, and the removed release action
-# does not come back.
+# Every other workflow and action: a third-party `uses:` outside
+# ALLOWED_ACTIONS is a finding, in a step, in a job that calls a reusable
+# workflow, and in a composite action. The replaced actions do not come back.
 expect "new third-party action in a build workflow" 1 "uses: 'some/new-action@0000000000000000000000000000000000000000' is not in ALLOWED_ACTIONS" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
@@ -527,8 +525,8 @@ jobs:
     steps:
       - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
 YAML
-# The pnpm, Rust, Ruby, Godot and Flutter installers and the cargo cache are
-# first-party steps now (corepack, rustup, the tool cache, the official
+# The pnpm, Rust, Ruby, Godot, Flutter and PHP installers and the cargo cache are
+# first-party steps now (corepack, rustup, the tool cache, apt, the official
 # release archives at pinned digests, actions/cache), and the Azure signing
 # action is used under its new name; the actions they replaced are refused
 # in every workflow, scan or not, so none can come back by habit. The
@@ -543,6 +541,7 @@ for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
             ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
             chickensoft-games/setup-godot@ac93246ea68518a384c1c280a496e5989341f2f6 \
             subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 \
+            shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 \
             azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 \
             docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 \
             docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 \
@@ -686,7 +685,7 @@ runs:
   steps:
     - uses: some/new-action@0000000000000000000000000000000000000000
 YAML
-expect "unpinned kept action in a build workflow" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" .github/workflows/build.yml <<'YAML'
+expect "unpinned replaced action in a build workflow" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
   build:
@@ -694,26 +693,30 @@ jobs:
     steps:
       - uses: shivammathur/setup-php@v2
 YAML
-expect "kept actions in a build workflow stay quiet" 0 "" .github/workflows/build.yml <<'YAML'
+for gone in game-ci/unity-test-runner shivammathur/setup-php; do
+expect "replaced action $gone in a build workflow" 1 "uses: '$gone@0000000000000000000000000000000000000000' is not in ALLOWED_ACTIONS" .github/workflows/build.yml <<YAML
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: $gone@0000000000000000000000000000000000000000
+YAML
+done
+expect "allowed actions in a build workflow stay quiet" 0 "" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/local
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: docker run --rm alpine:3 true
 YAML
-# The kept list is for the other workflows; a scan workflow still allows
-# only the toolchain installers. The one kept entry left (setup-php) is also
-# a toolchain installer, so there is no kept action a scan workflow refuses
-# to drive here until the list gains one or empties.
-# The kept list in the script is exactly the set of third-party actions this
-# tree runs outside ALLOWED_ACTIONS: an entry nobody uses is a leftover,
-# deleted with its action. Every ALLOWED_ACTIONS entry carries a reason, and
-# a file-scoped one names files and jobs that exist.
+# No third-party action runs outside ALLOWED_ACTIONS, and the temporary
+# kept list is gone. Every ALLOWED_ACTIONS entry carries a reason, and a
+# file-scoped one names files and jobs that exist.
 python3 - "$root" <<'PY' || fail=1
 import glob, re, sys
 sys.path.insert(0, sys.argv[1] + "/scripts")
@@ -726,8 +729,8 @@ for path in glob.glob(sys.argv[1] + "/.github/**/*.yml", recursive=True):
         if len(parts) >= 2 and not egress.allowed_entry("/".join(parts[:2])):
             used.add("/".join(parts[:2]))
 used -= {o + "/ci-helpers" for o in egress.LIBRARY_OWNERS}
-stale = sorted(egress.KEPT_THIRD_PARTY - used)
-missing = sorted(used - egress.KEPT_THIRD_PARTY - egress.TOOLCHAIN_EXCEPTIONS)
+stale = ["KEPT_THIRD_PARTY"] if hasattr(egress, "KEPT_THIRD_PARTY") else []
+missing = sorted(used - egress.TOOLCHAIN_EXCEPTIONS)
 bad = []
 for pattern, reason, scope in egress.ALLOWED_ACTIONS:
     if not reason.strip():
@@ -740,9 +743,9 @@ for pattern, reason, scope in egress.ALLOWED_ACTIONS:
         if job not in (doc.get("jobs") or {}):
             bad.append(f"{pattern}: {rel} has no job {job}")
 if stale:
-    print("FAIL kept third-party actions no workflow uses any more:", ", ".join(stale))
+    print("FAIL the temporary kept list is still defined:", ", ".join(stale))
 if missing:
-    print("FAIL third-party actions in use but neither allowed nor kept:", ", ".join(missing))
+    print("FAIL third-party actions in use but not in ALLOWED_ACTIONS:", ", ".join(missing))
 for b in bad:
     print("FAIL ALLOWED_ACTIONS:", b)
 sys.exit(1 if stale or missing or bad else 0)
@@ -761,5 +764,5 @@ YAML
 rc=0; GITHUB_REPOSITORY_OWNER=SomeOwner python3 "$check" --root "$work/f" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL the fork's own ci-helpers was refused:"; cat "$work/out"; fail=1; fi
 
-[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, holds every workflow to ALLOWED_ACTIONS and the kept list, passes what is allowed and this tree"
+[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, holds every workflow to ALLOWED_ACTIONS, passes what is allowed and this tree"
 exit "$fail"
