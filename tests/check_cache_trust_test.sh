@@ -317,7 +317,64 @@ jobs:
       checks: write
 YAML
 
+expect "secrets read by name through an expression" 1 "restores 'target/' into a job that reads secrets[...] or toJSON(secrets)" <<YAML
+on: push
+jobs:
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: target/
+          key: rust-x
+      - run: echo "\$TOKEN"
+        env:
+          TOKEN: \${{ secrets[inputs.token_name] }}
+YAML
+
+expect "a word that holds a shipping token is not one" 0 "" .github/workflows/design-check.yml <<'YAML'
+on: push
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.25'
+YAML
+
 # --- save placement ---------------------------------------------------------
+
+expect "a save after a caller command passed through env" 1 "actions/cache/save after steps[2] 'Frontend install', which runs the caller's inputs.<name>command" <<YAML
+on:
+  workflow_call:
+    inputs:
+      frontend_install_command:
+        type: string
+jobs:
+  ci:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+      - run: cargo fetch
+      - name: Frontend install
+        env:
+          INSTALL_CMD: \${{ inputs.frontend_install_command }}
+        run: bash -c "\$INSTALL_CMD"
+      - uses: actions/cache/save@$pin
+        with:
+          path: ~/.cargo/registry/index/
+          key: rust-x
+YAML
 
 expect "a save after the caller's step" 1 "actions/cache/save after steps[2] 'Install', which runs the caller's inputs.<name>command" <<YAML
 on:

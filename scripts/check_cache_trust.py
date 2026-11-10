@@ -18,8 +18,8 @@ Every workflow and composite action under .github (.yml or .yaml) is read
 with PyYAML. A job is TRUSTED when any of these holds:
 
   secrets      a step, `env:`, `with:` or `if:` of the job names `secrets.X`
-               for an X other than GITHUB_TOKEN, or the job has
-               `secrets: inherit`;
+               for an X other than GITHUB_TOKEN, `secrets[...]` or
+               `toJSON(secrets)`, or the job has `secrets: inherit`;
   write        its permissions (the job's, else the workflow's) grant any
                scope `write`, or are `write-all`;
   needs        a trusted job of the same workflow needs it, directly or
@@ -31,9 +31,10 @@ with PyYAML. A job is TRUSTED when any of these holds:
                trusted only by its own secrets or permissions passes
                nothing on; the called workflow declares what its jobs hold
                and is read on its own;
-  named        its workflow file name holds release, deploy, publish, sign
-               or submit: a `deploy_command` the caller supplies ships
-               with credentials the gate cannot see.
+  named        a token of its workflow file name (between `-`, `_` and `.`)
+               is release, deploy, publish, sign or submit: a
+               `deploy_command` the caller supplies ships with credentials
+               the gate cannot see.
 
 Every other job is PLAIN. A composite action runs inside whatever job
 calls it, so its steps are held to the trusted rules.
@@ -68,8 +69,9 @@ In every job, trusted or plain, and in a composite action:
                `actions/cache/restore` and save with `actions/cache/save`.
   placement    `actions/cache/save` at step k must have `actions/cache/restore`
                with the same `path` and `key` at step k-2 and a `run:` step at
-               k-1 (the dependency fetch); no step before the save may run
-               `inputs.<name>command`, the caller's own code.
+               k-1 (the dependency fetch); no run step before the save may
+               name `inputs.<name>command`, the caller's own code, in its
+               `run:` or its `env:`.
 
 EXIT_CODES:
   0  nothing found
@@ -103,6 +105,8 @@ SETUP_OFF = {
 }
 
 SECRET = re.compile(r"\bsecrets\.(?!GITHUB_TOKEN\b)[A-Za-z_][A-Za-z0-9_]*")
+# secrets[inputs.name] and toJSON(secrets) read any secret; both count.
+SECRET_DYNAMIC = re.compile(r"\bsecrets\s*\[|\btojson\(\s*secrets\s*\)", re.IGNORECASE)
 CALLER = re.compile(r"\$\{\{\s*inputs\.[a-z_]*command\s*\}\}")
 
 
@@ -124,7 +128,13 @@ def with_text(step: dict, key: str) -> str:
 
 def yaml_text(value) -> str:
     """A with: value as it is written in a workflow."""
-    return {False: "false", True: "true", "": '""'}.get(value, repr(value))
+    if value is False:
+        return "false"
+    if value is True:
+        return "true"
+    if value == "":
+        return '""'
+    return repr(value)
 
 
 def label(step: dict, i: int) -> str:
@@ -137,6 +147,8 @@ def is_trusted(job: dict, wf_perms) -> list[str]:
     why = []
     text = yaml.safe_dump(job, width=10**9)
     hits = sorted(set(SECRET.findall(text)))
+    if SECRET_DYNAMIC.search(text):
+        hits.append("secrets[...] or toJSON(secrets)")
     if hits:
         why.append("reads " + ", ".join(hits))
     if job.get("secrets") == "inherit":
@@ -163,7 +175,13 @@ def close_needs(jobs: dict[str, dict], out: dict[str, str]) -> bool:
     return changed
 
 
-PUBLISHING_NAME = re.compile(r"release|deploy|publish|sign|submit")
+# A token of the file name, between `-`, `_` or `.`: deploy.yml, go-deploy.yml,
+# rust-release-tarballs.yml, winget-submit.yml; not a word that holds one.
+PUBLISHING_TOKENS = {"release", "deploy", "publish", "sign", "submit"}
+
+
+def named_for_shipping(rel: str) -> bool:
+    return bool(PUBLISHING_TOKENS & set(re.split(r"[-_.]", Path(rel).name)))
 
 
 def trusted_jobs(doc: dict, rel: str = "") -> dict[str, str]:
@@ -171,7 +189,7 @@ def trusted_jobs(doc: dict, rel: str = "") -> dict[str, str]:
     builds what that job publishes."""
     jobs = {n: j for n, j in (doc.get("jobs") or {}).items() if isinstance(j, dict)}
     out: dict[str, str] = {}
-    named = PUBLISHING_NAME.search(Path(rel).name) if rel else None
+    named = named_for_shipping(rel) if rel else False
     for name, job in jobs.items():
         why = is_trusted(job, doc.get("permissions"))
         if named:
@@ -207,8 +225,8 @@ def trusted_everywhere(docs: dict[str, dict]) -> dict[str, dict[str, str]]:
                 if not called or called.group(1) not in docs:
                     continue
                 target = called.group(1)
-                for job in (docs[target].get("jobs") or {}):
-                    if job not in out[target]:
+                for job, body in (docs[target].get("jobs") or {}).items():
+                    if isinstance(body, dict) and job not in out[target]:
                         out[target][job] = f"is called by trusted job {rel}: jobs.{name}"
                         changed = True
             if close_needs(jobs, out[rel]):
@@ -254,8 +272,9 @@ def check_trusted_steps(steps: list[dict], where: str, why: str, out: list[str])
 
 
 def check_all_steps(steps: list[dict], where: str, out: list[str]) -> None:
+    # A caller step runs inputs.<name>command, in its run: or through env:.
     first_caller = next((j for j, s in enumerate(steps)
-                         if isinstance(s.get("run"), str) and CALLER.search(s["run"])), None)
+                         if "uses" not in s and CALLER.search(yaml.safe_dump(s, width=10**9))), None)
     for i, step in enumerate(steps):
         here = f"{where}.{label(step, i)}"
         act = action_of(step)
