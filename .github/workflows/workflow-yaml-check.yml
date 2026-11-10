@@ -325,6 +325,13 @@ jobs:
         shell: bash
         run: bash tests/docker_scripts_test.sh
 
+      # Unity tests run in the editor image pinned by digest in
+      # toolchain-pins.env, from a script; the licence secrets cross to the
+      # container by name. Stub docker and stub editor; no licence here.
+      - name: unity_test.sh runs the pinned editor image as the action did and keeps the licence out of argv
+        shell: bash
+        run: bash tests/unity_test_test.sh
+
       # A scan job runs only allowlisted actions, digest-pinned containers and
       # token-free checkouts, inherits no secrets and writes nothing but
       # SARIF; no workflow runs a third-party action outside the kept list.
