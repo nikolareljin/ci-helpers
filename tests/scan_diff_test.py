@@ -594,11 +594,14 @@ sys.exit(rc)
         # a.min.js, and what the ignore files name, some even when named; the
         # neutral copy at f<i>/file.<ext> or f<i>/<name> is read whatever the
         # review calls the file.
-        cases = {".h/x.py": "file.py", "a/.b/c/x.py": "file.py", ".x.py": "file.py",
-                 "-s/x.py": "file.py", "vendor/x.py": "file.py", "a/build/y.py": "file.py",
-                 "node_modules/z.js": "file.js", "a.min.js": "file.js", "sub/Dockerfile": "Dockerfile",
-                 ".bashrc": "bashrc", ":(glob)*.py": "file.py",
-                 ":(exclude)a.py": "file.py", ":!b.py": "file.py", "*.py": "file.py", "[x].py": "file.py"}
+        cases = {".h/x.py": ["x.py", "file.py"], "a/.b/c/x.py": ["x.py", "file.py"],
+                 ".x.py": ["x.py", "file.py"], "-s/x.py": ["x.py", "file.py"],
+                 "vendor/x.py": ["x.py", "file.py"], "a/build/y.py": ["y.py", "file.py"],
+                 "node_modules/z.js": ["z.js", "file.js"], "a.min.js": ["a.min.js", "file.js"],
+                 "sub/Dockerfile": ["Dockerfile"], "vendor/Dockerfile.dev": ["Dockerfile.dev", "file.dev"],
+                 "conf/nginx.conf": ["nginx.conf", "file.conf"], ".bashrc": ["bashrc"],
+                 ":(glob)*.py": [":(glob)*.py", "file.py"], ":(exclude)a.py": [":(exclude)a.py", "file.py"],
+                 ":!b.py": [":!b.py", "file.py"], "*.py": ["*.py", "file.py"], "[x].py": ["[x].py", "file.py"]}
         for path, neutral in cases.items():
             with self.subTest(path=path):
                 commit(self.fx.clone, "changed", **{path: "marker = 3\n"})
@@ -607,9 +610,10 @@ sys.exit(rc)
                 self.run_script(FOXGUARD_RUN, 0)
                 # The branch's own new.py is there too.
                 tree = self.neutral_call()["tree"]
-                self.assertEqual(sorted(tree.values()), ["marker = 3\n", "y = 2\n"])
-                self.assertEqual(len(tree), 2)
-                self.assertIn(neutral, [p.split("/", 1)[1] for p, t in tree.items() if t.startswith("marker")])
+                self.assertEqual(sorted(p.split("/", 1)[1] for p, t in tree.items() if t.startswith("marker")),
+                                 sorted(neutral))
+                self.assertEqual(sorted(p.split("/", 1)[1] for p, t in tree.items() if t == "y = 2\n"),
+                                 ["file.py", "new.py"])
                 git(self.fx.clone, "reset", "-q", "--hard", self.fx.feature)
 
     def test_foxguard_neutral_base_holds_the_old_copies(self):
@@ -621,9 +625,11 @@ sys.exit(rc)
         call = self.neutral_call()
         neutral = Path(call["cwd"])
         # new.py (f1) and the changed README (f0) and the moved old.py (f2).
-        self.assertEqual(call["tree"], {"f0/file.md": "# fixture\nmore\n", "f1/file.py": "y = 2\n",
-                                        "f2/file.py": "x = 1\n"})
-        self.assertEqual(call["base_tree"], {"f0/file.md": "# fixture\n", "f2/file.py": "x = 1\n"})
+        self.assertEqual(call["tree"], {"f0/README.md": "# fixture\nmore\n", "g0/file.md": "# fixture\nmore\n",
+                                        "f1/new.py": "y = 2\n", "g1/file.py": "y = 2\n",
+                                        "f2/old.py": "x = 1\n", "g2/file.py": "x = 1\n"})
+        self.assertEqual(call["base_tree"], {"f0/README.md": "# fixture\n", "g0/file.md": "# fixture\n",
+                                             "f2/old.py": "x = 1\n", "g2/file.py": "x = 1\n"})
         # The neutral repository is gone with the rest of the scan.
         self.assertFalse(neutral.exists())
 
@@ -638,7 +644,8 @@ sys.exit(rc)
         git(self.fx.clone, "rebase", "-q", "origin/main")
         self.run_script(FOXGUARD_RUN, 0, CONFIG_PATH="cfg/.foxguard.yml")
         config = self.neutral_call()["config"]
-        self.assertIn("path: f0/file.py", config)
+        self.assertIn("path: f0/new.py", config)
+        self.assertIn("path: g0/file.py", config)
         self.assertNotIn("old.py", config)
         self.assertIn("py/no-command-injection", config)
 

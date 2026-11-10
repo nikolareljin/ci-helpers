@@ -31,6 +31,9 @@
 #   hidden-moved   moves old.py under a dot directory: foxguard-diff passes
 #   noise-new      adds shell=True in vendor/x.py and build/y.py:
 #                  foxguard-diff fails (foxguard's walk skips those paths)
+#   named-new      adds TLS checks turned off in vendor/Dockerfile.dev and an
+#                  old protocol in vendor/nginx.conf: foxguard-diff fails
+#                  (foxguard picks those languages by the file name)
 #   minified-new   adds a command injection in a.min.js: foxguard-diff fails
 #                  (foxguard skips that name even when it is named)
 #   noise-moved    moves old.py into vendor/ and edits an old vendored file:
@@ -158,6 +161,12 @@ injection vendor/x.py
 injection build/y.py
 g add -A; g commit -q -m "new command injections where foxguard's walk does not look"
 
+branch named-new
+mkdir -p "$src/vendor"
+printf 'FROM scratch\nENV NODE_TLS_REJECT_UNAUTHORIZED=0\n' > "$src/vendor/Dockerfile.dev"
+printf 'server {\n  ssl_protocols TLSv1 TLSv1.1;\n}\n' > "$src/vendor/nginx.conf"
+g add -A; g commit -q -m "insecure TLS in files foxguard knows by name"
+
 branch minified-new
 printf 'const cp = require("child_process");\ncp.exec(process.argv[2]);\n' > "$src/a.min.js"
 g add -A; g commit -q -m "a new command injection in a file name foxguard skips"
@@ -179,7 +188,7 @@ branch too-large
 g add -A; g commit -q -m "a file over foxguard's size limit"
 
 g checkout -q main
-for b in magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
+for b in named-new magic-names noise-new minified-new noise-moved too-large hidden-new hidden-moved renamed renamed-new deleted ignored ignored-dot clean new-secret new-shell moved added-removed both head-config head-ignore; do
   git clone -q --branch "$b" "$src" "$dir/$b"
 done
 echo "scan-diff fixture at $dir"

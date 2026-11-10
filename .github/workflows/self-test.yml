@@ -1449,6 +1449,14 @@ jobs:
           scan_path: ${{ env.FIXTURE }}/noise-new
           base_ref: main
 
+      - name: Insecure TLS in vendor/Dockerfile.dev and vendor/nginx.conf fails
+        id: named_new
+        continue-on-error: true
+        uses: ./.github/actions/foxguard-diff
+        with:
+          scan_path: ${{ env.FIXTURE }}/named-new
+          base_ref: main
+
       - name: A new command injection in a.min.js fails
         id: minified_new
         continue-on-error: true
@@ -1553,13 +1561,14 @@ jobs:
           MINIFIED_NEW: ${{ steps.minified_new.outcome }}
           TOO_LARGE: ${{ steps.too_large.outcome }}
           MAGIC_NAMES: ${{ steps.magic_names.outcome }}
+          NAMED_NEW: ${{ steps.named_new.outcome }}
           HEAD_CONFIG: ${{ steps.head_config.outcome }}
           NO_BASE: ${{ steps.no_base.outcome }}
           FULL_SCAN: ${{ steps.full_scan.outcome }}
         run: |
           set -euo pipefail
           bad=0
-          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "files named like pathspecs:$MAGIC_NAMES" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
+          for pair in "new command injection:$NEW_SHELL" "new injection in a renamed file:$RENAMED_NEW" "file its .gitignore names:$IGNORED" "file its .ignore names:$IGNORED_DOT" "file under a dot directory:$HIDDEN_NEW" "file under vendor/ and build/:$NOISE_NEW" "file named a.min.js:$MINIFIED_NEW" "file over the size limit:$TOO_LARGE" "files named like pathspecs:$MAGIC_NAMES" "files foxguard knows by name:$NAMED_NEW" "config on the branch:$HEAD_CONFIG" "missing base:$NO_BASE" "full scan of the old finding:$FULL_SCAN"; do
             [[ "${pair##*:}" == failure ]] || { echo "::error::${pair%:*} did not fail (${pair##*:})"; bad=1; }
           done
           exit "$bad"

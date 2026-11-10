@@ -327,7 +327,8 @@ Notes:
   vendored (`node_modules`, `vendor`, `dist`, `build`), some even when
   named and on the base side too. So every changed regular file is also
   copied, as the base and as the head have it, to a neutral path
-  (`f<i>/file.<ext>`, or `f<i>/<name>` without an extension) in a repository
+  (`f<i>/<name>`, and `g<i>/file.<ext>` for names foxguard skips such as
+  `a.min.js`) in a repository
   under the runner's temporary directory, and all copies are scanned in one
   `foxguard diff` call: a new finding in `vendor/x.py` fails, an old one in a
   file moved into `vendor/` does not. A reviewed config's

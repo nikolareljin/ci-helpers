@@ -6,9 +6,9 @@ side too, so a new finding there passes and an old one in an edited vendored
 file is reported as new. This writes, under <tmp-dir>/neutral, a repository
 with two commits: the base copy of each changed regular file, read from
 <rename-base> (the merge base with the review's renames applied), and its
-head copy. File i lands at f<i>/file.<ext>, or f<i>/<name> when the name has
-no extension (Dockerfile), so no path or name of the review decides what
-foxguard reads. Links and submodules are not copied. Only git moves bytes;
+head copy. File i lands at f<i>/<name> and, with an extension, also at
+g<i>/file.<ext>, so no directory or name of the review decides whether
+foxguard reads it. Links and submodules are not copied. Only git moves bytes;
 nothing in the caller's repository changes.
 
 Usage: neutral_tree.py <work-tree> <merge-base> <rename-base> <tmp-dir> <config-or-empty>
@@ -52,14 +52,18 @@ def quoted(path):
     return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def neutral_name(index, path):
-    name = path.rsplit(b"/", 1)[-1].lstrip(b".")
+def neutral_names(index, path):
+    """The copies of one file: f<i>/<name> keeps the name (foxguard picks some
+    languages by it: Dockerfile.dev, nginx.conf), leading dots dropped so the
+    walk does not skip it; g<i>/file.<ext> keeps only the extension, for names
+    foxguard skips (a.min.js). Directories are dropped: no rule of foxguard
+    0.14.1 reads them, and its walk skips vendor/, build/ and hidden ones."""
+    name = path.rsplit(b"/", 1)[-1].lstrip(b".") or b"file"
+    names = [b"f%d/" % index + name]
     stem, dot, ext = name.rpartition(b".")
     if dot and stem and ext:
-        name = b"file." + ext
-    elif not name:
-        name = b"file"
-    return b"f%d/" % index + name
+        names.append(b"g%d/file." % index + ext)
+    return names
 
 
 def tree(root, commit, env_extra):
@@ -97,7 +101,7 @@ def neutral_config(text, folder, names):
                 raise ValueError("ignore rule without a path")
             target = posixpath.normpath(posixpath.join(folder, rule["path"]))
             if target in names:
-                moved.append({**rule, "path": names[target]})
+                moved.extend({**rule, "path": name} for name in names[target])
         scan["ignore_rules"] = moved
     return yaml.safe_dump(doc, sort_keys=False)
 
@@ -128,16 +132,17 @@ def main():
         head = regular(head_tree, full)
         if head is None:
             continue
-        name = neutral_name(index, path)
-        names[full.decode()] = name.decode()
+        copies = neutral_names(index, path)
+        names[full.decode()] = [c.decode() for c in copies]
         for mode, sha in filter(None, (head, regular(old_tree, full))):
             if sha not in copied:
                 blob = git(top, "cat-file", "blob", sha.decode(), env_extra=caller)
                 copied[sha] = git(neutral, "hash-object", "-w", "--stdin", env_extra=store, stdin=blob).strip()
         old = regular(old_tree, full)
-        if old is not None:
-            base_info += old[0] + b" " + copied[old[1]] + b"\t" + name + b"\0"
-        head_info += head[0] + b" " + copied[head[1]] + b"\t" + name + b"\0"
+        for name in copies:
+            if old is not None:
+                base_info += old[0] + b" " + copied[old[1]] + b"\t" + name + b"\0"
+            head_info += head[0] + b" " + copied[head[1]] + b"\t" + name + b"\0"
     git(neutral, "read-tree", "--empty", env_extra=store)
     git(neutral, "update-index", "-z", "--index-info", env_extra=store, stdin=base_info)
     base_tree = git(neutral, "write-tree", env_extra=store).decode().strip()
