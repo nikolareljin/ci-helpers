@@ -172,5 +172,5 @@ fi
 # allow_unscanned does not name.
 [[ "$read_count" -gt 0 || -z "$changed" || "$n_strict" -eq 0 ]] || fail
 if [[ "$n_allowed" -gt 0 ]]; then
-  echo "foxguard-diff: $n_allowed changed file(s) allowed unscanned by allow_unscanned"
+  echo "foxguard-diff: $n_allowed changed file(s) matched allow_unscanned"
 fi

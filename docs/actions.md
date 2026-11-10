@@ -359,8 +359,9 @@ Unscannable files (`allow_unscanned`):
 - By default a changed file foxguard cannot read (minified, over 1 MiB, not
   UTF-8, or not parseable) fails the step: a finding in it would pass unseen.
 - `allow_unscanned` lists glob patterns, separated by commas or newlines,
-  matched against each changed file's path from the repository root, as
-  exact bytes and case-sensitive. `*` matches within a name, `?` one
+  matched against each changed file's path from the repository root,
+  case-sensitive, as UTF-8 text (a byte that is not UTF-8 is one
+  character). `*` matches within a name, a leading `.` too, `?` one
   character of a name, and a `**` name any number of directories
   (`static/**/*.min.js`, `**/*.min.js`, `vendor/**`). Everything else is
   literal: no brackets, no pathspec magic, no shell expansion. An empty
@@ -370,7 +371,7 @@ Unscannable files (`allow_unscanned`):
   second neutral repository and scanned the same way; its findings fail the
   step. It is not exempt from the `.gitignore`/`.ignore` check.
 - When any changed file matches, a passing step prints
-  `foxguard-diff: N changed file(s) allowed unscanned by allow_unscanned`:
+  `foxguard-diff: N changed file(s) matched allow_unscanned`:
   a count, no paths. N counts matching files, read or not.
 - The patterns live in the calling workflow, not in a file of the tree under
   review, so they are not read from a path the review itself adds. A pull

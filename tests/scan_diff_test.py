@@ -822,7 +822,7 @@ sys.exit(rc)
     # allow_unscanned: changed files the caller lets foxguard skip
 
     MINIFIED = "var a=1;" * 400 + "\n"
-    ALLOWED = "foxguard-diff: %d changed file(s) allowed unscanned by allow_unscanned\n"
+    ALLOWED = "foxguard-diff: %d changed file(s) matched allow_unscanned\n"
 
     def test_foxguard_refuses_an_unscannable_file_unless_a_pattern_allows_it(self):
         commit(self.fx.clone, "minified", **{"static/js/lib.min.js": self.MINIFIED})
