@@ -100,9 +100,8 @@ TRIVY_QUIET_FLAGS = ("--disable-telemetry", "--skip-version-check")
 # Toolchain installers the language scans still use. They install a compiler
 # or a package manager, not a scanner, and each must be pinned to a commit.
 # Adding one here is a decision, not a convenience.
-TOOLCHAIN_EXCEPTIONS = {
-    "shivammathur/setup-php",
-}
+# Empty: every toolchain the scans need is a first-party step now.
+TOOLCHAIN_EXCEPTIONS: set[str] = set()
 
 # Temporary: third-party actions the other workflows still run, each to be
 # replaced (E223) by a first-party step in a pull request of its own that
@@ -110,10 +109,6 @@ TOOLCHAIN_EXCEPTIONS = {
 # so a reader knows what is at stake until then. Nothing is added here
 # without a replacement task; an empty set is the goal.
 KEPT_THIRD_PARTY = {
-    # To be replaced (E223). Installs PHP and Composer; runs with the
-    # checkout (composer.json) and the job token for API rate limits;
-    # downloads tools from its own CDN.
-    "shivammathur/setup-php",
     # To be replaced (E223). Runs Unity tests in a container with the
     # checkout mounted and the licence secrets passed in.
     "game-ci/unity-test-runner",

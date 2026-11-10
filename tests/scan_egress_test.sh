@@ -52,7 +52,7 @@ jobs:
       - uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
 YAML
 
-expect "toolchain exception without a commit pin" 1 "uses: 'shivammathur/setup-php@v2' is not canonical" <<'YAML'
+expect "kept action without a commit pin" 1 "uses: 'game-ci/unity-test-runner@v4' is not canonical" <<'YAML'
 on: push
 jobs:
   scan:
@@ -60,7 +60,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: shivammathur/setup-php@v2
+      - uses: game-ci/unity-test-runner@v4
 YAML
 
 expect "docker run by tag" 1 "docker: container run or create without an @sha256: image" <<'YAML'
@@ -430,7 +430,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/trivy-scan
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: |
@@ -471,7 +470,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+      - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
 YAML
 rc=0; python3 "$check" --root "$work/t" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat "$work/out"; fail=1; fi
@@ -527,8 +526,8 @@ jobs:
     steps:
       - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
 YAML
-# The pnpm, Rust, Ruby, Godot and Flutter installers and the cargo cache are
-# first-party steps now (corepack, rustup, the tool cache, the official
+# The pnpm, Rust, Ruby, Godot, Flutter and PHP installers and the cargo cache are
+# first-party steps now (corepack, rustup, the tool cache, apt, the official
 # release archives at pinned digests, actions/cache), and the Azure signing
 # action is used under its new name; the actions they replaced are refused
 # in every workflow, scan or not, so none can come back by habit. The
@@ -541,6 +540,7 @@ for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
             ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
             chickensoft-games/setup-godot@ac93246ea68518a384c1c280a496e5989341f2f6 \
             subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 \
+            shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 \
             azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 \
             docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 \
             docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 \
@@ -700,7 +700,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: game-ci/unity-test-runner@0000000000000000000000000000000000000000
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
       - uses: ./.github/actions/local
       - uses: nikolareljin/ci-helpers/.github/actions/gitleaks-scan@0000000000000000000000000000000000000000
       - run: docker run --rm alpine:3 true

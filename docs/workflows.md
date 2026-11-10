@@ -1185,6 +1185,27 @@ Inputs (selected):
 - `lint_pimcore_command` (string, default `vendor/bin/phpcs --standard=PSR12 --extensions=php src/`, only runs when Pimcore is detected)
 - `fetch_depth` (number, default `0`)
 
+PHP is installed by `scripts/setup_php.sh`, which the job checks out from this
+library at the workflow's own commit; no third-party action. The version comes
+from apt: the image's own packages when they hold it (8.3 on `ubuntu-24.04`),
+else the ondrej/php PPA, added under the signing key whose fingerprint is
+pinned in `toolchain-pins.env` and refused when the fetched key does not match.
+`php_version` must be `X.Y` (`8.4`; not `latest`, `nightly` or `8.4.1`), and
+only an Ubuntu or Debian runner is supported. The script installs the
+extension packages the replaced action's builds carried (bcmath, bz2, curl, gd,
+gmp, intl, mbstring, mysql, opcache, pgsql, readline, soap, sqlite3, xml, xsl,
+zip), Xdebug with `xdebug.mode=coverage`, `date.timezone=UTC` and
+`memory_limit=-1`, points `php`, `phar`, `php-config`, `phpize` and `phpdbg`
+at the version with `update-alternatives`, and checks that `php -v` reports
+it. Composer is the release pinned in `toolchain-pins.env` (`COMPOSER_VERSION`,
+`COMPOSER_PHAR_SHA256`), downloaded from getcomposer.org and installed only
+after its sha256 matches; `COMPOSER_PROCESS_TIMEOUT=0`,
+`COMPOSER_NO_INTERACTION=1` and `COMPOSER_NO_AUDIT=1` are exported for the
+later steps as before. No GitHub token is written to Composer's `auth.json`;
+a job that hits the GitHub API rate limit during `composer install` sets
+`COMPOSER_AUTH` itself. Opcache JIT is not switched on (the action wrote
+`opcache.jit=1235` into every php.ini).
+
 Example:
 
 ```yaml

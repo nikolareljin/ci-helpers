@@ -314,11 +314,55 @@ jobs:
           echo "Generated stack for ${image}, plugin at wp-content/plugins/${dir}"
           echo "compose_file=${out}" >> "$GITHUB_OUTPUT"
 
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        if: ${{ matrix.combo.php != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        if: ${{ matrix.combo.php != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ci-helpers scripts commit
+        if: ${{ matrix.combo.php != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is empty"; exit 1; }
+          [[ "$(git -C .ci-helpers-scripts rev-parse HEAD)" == "$WF_SHA" ]] || { echo "::error::ci-helpers checkout is not $WF_SHA"; exit 1; }
+          # The checkout is not part of the project under test: moved out
+          # of the tree before anything packages or checks it, as the
+          # script-helpers checkout is.
+          rm -rf "$RUNNER_TEMP/ci-helpers-scripts"
+          mv .ci-helpers-scripts "$RUNNER_TEMP/ci-helpers-scripts"
+
+      # PHP from apt: the image's own packages, else the ondrej/php PPA under
+      # the key fingerprint pinned in the library's toolchain-pins.env; Xdebug
+      # for coverage as the replaced action enabled it; Composer at the
+      # release pinned there, installed after its sha256 matches.
       - name: Setup PHP
         if: ${{ matrix.combo.php != '' && (inputs.php_lint_command != '' || inputs.phpcs_warning_command != '' || inputs.phpunit_command != '') }}
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0 @ 2026-10-16
-        with:
-          php-version: ${{ matrix.combo.php }}
+        shell: bash
+        env:
+          PHP_VERSION: ${{ matrix.combo.php }}
+        run: bash "$RUNNER_TEMP/ci-helpers-scripts/scripts/setup_php.sh"
 
       - name: WordPress plugin check
         shell: bash

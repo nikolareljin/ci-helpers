@@ -224,6 +224,12 @@ Defaults:
 - `lint_command`: `composer install --no-interaction --prefer-dist && vendor/bin/phpcs --standard=PSR12 --extensions=php`
 - `test_command`: `vendor/bin/phpunit`
 
+PHP comes from apt through `scripts/setup_php.sh` in every preset that takes
+`php_version` (this one, Laravel, Pimcore, the WordPress presets and the
+generic `ci.yml`, `pr-gate.yml`, `deploy.yml` and `release-build.yml`); what
+it installs, and that `php_version` must be `X.Y`, is under
+[`php-scan.yml`](workflows.md#php-scanyml).
+
 `php.yml` is the only preset that forwards `ci.yml`'s database and environment
 inputs: `db_image`, `db_env`, `db_ports`, `db_health_cmd`, `db_wait_seconds`
 (default `60`) and `extra_env`, all empty by default. They work as described
