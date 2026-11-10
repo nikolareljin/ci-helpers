@@ -96,7 +96,8 @@ if [[ "$version" == "global.json" ]]; then
 fi
 
 [[ -n "$version" ]] || { echo "::error::GODOT_VERSION is empty; name a release such as 4.3.0." >&2; exit 2; }
-semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$'
+# No empty identifier: `4.3.0-..` would otherwise name the stable release.
+semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 if [[ ! "$version" =~ $semver ]]; then
   echo "::error::GODOT_VERSION '$version' is not a full semantic version such as 4.3.0 or 4.4.0-beta1 (write 4.3.0, not 4.3)." >&2
   exit 2

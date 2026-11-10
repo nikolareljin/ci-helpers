@@ -33,8 +33,10 @@
 #                       else $HOME/flutter-sdk); one directory per
 #                       channel-version-arch, removed and rebuilt every
 #                       run, never cached.
-#   FLUTTER_STORAGE_BASE_URL  The mirror Flutter itself honours (default
-#                       https://storage.googleapis.com); https only.
+#   FLUTTER_STORAGE_BASE_URL  Unset, or https://storage.googleapis.com. A
+#                       mirror is refused: for a release without a pin the
+#                       manifest is the only source of the digest, so it
+#                       comes from the official host or not at all.
 #   RUNNER_ARCH         X64 or ARM64 (set by the runner); else from uname -m.
 #   TOOLCHAIN_PINS      Pins file (default: toolchain-pins.env beside scripts/).
 #   RUNNER_TEMP         Where the manifest and, without FLUTTER_ARCHIVE_DIR,
@@ -65,7 +67,8 @@ base="${FLUTTER_STORAGE_BASE_URL:-https://storage.googleapis.com}"
 base="${base%/}"
 
 command -v jq >/dev/null 2>&1 || { echo "::error::jq is needed to read the Flutter release manifest and is not on PATH." >&2; exit 2; }
-[[ "$base" == https://* ]] || { echo "::error::FLUTTER_STORAGE_BASE_URL '$base' is not an https URL." >&2; exit 2; }
+official=https://storage.googleapis.com
+[[ "$base" == "$official" ]] || { echo "::error::FLUTTER_STORAGE_BASE_URL '$base' is not $official; a mirror would also supply the digest the download is checked against." >&2; exit 2; }
 case "$dry_run" in
   true|false) ;;
   *) echo "::error::FLUTTER_DRY_RUN is '$dry_run'; it takes true or false." >&2; exit 2 ;;
@@ -142,7 +145,9 @@ trap 'rm -rf "$dest"' EXIT
 # The official manifest for this OS: one entry per release and architecture
 # (an entry without dart_sdk_arch is x64), newest first.
 manifest_url="$base/flutter_infra_release/releases/releases_$os.json"
-curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$manifest_url" -o "$dest/releases.json"
+# No redirect is followed (the official host serves both files directly),
+# and the manifest is capped at 8 MiB (about 400 KiB in 2026).
+curl --proto '=https' --tlsv1.2 --max-redirs 0 --max-filesize 8388608 --retry 5 --retry-connrefused -fsS "$manifest_url" -o "$dest/releases.json"
 # The action's selection: the channel, the architecture, then the exact
 # version, else the newest whose version starts with `X.Y.` for `X.Y` or
 # `X.Y.x`, else (`any`) the newest.
@@ -169,12 +174,15 @@ if [[ ${#manifest_sha} -ne 64 || -n "$(printf '%s' "$manifest_sha" | tr -d '0-9a
   echo "::error::The manifest entry for Flutter $chosen ($channel, $chosen_arch) has no 64-hex sha256; refusing to download an unverified SDK." >&2
   exit 1
 fi
-# The archive is a relative path under the release tree, a zip or a tar.xz.
+# The archive is <channel>/<os>/flutter_<name>.zip or .tar.xz under the
+# release tree, as every entry of the official manifests is; the URL is
+# built from this host and that path only.
 case "$archive" in
   *..*|/*|*" "*) echo "::error::The manifest names an archive path that leaves the release tree: '$archive'." >&2; exit 1 ;;
-  *.zip|*.tar.xz) ;;
-  *) echo "::error::The manifest names an archive of an unexpected form: '$archive'." >&2; exit 1 ;;
 esac
+if [[ ! "$archive" =~ ^$channel/$os/flutter_[A-Za-z0-9._+-]+\.(zip|tar\.xz)$ ]]; then
+  echo "::error::The manifest names an archive of an unexpected form: '$archive'." >&2; exit 1
+fi
 
 # The pinned release: the manifest must agree with the pin for this platform.
 pinned=false
@@ -248,7 +256,7 @@ if [[ -f "$archive_path" ]]; then
 fi
 if [[ ! -f "$archive_path" ]]; then
   echo "Downloading $url"
-  curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused -fsSL "$url" -o "$archive_path"
+  curl --proto '=https' --tlsv1.2 --max-redirs 0 --retry 5 --retry-connrefused -fsS "$url" -o "$archive_path"
   actual="$(sha256_of "$archive_path")"
   if [[ "$actual" != "$expected" ]]; then
     rm -f "$archive_path"

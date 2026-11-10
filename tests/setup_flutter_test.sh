@@ -82,6 +82,7 @@ cat > "$work/files/releases_windows.json" <<EOF
  "releases": [
   {"hash": "aaa", "channel": "stable", "version": "3.47.9", "dart_sdk_arch": "x64", "archive": "stable/windows/flutter_windows_3.47.9-stable.zip", "sha256": "$(sha "$work/files/stable/windows/flutter_windows_3.47.9-stable.zip")"},
   {"hash": "888", "channel": "stable", "version": "3.47.8", "dart_sdk_arch": "x64", "archive": "stable/windows/flutter_windows_3.47.8-stable.zip", "sha256": "$(sha "$work/files/stable/windows/flutter_windows_3.47.8-stable.zip")"},
+  {"hash": "enc", "channel": "dev", "version": "3.51.0-0.1.pre", "dart_sdk_arch": "x64", "archive": "stable/windows/%2e%2e/flutter_windows_3.47.8-stable.zip", "sha256": "$(sha "$work/files/stable/windows/flutter_windows_3.47.8-stable.zip")"},
   {"hash": "evil", "channel": "beta", "version": "3.50.0-0.4.pre", "dart_sdk_arch": "x64", "archive": "../../../etc/flutter.zip", "sha256": "$(sha "$work/files/stable/windows/flutter_windows_3.47.8-stable.zip")"}
  ]}
 EOF
@@ -101,6 +102,7 @@ mkdir -p "$work/stub"
 cat > "$work/stub/curl" <<'STUB'
 #!/usr/bin/env bash
 url=""; out=""
+printf '%s\n' "$*" >> "$STUB_LOG.argv"
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift ;;
@@ -127,7 +129,7 @@ chmod +x "$work/stub/curl" "$work/stub/uname"
 # in the environment is passed as FLUTTER_ARCHIVE_DIR.
 run() {
   local name="$1" want="$2" rc=0
-  rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"
+  rm -rf "${work:?}/gh"; mkdir -p "$work/gh"; : > "$work/log"; : > "$work/log.argv"
   PATH="$work/stub:$PATH" STUB_LOG="$work/log" STUB_FILES="$work/files" \
     FLUTTER_VERSION="$3" FLUTTER_CHANNEL="${4-}" RUNNER_ARCH="${5-X64}" \
     FLUTTER_INSTALL_ROOT="$work/sdk" RUNNER_TOOL_CACHE="$work/unused" FLUTTER_ARCHIVE_DIR="${ARCHIVE_DIR:-}" \
@@ -257,7 +259,19 @@ name="a version that is not one"
 run "$name" 2 "3.47; rm -rf /" && not_fetched releases && says "is not a version"
 
 name="an http mirror is refused"
-FLUTTER_STORAGE_BASE_URL=http://mirror.example run "$name" 2 "" && not_fetched releases && says "is not an https URL"
+FLUTTER_STORAGE_BASE_URL=http://mirror.example run "$name" 2 "" && not_fetched releases && says "is not https://storage.googleapis.com"
+
+name="an https mirror other than the official host is refused"
+FLUTTER_STORAGE_BASE_URL=https://mirror.example run "$name" 2 "" && not_fetched releases && says "is not https://storage.googleapis.com"
+FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com.evil.example run "$name" 2 "" && not_fetched releases
+
+name="curl follows no redirect and caps the manifest size"
+run "$name" 0 3.47.8
+grep -qE '(^| )(-[A-Za-z]*L[A-Za-z]*|--location)( |$)' "$work/log.argv" && { echo "FAIL $name: curl may follow redirects:"; cat "$work/log.argv"; fail=1; }
+grep 'releases_linux.json' "$work/log.argv" | grep -q -- '--max-filesize' || { echo "FAIL $name: the manifest fetch has no --max-filesize:"; cat "$work/log.argv"; fail=1; }
+
+name="an archive path outside <channel>/<os>/flutter_* is refused"
+STUB_UNAME_S=MINGW64_NT-10.0 run "$name" 1 "" dev && not_fetched %2e && says "unexpected form: 'stable/windows/%2e%2e/flutter_windows_3.47.8-stable.zip'"
 
 name="a dry run resolves and installs nothing"
 rm -rf "${work:?}/sdk"

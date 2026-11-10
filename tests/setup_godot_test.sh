@@ -221,6 +221,10 @@ name="a two-part version is refused with the fix"
 run "$name" 2 4.3 && no_download && says "'4.3' is not a full semantic version such as 4.3.0 or 4.4.0-beta1 (write 4.3.0, not 4.3)"
 run "$name" 2 "4.3.0; rm -rf /" && no_download && says "is not a full semantic version"
 run "$name" 2 v4.3.0 && no_download && says "is not a full semantic version"
+run "$name" 2 "4.3.0/../../" && no_download && says "is not a full semantic version"
+# An empty pre-release identifier would map to the stable release.
+run "$name" 2 "4.3.0-.." && no_download && says "is not a full semantic version"
+run "$name" 2 "4.4.0-beta..1" && no_download && says "is not a full semantic version"
 
 name="an empty version is refused"
 run "$name" 2 "" && no_download && says "GODOT_VERSION is empty"
