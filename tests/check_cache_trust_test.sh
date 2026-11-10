@@ -1034,6 +1034,8 @@ assert on["workflow_call"]["inputs"]["cache"]["default"] is False, "cache input 
 steps = doc["jobs"]["decide"]["steps"]
 warn = [s for s in steps if "inputs.cache" in str(s.get("env", "")) and "::warning" in s.get("run", "")]
 assert warn, "decide job must warn when cache: true is passed"
+# self-test-compiled.yml extracts the gate as decide's first step.
+assert steps[0].get("id") == "decide", "the gate step must stay first in decide"
 PY
 
 [[ "$fail" = 0 ]] && echo "ok: the cache-trust check passes on this tree, refuses every restore into a trusted job and every save after the caller's code, and stays quiet on the rest"

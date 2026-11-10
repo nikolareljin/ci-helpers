@@ -132,13 +132,6 @@ jobs:
     outputs:
       mode: ${{ steps.decide.outputs.mode }}
     steps:
-      - name: Warn that the cache input has no effect
-        if: ${{ inputs.cache }}
-        shell: bash
-        env:
-          IN_CACHE: ${{ inputs.cache }}
-        run: |
-          echo "::warning title=unity.yml cache::cache: $IN_CACHE has no effect. Library is not cached, as the test job holds the licence secrets; every run imports cold. Drop the input."
       - name: Decide whether this run does anything
         id: decide
         shell: bash
@@ -219,6 +212,14 @@ jobs:
           fi
 
           echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+
+      - name: Warn that the cache input has no effect
+        if: ${{ inputs.cache }}
+        shell: bash
+        env:
+          IN_CACHE: ${{ inputs.cache }}
+        run: |
+          echo "::warning title=unity.yml cache::cache: $IN_CACHE has no effect. Library is not cached, as the test job holds the licence secrets; every run imports cold. Drop the input."
 
   test:
     permissions:
