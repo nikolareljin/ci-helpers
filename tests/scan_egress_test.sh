@@ -5,8 +5,9 @@
 #              (third-party action, tag-only docker run, checkout keeping its
 #              token, secrets: inherit, write permissions, security-events
 #              without an upload), stays quiet on what is allowed, holds every
-#              other workflow and action to the kept third-party list and
-#              nothing else, and leaves the scan-only rules off them.
+#              other workflow and action to ALLOWED_ACTIONS (file-scoped
+#              entries in their file and job only) plus the temporary kept
+#              list and nothing else, and leaves the scan-only rules off them.
 # USAGE: bash tests/scan_egress_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -479,7 +480,7 @@ if [ "$rc" != 0 ]; then echo "FAIL deploy.yml was read as a scan workflow:"; cat
 # list is a finding, in a step, in a job that calls a reusable workflow, and
 # in a composite action. A kept one is not, and the removed release action
 # does not come back.
-expect "new third-party action in a build workflow" 1 "uses: 'some/new-action@0000000000000000000000000000000000000000' is not actions/*" .github/workflows/build.yml <<'YAML'
+expect "new third-party action in a build workflow" 1 "uses: 'some/new-action@0000000000000000000000000000000000000000' is not in ALLOWED_ACTIONS" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
   build:
@@ -526,12 +527,15 @@ jobs:
     steps:
       - uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
 YAML
-# The pnpm and Rust installers and the cargo cache are first-party steps now
-# (corepack, rustup, actions/cache); the actions they replaced are refused
-# in every workflow, scan or not, so none can come back by habit.
+# The pnpm, Rust and Ruby installers and the cargo cache are first-party
+# steps now (corepack, rustup, the tool cache, actions/cache), and the Azure
+# signing action is used under its new name; the actions they replaced are
+# refused in every workflow, scan or not, so none can come back by habit.
 for gone in pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 \
             dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec \
-            swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0; do
+            swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 \
+            ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 \
+            azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82; do
   expect "the replaced $gone in a build workflow" 1 "uses: '$gone' is not" .github/workflows/build.yml <<YAML
 on: push
 jobs:
@@ -555,6 +559,72 @@ jobs:
       - uses: $gone
 YAML
 done
+# A file-scoped ALLOWED_ACTIONS entry: the Azure signing action runs in
+# tauri-release.yml's sign-windows job and nowhere else, not in another job
+# of that file, another workflow, a reusable-workflow call or a composite
+# action.
+azure=azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+expect "the signing action in its signing job" 0 "" .github/workflows/tauri-release.yml <<YAML
+on: push
+jobs:
+  sign-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@0000000000000000000000000000000000000000
+      - uses: $azure
+YAML
+expect "the signing action in a build job of the same file" 1 "jobs.build-windows.steps[1]: uses: '$azure' is allowed only in .github/workflows/tauri-release.yml job sign-windows" .github/workflows/tauri-release.yml <<YAML
+on: push
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: $azure
+YAML
+expect "the signing action in another workflow" 1 "uses: '$azure' is allowed only in" .github/workflows/build.yml <<YAML
+on: push
+jobs:
+  sign-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: $azure
+YAML
+expect "the signing action in a composite action" 1 "uses: '$azure' is allowed only in" .github/actions/helper/action.yml <<YAML
+name: helper
+runs:
+  using: composite
+  steps:
+    - uses: $azure
+YAML
+expect "the signing action in a scan workflow" 1 "uses: '$azure' is allowed only in" <<YAML
+on: push
+jobs:
+  sign-windows:
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    steps:
+      - uses: $azure
+YAML
+# The pattern match is on owner/repo: a path under the action is the action.
+expect "the signing action by a subpath" 1 "is allowed only in" .github/workflows/build.yml <<YAML
+on: push
+jobs:
+  sign-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: azure/artifact-signing-action/sub@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+YAML
+expect "another action of the same owner" 1 "uses: 'azure/login@0000000000000000000000000000000000000000' is not in ALLOWED_ACTIONS" .github/workflows/build.yml <<'YAML'
+on: push
+jobs:
+  sign-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: azure/login@0000000000000000000000000000000000000000
+YAML
+
 expect "third-party reusable workflow as a job" 1 "jobs.call: uses: 'some/repo/.github/workflows/x.yml@0000000000000000000000000000000000000000' is not" .github/workflows/build.yml <<'YAML'
 on: push
 jobs:
@@ -602,25 +672,41 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
 YAML
 # The kept list in the script is exactly the set of third-party actions this
-# tree runs: an entry nobody uses is a leftover, deleted with its action.
+# tree runs outside ALLOWED_ACTIONS: an entry nobody uses is a leftover,
+# deleted with its action. Every ALLOWED_ACTIONS entry carries a reason, and
+# a file-scoped one names files and jobs that exist.
 python3 - "$root" <<'PY' || fail=1
 import glob, re, sys
 sys.path.insert(0, sys.argv[1] + "/scripts")
 import check_scan_egress as egress
+import yaml
 used = set()
 for path in glob.glob(sys.argv[1] + "/.github/**/*.yml", recursive=True):
     for ref in re.findall(r"^\s*(?:-\s*)?uses:\s*([A-Za-z0-9._/-]+)@", open(path).read(), re.M):
         parts = ref.split("/")
-        if parts[0] not in ("actions", "github") and len(parts) >= 2:
+        if len(parts) >= 2 and not egress.allowed_entry("/".join(parts[:2])):
             used.add("/".join(parts[:2]))
 used -= {o + "/ci-helpers" for o in egress.LIBRARY_OWNERS}
 stale = sorted(egress.KEPT_THIRD_PARTY - used)
 missing = sorted(used - egress.KEPT_THIRD_PARTY - egress.TOOLCHAIN_EXCEPTIONS)
+bad = []
+for pattern, reason, scope in egress.ALLOWED_ACTIONS:
+    if not reason.strip():
+        bad.append(f"{pattern} has no reason")
+    for rel, job in (scope or ()):
+        try:
+            doc = yaml.safe_load(open(f"{sys.argv[1]}/{rel}"))
+        except OSError:
+            bad.append(f"{pattern}: {rel} does not exist"); continue
+        if job not in (doc.get("jobs") or {}):
+            bad.append(f"{pattern}: {rel} has no job {job}")
 if stale:
     print("FAIL kept third-party actions no workflow uses any more:", ", ".join(stale))
 if missing:
-    print("FAIL third-party actions in use but not kept:", ", ".join(missing))
-sys.exit(1 if stale or missing else 0)
+    print("FAIL third-party actions in use but neither allowed nor kept:", ", ".join(missing))
+for b in bad:
+    print("FAIL ALLOWED_ACTIONS:", b)
+sys.exit(1 if stale or missing or bad else 0)
 PY
 
 # In a fork, the library at the fork's owner is this library.
@@ -636,5 +722,5 @@ YAML
 rc=0; GITHUB_REPOSITORY_OWNER=SomeOwner python3 "$check" --root "$work/f" > "$work/out" 2>&1 || rc=$?
 if [ "$rc" != 0 ]; then echo "FAIL the fork's own ci-helpers was refused:"; cat "$work/out"; fail=1; fi
 
-[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, holds every workflow to the kept list, passes what is allowed and this tree"
+[ "$fail" = 0 ] && echo "ok: scan-egress check flags each class, holds every workflow to ALLOWED_ACTIONS and the kept list, passes what is allowed and this tree"
 exit "$fail"
