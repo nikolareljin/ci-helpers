@@ -763,7 +763,7 @@ jobs:
           . "$run_lib/scripts/lib_path.sh"
           list="$RUNNER_TEMP/flutter-release-manifest.sha256"
           /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
-          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz\'
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz'
           CI_HELPERS_RUN
           )"
 
@@ -1240,7 +1240,7 @@ jobs:
           . "$run_lib/scripts/lib_path.sh"
           list="$RUNNER_TEMP/flutter-release-manifest.sha256"
           /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
-          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz\'
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz'
           CI_HELPERS_RUN
           )"
 

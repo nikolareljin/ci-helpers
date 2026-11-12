@@ -28,6 +28,14 @@ export LC_ALL=C
 
 usage() { grep '^#[^!]' "$0" | sed 's/^# \?//'; }
 fail() { echo "::error::$*" >&2; exit 1; }
+# grep that fails closed: 0 match, 1 no match, anything else (a malformed
+# pattern, a read error) is a refusal, never a pass.
+grep_rc() {
+  local rc=0
+  grep "$@" || rc=$?
+  (( rc <= 1 )) || fail "grep failed (exit $rc); refusing."
+  return "$rc"
+}
 
 part_bytes=62914560  # 60 MiB
 
@@ -57,10 +65,12 @@ verify_tree() {
   [[ -d "$dir" && ! -L "$dir" ]] || fail "$dir is not a directory."
   [[ -f "$list" && ! -L "$list" ]] || fail "the manifest $list is not a regular file."
   [[ -s "$list" ]] || fail "the manifest is empty."
-  if grep -qvE "^[0-9a-f]{64}  \\./(${re})(\\.split-[0-9]{3})?\$" "$list"; then
+  # A malformed PATH_RE makes grep exit 2, which must refuse, not pass.
+  grep_rc -qE -- "^(${re})\$" </dev/null || true
+  if grep_rc -qvE "^[0-9a-f]{64}  \\./(${re})(\\.split-[0-9]{3})?\$" "$list"; then
     fail "the manifest is malformed or names a path outside the artifact."
   fi
-  if grep -qE '(^|/)\.\.?(/|$|\.split-)' <(sed -E 's/^[0-9a-f]{64}  \.\///' "$list"); then
+  if grep_rc -qE '(^|/)\.\.?(/|$|\.split-)' <(sed -E 's/^[0-9a-f]{64}  \.\///' "$list"); then
     fail "the manifest names a . or .. path component."
   fi
   if [[ -n "$(cd "$dir" && find . -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then

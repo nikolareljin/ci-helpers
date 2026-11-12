@@ -369,7 +369,7 @@ Jobs:
   `google_play_release_status`; metadata, images and changelogs are not
   uploaded.
 - `upload-app-store` unpacks the archive (`scripts/safe_untar.py`: one
-  `<name>.xcarchive`, no `..`, no absolute path, no link out of it), checks
+  `<name>.xcarchive`, no `..`, no absolute path, no link target with `..`), checks
   that its one app's `CFBundleIdentifier` is `ios_bundle_id`, fetches the
   App Store certificate and profile with `fastlane match appstore --readonly`
   into a keychain of its own (deleted on exit), writes `exportOptions.plist`

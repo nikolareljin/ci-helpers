@@ -259,8 +259,10 @@ downloaded (`tauri-release`, `flutter-release`). A directory tree that must
 keep its symlinks (a macOS `.app`, an `.xcarchive`) crosses as one
 tarball, and `scripts/safe_untar.py` unpacks it itself: one top-level
 directory of the expected name, only files, directories and relative
-symlinks that stay inside it, no `..`, no absolute path, no hard link or
-device, no member under a symlink.
+symlinks with no `..` in the target, no `..`, no absolute path, no hard
+link or device, no member under a symlink, and every unpacked entry must
+resolve under the destination. `artifact_parts.sh verify` refuses when
+grep fails (a malformed pattern exits 2), so an error never passes.
 
 The build job stages only regular files: it refuses a symlink and a file that
 resolves outside its tree, copies with `cp -P` and checks the staged tree

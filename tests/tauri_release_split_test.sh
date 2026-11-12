@@ -87,6 +87,9 @@ refuse "a .. component"          d:A.app f:A.app/../escaped
 refuse "an absolute path"        d:A.app "f:$work/escaped"
 refuse "a symlink out of the app" d:A.app l:A.app/l:../../escaped
 refuse "an absolute symlink"     d:A.app l:A.app/l:/etc/passwd
+refuse "a link chain out of the app" d:A.app d:A.app/x l:A.app/x/a:.. l:A.app/b:x/a/../escaped
+refuse "a .. target that stays inside" d:A.app d:A.app/x l:A.app/x/l:../x
+refuse "a hard link out of the app" d:A.app h:A.app/h:/etc/passwd
 refuse "a hard link"             d:A.app f:A.app/f h:A.app/h:A.app/f
 refuse "a fifo"                  d:A.app p:A.app/p
 refuse "a member under a symlink (link first)" d:A.app d:A.app/real l:A.app/dir:real f:A.app/dir/x
@@ -104,6 +107,20 @@ refuse "no .app suffix"          d:App
 refuse "an empty tarball"
 
 # ---------------------------------------------------------------- artifact_parts verify
+for broken in 'a\' '(' '[z-a]'; do
+  mkdir -p "$work/re"; printf 'x' > "$work/re/a"
+  echo "$(sha256sum < "$work/re/a" | cut -d' ' -f1)  ./a" > "$work/re.sha256"
+  if bash "$root/scripts/artifact_parts.sh" verify "$work/re" "$work/re.sha256" "$broken" >/dev/null 2>&1; then
+    bad "verify passed with the malformed pattern '$broken'"
+  else
+    ok "verify refuses the malformed pattern '$broken'"
+  fi
+done
+# Every PATH_RE a workflow passes compiles (a grep error would refuse every run).
+while IFS= read -r re; do
+  rc=0; grep -E -- "^(${re})\$" </dev/null || rc=$?
+  [[ "$rc" == 1 ]] && ok "workflow PATH_RE compiles: $re" || bad "workflow PATH_RE does not compile (grep exit $rc): $re"
+done < <(grep -h 'artifact_parts.sh" verify' "$root"/.github/workflows/*.yml | sed -E "s/.* '([^']*)'\$/\1/")
 WIN_RE='[A-Za-z0-9][A-Za-z0-9 ._+-]{0,150}\.(exe|msi)'
 MAC_RE='app\.tar\.gz|entitlements\.plist'
 setup_win() {

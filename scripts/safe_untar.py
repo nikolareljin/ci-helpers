@@ -5,10 +5,11 @@
 
 The tarball came from a job that ran the caller's code. It must hold
 exactly one top-level directory whose name matches TOP_RE whole, and under
-it only directories, regular files and relative symlinks that resolve
-inside that directory. Refused: absolute or `..` paths, a backslash, a
+it only directories, regular files and relative symlinks that point down
+(no `..`). Refused: absolute or `..` paths, a backslash, a
 control character, a hard link, a device or fifo, a duplicate name, a
-member under a symlink, and more than 8 GiB in all. Members are written by
+member under a symlink, a symlink target with `..`, and more than 8 GiB
+in all; after unpacking, every entry must resolve under DEST. Members are written by
 this script, not by tar, into DEST, which must be an empty directory.
 Modes are 0755 for a file with any execute bit, else 0644; owners, times
 and extended headers are dropped.
@@ -82,11 +83,12 @@ def main(argv):
             elif m.issym():
                 kind = "l"
                 target = m.linkname
-                if not target or target.startswith("/") or BAD_CHARS.search(target):
-                    fail(f"symlink {name!r} points to {target!r}, not a relative path.")
-                resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
-                if resolved != top and not resolved.startswith(top + "/"):
-                    fail(f"symlink {name!r} points outside {top!r} ({target!r}).")
+                # Down only: no absolute target and no `..`. A link then
+                # names something under its own directory, so no chain of
+                # links can leave the top directory (Versions/Current -> A).
+                if (not target or target.startswith("/") or BAD_CHARS.search(target)
+                        or ".." in target.split("/")):
+                    fail(f"symlink {name!r} points to {target!r}, not a relative path without '..'.")
                 if name == top:
                     fail(f"the top-level entry {top!r} is a symlink.")
                 links.add(name)
@@ -131,6 +133,13 @@ def main(argv):
                         out.write(chunk)
             elif kind == "l":
                 os.symlink(m.linkname, path)
+    # Every entry, links followed, must still resolve under DEST.
+    real_dest = os.path.realpath(dest)
+    for root, dirs, files in os.walk(os.path.join(dest, top)):
+        for entry in dirs + files:
+            real = os.path.realpath(os.path.join(root, entry))
+            if not real.startswith(real_dest + os.sep):
+                fail(f"{os.path.join(root, entry)} resolves outside {dest}.")
     print(top)
     return 0
 
