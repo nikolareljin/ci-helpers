@@ -893,7 +893,7 @@ Secrets:
 
 Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
 
-The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
+Two jobs. `build` runs the prebuild and build with no key on the runner and produces an unsigned source package (default build `debuild -S -sa -us -uc`), then uploads every file the `.changes` names as an artifact (kept one day) with a sha256 manifest. `ppa` checks out nothing of the caller's: it downloads the artifact, checks it against the manifest, imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring, then runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
 
 The upload goes to `ppa.launchpad.net` with incoming `~<owner>/<distribution>/<name>/` (distribution `ubuntu` unless `ppa_target` names one). Over `ftp` (the default) it is anonymous. Over `sftp` it logs in as `launchpad_login`, so the key must be registered with that Launchpad account.
 
@@ -2247,6 +2247,8 @@ Inputs:
 - `allow_missing_extra_files` (boolean, default `false`) - skip a missing `extra_files` entry
   with a warning instead of failing
 - `post_deploy_command` (string, default `""`) — command to run on the remote host after deploy
+
+Two jobs. `build` compiles the binary and stages it with the `extra_files` (a missing entry fails here) as an artifact kept one day, with a sha256 manifest. `deploy` holds the SSH key, checks out nothing of the caller's, checks the artifact against the manifest and copies it.
 
 Secrets:
 - `ssh_host` (required) — remote hostname or IP

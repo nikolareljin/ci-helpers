@@ -67,11 +67,17 @@ on:
         required: false
 
 jobs:
-  ppa:
+  # Runs the caller's prebuild, build and debian/rules with no key on the
+  # runner. The ppa job below signs and uploads and runs none of them.
+  build:
     permissions:
       contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.stage.outputs.artifact }}
+      changes: ${{ steps.stage.outputs.changes }}
+      manifest: ${{ steps.stage.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -156,6 +162,94 @@ jobs:
           changes="$(cd "$(dirname "$changes")" && pwd)/$(basename "$changes")"
           echo "changes=$changes" >> "$GITHUB_OUTPUT"
 
+      # Every file the .changes names, and the .changes itself, with a sha256
+      # manifest the ppa job checks before it signs anything.
+      - name: Stage the source package
+        id: stage
+        shell: bash
+        env:
+          CHANGES: ${{ steps.build.outputs.changes }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/ppa-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          dir="$(dirname "$CHANGES")"
+          while IFS= read -r f; do
+            [[ -f "$f" && ! -L "$f" ]] || { echo "::error::$f is not a regular file."; exit 1; }
+            cp -- "$f" "$out/"
+          done < <(dcmd "$CHANGES")
+          base="$(basename "$CHANGES")"
+          [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*\.changes$ ]] || { echo "::error::unexpected changes file name '$base'."; exit 1; }
+          [[ -f "$out/$base" ]] || { echo "::error::dcmd did not list $base."; exit 1; }
+          echo "Staged from $dir:"; ls -l "$out"
+          delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "artifact=ppa-source-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${delim#EOF_}"
+            echo "changes=$base"
+            echo "manifest<<$delim"
+            (cd "$out" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the source package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          name: ${{ steps.stage.outputs.artifact }}
+          path: ${{ runner.temp }}/ppa-out
+          if-no-files-found: error
+          retention-days: 1
+
+  # Signs and uploads. No checkout of the caller's repository: the job runs
+  # this workflow's own steps on the files the build job made, each checked
+  # against the build job's sha256 manifest first.
+  ppa:
+    needs: build
+    permissions: {}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Download the source package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/ppa-in
+
+      - name: Verify the source package against the build manifest
+        id: verify
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/ppa-in
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          CHANGES_NAME: ${{ needs.build.outputs.changes }}
+        run: |
+          set -euo pipefail
+          [[ "$CHANGES_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*\.changes$ ]] || { echo "::error::unexpected changes file name '$CHANGES_NAME'."; exit 1; }
+          list="${RUNNER_TEMP}/ppa-manifest.sha256"
+          printf '%s\n' "$MANIFEST" > "$list"
+          if [[ ! -s "$list" ]] || grep -qvE '^[0-9a-f]{64}  \./[A-Za-z0-9][A-Za-z0-9.+_~-]*$' "$list"; then
+            echo "::error::the build manifest is empty or malformed."; exit 1
+          fi
+          cd "$DIR"
+          if [[ -n "$(find . -mindepth 1 ! -type f)" ]]; then
+            echo "::error::the artifact holds something other than regular files."; exit 1
+          fi
+          want="$(sed -E 's/^[0-9a-f]{64}  //' "$list" | LC_ALL=C sort)"
+          have="$(find . -type f | LC_ALL=C sort)"
+          if [[ "$want" != "$have" ]]; then
+            echo "::error::the artifact's files differ from the build manifest."; exit 1
+          fi
+          sha256sum --check --strict --quiet "$list"
+          [[ -f "$CHANGES_NAME" ]] || { echo "::error::$CHANGES_NAME is not in the artifact."; exit 1; }
+          echo "changes=$DIR/$CHANGES_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Install signing and upload tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y devscripts dput python3-paramiko gnupg
+
       # The key lives in a throwaway GNUPGHOME for this step only and is gone
       # before the upload step runs.
       - name: Sign the source package
@@ -164,7 +258,7 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
           GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
           KEY_ID: ${{ inputs.signing_key_id }}
-          CHANGES: ${{ steps.build.outputs.changes }}
+          CHANGES: ${{ steps.verify.outputs.changes }}
         run: |
           set -euo pipefail
           set +x
@@ -193,7 +287,7 @@ jobs:
           LAUNCHPAD_KNOWN_HOSTS: ${{ inputs.launchpad_known_hosts }}
           UPLOAD_METHOD: ${{ inputs.upload_method }}
           PPA_TARGET: ${{ inputs.ppa_target }}
-          CHANGES: ${{ steps.build.outputs.changes }}
+          CHANGES: ${{ steps.verify.outputs.changes }}
         run: |
           set -euo pipefail
           set +x
