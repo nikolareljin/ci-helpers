@@ -55,6 +55,9 @@ for s in p.get("steps", []):
             err(f"the deploy job step '{s.get('name')}' reads inputs.{name}")
     if "secrets.CLOUDFLARE_API_TOKEN" in blob and s.get("name") not in ("Preflight credentials", "Deploy"):
         err(f"the token reaches step '{s.get('name')}'")
+ver = [s for s in p.get("steps", []) if s.get("id") == "verify"]
+if not ver or 'cloudflare_wrangler.py" bundle "$in/bundle"' not in ver[0].get("run", ""):
+    err("the verify step does not check the bundle's source map comments")
 dep = [s for s in p.get("steps", []) if s.get("name") == "Deploy"]
 if not dep or "wrangler_run.sh\" deploy" not in dep[0].get("run", "") or "lib_path.sh\" secret" not in dep[0].get("run", ""):
     err("the Deploy step does not run wrangler_run.sh deploy in lib_path secret mode")
@@ -170,6 +173,20 @@ for dir in "/proc/self" "../.." "../outside" "."; do
   if cfg "${base/directory = \"public\"/directory = \"$dir\"}" >/dev/null; then bad "config accepted assets directory $dir"; fi
 done
 [[ $fail == 0 ]] && ok "config: refused keys and an assets directory outside the tree are refused"
+# An allowlist of keys: an unknown key, unsafe.capnp (wrangler runs capnp or
+# reads compiled_schema from any path) and pages_build_output_dir are refused.
+for extra in $'made_up_key = 1\n[assets]' $'[unsafe.capnp]\ncompiled_schema = "/proc/self/environ"' \
+             $'[env.staging.unsafe.capnp]\nbase_path = "/"\nsource_schemas = ["x"]' \
+             $'pages_build_output_dir = "/"\n[assets]' $'[env.staging]\nmade_up_key = 1' $'[env.staging.env.x]\nname = "y"' \
+             $'[env.staging]\npython_modules = { exclude = [] }'; do
+  if [[ "$extra" == *$'\n[assets]' ]]; then body="${extra%$'\n[assets]'}"$'\n'"$base"; else body="$base"$'\n'"$extra"; fi
+  if cfg "$body" >/dev/null; then bad "config accepted: $extra"; fi
+done
+keep=$'find_additional_modules = true\nupload_source_maps = true\n[[rules]]\ntype = "ESModule"\nglobs = ["**/*.mjs"]\n[vars]\nA = "b"\n[dev]\nport = 1\n[[unsafe.bindings]]\nname = "R"\ntype = "ratelimit"\n[env.staging]\nname = "w-s"\n[[env.staging.kv_namespaces]]\nbinding = "K"\nid = "x"'
+if [[ "$(cfg "$base"$'\n'"$keep" 2>&1)" == $'assets=public\nentry=index.js' ]]; then
+  ok "config: known keys (modules, rules, source maps, unsafe.bindings, env bindings) pass"
+else bad "config: known keys refused: $(cfg "$base"$'\n'"$keep")"; fi
+[[ $fail == 0 ]] && ok "config: an unknown key, unsafe.capnp and a nested env are refused"
 out="$(cfg "$base"$'\n[build]\ncommand = "touch /tmp/x"\n[env.staging]\nname = "w-s"\n[env.staging.build]\ncommand = "id"' --write)"
 if [[ "$out" == *"config=ci-helpers-deploy.wrangler.json"* ]] && ! grep -q '"build"' "$work/t/ci-helpers-deploy.wrangler.json" \
    && grep -q '"w-s"' "$work/t/ci-helpers-deploy.wrangler.json"; then
@@ -191,7 +208,7 @@ cat > "$work/t/dist/w/wrangler.json" <<'EOF'
 {
   "name": "w", /* inline */ "main": "index.js",
   "assets": { "directory": "../client", },
-  "url": "https://x//y",
+  "vars": { "URL": "https://x//y" },
 }
 EOF
 if [[ "$(python3 -I "$cw" config "$work/t" dist/w/wrangler.json staging 2>&1)" == $'assets=dist/client\nentry=index.js' ]]; then
@@ -328,5 +345,38 @@ run CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DI
 if ! grep -q '^CLOUDFLARE_ENV=' "$work/run-env" && [[ "$(tr '\n' ' ' < "$work/run-argv")" == *"pages deploy site --project-name s "* ]]; then
   ok "wrangler_run: Pages sets no CLOUDFLARE_ENV"
 else bad "wrangler_run: pages env or argv"; fi
+
+# --- deploy_args: a single-value flag given twice ----------------------------
+for a in "--name a --name b" "--name=a --name b" "--keep-vars --keep-vars=false"; do
+  if args deploy "$a" >/dev/null; then bad "deploy_args '$a' accepted twice"; fi
+done
+for a in "dist --project-name a --project-name b" "dist --branch a --branch=b"; do
+  if args "pages deploy" "$a" >/dev/null; then bad "deploy_args '$a' accepted twice"; fi
+done
+if [[ "$(args deploy "--compatibility-flag a --compatibility-flag b")" == "pages_dir=" ]]; then
+  ok "deploy_args: a single-value flag given twice is refused; --compatibility-flag repeats"
+else bad "deploy_args: repeated --compatibility-flag refused"; fi
+
+# --- bundle: a source map comment must name a file in the bundle -------------
+rm -rf "$work/b"; mkdir -p "$work/b/sub"
+printf 'x\n//# sourceMappingURL=index.js.map\n' > "$work/b/index.js"; echo '{}' > "$work/b/index.js.map"
+printf 'y\n//# sourceMappingURL=sub/h.mjs.map\n' > "$work/b/h.mjs"; mkdir -p "$work/b/sub"; echo '{}' > "$work/b/sub/h.mjs.map"
+if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then ok "bundle: source maps inside the bundle pass"; else bad "bundle: $(python3 -I "$cw" bundle "$work/b" 2>&1)"; fi
+for u in /proc/self/environ ../../etc/passwd file:///etc/passwd missing.map 'sub/../../x.map'; do
+  printf 'x\n//# sourceMappingURL=%s\n' "$u" > "$work/b/index.js"
+  if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then bad "bundle accepted sourceMappingURL=$u"; fi
+done
+printf 'x\n//# sourceMappingURL=index.js.map\n' > "$work/b/index.js"
+printf '//# sourceMappingURL=/etc/passwd\n' > "$work/b/sub/c.cjs"
+if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then bad "bundle accepted an outside map in a nested module"; fi
+printf 'var r = /# sourceMappingURL=(.+)/g;\nexport default r;\n' > "$work/b/sub/c.cjs"
+if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then ok "bundle: a sourceMappingURL in code, not the trailing comment, is ignored"; else bad "bundle: false positive on code"; fi
+[[ $fail == 0 ]] && ok "bundle: a source map comment naming a file outside the bundle is refused"
+
+# --- config: a TOML config on a Python without tomllib fails clearly ---------
+mkdir -p "$work/notoml"; printf 'raise ModuleNotFoundError("No module named tomllib", name="tomllib")\n' > "$work/notoml/tomllib.py"
+cfg "$base" >/dev/null
+out="$(PYTHONPATH="$work/notoml" python3 "$cw" config "$work/t" wrangler.toml staging 2>&1 || true)"
+if [[ "$out" == *"::error::"*"Python 3.11"* && "$out" != *Traceback* ]]; then ok "config: no tomllib names Python 3.11"; else bad "config without tomllib: $out"; fi
 
 exit "$fail"

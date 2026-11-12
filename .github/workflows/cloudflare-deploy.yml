@@ -12,7 +12,8 @@ name: cloudflare-deploy
 # checks out nothing of the caller's, checks the artifact against the
 # manifest and runs only the library's pinned wrangler (scripts/wrangler/,
 # toolchain-pins.env) with arguments built from checked inputs. The config it
-# deploys with is a checked copy: `build` is dropped (it already ran), and a
+# deploys with is a checked copy: `build` is dropped (it already ran), and
+# every key must be on an allowlist of wrangler keys that name data, so a
 # key that would make wrangler run a command or read a file outside the
 # artifact is refused (scripts/cloudflare_wrangler.py).
 #
@@ -1294,8 +1295,10 @@ jobs:
             [[ -d "$in/site" ]] || { echo "::error::the artifact has no site/ directory."; exit 1; }
           else
             /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$in" "$list" '(tree|bundle)/[^[:cntrl:]\\]+'
-            # A checked copy of the config: `build` dropped, refused keys refused.
+            # A checked copy of the config: `build` dropped, keys off the
+            # allowlist refused. Source map comments must name bundle files.
             /usr/bin/python3 -I "$run_lib/scripts/cloudflare_wrangler.py" config "$in/tree" "$CF_CONFIG" "$CF_ENV_NAME" --write > "$RUNNER_TEMP/cloudflare-config.out"
+            /usr/bin/python3 -I "$run_lib/scripts/cloudflare_wrangler.py" bundle "$in/bundle"
             while IFS='=' read -r k v; do
               case "$k" in
                 config) echo "config=tree/$v" ;;
