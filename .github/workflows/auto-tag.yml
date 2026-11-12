@@ -23,15 +23,14 @@ on:
         default: ""
       update_production_tag:
         description: >
-          Whether to run the Bootstrap and Update production tag steps after
-          tagging. Moving a floating production ref is a thing a repository
+          Whether to run the production job after tagging. Moving a
+          floating production ref is a thing a repository
           opts into, so this defaults to false: tagging is what calling this
           workflow buys you, and nothing else happens unless you ask.
 
           Set it to true in a repository that carries a floating production
-          tag AND ships scripts/create_production.sh, which the step runs.
-          Without that script the step cannot succeed, so a true here is a
-          claim about the repository's contents, not a preference.
+          tag. The job runs this library's scripts/create_production.sh from
+          a verified copy; a copy in the calling repository is not run.
         type: boolean
         default: false
     outputs:
@@ -304,65 +303,6 @@ jobs:
             core.setOutput('version', version);
             core.setOutput('is_prerelease', isPrerelease ? 'true' : 'false');
 
-      # Bootstrapping only exists to make create_production.sh runnable, so it
-      # is gated exactly like the move it serves: it used to run on `if:
-      # inputs.update_production_tag` alone, which meant initialising
-      # submodules on every push to the default branch in a repository that
-      # opts in, including the overwhelming majority that are not releases.
-      #
-      # It sits BEFORE the tag is created, deliberately. Its checks decide
-      # whether the production move can succeed at all, and discovering that
-      # after the tag has been pushed leaves a tag behind that someone has to
-      # delete by hand -- which is the failure this guard exists to prevent,
-      # so running it later would defeat the point of having it.
-      #
-      # It is NOT gated on is_prerelease, also deliberately. Whether this
-      # repository can move production is a fact about the repository, not
-      # about which kind of release this is. Gated on the release kind, a repo
-      # could cut rc1..rc5 green and only discover a missing script on the
-      # final cut -- the one moment where a stray tag costs the most.
-      - name: Bootstrap script-helpers
-        if: >-
-          ${{ steps.release.outputs.version != ''
-              && inputs.update_production_tag }}
-        shell: bash
-        env:
-          GIT_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
-          echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          # A caller's private submodule may not be fetchable with this token,
-          # so a failure warns instead of failing the build, but never silently.
-          if ! git submodule update --init --recursive; then
-            echo "::warning::git submodule update failed; continuing with the submodules already checked out"
-          fi
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
-            exit 1
-          fi
-          # update_production_tag: true asserts this repository can move a
-          # production ref, and the move runs ./scripts/create_production.sh.
-          # Check that here rather than let the run tag a release and then die
-          # at the last step, which is what used to happen. Both conditions are
-          # checked: the script is invoked as ./scripts/create_production.sh,
-          # so a present-but-non-executable file fails just as surely as a
-          # missing one, and says something different about what to fix.
-          if [[ ! -f "scripts/create_production.sh" ]]; then
-            echo "::error::update_production_tag is true but scripts/create_production.sh is missing. Either add that script, or pass update_production_tag: false to tag only."
-            exit 1
-          fi
-          if [[ ! -x "scripts/create_production.sh" ]]; then
-            echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
-            exit 1
-          fi
-
       - name: Check tag availability
         if: ${{ steps.release.outputs.version != '' }}
         shell: bash
@@ -387,7 +327,9 @@ jobs:
           # The checkout keeps no token on disk; hand it to git for this step only.
           auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
           version="$AUTO_TAG_VERSION"
           git tag "$version"
           git push origin "$version"
@@ -498,41 +440,148 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # The tag job already proved the script and helpers exist before it
-      # tagged; this only makes them present in this fresh checkout.
-      - name: Bootstrap script-helpers
+      # The library's own create_production.sh, from a verified copy: the
+      # caller's scripts/ never runs in the job that holds the push token.
+      - name: Reserve ci-helpers scripts directory
         shell: bash
-        env:
-          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
-          echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          # A caller's private submodule may not be fetchable with this token,
-          # so a failure warns instead of failing the build, but never silently.
-          if ! git submodule update --init --recursive; then
-            echo "::warning::git submodule update failed; continuing with the submodules already checked out"
-          fi
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
             exit 1
           fi
 
-      - name: Update production tag ref
-        shell: bash
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
         env:
-          GIT_TOKEN: ${{ github.token }}
-          AUTO_TAG_VERSION: ${{ needs.tag.outputs.version }}
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      - name: Update production tag ref
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          PUSH_TOKEN: ${{ github.token }}
+          # The publication guard's core.hooksPath entry, for the clean environment.
+          GUARD_COUNT: ${{ env.GIT_CONFIG_COUNT }}
+          GUARD_KEY: ${{ env.GIT_CONFIG_KEY_0 }}
+          GUARD_HOOKS: ${{ env.GIT_CONFIG_VALUE_0 }}
+          AUTO_TAG_VERSION: ${{ needs.tag.outputs.version }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" AUTO_TAG_VERSION="$AUTO_TAG_VERSION" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" GUARD_COUNT="$GUARD_COUNT" GUARD_KEY="$GUARD_KEY" GUARD_HOOKS="$GUARD_HOOKS" GITLEAKS_BIN="$GITLEAKS_BIN" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          # The version came from the tag job's parse of a release/X.Y.Z branch;
+          # check it again before it reaches git.
+          [[ "$AUTO_TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version '$AUTO_TAG_VERSION' is not X.Y.Z."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          # The publication guard's hooks, by name: git config does not cross env -i.
+          [[ "$GUARD_COUNT" == 1 && "$GUARD_KEY" == core.hooksPath && "$GUARD_HOOKS" == "$RUNNER_TEMP"/publication-hooks-*/hooks && "$GUARD_HOOKS" != *..* && -f "$GUARD_HOOKS/pre-push" && -x "$GITLEAKS_BIN" ]] || { echo "::error::the outbound guard is not configured; nothing is pushed."; exit 1; }
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$GUARD_HOOKS" GITLEAKS_BIN
           # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          ./scripts/create_production.sh -t "$AUTO_TAG_VERSION" --fetch-tags
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
+          /bin/bash "$run_lib/scripts/create_production.sh" -t "$AUTO_TAG_VERSION" --repo "$GITHUB_WORKSPACE" --fetch-tags
+          CI_HELPERS_RUN
+          )"
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done

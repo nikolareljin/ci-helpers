@@ -5,6 +5,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that holds nvd_api_key and fetches the NVD data. A fresh
+      # hosted runner by default; it runs no code from the caller's tree.
+      nvd_runner:
+        type: string
+        default: ubuntu-latest
       working_directory:
         type: string
         default: "."
@@ -42,7 +47,9 @@ on:
         # The preset has never had a consumer, so nothing found out.
         #
         # A repository with a key turns it on -- `nvd_api_key` is a secret this
-        # workflow accepts, and docs/presets.md carries the line.
+        # workflow accepts, and docs/presets.md carries the line. The command
+        # gets the NVD data fetched by the nvd job in DC_DATA_DIR, and
+        # MAVEN_ARGS carries -DdataDirectory=$DC_DATA_DIR -DautoUpdate=false.
         default: ""
 
     secrets:
@@ -53,7 +60,276 @@ on:
         required: false
 
 jobs:
+  # Holds nvd_api_key. Checks out nothing of the caller's: it runs the
+  # pinned dependency-check CLI with --updateonly and hands the data to the
+  # scan job, with a sha256 manifest the scan job checks.
+  nvd:
+    if: ${{ inputs.dependency_check_command != '' }}
+    permissions: {}
+    runs-on: ${{ inputs.nvd_runner }}
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.nvd.outputs.artifact }}
+      manifest: ${{ steps.nvd.outputs.manifest }}
+    steps:
+      - name: Setup Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+          cache: ""
+
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      - name: Fetch the NVD data
+        id: nvd
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          NVD_API_KEY: ${{ secrets.nvd_api_key }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" NVD_API_KEY="$NVD_API_KEY" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" JAVA_HOME="$JAVA_HOME" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          # The CLI finds Java through JAVA_HOME (setup-java above); PATH is the
+          # system tools only.
+          [[ -x "$JAVA_HOME/bin/java" ]] || { echo "::error::no java under JAVA_HOME."; exit 1; }
+          out="$RUNNER_TEMP/java-scan-nvd"
+          /bin/rm -rf -- "$out"
+          /bin/bash "$run_lib/scripts/install_dependency_check.sh" --data "$out" --pins "$run_lib/scanner-pins.env"
+          if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
+            echo "::error::the NVD data holds a symlink or special file."; exit 1
+          fi
+          if [[ -n "$(/usr/bin/find "$out" -name "$(printf '*\n*')" -print -quit)" ]]; then
+            echo "::error::an NVD data file name holds a newline."; exit 1
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=java-scan-nvd-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            (cd "$out" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | while IFS= read -r f; do /usr/bin/sha256sum -- "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.nvd.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/java-scan-nvd
+
+      - name: Upload the files
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.nvd.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
+
+  # Runs the caller's build and tests with no secret. The dependency check
+  # reads the NVD data from the nvd job and does not update it.
   scan:
+    needs: nvd
+    if: ${{ !cancelled() && (needs.nvd.result == 'success' || needs.nvd.result == 'skipped') }}
     permissions:
       contents: read
     runs-on: ${{ inputs.runner }}
@@ -89,15 +365,54 @@ jobs:
           set -euo pipefail
           ${{ inputs.test_command }}
 
+      - name: Download the NVD data
+        if: ${{ inputs.dependency_check_command != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.nvd.outputs.artifact }}
+          path: ${{ runner.temp }}/java-scan-nvd-in
+
+      - name: Verify the NVD data against its manifest
+        if: ${{ inputs.dependency_check_command != '' }}
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/java-scan-nvd-in
+          MANIFEST: ${{ needs.nvd.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          list="${RUNNER_TEMP}/java-scan-nvd.sha256"
+          printf '%s\n' "$MANIFEST" > "$list"
+          if [[ ! -s "$list" ]] || grep -qvE '^[0-9a-f]{64}  \./[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$' "$list"; then
+            echo "::error::the NVD manifest is empty or malformed."; exit 1
+          fi
+          cd "$DIR"
+          if [[ -n "$(find . -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the NVD artifact holds something other than regular files."; exit 1
+          fi
+          want="$(sed -E 's/^[0-9a-f]{64}  //' "$list" | LC_ALL=C sort)"
+          have="$(find . -type f | LC_ALL=C sort)"
+          if [[ "$want" != "$have" ]]; then
+            echo "::error::the NVD artifact's files differ from its manifest."; exit 1
+          fi
+          sha256sum --check --strict --quiet "$list"
+          # The nvd job stores a file over 60 MiB as <name>.split-NNN parts.
+          while IFS= read -r -d '' first; do
+            whole="${first%.split-000}"
+            [[ ! -e "$whole" ]] || { echo "::error::the NVD artifact holds both a file and its parts."; exit 1; }
+            cat -- "$whole".split-[0-9][0-9][0-9] > "$whole"
+            rm -f -- "$whole".split-[0-9][0-9][0-9]
+          done < <(find . -type f -name '*.split-000' -print0)
+
       - name: Dependency check
         if: ${{ inputs.dependency_check_command != '' }}
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          # dependency-check 9.0 onward reads the NVD through an API that wants
-          # a key. Passed as an environment variable rather than interpolated
-          # into the command, so it cannot reach a log line or a `ps` listing.
-          NVD_API_KEY: ${{ secrets.nvd_api_key }}
+          # The NVD data the nvd job fetched; no key reaches this job. Maven
+          # 3.9 reads MAVEN_ARGS, so a plain dependency-check-maven command
+          # uses the data without updating it.
+          DC_DATA_DIR: ${{ runner.temp }}/java-scan-nvd-in
+          MAVEN_ARGS: -DdataDirectory=${{ runner.temp }}/java-scan-nvd-in -DautoUpdate=false
         run: |
           set -euo pipefail
           ${{ inputs.dependency_check_command }}
