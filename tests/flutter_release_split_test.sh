@@ -12,8 +12,8 @@
 #              before fastlane runs, run fastlane from an empty directory,
 #              pass only checked values, check the archive's bundle id and
 #              remove the key files and keychain; install_fastlane.sh
-#              installs the pinned version; and the workflow checks the
-#              artifact name and the release inputs.
+#              installs only from the library's checksummed lockfile; and
+#              the workflow checks the artifact name and the release inputs.
 # USAGE: bash tests/flutter_release_split_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -113,12 +113,14 @@ android_in; mkaab "$work/ain/android/app-release.aab"
 if run_sign "${keys[@]}" ANDROID_KEYSTORE_BASE64='***not base64***'; then bad "a bad keystore base64 passed"; else ok "android: a keystore that is not base64 is refused"; fi
 
 # ---------------------------------------------------------------- fastlane stubs
-rb="$work/rubybin"; gems="$work/gems"; mkdir -p "$rb" "$gems/bin"; : > "$gems/bin/fastlane"
+rb="$work/rubybin"; gems="$work/gems"; mkdir -p "$rb" "$gems/bundler/bin" "$gems/app"
+: > "$gems/bundler/bin/bundle"; : > "$gems/app/Gemfile.lock"
+# ruby <gems>/bundler/bin/bundle exec fastlane ARGS
 cat > "$rb/ruby" <<EOF
 #!/bin/bash
-if [[ "\$1" == -e ]]; then printf '/ruby/default/gems'; exit 0; fi
-shift
-echo "fastlane \$* | cwd-entries=\$(ls -A | wc -l) skip=\${FASTLANE_SKIP_UPDATE_CHECK:-} gem_home=\${GEM_HOME:-} gem_path=\${GEM_PATH:-} gemfile=\${BUNDLE_GEMFILE:-unset}" >> "$log"
+[[ "\$2 \$3" == "exec fastlane" ]] || { echo "not bundle exec fastlane: \$*" >> "$log"; exit 9; }
+shift 3
+echo "fastlane \$* | cwd-entries=\$(ls -A | wc -l) skip=\${FASTLANE_SKIP_UPDATE_CHECK:-} frozen=\${BUNDLE_FROZEN:-} gemfile=\${BUNDLE_GEMFILE:-unset}" >> "$log"
 args=("\$@")
 for ((i=0; i<\${#args[@]}; i++)); do
   case "\${args[i]}" in --json_key|--api_key_path) echo "keyfile=\${args[i+1]} content=\$(cat "\${args[i+1]}")" >> "$log" ;; esac
@@ -135,7 +137,7 @@ run_play() {
     PACKAGE_NAME=com.example.app TRACK=internal RELEASE_STATUS=completed GOOGLE_PLAY_JSON='{"type":"service_account"}' "$@" \
     bash "$root/scripts/flutter_play_upload.sh" > "$work/play.out" 2>&1
 }
-if run_play && grep -q "^fastlane supply --aab $work/play/app.aab --package_name com.example.app --track internal --release_status completed --json_key .* | cwd-entries=0 skip=1 gem_home=$gems gem_path=$gems:/ruby/default/gems gemfile=unset" "$log" \
+if run_play && grep -q "^fastlane supply --aab $work/play/app.aab --package_name com.example.app --track internal --release_status completed --json_key .* | cwd-entries=0 skip=1 frozen=true gemfile=$gems/app/Gemfile" "$log" \
     && grep -q 'content={"type":"service_account"}' "$log"; then
   key="$(sed -n 's/^keyfile=\([^ ]*\) .*/\1/p' "$log")"
   if [[ -e "$key" ]]; then bad "the Play key $key is left on disk"; else ok "play: supply with checked values, from an empty directory, key removed"; fi
@@ -214,26 +216,73 @@ ios_in com.example.app /etc
 if run_asc; then bad "an archive with an escaping symlink was used"; elif grep -q '^fastlane' "$log"; then bad "fastlane ran on an escaping archive"; else ok "app store refuses an archive with a symlink out of it"; fi
 
 # ---------------------------------------------------------------- install_fastlane.sh
-gb="$work/gembin"; mkdir -p "$gb"
-cat > "$gb/ruby" <<EOF
+# Stub curl serves a fake bundler.gem; the test pins its sha256. Stub ruby
+# plays gem and bundle. The real checksum check is Bundler's (2.6+).
+gb="$work/gembin"; cb="$work/curlbin"; mkdir -p "$gb" "$cb"
+printf 'fake bundler gem' > "$work/bundler.gem"
+fake_sha="$(sha256sum "$work/bundler.gem" | cut -d' ' -f1)"
+cat > "$cb/curl" <<EOF
 #!/bin/bash
-echo "\$* cwd-entries=\$(ls -A | wc -l) gemfile=\${BUNDLE_GEMFILE:-unset}" > "$work/gem.log"
-args=("\$@"); for ((i=0; i<\${#args[@]}; i++)); do [[ "\${args[i]}" == --bindir ]] && mkdir -p "\${args[i+1]}" && : > "\${args[i+1]}/fastlane"; done
+args=("\$@"); for ((i=0; i<\${#args[@]}; i++)); do [[ "\${args[i]}" == -o ]] && cp "$work/bundler.gem" "\${args[i+1]}"; done
+echo "curl \$*" >> "$work/gem.log"
 true
 EOF
-: > "$gb/gem"; chmod +x "$gb/ruby"
-if out="$(env -i PATH=/usr/bin:/bin RUBY_BIN="$gb" GEMS="$work/fl" BUNDLE_GEMFILE=/x/Gemfile bash "$root/scripts/install_fastlane.sh" 2>&1)" \
-    && [[ "$out" == "gems=$work/fl" ]] \
-    && grep -qE "^$gb/gem install fastlane -N -v [0-9]+\.[0-9]+\.[0-9]+ --install-dir $work/fl --bindir $work/fl/bin cwd-entries=0 gemfile=unset$" "$work/gem.log"; then
-  ok "install_fastlane installs the pinned version from an empty directory, no Gemfile"
+cat > "$gb/ruby" <<EOF
+#!/bin/bash
+echo "ruby \$* cwd-entries=\$(ls -A | wc -l) frozen=\${BUNDLE_FROZEN:-} gemfile=\${BUNDLE_GEMFILE:-unset}" >> "$work/gem.log"
+args=("\$@"); for ((i=0; i<\${#args[@]}; i++)); do [[ "\${args[i]}" == --bindir ]] && mkdir -p "\${args[i+1]}" && : > "\${args[i+1]}/bundle"; done
+true
+EOF
+: > "$gb/gem"; chmod +x "$gb/ruby" "$cb/curl"
+fv="$(awk -F= '$1 == "FASTLANE_VERSION" { print $2 }' "$root/toolchain-pins.env")"
+bv="$(awk -F= '$1 == "BUNDLER_VERSION" { print $2 }' "$root/toolchain-pins.env")"
+mkpins() { printf 'FASTLANE_VERSION=%s\nBUNDLER_VERSION=%s\nBUNDLER_GEM_SHA256=%s\n' "$fv" "$bv" "${1:-$fake_sha}" > "$work/pins.env"; }
+lockcopy() { rm -rf "$work/lock" && mkdir "$work/lock" && cp "$root/scripts/fastlane/Gemfile" "$root/scripts/fastlane/Gemfile.lock" "$work/lock/"; }
+inst() {  # inst GEMS_NAME: run with the test pins and lock copy
+  : > "$work/gem.log"
+  env -i PATH="$cb:/usr/bin:/bin" RUBY_BIN="$gb" GEMS="$work/$1" TOOLCHAIN_PINS="$work/pins.env" FASTLANE_LOCK_DIR="$work/lock" \
+    BUNDLE_GEMFILE=/x/Gemfile bash "$root/scripts/install_fastlane.sh" > "$work/inst.out" 2>&1
+}
+mkpins; lockcopy
+if inst fl && [[ "$(tail -1 "$work/inst.out")" == "gems=$work/fl" ]] \
+    && grep -q "^ruby $gb/gem install --local .*bundler.gem -N --install-dir $work/fl/bundler" "$work/gem.log" \
+    && grep -q "^ruby $work/fl/bundler/bin/bundle _${bv}_ install --jobs 4 cwd-entries=0 frozen=true gemfile=$work/fl/app/Gemfile$" "$work/gem.log" \
+    && cmp -s "$work/fl/app/Gemfile.lock" "$root/scripts/fastlane/Gemfile.lock"; then
+  ok "install_fastlane: checked bundler, frozen bundle install of the library lockfile from an empty directory"
 else
-  bad "install_fastlane: $out $(cat "$work/gem.log" 2>/dev/null)"
+  bad "install_fastlane"; cat "$work/inst.out" "$work/gem.log"
 fi
-rc=0; env -i PATH=/usr/bin:/bin RUBY_BIN="$gb" GEMS="$work/fl" bash "$root/scripts/install_fastlane.sh" >/dev/null 2>&1 || rc=$?
+n=0
+irefuse() {  # irefuse LABEL PYTHON (edits lock/Gemfile.lock as s)
+  n=$((n + 1)); mkpins; lockcopy
+  python3 - "$work/lock/Gemfile.lock" "$2" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+exec(sys.argv[2])
+open(p, "w").write(s)
+PY
+  if inst "r$n"; then bad "install_fastlane accepted: $1"
+  elif grep -q 'bundle _' "$work/gem.log"; then bad "install_fastlane ran bundle install with: $1"
+  else ok "install_fastlane refuses: $1"; fi
+}
+irefuse "a second source" 's = s.replace("  remote: https://rubygems.org/\n", "  remote: https://rubygems.org/\n", 1) + "\nGEM\n  remote: https://gems.example/\n  specs:\n    x (1.0)\n"'
+irefuse "another remote" 's = s.replace("remote: https://rubygems.org/", "remote: https://gems.example/", 1)'
+irefuse "a GIT section" 's = "GIT\n  remote: https://github.com/x/y\n  revision: 0\n  specs:\n    y (1.0)\n\n" + s'
+irefuse "a locked gem with no checksum" 's = s.replace("  specs:\n", "  specs:\n    unlocked-extra (9.9.9)\n", 1)'
+irefuse "a checksum that is not 64 hex" 's = re.sub(r"sha256=[0-9a-f]{64}", "sha256=abc", s, count=1)'
+irefuse "a checksum line with no sha256" 's = re.sub(r" sha256=[0-9a-f]{64}", "", s, count=1)'
+irefuse "another fastlane version" 's = re.sub(r"^    fastlane \([^)]*\)$", "    fastlane (0.0.1)", s, flags=re.M)'
+mkpins; lockcopy; printf 'source "https://rubygems.org"\n\ngem "fastlane", ">= 0"' > "$work/lock/Gemfile"
+if inst g1; then bad "an unpinned Gemfile was accepted"; else ok "install_fastlane refuses a Gemfile that does not pin FASTLANE_VERSION"; fi
+mkpins "$(printf '%064d' 0)"; lockcopy
+if inst g2; then bad "a bundler.gem with another sha256 was installed"; elif grep -q 'gem install' "$work/gem.log"; then bad "bundler was installed before its digest matched"; else ok "install_fastlane refuses a bundler.gem whose sha256 differs"; fi
+mkpins; lockcopy; mkdir -p "$work/exists"
+rc=0; inst exists || rc=$?
 [[ "$rc" == 2 ]] && ok "install_fastlane refuses an existing GEMS" || bad "install_fastlane over an existing GEMS exited $rc"
-printf 'FASTLANE_VERSION=~> 2\n' > "$work/pins.env"
-rc=0; env -i PATH=/usr/bin:/bin RUBY_BIN="$gb" GEMS="$work/fl2" TOOLCHAIN_PINS="$work/pins.env" bash "$root/scripts/install_fastlane.sh" >/dev/null 2>&1 || rc=$?
-[[ "$rc" == 2 ]] && ok "install_fastlane refuses a pin that is not X.Y.Z" || bad "a range pin exited $rc"
+# The shipped lockfile: rubygems.org only, one sha256 per locked gem.
+specs="$(awk '/^GEM$/{f=1;next} /^[A-Z]/{f=0} f && /^    [^ ]/{print $1, $2}' "$root/scripts/fastlane/Gemfile.lock" | sort -u)"
+sums="$(awk '/^CHECKSUMS$/{f=1;next} /^$/{f=0} f && / sha256=[0-9a-f]{64}$/{print $1, $2}' "$root/scripts/fastlane/Gemfile.lock" | sort -u)"
+[[ -n "$specs" && "$specs" == "$sums" ]] && ok "scripts/fastlane/Gemfile.lock has a sha256 for each of its $(wc -l <<< "$specs") gems" || bad "scripts/fastlane/Gemfile.lock lacks checksums"
 
 # ---------------------------------------------------------------- the workflow
 python3 - "$root/.github/workflows/flutter-release.yml" "$work" > "$work/wf.out" 2>&1 <<'PY' || { bad "workflow:"; cat "$work/wf.out"; }

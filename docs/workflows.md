@@ -355,9 +355,12 @@ Jobs:
   check the artifact name, then check every file against the manifest
   (`scripts/artifact_parts.sh verify`) before they use it. They run only
   library scripts, the pinned Java (`actions/setup-java`), Ruby from the
-  runner's tool cache (`scripts/setup_ruby.sh`) and fastlane at the version
-  in the library's `toolchain-pins.env` (`FASTLANE_VERSION`,
-  `scripts/install_fastlane.sh`), all installed before a secret is read.
+  runner's tool cache (`scripts/setup_ruby.sh`) and fastlane installed by
+  `scripts/install_fastlane.sh` from the library's
+  `scripts/fastlane/Gemfile.lock`: frozen, rubygems.org only, every gem
+  checked against the lockfile's sha256 by Bundler (`BUNDLER_VERSION`,
+  itself checked against `BUNDLER_GEM_SHA256` in `toolchain-pins.env`), all
+  installed before a secret is read.
 - `sign-android` removes the build's signature from each `.aab`
   (`scripts/zip_strip_signature.py`), signs it with `jarsigner` and the
   upload key, verifies it, and uploads `android_artifact_name` (when
