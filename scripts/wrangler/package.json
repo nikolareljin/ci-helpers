@@ -1,0 +1,8 @@
+{
+  "name": "ci-helpers-wrangler",
+  "private": true,
+  "description": "The wrangler cloudflare-build.yml and cloudflare-deploy.yml run. Installed with npm ci --ignore-scripts from package-lock.json; the wrangler tarball's sha256 is pinned in toolchain-pins.env.",
+  "dependencies": {
+    "wrangler": "4.154.0"
+  }
+}

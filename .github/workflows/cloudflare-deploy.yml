@@ -3,33 +3,40 @@ name: cloudflare-deploy
 # Deploys to Cloudflare with wrangler, behind a kill switch and a GitHub
 # Environment. Workers is the path this was built and exercised against; Pages
 # is an input combination (command: "pages deploy"), documented in
-# docs/presets.md, not a separate code path.
+# docs/presets.md.
+#
+# Two jobs. `build` (contents: read, no Cloudflare secret) checks out the
+# caller, runs install_command and build_command, bundles the Worker with
+# `wrangler deploy --dry-run` (or takes the Pages directory) and uploads the
+# result with a sha256 manifest. `deploy` holds the token and the Environment,
+# checks out nothing of the caller's, checks the artifact against the
+# manifest and runs only the library's pinned wrangler (scripts/wrangler/,
+# toolchain-pins.env) with arguments built from checked inputs. The config it
+# deploys with is a checked copy: `build` is dropped (it already ran), and a
+# key that would make wrangler run a command or read a file outside the
+# artifact is refused (scripts/cloudflare_wrangler.py).
+#
+# deploy_command and wrangler_command are removed; a run that sets either
+# fails in `resolve` and names what replaces it.
 #
 # DISABLED BY DEFAULT. Nothing deploys until the kill switch reads the string
-# 'true' — either the `enabled` input, or the repository variable
+# 'true' -- either the `enabled` input, or the repository variable
 # CLOUDFLARE_DEPLOY_ENABLED when that input is empty. While it is off the
 # `disabled-notice` job writes a job summary saying which environment was not
-# deployed and how to arm it. A deliberate no-op should be visible; a workflow
-# that silently skips every job looks identical to one that is broken.
+# deployed and how to arm it.
 #
 # THE CALLER MUST USE `secrets: inherit` when the token lives on an Environment.
 # A job that calls a reusable workflow cannot declare `environment:`, and
 # `on.workflow_call` has no `environment` keyword, so an environment-scoped
-# secret cannot be passed explicitly — it is resolved by the `environment:`
-# declared on the deploy job below. `secrets: inherit` is what makes that
-# resolution possible. An explicit `secrets:` block still works for a
-# repository-level secret.
+# secret cannot be passed explicitly; it is resolved by the `environment:`
+# declared on the deploy job below. An explicit `secrets:` block still works
+# for a repository-level secret.
+#
+# The build job has no Environment, so build_command sees repository
+# variables only, not the Environment's.
 #
 # Pair it with cloudflare-build.yml when a repository validates its Worker on
-# pull requests: that workflow declares no secrets at all, so a pull-request
-# caller never writes `secrets: inherit` and no deploy credential is in scope
-# while third-party build code runs.
-#
-# There is deliberately no orchestrator workflow wrapping the two, unlike
-# pages.yml. In Pages the deploy half is useless alone, so an orchestrator earns
-# its place; here this workflow is already self-sufficient, and an orchestrator
-# would force `secrets: inherit` onto every event it handles — which is the one
-# thing the split exists to make optional.
+# pull requests: that workflow declares no secrets at all.
 
 on:
   workflow_call:
@@ -76,10 +83,19 @@ on:
           back to reading that same variable here. Compared against the string
           'true'; anything else, including unset, disables.
 
-      # --- build -------------------------------------------------------------
+      # --- runners -----------------------------------------------------------
       runner:
         type: string
         default: ubuntu-latest
+        description: Runs the resolve and build jobs.
+      deploy_runner:
+        type: string
+        default: ubuntu-latest
+        description: >
+          Runs the deploy job, which holds the Cloudflare token and runs no
+          caller code. Linux with python3 3.11 or later at /usr/bin/python3.
+
+      # --- build -------------------------------------------------------------
       timeout_minutes:
         type: number
         default: 30
@@ -110,22 +126,26 @@ on:
         type: string
         default: ""
         description: >
-          Runs before wrangler, with CLOUDFLARE_ENV (wrangler's own environment
-          selector, which build plugins read) and the CF_DEPLOY_* contract
-          exported. Leave empty when there is nothing to build.
+          Runs in the build job, which holds no Cloudflare secret, with
+          CLOUDFLARE_ENV (wrangler's own environment selector, which build
+          plugins read) and the CF_DEPLOY_* contract exported. Leave empty
+          when there is nothing to build.
 
       # --- the wrangler invocation -------------------------------------------
       config_path:
         type: string
         default: ""
-        description: Path to the wrangler config to deploy, relative to working_directory.
+        description: >
+          Path to the wrangler config to deploy, relative to working_directory.
+          Empty uses wrangler.json, wrangler.jsonc or wrangler.toml there, in
+          that order. Workers lane only.
       config_glob:
         type: string
         default: ""
         description: >
           Alternative to config_path for builds that generate their deploy
           config. Must match exactly one file; zero, or two or more, is an
-          error naming what it found.
+          error naming what it found. Workers lane only.
       version:
         type: string
         default: ""
@@ -148,33 +168,31 @@ on:
         type: string
         default: ""
         description: >
-          Extra arguments appended verbatim. This is where the Pages lane
-          lives: command "pages deploy", deploy_args "dist --project-name
-          example-site".
+          Extra wrangler flags, each checked against an allowlist. Pages
+          lane: the directory to upload first, then --project-name, --branch,
+          --commit-hash, --commit-dirty, --skip-caching ("dist --project-name
+          example-site"). Workers lane: --name, --compatibility-date,
+          --compatibility-flag(s), --keep-vars, --dispatch-namespace, --tag,
+          --message. Anything else fails the run.
       wrangler_version:
         type: string
-        default: "4.42.0"
-        description: Version used by the npx fallback. Ignored when wrangler_command is set.
+        default: ""
+        description: >
+          Empty, or the pinned WRANGLER_VERSION in toolchain-pins.env. Any
+          other value fails the run: the library installs one pinned wrangler.
       wrangler_command:
         type: string
         default: ""
         description: >
-          Overrides how wrangler is run, e.g. "pnpm exec wrangler" so a
-          lockfile pins it rather than npx fetching wrangler_version at deploy
-          time. Recommended for anything you care about.
-
-      # --- the layered escape hatch ------------------------------------------
+          REMOVED. Setting it fails the run. The library runs its pinned
+          wrangler (toolchain-pins.env); pass flags through deploy_args.
       deploy_command:
         type: string
         default: ""
         description: >
-          Run this one command instead of the built-in build-and-wrangler
-          steps. Everything else — kill switch, environment gate, credential
-          preflight, version string, smoke test, summary — still runs, and the
-          resolved values reach the command as CF_DEPLOY_* environment
-          variables. This is how a repository with its own ./dev deploy keeps
-          one implementation for the laptop and for CI. Leave empty (the
-          default) and this workflow needs nothing but the typed inputs above.
+          REMOVED. Setting it fails the run. Use build_command for the build,
+          and command plus deploy_args for the wrangler call; the deploy job
+          runs no caller command.
 
       # --- smoke test --------------------------------------------------------
       base_url:
@@ -206,9 +224,8 @@ on:
         required: false
         description: >
           Account API token. Scope for the Workers lane: Account > Workers
-          Scripts > Edit, on the account that owns the Worker. Add Account >
-          Workers KV Storage > Edit only if your deploy_command writes KV —
-          binding a namespace does not need it. The Pages lane needs Account >
+          Scripts > Edit, on the account that owns the Worker. Binding a KV namespace does not need
+          Workers KV Storage > Edit. The Pages lane needs Account >
           Cloudflare Pages > Edit instead. Create one at
           https://dash.cloudflare.com/profile/api-tokens.
           Declared optional so a run with the kill switch off does not require
@@ -237,7 +254,7 @@ on:
         value: ${{ jobs.resolve.outputs.environment }}
       version:
         description: The version string that was deployed.
-        value: ${{ jobs.deploy.outputs.version }}
+        value: ${{ jobs.build.outputs.version }}
       url:
         description: The base URL the smoke test used.
         value: ${{ jobs.deploy.outputs.url }}
@@ -261,6 +278,9 @@ jobs:
       mode: ${{ steps.decide.outputs.mode }}
       environment: ${{ steps.decide.outputs.environment }}
       ref: ${{ steps.decide.outputs.ref }}
+      wrangler_env: ${{ steps.decide.outputs.wrangler_env }}
+      command: ${{ steps.decide.outputs.command }}
+      deploy_args: ${{ steps.decide.outputs.deploy_args }}
     steps:
       - name: Decide what this run deploys
         id: decide
@@ -272,12 +292,35 @@ jobs:
           IN_PRODUCTION_ENVIRONMENT: ${{ inputs.production_environment }}
           IN_REF: ${{ inputs.ref }}
           IN_COMMAND: ${{ inputs.command }}
+          IN_WRANGLER_ENV: ${{ inputs.wrangler_env }}
+          IN_DEPLOY_ARGS: ${{ inputs.deploy_args }}
+          IN_DEPLOY_COMMAND: ${{ inputs.deploy_command }}
+          IN_CONFIG_PATH: ${{ inputs.config_path }}
+          IN_CONFIG_GLOB: ${{ inputs.config_glob }}
+          IN_WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
           EVENT_NAME: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+
+          # Removed inputs fail first, naming what replaces them.
+          if [ -n "${IN_DEPLOY_COMMAND}" ]; then
+            echo "::error::deploy_command is removed: the deploy job runs no caller command. Put the build in build_command and choose the wrangler call with command and deploy_args (docs/workflows.md, cloudflare-deploy)"
+            exit 1
+          fi
+          if [ -n "${IN_WRANGLER_COMMAND}" ]; then
+            echo "::error::wrangler_command is removed: the library runs its pinned wrangler (WRANGLER_VERSION in toolchain-pins.env). Drop the input; pass flags through deploy_args"
+            exit 1
+          fi
+          if [ "${IN_COMMAND}" = "pages deploy" ] && [ -n "${IN_CONFIG_PATH}${IN_CONFIG_GLOB}" ]; then
+            echo "::error::config_path and config_glob are for the Workers lane; 'pages deploy' uploads the directory named first in deploy_args"
+            exit 1
+          fi
+          case "${IN_DEPLOY_ARGS}" in
+            *$'\n'*|*$'\r'*) echo "::error::deploy_args holds a line break"; exit 1 ;;
+          esac
 
           # Checked here, before a checkout and before the kill switch, so a
           # typo costs five seconds and fails saying what it is.
@@ -344,10 +387,25 @@ jobs:
             *) echo "::error::internal: mode '${mode}' is not one of deploy, disabled"; exit 1 ;;
           esac
 
+          # The wrangler --env name: wrangler_env, else the Environment. 'none'
+          # omits it. Checked here, on a deploying run, so a bad name fails
+          # before any build.
+          wrangler_env="${IN_WRANGLER_ENV}"
+          if [ -z "${wrangler_env}" ]; then
+            wrangler_env="${environment}"
+          fi
+          if [ "${mode}" = "deploy" ] && [ "${wrangler_env}" != "none" ] && ! printf '%s' "${wrangler_env}" | grep -Eqx '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'; then
+            echo "::error::the wrangler environment '${wrangler_env}' must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}; set wrangler_env to one that does, or to 'none'"
+            exit 1
+          fi
+
           {
             echo "mode=${mode}"
             echo "environment=${environment}"
             echo "ref=${ref}"
+            echo "wrangler_env=${wrangler_env}"
+            echo "command=${IN_COMMAND}"
+            echo "deploy_args=${IN_DEPLOY_ARGS}"
           } >> "${GITHUB_OUTPUT}"
 
   # A visible no-op. Without this a repository with deploys switched off shows
@@ -378,31 +436,20 @@ jobs:
             echo "Settings → Secrets and variables → Actions → Variables."
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  deploy:
+  # Runs the caller's install and build with no Cloudflare secret and no
+  # Environment, and uploads what the deploy job uploads to Cloudflare.
+  build:
     needs: resolve
     if: ${{ needs.resolve.outputs.mode == 'deploy' }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
-    # The Environment is what carries the token, the variables and the required
-    # reviewer. It is declared here, on the called workflow's job, because a
-    # calling job cannot declare one — which is also why the caller must use
-    # `secrets: inherit` for an environment-scoped token.
-    environment:
-      name: ${{ needs.resolve.outputs.environment }}
-      url: ${{ steps.smoke.outputs.url }}
-    # Namespaced, and keyed on the environment rather than the ref: two runs
-    # deploying the same environment must not race, while staging and
-    # production may proceed independently. cancel-in-progress stays false —
-    # a half-finished deploy is worse than a queued one.
-    concurrency:
-      group: ci-helpers-cloudflare-deploy-${{ inputs.concurrency_key || needs.resolve.outputs.environment }}
-      cancel-in-progress: false
     permissions:
       contents: read
     outputs:
-      deployed: ${{ steps.result.outputs.deployed }}
       version: ${{ steps.version.outputs.value }}
-      url: ${{ steps.smoke.outputs.url }}
+      config: ${{ steps.config.outputs.path }}
+      artifact: ${{ steps.stage.outputs.artifact }}
+      manifest: ${{ steps.stage.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -410,46 +457,9 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
 
-      # First, before any toolchain setup: a missing credential should cost
-      # seconds, not a full dependency install.
-      #
-      # The account id is the reason this step exists at all. wrangler treats an
-      # empty accountId as "resolve it from the token", which is correct for a
-      # token scoped to one account and a coin toss otherwise — so a deploy that
-      # lands on the wrong account looks exactly like a deploy that worked.
-      # Reading `vars` first and `secrets` second means putting it in either
-      # place works; reading only one silently yields an empty string from the
-      # other.
-      - name: Preflight credentials
-        shell: bash
-        env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
-          DEPLOY_COMMAND: ${{ inputs.deploy_command }}
-        run: |
-          set -euo pipefail
-          failed=0
-          if [ -z "${CF_TOKEN}" ]; then
-            echo "::error::no CLOUDFLARE_API_TOKEN for environment '${ENVIRONMENT}'. Add it as an Environment secret and call this workflow with 'secrets: inherit', or as a repository secret passed explicitly"
-            failed=1
-          fi
-          if [ -z "${CF_ACCOUNT_ID}" ]; then
-            echo "::error::no CLOUDFLARE_ACCOUNT_ID for environment '${ENVIRONMENT}'. Set the variable (preferred — it is an identifier, not a credential) or the secret of that name. wrangler does not fail on an empty account id; it picks one, which is why this is checked here"
-            failed=1
-          fi
-          [ "${failed}" = "0" ] || exit 1
-          # Length only. A secret-sourced id would be masked anyway, and the
-          # point is to prove it is non-empty, not to print it.
-          echo "account id is set (${#CF_ACCOUNT_ID} characters)"
-          if [ -n "${DEPLOY_COMMAND}" ]; then
-            echo "deploy_command is set: this run replaces the built-in build and wrangler steps"
-          fi
-
-      # The library's scripts, at this workflow's commit. A directory of that
-      # name already in the caller's tree is refused, not reused.
+      # The library's scripts and pins at this workflow's commit. A directory
+      # of that name already in the caller's tree is refused, not reused.
       - name: Reserve ci-helpers scripts directory
-        if: ${{ inputs.package_manager == 'pnpm' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -459,7 +469,6 @@ jobs:
           fi
 
       - name: Check out ci-helpers scripts
-        if: ${{ inputs.package_manager == 'pnpm' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: ${{ job.workflow_repository }}
@@ -472,7 +481,6 @@ jobs:
 
       - name: Isolate ci-helpers scripts
         id: ci_lib
-        if: ${{ inputs.package_manager == 'pnpm' }}
         shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
@@ -500,6 +508,61 @@ jobs:
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
           exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Before any caller code: a refused deploy_args word fails here, not after
+      # the build.
+      - name: Check the wrangler inputs
+        id: wrangler_inputs
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          CF_COMMAND: ${{ needs.resolve.outputs.command }}
+          CF_DEPLOY_ARGS: ${{ needs.resolve.outputs.deploy_args }}
+          IN_WRANGLER_VERSION: ${{ inputs.wrangler_version }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" CF_COMMAND="$CF_COMMAND" CF_DEPLOY_ARGS="$CF_DEPLOY_ARGS" IN_WRANGLER_VERSION="$IN_WRANGLER_VERSION" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          pinned="$(/usr/bin/sed -n 's/^WRANGLER_VERSION=//p' "$run_lib/toolchain-pins.env")"
+          if [[ -n "$IN_WRANGLER_VERSION" && "$IN_WRANGLER_VERSION" != "$pinned" ]]; then
+            echo "::error::wrangler_version '$IN_WRANGLER_VERSION' is not the pinned wrangler $pinned. Leave it empty; the library installs one pinned version."
+            exit 1
+          fi
+          /usr/bin/python3 -I "$run_lib/scripts/cloudflare_wrangler.py" args >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
 
       # corepack ships with Node; the version is the root package.json's
       # devEngines.packageManager or packageManager, whose hash corepack checks
@@ -550,9 +613,9 @@ jobs:
           CI_HELPERS_RUN
           )"
 
-      # No package cache: this job holds the Cloudflare token and deploys what
-      # it builds, and a restored store is whatever the run that owned the key
-      # first left there (scripts/check_cache_trust.py).
+      # No package cache: what this job builds is deployed, and a restored
+      # store is whatever the run that owned the key first left there
+      # (scripts/check_cache_trust.py).
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
@@ -621,19 +684,18 @@ jobs:
           echo "version: ${value}"
 
       # Runs before the build so the build can read them, and after the version
-      # so the version is in them. This is the contract a deploy_command reads,
-      # and it is what stops the version being computed twice — once here and
-      # once in whatever script the repository already had.
+      # so the version is in them. The build reads them; the version is not
+      # computed twice.
       - name: Export the deploy contract
         shell: bash
         env:
           ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
-          IN_COMMAND: ${{ inputs.command }}
+          IN_COMMAND: ${{ needs.resolve.outputs.command }}
           DEPLOY_VERSION: ${{ steps.version.outputs.value }}
           RESOLVED_REF: ${{ needs.resolve.outputs.ref }}
           IN_BASE_URL: ${{ inputs.base_url }}
           VAR_BASE_URL: ${{ vars.BASE_URL }}
-          IN_DEPLOY_ARGS: ${{ inputs.deploy_args }}
+          IN_DEPLOY_ARGS: ${{ needs.resolve.outputs.deploy_args }}
         run: |
           set -euo pipefail
           base="${IN_BASE_URL}"
@@ -644,21 +706,20 @@ jobs:
           # A random delimiter, not a fixed one. These values come from
           # repository variables and caller inputs, both of which may legally
           # contain a newline — and a newline in a $GITHUB_ENV value lets the
-          # rest of the line be read as a further assignment, in the same job
-          # that holds the Cloudflare token. create-github-release.yml makes the
-          # same argument about CHANGELOG bodies.
+          # rest of the line be read as a further assignment.
+          # create-github-release.yml makes the same argument about CHANGELOG
+          # bodies.
           delim="EOF_$(openssl rand -hex 8 2>/dev/null || date +%s%N)"
           emit() {
             printf '%s<<%s\n%s\n%s\n' "$1" "${delim}" "$2" "${delim}" >> "${GITHUB_ENV}"
           }
 
           # CF_DEPLOY_ENV, not CLOUDFLARE_ENV. CLOUDFLARE_ENV is wrangler's own
-          # system environment variable — it selects the active environment for
-          # every command that accepts --env. Exporting it here for the whole
-          # job would silently override the --env logic below and defeat
-          # `wrangler_env: none` entirely, so it is set only where it is wanted:
-          # on the build step, which is the documented use (build tools like the
-          # Vite plugin read it), and explicitly on the deploy step.
+          # system environment variable; it selects the active environment for
+          # every command that accepts --env. Exporting it for the whole job
+          # would defeat `wrangler_env: none`, so it is set only on the build
+          # step, which is the documented use (build tools like the Vite plugin
+          # read it), and by scripts/wrangler_run.sh.
           emit CF_DEPLOY_ENV "${ENVIRONMENT}"
           emit CF_DEPLOY_COMMAND "${IN_COMMAND}"
           emit CF_DEPLOY_VERSION "${DEPLOY_VERSION}"
@@ -667,15 +728,15 @@ jobs:
           emit CF_DEPLOY_ARGS "${IN_DEPLOY_ARGS}"
 
       - name: Build
-        if: ${{ inputs.build_command != '' && inputs.deploy_command == '' }}
+        if: ${{ inputs.build_command != '' }}
         working-directory: ${{ inputs.working_directory }}
         shell: bash
         env:
           BUILD_COMMAND: ${{ inputs.build_command }}
           # Set HERE rather than in $GITHUB_ENV. CLOUDFLARE_ENV is wrangler's
           # own system variable and a build plugin is the documented consumer of
-          # it, so the build wants it — but the deploy step must decide its own
-          # value, and a job-wide export would take that decision away.
+          # it, so the build wants it; a job-wide export would take the
+          # bundle step's own decision away.
           CLOUDFLARE_ENV: ${{ needs.resolve.outputs.environment }}
         # eval, for the same reason as the install step.
         run: |
@@ -686,7 +747,7 @@ jobs:
       # this looks for.
       - name: Resolve the deploy config
         id: config
-        if: ${{ inputs.deploy_command == '' }}
+        if: ${{ needs.resolve.outputs.command != 'pages deploy' }}
         working-directory: ${{ inputs.working_directory }}
         shell: bash
         env:
@@ -719,95 +780,638 @@ jobs:
             fi
             path="$1"
           fi
-          echo "path=${path}" >> "${GITHUB_OUTPUT}"
-          if [ -n "${path}" ]; then
-            echo "deploy config: ${path}"
-          else
-            echo "no deploy config resolved; wrangler will use its own default"
+          if [ -z "${path}" ]; then
+            # wrangler's own lookup order, done here so the deploy job knows
+            # which file to check.
+            for f in wrangler.json wrangler.jsonc wrangler.toml; do
+              if [ -f "${f}" ]; then path="${f}"; break; fi
+            done
           fi
+          if [ -z "${path}" ]; then
+            echo "::error::no deploy config: set config_path or config_glob, or add wrangler.json, wrangler.jsonc or wrangler.toml to working_directory"
+            exit 1
+          fi
+          path="${path#./}"
+          echo "path=${path}" >> "${GITHUB_OUTPUT}"
+          echo "deploy config: ${path}"
 
-      - name: Deploy
-        id: deploy
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
+      # wrangler's own Node, chosen by the library, after the caller's steps
+      # (the pinned wrangler needs Node 22 or later). No package cache.
+      - name: Setup Node for wrangler
+        if: ${{ needs.resolve.outputs.command != 'pages deploy' }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
+        with:
+          node-version: "24"
+          cache: ""
+          package-manager-cache: false
+
+      # After the caller's steps, from the verified copy. The build job's
+      # wrangler is the deploy job's: same pins, same lockfile.
+      - name: Install the pinned wrangler
+        id: wrangler
+        if: ${{ needs.resolve.outputs.command != 'pages deploy' }}
+        shell: sh
         env:
-          # The token reaches wrangler through the environment and never
-          # through argv, where every other process on the runner could read it.
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DEPLOY_COMMAND: ${{ inputs.deploy_command }}
-          IN_COMMAND: ${{ inputs.command }}
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
-          WRANGLER_ENV: ${{ inputs.wrangler_env }}
-          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
-          VERSION_VAR: ${{ inputs.version_var }}
-          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
-          DEPLOY_ARGS: ${{ inputs.deploy_args }}
-          WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
-          WRANGLER_VERSION: ${{ inputs.wrangler_version }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH"  GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_wrangler.sh"
+          CI_HELPERS_RUN
+          )"
+
+      # `wrangler deploy --dry-run --outdir`: the bundle the deploy job uploads
+      # with --no-bundle. The config check here fails early; the deploy job
+      # repeats it on what it downloads.
+      - name: Bundle the Worker
+        id: bundle
+        if: ${{ needs.resolve.outputs.command != 'pages deploy' }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          NODE: ${{ steps.wrangler.outputs.node }}
+          WRANGLER_JS: ${{ steps.wrangler.outputs.wrangler }}
+          WORKDIR: ${{ inputs.working_directory }}
+          CF_COMMAND: ${{ needs.resolve.outputs.command }}
+          CF_ENV_NAME: ${{ needs.resolve.outputs.wrangler_env }}
+          CF_CONFIG: ${{ steps.config.outputs.path }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" NODE="$NODE" WRANGLER_JS="$WRANGLER_JS" WORKDIR="$WORKDIR" CF_COMMAND="$CF_COMMAND" CF_ENV_NAME="$CF_ENV_NAME" CF_CONFIG="$CF_CONFIG" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          work="$(cd "$GITHUB_WORKSPACE" && cd "$WORKDIR" && pwd -P)"
+          out="$RUNNER_TEMP/cloudflare-out"
+          /bin/rm -rf -- "$out"
+          /bin/mkdir -p "$out"
+          /usr/bin/python3 -I "$run_lib/scripts/cloudflare_wrangler.py" config "$work" "$CF_CONFIG" "$CF_ENV_NAME" >> "$GITHUB_OUTPUT"
+          CF_WORKDIR="$work" CF_BUNDLE_DIR="$out/bundle" /bin/bash "$run_lib/scripts/wrangler_run.sh" dryrun
+          CI_HELPERS_RUN
+          )"
+
+      # Only regular files under working_directory; a file over 60 MiB leaves
+      # as parts. The deploy job checks every file against this manifest.
+      - name: Split and list the deploy bundle
+        id: stage
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          WORKDIR: ${{ inputs.working_directory }}
+          CF_COMMAND: ${{ needs.resolve.outputs.command }}
+          CF_CONFIG: ${{ steps.config.outputs.path }}
+          CF_ASSETS: ${{ steps.bundle.outputs.assets }}
+          CF_PAGES_DIR: ${{ steps.wrangler_inputs.outputs.pages_dir }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" WORKDIR="$WORKDIR" CF_COMMAND="$CF_COMMAND" CF_CONFIG="$CF_CONFIG" CF_ASSETS="$CF_ASSETS" CF_PAGES_DIR="$CF_PAGES_DIR" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          work="$(cd "$GITHUB_WORKSPACE" && cd "$WORKDIR" && pwd -P)"
+          out="$RUNNER_TEMP/cloudflare-out"
+          list="$RUNNER_TEMP/cloudflare-manifest.sha256"
+          if [[ "$CF_COMMAND" == "pages deploy" ]]; then
+            /bin/rm -rf -- "$out"
+            /bin/mkdir -p "$out"
+            /bin/bash "$run_lib/scripts/cloudflare_stage.sh" pages "$work" "$out" "$CF_PAGES_DIR" > "$list"
+          else
+            /bin/bash "$run_lib/scripts/cloudflare_stage.sh" workers "$work" "$out" "$CF_CONFIG" ${CF_ASSETS:+"$CF_ASSETS"} > "$list"
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=cloudflare-deploy-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            /bin/cat "$list"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
         run: |
           set -euo pipefail
-
-          if [ -n "${DEPLOY_COMMAND}" ]; then
-            # The passthrough lane. Every gate above still ran, and the
-            # CF_DEPLOY_* contract is in the environment; only the mechanism is
-            # the caller's.
-            eval "${DEPLOY_COMMAND}"
-            exit 0
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
           fi
 
-          runner="${WRANGLER_COMMAND}"
-          if [ -z "${runner}" ]; then
-            runner="npx --yes wrangler@${WRANGLER_VERSION}"
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
-          # IN_COMMAND is two words for "versions upload" and "pages deploy",
-          # and was checked against the allowlist in the resolve job.
-          # shellcheck disable=SC2086
-          set -- ${IN_COMMAND}
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.stage.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/cloudflare-out
 
-          # Decide the wrangler environment once, for both --env and
-          # CLOUDFLARE_ENV. They are two channels into the same setting:
-          # CLOUDFLARE_ENV is a wrangler system variable that selects the
-          # environment for every command accepting --env, so leaving it set
-          # while deliberately omitting --env would put the deploy in an
-          # environment the caller asked to opt out of. --env wins where both
-          # are present, but 'none' means neither may be.
-          env_name="${WRANGLER_ENV}"
-          if [ -z "${env_name}" ]; then
-            env_name="${ENVIRONMENT}"
+      - name: Upload the deploy bundle
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.stage.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
+
+  # Holds the token and the Environment. Checks out nothing of the caller's:
+  # it uploads the bundle the build job made, each file checked against the
+  # build manifest first, with the library's pinned wrangler.
+  deploy:
+    needs: [resolve, build]
+    if: ${{ needs.resolve.outputs.mode == 'deploy' }}
+    runs-on: ${{ inputs.deploy_runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    # The Environment is what carries the token, the variables and the required
+    # reviewer. It is declared here, on the called workflow's job, because a
+    # calling job cannot declare one; that is also why the caller must use
+    # `secrets: inherit` for an environment-scoped token.
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+      url: ${{ steps.smoke.outputs.url }}
+    # Namespaced, and keyed on the environment rather than the ref: two runs
+    # deploying the same environment must not race, while staging and
+    # production may proceed independently. cancel-in-progress stays false:
+    # a half-finished deploy is worse than a queued one.
+    concurrency:
+      group: ci-helpers-cloudflare-deploy-${{ inputs.concurrency_key || needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      deployed: ${{ steps.result.outputs.deployed }}
+      url: ${{ steps.smoke.outputs.url }}
+    steps:
+      # First, before any toolchain setup: a missing credential should cost
+      # seconds, not a full dependency install.
+      #
+      # The account id is the reason this step exists at all. wrangler treats an
+      # empty accountId as "resolve it from the token", which is correct for a
+      # token scoped to one account and a coin toss otherwise — so a deploy that
+      # lands on the wrong account looks exactly like a deploy that worked.
+      # Reading `vars` first and `secrets` second means putting it in either
+      # place works; reading only one silently yields an empty string from the
+      # other.
+      - name: Preflight credentials
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ -z "${CF_TOKEN}" ]; then
+            echo "::error::no CLOUDFLARE_API_TOKEN for environment '${ENVIRONMENT}'. Add it as an Environment secret and call this workflow with 'secrets: inherit', or as a repository secret passed explicitly"
+            failed=1
           fi
-          if [ "${IN_COMMAND}" = "pages deploy" ] || [ "${env_name}" = "none" ]; then
-            # `wrangler pages deploy` rejects --env, and has no environment
-            # concept for CLOUDFLARE_ENV to select.
-            unset CLOUDFLARE_ENV
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "::error::no CLOUDFLARE_ACCOUNT_ID for environment '${ENVIRONMENT}'. Set the variable (preferred: it is an identifier, not a credential) or the secret of that name. wrangler does not fail on an empty account id; it picks one, which is why this is checked here"
+            failed=1
+          fi
+          [ "${failed}" = "0" ] || exit 1
+          # Length only. A secret-sourced id would be masked anyway, and the
+          # point is to prove it is non-empty, not to print it.
+          echo "account id is set (${#CF_ACCOUNT_ID} characters)"
+
+      # The library's scripts and pins at this workflow's commit. A directory
+      # of that name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Node for wrangler, chosen by the library. No package cache.
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
+        with:
+          node-version: "24"
+          cache: ""
+          package-manager-cache: false
+
+      - name: Download the deploy bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/cloudflare-in
+
+      # Every file against the manifest the build job wrote, no symlink, no
+      # path outside the artifact; then the config check (scripts/cloudflare_wrangler.py).
+      - name: Verify the deploy bundle against the build manifest
+        id: verify
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          CF_COMMAND: ${{ needs.resolve.outputs.command }}
+          CF_ENV_NAME: ${{ needs.resolve.outputs.wrangler_env }}
+          CF_CONFIG: ${{ needs.build.outputs.config }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" CF_COMMAND="$CF_COMMAND" CF_ENV_NAME="$CF_ENV_NAME" CF_CONFIG="$CF_CONFIG" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          in="$RUNNER_TEMP/cloudflare-in"
+          list="$RUNNER_TEMP/cloudflare-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          if [[ "$CF_COMMAND" == "pages deploy" ]]; then
+            /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$in" "$list" 'site/[^[:cntrl:]\\]+'
+            [[ -d "$in/site" ]] || { echo "::error::the artifact has no site/ directory."; exit 1; }
           else
-            export CLOUDFLARE_ENV="${env_name}"
+            /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$in" "$list" '(tree|bundle)/[^[:cntrl:]\\]+'
+            # A checked copy of the config: `build` dropped, refused keys refused.
+            /usr/bin/python3 -I "$run_lib/scripts/cloudflare_wrangler.py" config "$in/tree" "$CF_CONFIG" "$CF_ENV_NAME" --write > "$RUNNER_TEMP/cloudflare-config.out"
+            while IFS='=' read -r k v; do
+              case "$k" in
+                config) echo "config=tree/$v" ;;
+                entry) [[ -f "$in/bundle/$v" ]] || { echo "::error::the bundle has no $v." >&2; exit 1; }; echo "entry=bundle/$v" ;;
+              esac
+            done < "$RUNNER_TEMP/cloudflare-config.out" >> "$GITHUB_OUTPUT"
           fi
+          CI_HELPERS_RUN
+          )"
 
-          if [ -n "${CONFIG_PATH}" ]; then
-            # --config is accepted by `pages deploy` too, so it is not gated on
-            # the command. Only --env and --var are Workers-only.
-            set -- "$@" --config "${CONFIG_PATH}"
-          fi
-          if [ "${IN_COMMAND}" != "pages deploy" ]; then
-            if [ "${env_name}" != "none" ]; then
-              set -- "$@" --env "${env_name}"
-            fi
-            if [ -n "${VERSION_VAR}" ]; then
-              set -- "$@" --var "${VERSION_VAR}:${DEPLOY_VERSION}"
-            fi
-          fi
+      # The tarball's sha256 from toolchain-pins.env, every dependency by the
+      # lockfile's integrity, no package script.
+      - name: Install the pinned wrangler
+        id: wrangler
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH"  GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_wrangler.sh"
+          CI_HELPERS_RUN
+          )"
 
-          if [ -n "${DEPLOY_ARGS}" ]; then
-            # Caller-supplied extra arguments, split on purpose.
-            # shellcheck disable=SC2086
-            set -- "$@" ${DEPLOY_ARGS}
-          fi
-
-          echo "${runner} $*"
-          # shellcheck disable=SC2086
-          ${runner} "$@"
+      # The token reaches wrangler through its environment, never argv, and
+      # only in this step. Every argument is built by scripts/cloudflare_wrangler.py
+      # from checked values.
+      - name: Deploy
+        id: deploy
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NODE: ${{ steps.wrangler.outputs.node }}
+          WRANGLER_JS: ${{ steps.wrangler.outputs.wrangler }}
+          CF_COMMAND: ${{ needs.resolve.outputs.command }}
+          CF_DEPLOY_ARGS: ${{ needs.resolve.outputs.deploy_args }}
+          CF_ENV_NAME: ${{ needs.resolve.outputs.wrangler_env }}
+          CF_VERSION_VAR: ${{ inputs.version_var }}
+          CF_VERSION: ${{ needs.build.outputs.version }}
+          CF_CONFIG: ${{ steps.verify.outputs.config }}
+          CF_ENTRY: ${{ steps.verify.outputs.entry }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" NODE="$NODE" WRANGLER_JS="$WRANGLER_JS" CF_COMMAND="$CF_COMMAND" CF_DEPLOY_ARGS="$CF_DEPLOY_ARGS" CF_ENV_NAME="$CF_ENV_NAME" CF_VERSION_VAR="$CF_VERSION_VAR" CF_VERSION="$CF_VERSION" CF_CONFIG="$CF_CONFIG" CF_ENTRY="$CF_ENTRY" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          CF_WORKDIR="$RUNNER_TEMP/cloudflare-in" CF_PAGES_DIR=site /bin/bash "$run_lib/scripts/wrangler_run.sh" deploy
+          CI_HELPERS_RUN
+          )"
 
       - name: Smoke test
         id: smoke
@@ -819,7 +1423,7 @@ jobs:
           SMOKE_PATH: ${{ inputs.smoke_path }}
           SMOKE_VERSION_PATH: ${{ inputs.smoke_version_path }}
           SMOKE_VERSION_FIELD: ${{ inputs.smoke_version_field }}
-          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
+          DEPLOY_VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           base="${IN_BASE_URL}"
@@ -842,7 +1446,7 @@ jobs:
             -o /dev/null "${base}${SMOKE_PATH}"
 
           if [ -z "${SMOKE_VERSION_PATH}" ]; then
-            echo "::warning::reachability only — something answered, but nothing proved it is the version just deployed. Set smoke_version_path to assert it"
+            echo "::warning::reachability only: something answered, but nothing proved it is the version just deployed. Set smoke_version_path to assert it"
             exit 0
           fi
 
@@ -856,7 +1460,7 @@ jobs:
           if [ "${actual}" != "${DEPLOY_VERSION}" ]; then
             # The failure this exists to catch: the service answers, with the
             # release that was already live.
-            echo "::error::live version is '${actual}', expected '${DEPLOY_VERSION}' — the deploy did not take effect"
+            echo "::error::live version is '${actual}', expected '${DEPLOY_VERSION}': the deploy did not take effect"
             exit 1
           fi
           echo "live version is ${actual}"
@@ -887,9 +1491,9 @@ jobs:
         env:
           ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
           RESOLVED_REF: ${{ needs.resolve.outputs.ref }}
-          DEPLOY_VERSION: ${{ steps.version.outputs.value }}
-          IN_COMMAND: ${{ inputs.command }}
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
+          DEPLOY_VERSION: ${{ needs.build.outputs.version }}
+          IN_COMMAND: ${{ needs.resolve.outputs.command }}
+          CONFIG_PATH: ${{ needs.build.outputs.config }}
           SMOKE_URL: ${{ steps.smoke.outputs.url }}
           SMOKE_VERSION_PATH: ${{ inputs.smoke_version_path }}
           SMOKE_PATH: ${{ inputs.smoke_path }}
