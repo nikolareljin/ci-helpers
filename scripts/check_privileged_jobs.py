@@ -62,13 +62,16 @@ DOCKER_BUILD = re.compile(r"(?:^|[;&|(\s])docker\s+(?:buildx\s+)?(?:build|bake)\
 # Library scripts that run the caller's build, image or test suite.
 LIB_BUILDERS = re.compile(r"scripts/(?:docker_build|rust_release_build|unity_test|unity_container|"
                           r"ppa_upload)\.sh")
-# Installing a named tool from its registry runs no caller code.
+# Installing a named tool from its registry runs no caller code, on a line
+# that does nothing else.
 TOOL_INSTALL = re.compile(r"^\s*(?:sudo\s+)?(?:dotnet\s+tool\s+(?:install|update)|"
                           r"npm\s+(?:install|i)\s+(?:-g|--global)\b|cargo\s+install\s+(?!.*--path)|"
                           r"go\s+install\s+\S+@)")
 CALLER_USES = re.compile(r"^(?:docker/build-push-action|docker/bake-action|tauri-apps/tauri-action|"
                          r"github/codeql-action/autobuild|game-ci/)")
 LOCAL_ACTION = re.compile(r"^\./(?!\.ci-helpers-[a-z]+/)")
+# Command inputs that run on the deploy target over ssh, not on the runner.
+REMOTE_INPUTS = {"post_deploy_command"}
 
 # Jobs not yet split. "file:job" -> why it still holds both.
 PENDING: dict[str, str] = {
@@ -114,7 +117,10 @@ def caller_steps(job: dict) -> list[str]:
         if uses and (CALLER_USES.match(uses) or LOCAL_ACTION.match(uses)):
             hits.append(f"{name} (uses {uses.split('@')[0]})")
         elif run:
-            m = INPUT_CODE.search(run)
+            # A command input reaches the script through env: as often as inline.
+            env_text = " ".join(str(v) for v in (step.get("env") or {}).values())
+            m = next((m for m in [*INPUT_CODE.finditer(run), *INPUT_CODE.finditer(env_text)]
+                      if m.group(1) not in REMOTE_INPUTS), None)
             if m:
                 hits.append(f"{name} (inputs.{m.group(1)})")
             elif LIB_BUILDERS.search(run):
@@ -123,7 +129,8 @@ def caller_steps(job: dict) -> list[str]:
                 hits.append(f"{name} (docker build)")
             else:
                 for line in run.replace("\\\n", " ").splitlines():
-                    t = None if TOOL_INSTALL.search(line) else TOOL_RUN.search(line)
+                    plain_install = TOOL_INSTALL.search(line) and not re.search(r"[;&|`]|\$\(", line)
+                    t = None if plain_install else TOOL_RUN.search(line)
                     if t:
                         hits.append(f"{name} ({t.group(0).strip(' ;&|(`$').split()[-1]})")
                         break

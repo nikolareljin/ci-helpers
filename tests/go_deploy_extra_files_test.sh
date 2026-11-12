@@ -57,7 +57,13 @@ stage() {  # stage <extra_files> <allow_missing>
 
 deploy() {  # hand the staged files over as the artifact, verify, deploy
   rm -rf "$work/tmp/go-deploy-in"; cp -R "$work/tmp/go-deploy-out" "$work/tmp/go-deploy-in"
-  [[ -z "${1:-}" ]] || eval "$1"
+  local in="$work/tmp/go-deploy-in"
+  case "${1:-}" in
+    "") ;;
+    change) echo evil > "$in/bin/app" ;;
+    add) echo extra > "$in/bin/more" ;;
+    remove) rm "$in/extra/1/app.env" ;;
+  esac
   : > "$work/calls"
   env RUNNER_TEMP="$work/tmp" DIR="$work/tmp/go-deploy-in" \
     MANIFEST="$(output "$work/out" manifest)" bash "$work/verify.sh" 2>&1 || return
@@ -90,10 +96,7 @@ if (( rc != 0 )); then echo "FAIL: deploy gave exit $rc: $out"; fail=1; fi
 [[ "$(grep -c '^rsync ' "$work/calls")" == 3 ]] || { echo "FAIL: expected binary, app.env and .env copied"; cat "$work/calls"; fail=1; }
 grep -q 'extra/2/.env ' "$work/calls" || { echo "FAIL: a dot file was not copied"; fail=1; }
 
-# shellcheck disable=SC2016 # expanded by eval in deploy
-for tamper in 'echo evil > "$work/tmp/go-deploy-in/bin/app"' \
-              'echo extra > "$work/tmp/go-deploy-in/bin/more"' \
-              'rm "$work/tmp/go-deploy-in/extra/1/app.env"'; do
+for tamper in change add remove; do
   rc=0; out="$(deploy "$tamper")" || rc=$?
   if (( rc == 0 )); then echo "FAIL: deployed after: $tamper"; fail=1; fi
   if [[ -s "$work/calls" ]]; then echo "FAIL: ssh or rsync ran after: $tamper"; fail=1; fi

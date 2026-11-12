@@ -56,9 +56,16 @@ PY
 manifest="$(out_val manifest)"
 changes="$(out_val changes)"
 
-verify() {  # verify <tamper> [changes name]
+verify() {  # verify <tamper: "", change, add, remove, link> [changes name]
   rm -rf "$work/tmp/ppa-in"; cp -R "$work/tmp/ppa-out" "$work/tmp/ppa-in"
-  [[ -z "$1" ]] || eval "$1"
+  local in="$work/tmp/ppa-in"
+  case "$1" in
+    "") ;;
+    change) echo evil > "$in/tool_1.0-1.tar.xz" ;;
+    add) echo x > "$in/extra.deb" ;;
+    remove) rm "$in/tool_1.0-1.dsc" ;;
+    link) ln -s /etc/passwd "$in/link" ;;
+  esac
   : > "$work/vout"
   env RUNNER_TEMP="$work/tmp" GITHUB_OUTPUT="$work/vout" DIR="$work/tmp/ppa-in" \
     MANIFEST="$manifest" CHANGES_NAME="${2:-$changes}" bash "$work/verify.sh" >/dev/null 2>&1
@@ -69,11 +76,7 @@ fail=0
 [[ "$changes" == tool_1.0-1_source.changes ]] || { echo "FAIL: changes output is '$changes'"; fail=1; }
 verify "" || { echo "FAIL: the untouched artifact was refused"; fail=1; }
 grep -qx "changes=$work/tmp/ppa-in/tool_1.0-1_source.changes" "$work/vout" || { echo "FAIL: no changes path"; fail=1; }
-# shellcheck disable=SC2016 # expanded by eval in verify
-for tamper in 'echo evil > "$work/tmp/ppa-in/tool_1.0-1.tar.xz"' \
-              'echo x > "$work/tmp/ppa-in/extra.deb"' \
-              'rm "$work/tmp/ppa-in/tool_1.0-1.dsc"' \
-              'ln -s /etc/passwd "$work/tmp/ppa-in/link"'; do
+for tamper in change add remove link; do
   if verify "$tamper"; then echo "FAIL: accepted after: $tamper"; fail=1; fi
 done
 if verify "" "../x.changes"; then echo "FAIL: accepted a changes name with a path"; fail=1; fi

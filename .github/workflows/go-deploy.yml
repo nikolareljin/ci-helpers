@@ -6,6 +6,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that holds the SSH key. A fresh hosted runner by default: a
+      # reused self-hosted machine can carry state left by the build.
+      deploy_runner:
+        type: string
+        default: ubuntu-latest
       working_directory:
         type: string
         default: "."
@@ -168,8 +173,8 @@ jobs:
           n=0
           for f in ${extras[@]+"${extras[@]}"}; do
             n=$((n + 1))
-            [[ ! -L "$f" ]] || { echo "::error::extra file '$f' is a symlink."; exit 1; }
             mkdir -p "$out/extra/$n"
+            # cp follows a symlink: the artifact carries the file it names.
             cp -- "$f" "$out/extra/$n/"
           done
           if [[ -n "$(find "$out" -name "$(printf '*\n*')")" ]]; then
@@ -197,7 +202,7 @@ jobs:
   deploy:
     needs: build
     permissions: {}
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.deploy_runner }}
     timeout-minutes: 30
     steps:
       - name: Download the deploy files

@@ -260,8 +260,12 @@ that does. Installing a named tool (`dotnet tool install`, `npm install -g`,
 `cargo install <crate>`, `go install <path>@<version>`) is not caller code.
 A tool the pattern does not know is not seen.
 
-Split today: `go-deploy.yml` (`build`, then `deploy` with the SSH key) and
-`ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys). The
+Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
+`ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys) and
+`manifest-version.yml` (`version`, then `tag-and-dispatch` with the write
+token). Each privileged job runs on its own runner input
+(`deploy_runner`, `publish_runner`, `tag_runner`, default `ubuntu-latest`):
+a reused self-hosted machine can carry state left by the build. The
 release workflows (`release-build.yml`, `deb-build.yml`, `rpm-build.yml`,
 `go-release.yml`, `rust-release*.yml`, `fpc-release.yml`) already build in
 a read-only job. The gate's `PENDING` list names the jobs not yet split,

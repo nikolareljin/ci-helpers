@@ -5,8 +5,8 @@
 # DESCRIPTION: scripts/check_privileged_jobs.py refuses a job that runs caller
 #              code while it holds a write permission, a secret or an
 #              environment, accepts the split form and read-only jobs, flags a
-#              stale PENDING entry, refuses go-deploy.yml and ppa-deb.yml as
-#              they were before the split, and accepts this repository.
+#              stale PENDING entry, refuses go-deploy.yml, ppa-deb.yml and
+#              manifest-version.yml as they were before the split, and accepts this repository.
 # USAGE: bash tests/check_privileged_jobs_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -102,6 +102,39 @@ expect "installing a named tool is not caller code" 0 "$head
           go install example.com/tool@v1.2.3
         env:
           T: \${{ secrets.winget_token }}" $np
+expect "a command input through env:" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: /bin/bash \"\$lib/run.sh\"
+        env:
+          CMD: \${{ inputs.prebuild_command }}" $np
+expect "post_deploy_command runs on the deploy target" 0 "$head
+    permissions: {}
+    steps:
+      - run: ssh host \"\$CMD\"
+        env:
+          K: \${{ secrets.ssh_key }}
+          CMD: \${{ inputs.post_deploy_command }}" $np
+expect "manifest-version before the split" 1 "on:
+  workflow_call:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from manifest
+        env:
+          VERSION_CMD: \${{ inputs.version_command }}
+        run: version=\$(bash -c \"\$VERSION_CMD\")
+      - run: git push origin tag" $np
+expect "an install line that also builds" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: cargo install cross && make" $np
 expect "cargo install --path is caller code" 1 "$head
     permissions:
       contents: write
