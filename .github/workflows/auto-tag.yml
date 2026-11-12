@@ -23,7 +23,8 @@ on:
         default: ""
       update_production_tag:
         description: >
-          Whether to run the production job after tagging. Moving a floating production ref is a thing a repository
+          Whether to run the production job after tagging. Moving a
+          floating production ref is a thing a repository
           opts into, so this defaults to false: tagging is what calling this
           workflow buys you, and nothing else happens unless you ask.
 
