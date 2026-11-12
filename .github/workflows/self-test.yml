@@ -544,7 +544,8 @@ jobs:
 
   production-guard-refuses-bad-moves:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The guard probes run twice: as shipped and from the scripts-only copy.
+    timeout-minutes: 25
     steps:
       - name: Check out trusted outbound guard
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
