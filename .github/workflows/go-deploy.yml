@@ -6,6 +6,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that holds the SSH key. A fresh hosted runner by default: a
+      # reused self-hosted machine can carry state left by the build.
+      deploy_runner:
+        type: string
+        default: ubuntu-latest
       working_directory:
         type: string
         default: "."
@@ -62,11 +67,17 @@ on:
         required: false
 
 jobs:
-  deploy:
+  # Builds the caller's module with no key on the runner. The deploy job
+  # below holds the SSH key and runs none of the caller's code.
+  build:
     permissions:
       contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.stage.outputs.artifact }}
+      manifest: ${{ steps.stage.outputs.manifest }}
+      bin_file: ${{ steps.stage.outputs.bin_file }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -80,10 +91,11 @@ jobs:
           go-version: ${{ inputs.go_version != 'go.mod' && inputs.go_version || '' }}
           go-version-file: ${{ inputs.go_version == 'go.mod' && format('{0}/go.mod', inputs.working_directory) || '' }}
           # setup-go caches the module and build caches by default; this job
-          # holds the SSH key and ships what it builds (scripts/check_cache_trust.py).
+          # builds what the deploy job ships (scripts/check_cache_trust.py).
           cache: false
 
       - name: Build binary
+        id: build
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -115,10 +127,216 @@ jobs:
 
           echo "Built ${bin_name} for ${GOOS}/${GOARCH}"
           ls -lh "$bin_name"
+          echo "bin=$bin_name" >> "$GITHUB_OUTPUT"
+
+      # The binary and every extra_files entry, with a sha256 manifest the
+      # deploy job checks before it copies anything.
+      - name: Stage the deploy files
+        id: stage
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BIN: ${{ steps.build.outputs.bin }}
+          INPUT_EXTRA_FILES: ${{ inputs.extra_files }}
+          INPUT_ALLOW_MISSING_EXTRA_FILES: ${{ inputs.allow_missing_extra_files }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/go-deploy-out"
+          rm -rf "$out"
+          mkdir -p "$out/bin"
+          # Check extra files (comma-separated list) before copying anything,
+          # so a missing config file fails the deploy instead of warning.
+          extras=()
+          if [ -n "${INPUT_EXTRA_FILES}" ]; then
+            IFS=',' read -r -a files <<< "${INPUT_EXTRA_FILES}"
+            for f in "${files[@]}"; do
+              # Trim only surrounding whitespace; preserve path contents verbatim.
+              f="${f#"${f%%[![:space:]]*}"}"
+              f="${f%"${f##*[![:space:]]}"}"
+              if [ -z "$f" ]; then
+                continue
+              fi
+              if [ -f "$f" ]; then
+                extras+=("$f")
+              elif [ "${INPUT_ALLOW_MISSING_EXTRA_FILES}" = "true" ]; then
+                echo "::warning::extra file '$f' not found, skipping"
+              else
+                echo "::error::extra file '$f' not found (allow_missing_extra_files: true skips it)" >&2
+                exit 1
+              fi
+            done
+          fi
+
+          # Only regular files under the working directory: a symlink could
+          # name any file on the runner, and the deploy job would ship it.
+          top="$(pwd -P)"
+          stage_file() {  # stage_file <file> <dest dir>
+            local real
+            [[ -f "$1" && ! -L "$1" ]] || { echo "::error::'$1' is not a regular file (symlinks are refused)."; exit 1; }
+            real="$(realpath -e -- "$1")"
+            [[ "$real" == "$top"/* ]] || { echo "::error::'$1' resolves outside the working directory."; exit 1; }
+            cp -P -- "$1" "$2/"
+          }
+          bin_file="${BIN##*/}"
+          stage_file "$BIN" "$out/bin"
+          n=0
+          for f in ${extras[@]+"${extras[@]}"}; do
+            n=$((n + 1))
+            mkdir -p "$out/extra/$n"
+            stage_file "$f" "$out/extra/$n"
+          done
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
+          if [[ -n "$(find "$out" -name "$(printf '*\n*')")" ]]; then
+            echo "::error::a staged file name holds a newline."; exit 1
+          fi
+          delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "artifact=go-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${delim#EOF_}"
+            echo "bin_file=$bin_file"
+            echo "manifest<<$delim"
+            (cd "$out" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.stage.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/go-deploy-out
+
+      - name: Upload the deploy files
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.stage.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Holds the SSH key. No checkout of the caller's repository: it copies
+  # the files the build job made, each checked against its manifest first.
+  deploy:
+    needs: build
+    permissions: {}
+    runs-on: ${{ inputs.deploy_runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Download the deploy files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/go-deploy-in
+
+      - name: Verify the deploy files against the build manifest
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/go-deploy-in
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          list="${RUNNER_TEMP}/go-deploy-manifest.sha256"
+          printf '%s\n' "$MANIFEST" > "$list"
+          if [[ ! -s "$list" ]] || grep -qvE '^[0-9a-f]{64}  \./(bin|extra/[0-9]+)/[^/]+$' "$list"; then
+            echo "::error::the build manifest is empty or malformed."; exit 1
+          fi
+          cd "$DIR"
+          if [[ -n "$(find . -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the artifact holds something other than regular files."; exit 1
+          fi
+          want="$(sed -E 's/^[0-9a-f]{64}  //' "$list" | LC_ALL=C sort)"
+          have="$(find . -type f | LC_ALL=C sort)"
+          if [[ "$want" != "$have" ]]; then
+            echo "::error::the artifact's files differ from the build manifest."; exit 1
+          fi
+          sha256sum --check --strict --quiet "$list"
 
       - name: Deploy to remote
         shell: bash
-        working-directory: ${{ inputs.working_directory }}
+        working-directory: ${{ runner.temp }}/go-deploy-in
         env:
           DEPLOY_SSH_HOST: ${{ secrets.ssh_host }}
           DEPLOY_SSH_USER: ${{ secrets.ssh_user }}
@@ -127,13 +345,17 @@ jobs:
           INPUT_REMOTE_PATH: ${{ inputs.remote_path }}
           INPUT_BIN_NAME: ${{ inputs.bin_name }}
           INPUT_REMOTE_BIN_NAME: ${{ inputs.remote_bin_name }}
-          INPUT_EXTRA_FILES: ${{ inputs.extra_files }}
-          INPUT_ALLOW_MISSING_EXTRA_FILES: ${{ inputs.allow_missing_extra_files }}
+          BIN_FILE: ${{ needs.build.outputs.bin_file }}
           # post_deploy_command is an intentional arbitrary shell command executed on
           # the remote; callers are trusted to supply safe values.
           INPUT_POST_DEPLOY_COMMAND: ${{ inputs.post_deploy_command }}
         run: |
           set -euo pipefail
+          # bin_file came from the build job, which ran the caller's code: it
+          # must name the one file under bin/, not a path such as ../key.
+          if [[ ! "$BIN_FILE" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ || ! -f "bin/$BIN_FILE" || -L "bin/$BIN_FILE" ]]; then
+            echo "::error::bin_file '$BIN_FILE' is not a file name under bin/ in the artifact."; exit 1
+          fi
 
           quote_remote_shell_arg() {
             local value="$1"
@@ -190,35 +412,20 @@ jobs:
           remote_path_quoted="$(quote_remote_shell_arg "$REMOTE_PATH")"
           remote_binary_target="${REMOTE_PATH}/${remote_bin}"
 
-          # Check extra files (comma-separated list) before copying anything,
-          # so a missing config file fails the deploy instead of warning.
+          # The build job checked extra_files and staged each one under
+          # extra/<n>/, in the order given.
           extras=()
-          if [ -n "${INPUT_EXTRA_FILES}" ]; then
-            IFS=',' read -r -a files <<< "${INPUT_EXTRA_FILES}"
-            for f in "${files[@]}"; do
-              # Trim only surrounding whitespace; preserve path contents verbatim.
-              f="${f#"${f%%[![:space:]]*}"}"
-              f="${f%"${f##*[![:space:]]}"}"
-              if [ -z "$f" ]; then
-                continue
-              fi
-              if [ -f "$f" ]; then
-                extras+=("$f")
-              elif [ "${INPUT_ALLOW_MISSING_EXTRA_FILES}" = "true" ]; then
-                echo "::warning::extra file '$f' not found, skipping"
-              else
-                echo "::error::extra file '$f' not found (allow_missing_extra_files: true skips it)" >&2
-                exit 1
-              fi
-            done
+          if [ -d extra ]; then
+            while IFS= read -r n; do
+              while IFS= read -r f; do extras+=("$f"); done < <(find "extra/$n" -type f)
+            done < <(find extra -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort -n)
           fi
-
           # Ensure remote directory exists.
           ssh "${SSH_OPTS[@]}" "$REMOTE" "mkdir -p -- ${remote_path_quoted}"
 
           # Use raw rsync destination paths. quote_remote_shell_arg() is only for
           # strings embedded into a remote shell command, not rsync target specs.
-          rsync -az --protect-args -e "$SSH_CMD" -- "$bin_name" "${REMOTE}:${remote_binary_target}"
+          rsync -az --protect-args -e "$SSH_CMD" -- "bin/$BIN_FILE" "${REMOTE}:${remote_binary_target}"
 
           for f in ${extras[@]+"${extras[@]}"}; do
             rsync -az --protect-args -e "$SSH_CMD" -- "$f" "${REMOTE}:${REMOTE_PATH}/"

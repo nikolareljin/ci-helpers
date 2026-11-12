@@ -5,6 +5,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that signs and uploads. A fresh hosted runner by default: a
+      # reused self-hosted machine can carry state left by the build.
+      publish_runner:
+        type: string
+        default: ubuntu-latest
       working_directory:
         type: string
         default: "."
@@ -67,11 +72,17 @@ on:
         required: false
 
 jobs:
-  ppa:
+  # Runs the caller's prebuild, build and debian/rules with no key on the
+  # runner. The ppa job below signs and uploads and runs none of them.
+  build:
     permissions:
       contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.stage.outputs.artifact }}
+      changes: ${{ steps.stage.outputs.changes }}
+      manifest: ${{ steps.stage.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
@@ -156,6 +167,201 @@ jobs:
           changes="$(cd "$(dirname "$changes")" && pwd)/$(basename "$changes")"
           echo "changes=$changes" >> "$GITHUB_OUTPUT"
 
+      # Every file the .changes names, and the .changes itself, with a sha256
+      # manifest the ppa job checks before it signs anything.
+      - name: Stage the source package
+        id: stage
+        shell: bash
+        env:
+          CHANGES: ${{ steps.build.outputs.changes }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/ppa-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          dir="$(dirname "$CHANGES")"
+          top="$(cd "$dir" && pwd -P)"
+          # Only regular files beside the .changes: a symlink could name any
+          # file on the runner, and the ppa job would upload it.
+          while IFS= read -r f; do
+            [[ -f "$f" && ! -L "$f" ]] || { echo "::error::$f is not a regular file (symlinks are refused)."; exit 1; }
+            [[ "$(realpath -e -- "$f")" == "$top"/* ]] || { echo "::error::$f resolves outside $dir."; exit 1; }
+            cp -P -- "$f" "$out/"
+          done < <(dcmd "$CHANGES")
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
+          base="$(basename "$CHANGES")"
+          [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*\.changes$ ]] || { echo "::error::unexpected changes file name '$base'."; exit 1; }
+          [[ -f "$out/$base" ]] || { echo "::error::dcmd did not list $base."; exit 1; }
+          echo "Staged from $dir:"; ls -l "$out"
+          delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "artifact=ppa-source-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${delim#EOF_}"
+            echo "changes=$base"
+            echo "manifest<<$delim"
+            (cd "$out" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.stage.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/ppa-out
+
+      - name: Upload the source package
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.stage.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Signs and uploads. No checkout of the caller's repository: the job runs
+  # this workflow's own steps on the files the build job made, each checked
+  # against the build job's sha256 manifest first.
+  ppa:
+    needs: build
+    permissions: {}
+    runs-on: ${{ inputs.publish_runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Download the source package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/ppa-in
+
+      - name: Verify the source package against the build manifest
+        id: verify
+        shell: bash
+        env:
+          DIR: ${{ runner.temp }}/ppa-in
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          CHANGES_NAME: ${{ needs.build.outputs.changes }}
+        run: |
+          set -euo pipefail
+          [[ "$CHANGES_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*\.changes$ ]] || { echo "::error::unexpected changes file name '$CHANGES_NAME'."; exit 1; }
+          list="${RUNNER_TEMP}/ppa-manifest.sha256"
+          printf '%s\n' "$MANIFEST" > "$list"
+          if [[ ! -s "$list" ]] || grep -qvE '^[0-9a-f]{64}  \./[A-Za-z0-9][A-Za-z0-9.+_~-]*$' "$list"; then
+            echo "::error::the build manifest is empty or malformed."; exit 1
+          fi
+          cd "$DIR"
+          if [[ -n "$(find . -mindepth 1 ! -type f)" ]]; then
+            echo "::error::the artifact holds something other than regular files."; exit 1
+          fi
+          want="$(sed -E 's/^[0-9a-f]{64}  //' "$list" | LC_ALL=C sort)"
+          have="$(find . -type f | LC_ALL=C sort)"
+          if [[ "$want" != "$have" ]]; then
+            echo "::error::the artifact's files differ from the build manifest."; exit 1
+          fi
+          sha256sum --check --strict --quiet "$list"
+          # The .changes and .dsc came from the caller's build. Every file
+          # they name must be a plain name in the artifact, or debsign and
+          # dput would read a path such as ../../.ssh/id_ed25519.
+          for meta in ./*.changes ./*.dsc; do
+            [[ -f "$meta" ]] || continue
+            while IFS= read -r name; do
+              if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*$ || ! -f "$name" ]]; then
+                echo "::error::${meta#./} names '$name', which is not a file in the artifact."; exit 1
+              fi
+            done < <(awk '/^(Files|Checksums-[A-Za-z0-9]+):/ {s = 1; next} /^[^ \t]/ {s = 0} s && NF {print $NF}' "$meta")
+          done
+          [[ -f "$CHANGES_NAME" ]] || { echo "::error::$CHANGES_NAME is not in the artifact."; exit 1; }
+          echo "changes=$DIR/$CHANGES_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Install signing and upload tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y devscripts dput python3-paramiko gnupg
+
       # The key lives in a throwaway GNUPGHOME for this step only and is gone
       # before the upload step runs.
       - name: Sign the source package
@@ -164,7 +370,7 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.gpg_private_key }}
           GPG_PASSPHRASE: ${{ secrets.gpg_passphrase }}
           KEY_ID: ${{ inputs.signing_key_id }}
-          CHANGES: ${{ steps.build.outputs.changes }}
+          CHANGES: ${{ steps.verify.outputs.changes }}
         run: |
           set -euo pipefail
           set +x
@@ -193,7 +399,7 @@ jobs:
           LAUNCHPAD_KNOWN_HOSTS: ${{ inputs.launchpad_known_hosts }}
           UPLOAD_METHOD: ${{ inputs.upload_method }}
           PPA_TARGET: ${{ inputs.ppa_target }}
-          CHANGES: ${{ steps.build.outputs.changes }}
+          CHANGES: ${{ steps.verify.outputs.changes }}
         run: |
           set -euo pipefail
           set +x

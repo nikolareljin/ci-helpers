@@ -877,6 +877,7 @@ Inputs:
 - `build_command` (string, default `""`)
 - `series` (string, default `""`)
 - `ppa_target` (string, required, e.g. `ppa:your-launchpad-id/ppa-name`)
+- `publish_runner` (string, default `ubuntu-latest`): runner for the `ppa` job, which holds the keys; not `runner`, since a reused self-hosted machine can carry state left by the build. It needs apt
 - `upload_method` (string, default `ftp`): `ftp` uploads anonymously and Launchpad accepts the upload on the GPG signature; `sftp` logs in with the SSH key
 - `launchpad_login` (string, default: the owner in `ppa_target`): sftp only; Launchpad user the SSH key belongs to; set it for a team PPA
 - `launchpad_known_hosts` (string, default: Launchpad's RSA host key for `ppa.launchpad.net`, fingerprint `SHA256:MGq+4hxD7RduVTcfwlwwboZnsgJC6SL/NltM8ye+gNg`): sftp only; the only host key ssh accepts (`StrictHostKeyChecking yes`). Launchpad publishes its fingerprints at <https://ubuntu.com/docs/launchpad/user/reference/ssh-fingerprints/>; override only if it rotates the key
@@ -893,7 +894,7 @@ Secrets:
 
 Note: The workflow disables shell xtrace (`set +x`) in secret-handling steps to avoid leaking credentials.
 
-The prebuild and build run first, with no key on the runner, and produce an unsigned source package (default build `debuild -S -sa -us -uc`). The next step imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring; the upload step runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
+Two jobs. `build` runs the prebuild and build with no key on the runner and produces an unsigned source package (default build `debuild -S -sa -us -uc`), then uploads every file the `.changes` names as an artifact (kept one day) with a sha256 manifest. `ppa` checks out nothing of the caller's: it downloads the artifact, checks it against the manifest, imports the GPG key into a temporary keyring, signs the `.changes` with `debsign` and deletes the keyring, then runs `dput` (with `sftp`, it writes the Launchpad SSH key first and deletes it after). A custom `build_command` must therefore not sign.
 
 The upload goes to `ppa.launchpad.net` with incoming `~<owner>/<distribution>/<name>/` (distribution `ubuntu` unless `ppa_target` names one). Over `ftp` (the default) it is anonymous. Over `sftp` it logs in as `launchpad_login`, so the key must be registered with that Launchpad account.
 
@@ -2233,6 +2234,7 @@ service). Useful for deploying lightweight Go services to VPS or cloud instances
 
 Inputs:
 - `runner` (string, default `ubuntu-latest`)
+- `deploy_runner` (string, default `ubuntu-latest`) - runner for the `deploy` job, which holds the SSH key; not `runner`, since a reused self-hosted machine can carry state left by the build. It needs `ssh` and `rsync`
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `go_version` (string, default `go.mod`: Go from `<working_directory>/go.mod`, its `toolchain` line when present; a version overrides it. The `go` line is a minimum: add a `toolchain` line or set a version to build with a newer Go)
@@ -2247,6 +2249,8 @@ Inputs:
 - `allow_missing_extra_files` (boolean, default `false`) - skip a missing `extra_files` entry
   with a warning instead of failing
 - `post_deploy_command` (string, default `""`) — command to run on the remote host after deploy
+
+Two jobs. `build` compiles the binary and stages it with the `extra_files` (a missing entry fails here) as an artifact kept one day, with a sha256 manifest. `deploy` holds the SSH key, checks out nothing of the caller's, checks the artifact against the manifest and copies it.
 
 Secrets:
 - `ssh_host` (required) — remote hostname or IP
@@ -2855,8 +2859,11 @@ Inputs:
 | `publish_latest` | `true` | Forwarded as `publish_latest` to dispatched workflows |
 | `tag_prefix` | `""` | Prefix prepended to the version when creating the tag (e.g. `v`) |
 | `skip_if_tagged` | `true` | Skip tagging when the tag already exists |
-| `runner` | `ubuntu-latest` | |
+| `runner` | `ubuntu-latest` | Runner for the `version` job |
+| `tag_runner` | `ubuntu-latest` | Runner for the `tag-and-dispatch` job, which holds the write token; not `runner`, since a reused self-hosted machine can carry state left by `version_command` |
 | `fetch_depth` | `0` | |
+
+Two jobs. `version` reads the version (and runs `version_command`) with `contents: read`. `tag-and-dispatch` checks the version is `X.Y.Z` again, then tags and dispatches; it runs nothing from the caller's tree.
 
 Outputs:
 - `version` — extracted version string (no prefix)
