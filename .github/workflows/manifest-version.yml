@@ -285,7 +285,9 @@ jobs:
           # The checkout keeps no token on disk; hand it to git for this step only.
           auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
           if git rev-parse "refs/tags/${GIT_TAG}" >/dev/null 2>&1; then
             # Another concurrent run already created the tag — skip dispatch too.
             echo "Tag ${GIT_TAG} already exists (concurrent run). Skipping."

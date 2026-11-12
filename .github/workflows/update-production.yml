@@ -232,7 +232,9 @@ jobs:
           # The checkout keeps no token on disk; hand it to git for this step only.
           auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
 
           if [[ -z "${TARGET_TAG// /}" ]]; then
             echo "::error::tag is empty."
@@ -322,6 +324,10 @@ jobs:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
           PUSH_TOKEN: ${{ github.token }}
+          # The publication guard's core.hooksPath entry, for the clean environment.
+          GUARD_COUNT: ${{ env.GIT_CONFIG_COUNT }}
+          GUARD_KEY: ${{ env.GIT_CONFIG_KEY_0 }}
+          GUARD_HOOKS: ${{ env.GIT_CONFIG_VALUE_0 }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           TARGET: ${{ steps.resolve.outputs.target }}
@@ -349,7 +355,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" TARGET="$TARGET" CURRENT="$CURRENT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" TARGET="$TARGET" CURRENT="$CURRENT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" GUARD_COUNT="$GUARD_COUNT" GUARD_KEY="$GUARD_KEY" GUARD_HOOKS="$GUARD_HOOKS" GITLEAKS_BIN="$GITLEAKS_BIN" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -361,13 +367,18 @@ jobs:
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
           . "$run_lib/scripts/lib_path.sh" secret
+          # The publication guard's hooks, by name: git config does not cross env -i.
+          [[ "$GUARD_COUNT" == 1 && "$GUARD_KEY" == core.hooksPath && "$GUARD_HOOKS" == "$RUNNER_TEMP"/publication-hooks-*/hooks && "$GUARD_HOOKS" != *..* && -f "$GUARD_HOOKS/pre-push" && -x "$GITLEAKS_BIN" ]] || { echo "::error::the outbound guard is not configured; nothing is pushed."; exit 1; }
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$GUARD_HOOKS" GITLEAKS_BIN
           # Checked again here: the values cross into git and the script's arguments.
           [[ "$TARGET_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::tag '$TARGET_TAG' contains characters not allowed here."; exit 1; }
           [[ "$REF_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::ref_name '$REF_NAME' contains characters not allowed here."; exit 1; }
           # The checkout keeps no token on disk; hand it to git for this step only.
           auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
           # The script's checks (release tag, on the default branch) decide whether
           # the real run would move anything, so the dry run runs them too.
           /bin/bash "$run_lib/scripts/create_production.sh" -t "$TARGET_TAG" --name "$REF_NAME" --repo "$GITHUB_WORKSPACE" --fetch-tags \
@@ -383,6 +394,10 @@ jobs:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
           PUSH_TOKEN: ${{ github.token }}
+          # The publication guard's core.hooksPath entry, for the clean environment.
+          GUARD_COUNT: ${{ env.GIT_CONFIG_COUNT }}
+          GUARD_KEY: ${{ env.GIT_CONFIG_KEY_0 }}
+          GUARD_HOOKS: ${{ env.GIT_CONFIG_VALUE_0 }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           UPDATE_BRANCH: ${{ inputs.update_branch }}
@@ -409,7 +424,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" UPDATE_BRANCH="$UPDATE_BRANCH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" UPDATE_BRANCH="$UPDATE_BRANCH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" GUARD_COUNT="$GUARD_COUNT" GUARD_KEY="$GUARD_KEY" GUARD_HOOKS="$GUARD_HOOKS" GITLEAKS_BIN="$GITLEAKS_BIN" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -421,13 +436,18 @@ jobs:
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
           . "$run_lib/scripts/lib_path.sh" secret
+          # The publication guard's hooks, by name: git config does not cross env -i.
+          [[ "$GUARD_COUNT" == 1 && "$GUARD_KEY" == core.hooksPath && "$GUARD_HOOKS" == "$RUNNER_TEMP"/publication-hooks-*/hooks && "$GUARD_HOOKS" != *..* && -f "$GUARD_HOOKS/pre-push" && -x "$GITLEAKS_BIN" ]] || { echo "::error::the outbound guard is not configured; nothing is pushed."; exit 1; }
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$GUARD_HOOKS" GITLEAKS_BIN
           # Checked again here: the values cross into git and the script's arguments.
           [[ "$TARGET_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::tag '$TARGET_TAG' contains characters not allowed here."; exit 1; }
           [[ "$REF_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::ref_name '$REF_NAME' contains characters not allowed here."; exit 1; }
           # The checkout keeps no token on disk; hand it to git for this step only.
           auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')"
           echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          # Appended after the publication guard's core.hooksPath entry, never over it.
+          gc_n="${GIT_CONFIG_COUNT:-0}"; [[ "$gc_n" =~ ^[0-9]+$ ]] || { echo "::error::GIT_CONFIG_COUNT is not a number."; exit 1; }
+          export GIT_CONFIG_COUNT="$((gc_n + 1))" "GIT_CONFIG_KEY_${gc_n}=http.${GITHUB_SERVER_URL}/.extraheader" "GIT_CONFIG_VALUE_${gc_n}=AUTHORIZATION: basic ${auth}"
           # This is the manual path: promoting a candidate and rolling back are
           # what it is for. The tag must still be on the default branch.
           args=(-t "$TARGET_TAG" --name "$REF_NAME" --repo "$GITHUB_WORKSPACE" --fetch-tags --allow-prerelease --allow-rollback)
