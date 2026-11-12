@@ -349,5 +349,13 @@ expect "ppa-deb before the split" 1 "$head
 rc=0; python3 "$gate" > "$work/out" 2>&1 || rc=$?
 [[ "$rc" == 0 ]] || { echo "FAIL: this repository: exit $rc"; cat "$work/out"; fail=1; }
 
+# Split jobs stay split: with PENDING ignored, none of them is reported.
+python3 "$gate" --no-pending > "$work/out" 2>&1 || true
+for key in auto-tag.yml:production update-production.yml:move java-scan.yml:scan; do
+  if grep -q -- "::error::$key " "$work/out"; then
+    echo "FAIL: $key runs caller code with a secret or write token again"; fail=1
+  fi
+done
+
 [[ "$fail" == 0 ]] && echo "ok: no job runs caller code with a write token, a secret or an environment"
 exit "$fail"

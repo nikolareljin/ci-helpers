@@ -278,8 +278,14 @@ A tool the pattern does not know is not seen.
 Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
 `ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys) and
 `manifest-version.yml` (`version`, then `tag-and-dispatch` with the write
-token). Each privileged job runs on its own runner input
-(`deploy_runner`, `publish_runner`, `tag_runner`, default `ubuntu-latest`):
+token). `java-scan.yml` fetches the NVD data in an `nvd` job that holds
+`nvd_api_key` and checks out nothing of the caller's, and the scan job
+reads that data from an artifact checked against a sha256 manifest.
+`auto-tag.yml` (`production`) and `update-production.yml` (`move`) run this
+library's `create_production.sh` from the verified copy, never the
+caller's. Each privileged job runs on its own runner input
+(`deploy_runner`, `publish_runner`, `tag_runner`, `nvd_runner`, default
+`ubuntu-latest`):
 a reused self-hosted machine can carry state left by the build. The
 release workflows (`release-build.yml`, `deb-build.yml`, `rpm-build.yml`,
 `go-release.yml`, `rust-release*.yml`, `fpc-release.yml`) already build in

@@ -544,7 +544,8 @@ jobs:
 
   production-guard-refuses-bad-moves:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The guard probes run twice: as shipped and from the scripts-only copy.
+    timeout-minutes: 25
     steps:
       - name: Check out trusted outbound guard
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
@@ -613,6 +614,15 @@ jobs:
       - name: create_production.sh refuses off-main, pre-release and older tags
         shell: bash
         run: bash tests/create_production_guard_test.sh
+      - name: production moves run the library's create_production.sh copy
+        shell: bash
+        run: bash tests/production_library_copy_test.sh
+      - name: java-scan keeps the NVD key out of the scan job
+        shell: bash
+        run: bash tests/java_scan_nvd_split_test.sh
+      - name: token steps keep the publication guard's hooks
+        shell: bash
+        run: bash tests/token_keeps_guard_hooks_test.sh
 
   docs-cover-the-tree:
     runs-on: ubuntu-latest

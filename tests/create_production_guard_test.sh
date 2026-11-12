@@ -4,8 +4,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT="${ROOT_DIR}/scripts/create_production.sh"
-export SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+# CREATE_PRODUCTION_SCRIPT runs the same probes against another copy, such
+# as the scripts-only copy the workflows run (production_library_copy_test.sh).
+SCRIPT="${CREATE_PRODUCTION_SCRIPT:-${ROOT_DIR}/scripts/create_production.sh}"
+if [[ -z "${CREATE_PRODUCTION_SCRIPT:-}" ]]; then
+  export SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

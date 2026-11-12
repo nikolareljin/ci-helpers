@@ -499,7 +499,6 @@ jobs:
     with:
       release_workflow: create-github-release.yml
       # update_production_tag: true  # set this only if your repo carries a floating production tag
-      #                              # and ships scripts/create_production.sh
 ```
 
 After each `release/X.Y.Z` (or `release/vX.Y.Z`, `release/X.Y.Z-rc1`) merge the tag is created and a GitHub Release is published automatically. Release notes come from a matching `## DATE — VERSION` section in `CHANGELOG.md`, falling back to GitHub auto-generated notes.
