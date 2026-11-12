@@ -557,7 +557,7 @@ jobs:
       packages: write
     outputs:
       image_digest: ${{ steps.push.outputs.digest }}
-      image_ref: ${{ format('{0}:{1}', inputs.image_name, inputs.tag) }}
+      image_ref: ${{ format('{0}:{1}', steps.push.outputs.image, inputs.tag) }}
     steps:
       # The library's scripts and pins at this workflow's commit: the layout
       # check, login, push and the Trivy installer. `./scripts`
@@ -669,10 +669,23 @@ jobs:
           CI_HELPERS_RUN
           )"
 
+      # The registry credentials go to a 0700 directory under RUNNER_TEMP,
+      # not to $HOME/.docker, which a self-hosted push_runner keeps between
+      # jobs. Removed at the end of the job, whatever happened.
+      - name: Make a private docker config
+        id: docker_config
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$(/usr/bin/mktemp -d "$RUNNER_TEMP/docker-config.XXXXXX")"
+          /bin/chmod 700 "$d"
+          echo "dir=$d" >> "$GITHUB_OUTPUT"
+
       # The token reaches docker on stdin; it is in no argument and no log.
       - name: Log in to registry
         shell: sh
         env:
+          DOCKER_CONFIG: ${{ steps.docker_config.outputs.dir }}
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
           REGISTRY: ${{ inputs.registry }}
@@ -701,7 +714,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" REGISTRY="$REGISTRY" REGISTRY_USERNAME="$REGISTRY_USERNAME" REGISTRY_PASSWORD="$REGISTRY_PASSWORD" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 DOCKER_CONFIG="$DOCKER_CONFIG" STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" REGISTRY="$REGISTRY" REGISTRY_USERNAME="$REGISTRY_USERNAME" REGISTRY_PASSWORD="$REGISTRY_PASSWORD" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -723,6 +736,7 @@ jobs:
         id: push
         shell: sh
         env:
+          DOCKER_CONFIG: ${{ steps.docker_config.outputs.dir }}
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
           IMAGE: ${{ inputs.image_name }}
@@ -750,7 +764,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" IMAGE="$IMAGE" TAGS="$TAGS" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 DOCKER_CONFIG="$DOCKER_CONFIG" STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" IMAGE="$IMAGE" TAGS="$TAGS" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -823,7 +837,8 @@ jobs:
         env:
           TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
           CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
-          IMAGE_REF: ${{ format('{0}:{1}', inputs.image_name, inputs.tag) }}
+          IMAGE_REF: ${{ format('{0}:{1}', steps.push.outputs.image, inputs.tag) }}
+          DOCKER_CONFIG: ${{ steps.docker_config.outputs.dir }}
           SEVERITY: ${{ inputs.trivy_severity }}
           EXIT_CODE: ${{ inputs.fail_on_scan_findings && '1' || '0' }}
         run: |
@@ -839,6 +854,7 @@ jobs:
         if: ${{ always() }}
         shell: sh
         env:
+          DOCKER_CONFIG: ${{ steps.docker_config.outputs.dir }}
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
           REGISTRY: ${{ inputs.registry }}
@@ -865,7 +881,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" REGISTRY="$REGISTRY" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 DOCKER_CONFIG="$DOCKER_CONFIG" STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" REGISTRY="$REGISTRY" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -880,6 +896,13 @@ jobs:
           /bin/bash "$run_lib/scripts/docker_login.sh" --logout
           CI_HELPERS_RUN
           )"
+
+      - name: Remove the docker config
+        if: ${{ always() && steps.docker_config.outputs.dir != '' }}
+        shell: bash
+        env:
+          DOCKER_CONFIG: ${{ steps.docker_config.outputs.dir }}
+        run: /bin/rm -rf -- "$DOCKER_CONFIG"
 
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.

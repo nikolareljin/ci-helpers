@@ -2800,8 +2800,10 @@ downloads the layout, checks it against the manifest and joins the parts
 sha256, a file that is not part of an OCI layout and an index naming other
 than one manifest, then runs `skopeo copy --all --preserve-digests` for
 each tag and fails when the registry reports another digest. `push_runner`
-needs `skopeo` (on GitHub's Ubuntu images). `image_name` must be a
-lower-case `registry/name` and `tag` a valid image tag.
+needs `skopeo` in `/usr/bin` or `/bin` (on GitHub's Ubuntu images). The
+login is kept in a 0700 directory under `RUNNER_TEMP`, removed when the job
+ends. `image_name` is lowered, then must be a `registry/name`; `image_ref`
+holds the lowered name. `tag` must be a valid image tag.
 
 Every step runs the docker CLI the runner ships, through scripts the job
 checks out from this library at the workflow's own commit; no third-party

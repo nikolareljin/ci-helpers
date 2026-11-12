@@ -53,6 +53,33 @@ for s in p["steps"]:
 outs = d.get("on", d.get(True))["workflow_call"]["outputs"]
 if "jobs.push.outputs.image_digest" not in outs["image_digest"]["value"]:
     err("image_digest does not come from the push job")
+# The registry credentials live in a private directory under RUNNER_TEMP,
+# not in $HOME/.docker, which a self-hosted push_runner keeps between jobs.
+steps = p["steps"]
+ids = [s.get("id") for s in steps]
+if "docker_config" not in ids:
+    err("the push job makes no private docker config directory")
+else:
+    mk = steps[ids.index("docker_config")]
+    if "mktemp -d" not in mk.get("run", "") or "RUNNER_TEMP" not in mk.get("run", "") or "chmod 700" not in mk.get("run", ""):
+        err("the docker config directory is not a 0700 mktemp under RUNNER_TEMP")
+    for name in ("Log in to registry", "Push the image layout", "Trivy scan (post-push)", "Log out of registry"):
+        st = [s for s in steps if s.get("name") == name]
+        if not st:
+            err(f"no step {name}"); continue
+        st = st[0]
+        if (st.get("env") or {}).get("DOCKER_CONFIG") != "${{ steps.docker_config.outputs.dir }}":
+            err(f"{name} does not use the private docker config")
+        if "env -i" in st.get("run", "") and 'DOCKER_CONFIG="$DOCKER_CONFIG"' not in st["run"]:
+            err(f"{name} drops DOCKER_CONFIG in env -i")
+        if steps.index(st) < ids.index("docker_config"):
+            err(f"{name} runs before the docker config exists")
+    rm = [s for s in steps if s.get("name") == "Remove the docker config"]
+    if not rm or "always()" not in str(rm[0].get("if", "")) or "rm -rf" not in rm[0].get("run", "") \
+            or steps.index(rm[0]) < steps.index([s for s in steps if s.get("name") == "Log out of registry"][0]):
+        err("the docker config is not removed in an always() step after logout")
+if "steps.push.outputs.image" not in p["outputs"]["image_ref"]:
+    err("image_ref does not use the image name the push step normalised")
 v = [s for s in p["steps"] if s.get("name") == "Verify the image layout against the build manifest"]
 m = re.search(r'artifact_parts\.sh" verify "\$RUNNER_TEMP/docker-multiarch-in" "\$list" \'([^\']+)\'', v[0]["run"]) if v else None
 if not m:
@@ -158,10 +185,17 @@ if (( rc == 0 )) && grep -qx "digest=$want" "$work/out" && [[ "$(wc -l < "$SKOPE
     && ! grep -q pw-must-not-show "$SKOPEO_LOG"; then
   ok "pushes every tag with --all --preserve-digests and outputs the layout's digest"
 else bad "push (rc=$rc)"; sed 's/^/     /' "$work/log"; fi
+# GitHub owners are mixed case and callers pass ${{ github.repository }};
+# a registry repository is lower case, so the name is lowered, not refused.
+rm -f "$work/out"
+rc=0; push "$work/layout" "ghcr.io/Owner/Repo" 1.2.3 || rc=$?
+if (( rc == 0 )) && grep -q "docker://ghcr.io/owner/repo:1.2.3" "$SKOPEO_LOG" && grep -qx "image=ghcr.io/owner/repo" "$work/out"; then
+  ok "lowers a mixed-case image name and outputs it"
+else bad "mixed-case image name (rc=$rc)"; sed 's/^/     /' "$work/log"; fi
 rc=0; SKOPEO_DIGEST="sha256:$(printf '0%.0s' {1..64})" push "$work/layout" ghcr.io/owner/repo 1.2.3 || rc=$?
 if (( rc == 1 )); then ok "refuses a registry digest that is not the layout's"; else bad "digest mismatch (rc=$rc)"; fi
 # shellcheck disable=SC2016  # literal $(id) is the point
-for img in "ghcr.io/Owner/repo" "ghcr.io/o/r;id" 'ghcr.io/o/$(id)' "-oops/x" $'ghcr.io/o/r\nx' "repo"; do
+for img in "ghcr.io/o/r;id" 'ghcr.io/o/$(id)' "-oops/x" $'ghcr.io/o/r\nx' "repo"; do
   rc=0; push "$work/layout" "$img" 1.2.3 || rc=$?
   if (( rc == 2 )) && [[ ! -s "$SKOPEO_LOG" ]]; then ok "refuses image name '${img//$'\n'/\\n}'"; else bad "image '$img' (rc=$rc)"; fi
 done

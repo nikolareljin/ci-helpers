@@ -11,10 +11,12 @@
 # USAGE: LAYOUT=dir IMAGE=ghcr.io/o/r TAGS=1.2.3,latest bash scripts/docker_push_oci.sh
 # ENVIRONMENT:
 #   LAYOUT         The OCI layout directory (required).
-#   IMAGE          Image name without tag, lower case (required).
+#   IMAGE          Image name without tag (required). Lowered first: a
+#                  GitHub owner is mixed case (${{ github.repository }}),
+#                  a registry repository is not.
 #   TAGS           Tags, comma-separated (required).
 #   DOCKER_CONFIG  Directory holding config.json (default: ~/.docker).
-#   GITHUB_OUTPUT  Receives digest=<sha256:...> when set.
+#   GITHUB_OUTPUT  Receives digest=<sha256:...> and image=<lowered IMAGE>.
 # OUTPUT: digest=<manifest digest> on stdout and in GITHUB_OUTPUT.
 # EXIT CODES:
 #   0  Pushed under every tag, with the layout's digest.
@@ -29,12 +31,13 @@ fail() { echo "::error::$*" >&2; exit 1; }
 
 layout="${LAYOUT:-}"
 image="${IMAGE:-}"
+image="${image,,}"
 command -v skopeo >/dev/null 2>&1 || { echo "::error::skopeo is not on PATH; the push job needs it (preinstalled on GitHub's Ubuntu runners)." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "::error::python3 is not on PATH." >&2; exit 2; }
 
 name_re='^[a-z0-9]+([._-][a-z0-9]+)*(\.[a-z0-9]+([._-][a-z0-9]+)*)*(:[0-9]{1,5})?(/[a-z0-9]+([._-]{1,2}[a-z0-9]+)*)+$'
 tag_re='^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$'
-[[ "$image" =~ $name_re ]] || { echo "::error::IMAGE '$image' is not a lower-case registry/name." >&2; exit 2; }
+[[ "$image" =~ $name_re ]] || { echo "::error::IMAGE '$image' is not a registry/name." >&2; exit 2; }
 [[ "${TAGS:-}" != *$'\n'* && "${TAGS:-}" != *$'\r'* ]] || { echo "::error::TAGS holds a line break." >&2; exit 2; }
 tags=()
 IFS=',' read -r -a raw <<< "${TAGS:-}"
@@ -94,5 +97,5 @@ done
 echo "Digest: $digest"
 echo "digest=$digest"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+  { echo "digest=$digest"; echo "image=$image"; } >> "$GITHUB_OUTPUT"
 fi
