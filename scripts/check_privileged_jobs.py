@@ -62,7 +62,12 @@ _START = r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b)\s*"
 _INTERP = r"(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+"
 # Any relative path, dot-dirs included, except the verified library copy.
 _REL = r"(?!\.?/?\.ci-helpers-)(?![-$/~])[A-Za-z0-9_.][A-Za-z0-9_./-]*"
+# A path rooted at the workspace: the caller's tree, unless it is the
+# verified library copy.
+_WS = (r"(?:\$GITHUB_WORKSPACE|\$\{GITHUB_WORKSPACE\}|\$\{\{\s*github\.workspace\s*\}\}|\$PWD|\$\{PWD\})"
+       r"/(?!\.ci-helpers-)")
 REL_SCRIPT = re.compile(_START + r"(?:(?:" + _INTERP + r")?[\"']?\./(?!\.ci-helpers-)(?![\s\"';&|)]|$)[A-Za-z0-9_./-]+"
+                        r"|(?:" + _INTERP + r")?[\"']?" + _WS + r"[A-Za-z0-9_.]"
                         r"|" + _INTERP + r"[\"']?" + _REL + r"\.(?:sh|py|rb|pl|ps1)\b)", re.M)
 # Tools that execute the caller's tree: build files, package scripts,
 # lifecycle hooks, Dockerfiles, test suites. Matched as a command word.

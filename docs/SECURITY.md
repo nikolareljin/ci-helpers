@@ -267,8 +267,10 @@ caller code by pattern: a `${{ inputs.<name> }}` ending in `command`,
 `cmd`, `script`, `script_path`, `args` or `hook` (plural forms too), any
 input used as a command word, a library action handed such an input, a
 build, package or install tool as a command word, a script from the
-checked-out tree run by path or by an interpreter (in a reusable
-workflow, where that tree is the caller's), a library script that builds
+checked-out tree run by a relative path, a dot-directory path or a
+workspace path (`$GITHUB_WORKSPACE`, `${{ github.workspace }}`, `$PWD`),
+directly or by an interpreter (in a reusable workflow, where that tree is
+the caller's; `.ci-helpers-*` library copies excepted), a library script that builds
 the caller's tree, or an action that does. Installing a named tool (`dotnet tool install`, `npm install -g`,
 `cargo install <crate>`, `go install <path>@<version>`) is not caller code.
 A tool the pattern does not know is not seen.

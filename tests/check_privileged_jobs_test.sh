@@ -258,6 +258,41 @@ expect "interpreter on dot-dir script" 1 "$head
       contents: write
     steps:
       - run: sh .github/x.sh" $np
+expect "workspace path: GITHUB_WORKSPACE quoted" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: \"\$GITHUB_WORKSPACE/x.sh\"" $np
+expect "workspace path: GITHUB_WORKSPACE braced" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: \${GITHUB_WORKSPACE}/x" $np
+expect "workspace path: github.workspace expression" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: \${{ github.workspace }}/x" $np
+expect "workspace path: PWD" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: \$PWD/x" $np
+expect "workspace path: interpreter on a workspace path" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash \"\${GITHUB_WORKSPACE}/tools/x.sh\"" $np
+expect "workspace path: cd then ./" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: cd sub && ./x" $np
+expect "library copy under the workspace" 0 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash \"\$GITHUB_WORKSPACE/.ci-helpers-x/scripts/tag.sh\"" $np
 expect "inline interpreter code" 0 "$head
     permissions:
       contents: write
