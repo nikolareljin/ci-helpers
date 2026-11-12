@@ -93,8 +93,10 @@ done
 rc=0; inst "$work/pins.good" "$work/data4" "" || rc=$?
 if (( rc == 2 )); then ok "refuses an empty key"; else bad "empty key (rc=$rc)"; fi
 
-# A file over the per-file publication limit leaves as parts and comes back whole.
+# A file over the per-file publication limit leaves as parts (the nvd step
+# runs artifact_parts.sh split after the install) and comes back whole.
 rc=0; DC_BIG="$work/big.sum" inst "$work/pins.good" "$work/databig" || rc=$?
+bash "$root/scripts/artifact_parts.sh" split "$work/databig"
 over="$(find "$work/databig" -type f -size +62914560c | wc -l)"
 parts="$(find "$work/databig" -name 'big.mv.db.split-*' | wc -l)"
 if (( rc == 0 )) && [[ "$over" == 0 && "$parts" == 3 && ! -e "$work/databig/big.mv.db" ]]; then
@@ -102,13 +104,24 @@ if (( rc == 0 )) && [[ "$over" == 0 && "$parts" == 3 && ! -e "$work/databig/big.
 else bad "big file not split (rc=$rc, over=$over, parts=$parts)"; sed 's/^/     /' "$work/log"; fi
 
 # --- the scan job's verify step ---------------------------------------------
-python3 - "$wf" > "$work/verify.sh" <<'PY'
-import sys, yaml
+# The step runs scripts/artifact_parts.sh verify from the library copy with
+# the path pattern below; the test runs the same script with that pattern.
+python3 - "$wf" > "$work/re" <<'PY'
+import re, sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 s = [s for s in d["jobs"]["scan"]["steps"] if s.get("name") == "Verify the NVD data against its manifest"]
 assert len(s) == 1
-print(s[0]["run"])
+m = re.search(r'artifact_parts\.sh" verify "\$RUNNER_TEMP/java-scan-nvd-in" "\$list" \'([^\']+)\'', s[0]["run"])
+assert m, "the verify step does not run artifact_parts.sh verify"
+print(m.group(1))
 PY
+re_paths="$(cat "$work/re")"
+cat > "$work/verify.sh" <<'SH'
+list="$RUNNER_TEMP/m.sha256"
+printf '%s\n' "$MANIFEST" > "$list"
+bash "$ROOT/scripts/artifact_parts.sh" verify "$DIR" "$list" "$RE_PATHS"
+SH
+export ROOT="$root" RE_PATHS="$re_paths"
 manifest="$(cd "$work/data" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)"
 
 verify() {  # verify <tamper> -> rc

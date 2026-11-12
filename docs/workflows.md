@@ -2787,6 +2787,24 @@ Purpose: Build and push a multi-architecture Docker image (`linux/amd64` +
 `linux/arm64` by default) using QEMU + buildx. Optionally runs a Trivy
 vulnerability scan on the pushed image.
 
+Two jobs. `build` (`contents: read`, no secret, on `runner`) builds the
+caller's Dockerfile into an OCI image layout (`--output
+type=oci,tar=false`, every platform and the provenance attestation),
+stores a blob over 60 MiB as `<digest>.split-NNN` parts
+(`scripts/artifact_parts.sh split`), and uploads the layout with a sha256
+manifest after the publication check. `push` (`packages: write`,
+`registry_token`, on `push_runner`) checks out nothing of the caller's: it
+downloads the layout, checks it against the manifest and joins the parts
+(`scripts/artifact_parts.sh verify`), logs in, and pushes it with
+`scripts/docker_push_oci.sh`, which refuses a blob whose name is not its
+sha256, a file that is not part of an OCI layout and an index naming other
+than one manifest, then runs `skopeo copy --all --preserve-digests` for
+each tag and fails when the registry reports another digest. `push_runner`
+needs `skopeo` in `/usr/bin` or `/bin` (on GitHub's Ubuntu images). The
+login is kept in a 0700 directory under `RUNNER_TEMP`, removed when the job
+ends. `image_name` is lowered, then must be a `registry/name`; `image_ref`
+holds the lowered name. `tag` must be a valid image tag.
+
 Every step runs the docker CLI the runner ships, through scripts the job
 checks out from this library at the workflow's own commit; no third-party
 action. `scripts/setup_qemu.sh` registers the emulators by running the binfmt
@@ -2799,8 +2817,8 @@ saying so. `scripts/docker_login.sh` hands `registry_token` to `docker login
 final step whatever the build did; an Amazon ECR host is refused (get a login
 password with `aws ecr get-login-password` in the caller and pass it as the
 token, with `registry_username: AWS`). `scripts/docker_build.sh` runs `docker
-buildx build` with the context, Dockerfile, platforms, tags, build-args and
-`--push`, with no layer cache: the job pushes with the registry token, and a
+buildx build` with the context, Dockerfile, platforms and
+build-args to the OCI layout, with no layer cache: the push job publishes these layers, and a
 layer restored from the Actions cache would be a layer of the pushed image
 (see [Cache trust](SECURITY.md#cache-trust)); provenance is `mode=max` for a public repository and
 `mode=min,inline-only=true` for a private one. The printed command masks
@@ -2826,6 +2844,8 @@ Inputs:
 | `trivy_severity` | no | `CRITICAL,HIGH` | Severities that trigger scan output |
 | `fail_on_scan_findings` | no | `false` | Fail the workflow on Trivy findings |
 | `fetch_depth` | no | `0` | Checkout depth |
+| `runner` | no | `ubuntu-latest` | Runner for the `build` job |
+| `push_runner` | no | `ubuntu-latest` | Runner for the `push` job, which holds the token; needs `skopeo` |
 
 Secrets:
 - `registry_token` (required) — registry password / token (e.g. `secrets.GITHUB_TOKEN` for GHCR)
