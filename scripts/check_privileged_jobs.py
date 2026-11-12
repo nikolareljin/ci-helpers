@@ -133,10 +133,11 @@ def caller_steps(job: dict, reusable: bool = True) -> list[str]:
         uses = str(step.get("uses") or "")
         run = str(step.get("run") or "")
         with_text = " ".join(str(v) for v in (step.get("with") or {}).values())
-        fwd = INPUT_CODE.search(with_text) if uses else None
+        fwd = next((m for m in INPUT_CODE.finditer(with_text) if m.group(1) not in REMOTE_INPUTS),
+                   None) if uses else None
         if uses and (CALLER_USES.match(uses) or LOCAL_ACTION.match(uses)):
             hits.append(f"{name} (uses {uses.split('@')[0]})")
-        elif fwd and fwd.group(1) not in REMOTE_INPUTS:
+        elif fwd:
             # A library action handed a command input runs it.
             hits.append(f"{name} (uses {uses.split('@')[0]} with inputs.{fwd.group(1)})")
         elif run:

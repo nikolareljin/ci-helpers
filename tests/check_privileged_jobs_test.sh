@@ -213,6 +213,14 @@ expect "a library action handed a command input" 1 "$head
       - uses: ./.ci-helpers-x/.github/actions/wp-plugin-check
         with:
           phpunit_command: \${{ inputs.phpunit_command }}" $np
+expect "a command input after a remote-only one" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - uses: ./.ci-helpers-x/.github/actions/wp-plugin-check
+        with:
+          a: \${{ inputs.post_deploy_command }}
+          phpunit_command: \${{ inputs.phpunit_command }}" $np
 expect "a caller script run by path" 1 "$head
     permissions:
       contents: write
