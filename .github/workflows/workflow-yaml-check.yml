@@ -242,7 +242,7 @@ jobs:
         shell: bash
         run: bash tests/deb_build_artifact_path_test.sh
 
-      - name: go-deploy fails on a missing extra file before copying
+      - name: go-deploy fails on a missing extra file and on a changed artifact before copying
         shell: bash
         run: bash tests/go_deploy_extra_files_test.sh
 
@@ -389,6 +389,25 @@ jobs:
       - name: Library scripts run only from the verified copy
         shell: bash
         run: python3 scripts/check_lib_isolation.py
+
+      # A job that runs the caller's build, test or install code holds no
+      # write permission, secret or environment; publishing and signing run
+      # in a separate job on the downloaded, sha256-checked outputs.
+      - name: Privileged-job check reports what it must
+        shell: bash
+        run: bash tests/check_privileged_jobs_test.sh
+
+      - name: No job runs caller code with a write token or a secret
+        shell: bash
+        run: python3 scripts/check_privileged_jobs.py
+
+      - name: ppa-deb hands the source package over with a checked manifest
+        shell: bash
+        run: bash tests/ppa_split_test.sh
+
+      - name: manifest-version checks the handed-over version as one line
+        shell: bash
+        run: bash tests/manifest_version_tag_test.sh
 
   zizmor:
     # Every zizmor finding fails, among them a checkout that keeps its token,

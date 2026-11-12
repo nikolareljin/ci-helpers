@@ -493,8 +493,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/brew-formula"
-          cp "$BREW_FORMULA_PATH" "$RUNNER_TEMP/brew-formula/"
+          out="$RUNNER_TEMP/brew-formula"
+          mkdir -p "$out"
+          # A regular file in the workspace only: a symlink could name any
+          # file on the runner, and the tap job would publish it.
+          f="$BREW_FORMULA_PATH"
+          [[ -f "$f" && ! -L "$f" ]] || { echo "::error::$f is not a regular file (symlinks are refused)."; exit 1; }
+          [[ "$(realpath -e -- "$f")" == "$(cd "$GITHUB_WORKSPACE" && pwd -P)"/* ]] || { echo "::error::$f resolves outside the workspace."; exit 1; }
+          cp -P -- "$f" "$out/"
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
           echo "file=$(basename "$BREW_FORMULA_PATH")" >> "$GITHUB_OUTPUT"
           echo "dir=$RUNNER_TEMP/brew-formula" >> "$GITHUB_OUTPUT"
 

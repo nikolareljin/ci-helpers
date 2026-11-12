@@ -226,5 +226,66 @@ and in the actions that run on Windows, the shell is found on `PATH` (Git
 Bash and pwsh live under `C:\Program Files`, and the runner splits
 `shell:` at the first space); on Windows `lib_path.sh` leaves the step's
 `PATH` as it is; the post step of `publication-check`
-runs from its checkout after every other step; and the gate does not yet
-hold publish steps to a job without caller code.
+runs from its checkout after every other step. Holding publish steps to a
+job without caller code is the next section's gate.
+
+## Privileged Jobs
+
+A job that runs code the caller controls (a `*_command` input, the
+caller's build, test or install tooling, `debian/rules`, a Dockerfile, a
+local action) holds no write permission, no secret other than
+`GITHUB_TOKEN` and no `environment:`. Publishing, signing and deploying
+run in a separate job that:
+
+- needs the build job and checks out nothing of the caller's;
+- downloads the build job's outputs with `actions/download-artifact`;
+- writes the build job's sha256 manifest (a job output) to a file, refuses
+  the artifact when its file list differs from the manifest or it holds
+  anything but regular files, and runs `sha256sum --check --strict` before
+  it uses a file;
+- runs only steps from this workflow, at the workflow's commit.
+
+Every value the build job hands over (file names, the `.changes` name, the
+version) is caller-chosen data. The privileged job checks each against a
+strict pattern before use: `go-deploy` requires `bin_file` to be a plain
+name under `bin/`, `ppa-deb` requires every file a `.changes` or `.dsc`
+names to be a plain name in the artifact, and `manifest-version` matches
+the whole version value, so a second line cannot pass.
+
+The build job stages only regular files: it refuses a symlink and a file that
+resolves outside its tree, copies with `cp -P` and checks the staged tree
+holds nothing else, so caller code cannot point the artifact at a runner file.
+The build job uploads with `retention-days: 1`, under a name that carries
+the run id, the attempt and a random suffix, so two calls in one run do not
+collide.
+
+`scripts/check_privileged_jobs.py` refuses a job that holds `contents`,
+`packages`, `id-token`, `pages`, `deployments`, `attestations` or `actions`
+write (or no `permissions:` block, which takes the caller's), a
+`secrets.<name>` or an `environment:`, and also runs caller code. It finds
+caller code by pattern: a `${{ inputs.<name> }}` ending in `command`,
+`cmd`, `script`, `script_path`, `args` or `hook` (plural forms too), any
+input used as a command word, a library action handed such an input, a
+build, package or install tool as a command word, a script from the
+checked-out tree run by a relative path, a dot-directory path or a
+workspace path (`$GITHUB_WORKSPACE`, `${{ github.workspace }}`, `$PWD`),
+directly or by an interpreter (in a reusable workflow, where that tree is
+the caller's; `.ci-helpers-*` library copies excepted), a library script that builds
+the caller's tree, or an action that does. Installing a named tool (`dotnet tool install`, `npm install -g`,
+`cargo install <crate>`, `go install <path>@<version>`) is not caller code.
+A tool the pattern does not know is not seen.
+
+Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
+`ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys) and
+`manifest-version.yml` (`version`, then `tag-and-dispatch` with the write
+token). Each privileged job runs on its own runner input
+(`deploy_runner`, `publish_runner`, `tag_runner`, default `ubuntu-latest`):
+a reused self-hosted machine can carry state left by the build. The
+release workflows (`release-build.yml`, `deb-build.yml`, `rpm-build.yml`,
+`go-release.yml`, `rust-release*.yml`, `fpc-release.yml`) already build in
+a read-only job. The gate's `PENDING` list names the jobs not yet split,
+each with its reason; an entry that passes is itself a finding.
+
+`unity.yml` activates the Unity licence for the caller's test run, so the
+licence and the caller's tests share a job; the licence is returned in an
+`always()` step after the tests.

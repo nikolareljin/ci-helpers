@@ -51,6 +51,11 @@ on:
       runner:
         type: string
         default: ubuntu-latest
+      # The job that holds the write token. A fresh hosted runner by default:
+      # a reused self-hosted machine can carry state left by version_command.
+      tag_runner:
+        type: string
+        default: ubuntu-latest
       fetch_depth:
         type: number
         default: 0
@@ -74,74 +79,17 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  tag-and-dispatch:
+  # Reads the version, running version_command for manifest_type custom,
+  # with a read-only token. The tag-and-dispatch job below holds the write
+  # token and runs none of the caller's code.
+  version:
+    permissions:
+      contents: read
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
     outputs:
       version: ${{ steps.extract.outputs.version }}
-      tag: ${{ steps.compute.outputs.tag }}
-      skipped: ${{ steps.compute.outputs.skipped }}
     steps:
-      - name: Check out trusted outbound guard
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ci-helpers-security
-          sparse-checkout: |
-            .github/actions/publication-guard
-            vendor/script-helpers
-          persist-credentials: false
-
-      - name: Verify outbound guard revision
-        shell: bash
-        env:
-          TRUSTED_SHA: ${{ job.workflow_sha }}
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-        run: |
-          set -euo pipefail
-          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
-          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
-          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-
-      - name: Guard outbound Git writes
-        uses: ./.ci-helpers-security/.github/actions/publication-guard
-        env:
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
           persist-credentials: false
@@ -218,15 +166,97 @@ jobs:
           echo "Extracted version: ${version}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+  tag-and-dispatch:
+    needs: version
+    runs-on: ${{ inputs.tag_runner }}
+    timeout-minutes: 30
+    outputs:
+      version: ${{ needs.version.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+      skipped: ${{ steps.compute.outputs.skipped }}
+    steps:
+      - name: Check out trusted outbound guard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-security
+          sparse-checkout: |
+            .github/actions/publication-guard
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify outbound guard revision
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-security rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+
+      - name: Guard outbound Git writes
+        uses: ./.ci-helpers-security/.github/actions/publication-guard
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
+        with:
+          persist-credentials: false
+          fetch-depth: ${{ inputs.fetch_depth }}
+          fetch-tags: true
+
       - name: Compute tag and check existence
         id: compute
         env:
-          VERSION: ${{ steps.extract.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
           SKIP_IF_TAGGED: ${{ inputs.skip_if_tagged }}
         shell: bash
         run: |
           set -euo pipefail
+          # Checked again here: the version job ran the caller's code. [[ =~ ]]
+          # matches the whole value; grep would pass a second line.
+          re='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$'
+          if [[ ! "${VERSION}" =~ $re ]]; then
+            echo "::error::version '${VERSION}' is not X.Y.Z." >&2
+            exit 1
+          fi
           tag="${TAG_PREFIX}${VERSION}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
@@ -276,7 +306,7 @@ jobs:
         if: ${{ inputs.dispatch_workflows != '' && (steps.tag.outputs.created == 'true' || (steps.compute.outputs.tag_existed == 'true' && inputs.skip_if_tagged == false)) }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.extract.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
           GIT_TAG: ${{ steps.compute.outputs.tag }}
           WORKFLOWS: ${{ inputs.dispatch_workflows }}
           DISPATCH_INPUTS_JSON: ${{ inputs.dispatch_inputs_json }}
