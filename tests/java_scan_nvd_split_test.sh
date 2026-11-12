@@ -54,6 +54,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 echo db > "$d/odc.mv.db"
+# The real database is hundreds of MiB, over publication-check's 64 MiB per file.
+[[ -z "${DC_BIG:-}" ]] || { head -c 140000000 /dev/urandom > "$d/big.mv.db"; sha256sum < "$d/big.mv.db" > "$DC_BIG"; }
 SH
 (cd "$work/zip" && zip -qr "$work/dc.zip" dependency-check)
 sum="$(sha256sum < "$work/dc.zip" | cut -d' ' -f1)"
@@ -78,18 +80,26 @@ if (( rc == 1 )) && grep -q 'Checksum mismatch' "$work/log" && [[ ! -e "$work/da
   ok "refuses a zip whose sha256 is not the pin"
 else bad "tampered zip (rc=$rc)"; fi
 rc=0; inst "$work/pins.inject" "$work/data3" || rc=$?
-(( rc == 2 )) && ok "refuses a version that is not X.Y.Z" || bad "version injection (rc=$rc)"
+if (( rc == 2 )); then ok "refuses a version that is not X.Y.Z"; else bad "version injection (rc=$rc)"; fi
 rc=0; inst "$work/pins.good" "$work/data" || rc=$?
-(( rc == 2 )) && ok "refuses a data directory that already exists" || bad "existing data dir (rc=$rc)"
+if (( rc == 2 )); then ok "refuses a data directory that already exists"; else bad "existing data dir (rc=$rc)"; fi
 ln -s "$work" "$work/link"
 rc=0; inst "$work/pins.good" "$work/link" || rc=$?
-(( rc == 2 )) && ok "refuses a data directory that is a symlink" || bad "symlinked data dir (rc=$rc)"
+if (( rc == 2 )); then ok "refuses a data directory that is a symlink"; else bad "symlinked data dir (rc=$rc)"; fi
 for d in "relative/data" "$work/x/../data5" "$work/a;id"; do
   rc=0; inst "$work/pins.good" "$d" || rc=$?
-  (( rc == 2 )) && ok "refuses --data '$d'" || bad "--data '$d' (rc=$rc)"
+  if (( rc == 2 )); then ok "refuses --data '$d'"; else bad "--data '$d' (rc=$rc)"; fi
 done
 rc=0; inst "$work/pins.good" "$work/data4" "" || rc=$?
-(( rc == 2 )) && ok "refuses an empty key" || bad "empty key (rc=$rc)"
+if (( rc == 2 )); then ok "refuses an empty key"; else bad "empty key (rc=$rc)"; fi
+
+# A file over the per-file publication limit leaves as parts and comes back whole.
+rc=0; DC_BIG="$work/big.sum" inst "$work/pins.good" "$work/databig" || rc=$?
+over="$(find "$work/databig" -type f -size +62914560c | wc -l)"
+parts="$(find "$work/databig" -name 'big.mv.db.split-*' | wc -l)"
+if (( rc == 0 )) && [[ "$over" == 0 && "$parts" == 3 && ! -e "$work/databig/big.mv.db" ]]; then
+  ok "a file over 60 MiB is stored as parts of at most 60 MiB"
+else bad "big file not split (rc=$rc, over=$over, parts=$parts)"; sed 's/^/     /' "$work/log"; fi
 
 # --- the scan job's verify step ---------------------------------------------
 python3 - "$wf" > "$work/verify.sh" <<'PY'
@@ -117,7 +127,14 @@ verify() {  # verify <tamper> -> rc
   esac
   env RUNNER_TEMP="$work/tmp" DIR="$work/in" MANIFEST="$m" bash "$work/verify.sh" > "$work/log" 2>&1
 }
-verify "" && ok "verify accepts the artifact as built" || { bad "verify refused the artifact as built"; sed 's/^/     /' "$work/log"; }
+if verify ""; then ok "verify accepts the artifact as built"; else bad "verify refused the artifact as built"; sed 's/^/     /' "$work/log"; fi
+bigman="$(cd "$work/databig" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)"
+rm -rf "$work/inbig"; cp -R "$work/databig" "$work/inbig"
+if [[ "$parts" -gt 0 ]] && env RUNNER_TEMP="$work/tmp" DIR="$work/inbig" MANIFEST="$bigman" bash "$work/verify.sh" > "$work/log" 2>&1 \
+    && [[ "$(sha256sum < "$work/inbig/big.mv.db")" == "$(cat "$work/big.sum")" ]] \
+    && [[ -z "$(find "$work/inbig" -name '*.split-*')" ]]; then
+  ok "verify joins the parts back into the original file"
+else bad "verify did not rebuild the split file"; sed 's/^/     /' "$work/log"; fi
 for t in change add remove link traverse absolute inject empty; do
   if verify "$t"; then bad "verify accepted: $t"; else ok "verify refuses: $t"; fi
 done

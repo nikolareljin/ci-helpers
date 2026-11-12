@@ -395,6 +395,13 @@ jobs:
             echo "::error::the NVD artifact's files differ from its manifest."; exit 1
           fi
           sha256sum --check --strict --quiet "$list"
+          # The nvd job stores a file over 60 MiB as <name>.split-NNN parts.
+          while IFS= read -r -d '' first; do
+            whole="${first%.split-000}"
+            [[ ! -e "$whole" ]] || { echo "::error::the NVD artifact holds both a file and its parts."; exit 1; }
+            cat -- "$whole".split-[0-9][0-9][0-9] > "$whole"
+            rm -f -- "$whole".split-[0-9][0-9][0-9]
+          done < <(find . -type f -name '*.split-000' -print0)
 
       - name: Dependency check
         if: ${{ inputs.dependency_check_command != '' }}

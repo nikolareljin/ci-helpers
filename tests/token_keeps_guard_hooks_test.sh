@@ -20,7 +20,7 @@ sites=0
 while IFS=: read -r file line; do
   sites=$((sites + 1))
   text="$(sed -n "$((line - 1)),${line}p" "$file" | sed "s/^ *//")"
-  got="$(cd "$work/repo" && env -i PATH=/usr/bin:/bin HOME="$work" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+  got="$(cd "$work/repo" || exit 1; env -i PATH=/usr/bin:/bin HOME="$work" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
     GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/guard/hooks \
     GITHUB_SERVER_URL=https://github.com auth=dG9rZW4= \
     bash -euo pipefail -c "$text"$'\n''git config --get core.hooksPath; git config --get http.https://github.com/.extraheader' 2>&1 || true)"
@@ -36,6 +36,7 @@ done < <(grep -n -E 'GIT_CONFIG_(KEY|VALUE)_[^=]*=.*extraheader' "$root"/.github
 for wf in auto-tag.yml update-production.yml; do
   f="$root/.github/workflows/$wf"
   n_envi="$(grep -c 'exec /usr/bin/env -i .*PUSH_TOKEN=' "$f" || true)"
+  # shellcheck disable=SC2016 # literal $NAME text in the workflow
   n_pass="$(grep -c 'exec /usr/bin/env -i .*PUSH_TOKEN=.*GUARD_COUNT="\$GUARD_COUNT" GUARD_KEY="\$GUARD_KEY" GUARD_HOOKS="\$GUARD_HOOKS" GITLEAKS_BIN="\$GITLEAKS_BIN"' "$f" || true)"
   n_req="$(grep -c 'the outbound guard is not configured; nothing is pushed' "$f" || true)"
   if [[ "$n_envi" -gt 0 && "$n_pass" == "$n_envi" && "$n_req" == "$n_envi" ]]; then
