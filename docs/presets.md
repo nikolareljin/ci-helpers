@@ -1123,8 +1123,8 @@ as before: a repository with `packageManager` must pass that same version in
 corepack as written, and corepack refuses the download when the release does
 not match it. The same step serves `pnpm-scan.yml`, `pnpm-cypress.yml`,
 `pnpm-playwright.yml`, `pnpm-pages.yml` and, from `package.json` only,
-`cloudflare-build.yml` and `cloudflare-deploy.yml` with `package_manager:
-pnpm`.
+`cloudflare-build.yml` and the `build` job of `cloudflare-deploy.yml` with
+`package_manager: pnpm`.
 
 Optional test result upload:
 
@@ -1674,9 +1674,8 @@ deploy workflow is already self-sufficient, and an orchestrator would force
 ### Before anything deploys
 
 1. Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with
-   **Account → Workers Scripts → Edit** on the account that owns the Worker.
-   Add **Workers KV Storage → Edit** only if your own deploy command writes KV;
-   binding a namespace does not need it.
+   **Account > Workers Scripts > Edit** on the account that owns the Worker.
+   Binding a KV namespace does not need **Workers KV Storage > Edit**.
 2. Add it as `CLOUDFLARE_API_TOKEN`, on the Environment you are deploying to.
 3. Add `CLOUDFLARE_ACCOUNT_ID` as a repository or environment **variable**. It
    is an identifier, not a credential, and a readable one in the log is what
@@ -1789,41 +1788,33 @@ jobs:
 The pull-request run writes no `secrets:` line, so no Cloudflare credential is
 in scope for it.
 
-### 4. Keep one deploy definition, shared with your laptop
+### 4. What the build can read
 
-If the repository already has a deploy script — a `./dev deploy`, say — point
-`deploy_command` at it. Every gate still runs: the kill switch, the Environment
-and its reviewer, the credential preflight, the version string, the smoke test
-and the summary. Only the mechanism becomes yours.
-
-```yaml
-      deploy_command: ./dev deploy cloudflare --env "$CF_DEPLOY_ENV" --yes
-```
-
-The resolved values reach the command as environment variables:
+`build_command` runs in the `build` job, which holds no Cloudflare secret and
+no Environment. These variables are exported for it:
 
 | Variable | Meaning |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | the secret |
-| `CLOUDFLARE_ACCOUNT_ID` | variable first, secret second, already proven non-empty |
-| `CLOUDFLARE_ENV` | the resolved environment — this is **wrangler's own** environment selector, so a command that runs wrangler inherits it |
+| `CLOUDFLARE_ENV` | the resolved environment, set on the build step only; this is **wrangler's own** environment selector, which build plugins read |
 | `CF_DEPLOY_ENV` | the same value, under a name wrangler does not read |
 | `CF_DEPLOY_COMMAND` | `deploy` / `versions upload` / `pages deploy` |
 | `CF_DEPLOY_VERSION` | the version string |
 | `CF_DEPLOY_REF` | the checked-out ref |
-| `CF_DEPLOY_BASE_URL` | the resolved smoke base |
+| `CF_DEPLOY_BASE_URL` | the resolved smoke base, from `base_url` or a repository `BASE_URL` |
 | `CF_DEPLOY_ARGS` | `deploy_args`, verbatim |
 
-This is what stops the version string being defined twice. A script that reads
-`CF_DEPLOY_VERSION` when it is set, and computes its own only when it is not,
-has one live definition per run — CI's in CI, its own on a laptop.
-`script-helpers`' `cloudflare` module does exactly that.
+The deploy itself is the library's: the `deploy` job runs its pinned wrangler
+on the bundle the `build` job uploaded. `deploy_command` and
+`wrangler_command` are removed, and a run that sets either fails.
 
 ### Cloudflare Pages
 
-Pages is reachable as an input combination, **not** a separate code path. The
-Workers lane is the one that has been exercised end to end; this is documented
-so it can be used, not claimed to be at parity.
+Pages is an input combination. The build job uploads the directory named first
+in `deploy_args`, and the deploy job runs `wrangler pages deploy` on that copy;
+`config_path` and `config_glob` do not apply and are refused. It passes
+`--no-bundle`, so a `_worker.js` (file or directory) is uploaded as it is: bundle
+it in `build_command`, because the deploy job runs no esbuild. Neither lane has
+been run against a live account from this repository.
 
 ```yaml
     with:
@@ -1841,77 +1832,31 @@ scope.
 
 ### Pushing KV entries or seed data
 
-**This is deliberately not automated, and there is no input for it.** If a
-deploy needs to write KV entries, seed a namespace, or upload data alongside the
-Worker, do it from your own `deploy_command`. Read this section first — the
-failure modes here are quieter than the ones in a deploy.
-
-Why it is not built in:
-
-- **It needs a wider token.** Deploying a Worker needs *Workers Scripts → Edit*.
-  Writing KV needs *Workers KV Storage → Edit* as well; binding a namespace does
-  not. Folding a data push into a shared workflow would push every consumer
-  toward minting the broader token whether or not they write data.
-- **It is not one operation.** "Push the data" means something different per
-  project — a whole namespace replaced, a few keys upserted, a file uploaded, a
-  migration applied. Any input surface general enough to cover that is a shell
-  command with extra steps, which is what `deploy_command` already is.
-- **It is the step that is hardest to undo.** A Worker deploy is replaced by the
-  next deploy. Overwritten data is gone.
-
-Four things to get right, in the order they bite:
-
-1. **Guard it with a string comparison, never a bare truthiness test.** A job
-   output is a string, so `if: needs.resolve.outputs.push_data` is true even
-   when that output is the literal `"false"` — every non-empty string is truthy.
-   A data push guarded that way runs on *every* deploy, tag-driven production
-   ones included, and the symptom is silent data loss on a green run. Write
-   `== 'true'`, and prefer an enum over a boolean where you can.
-2. **Make it idempotent, or make it refuse.** Deploys get re-run: a retried job,
-   a re-pushed tag, someone clicking *Re-run all jobs*. A push that appends or
-   overwrites unconditionally is a different outcome each time. If it cannot be
-   idempotent, have it detect existing data and stop rather than clobber.
-3. **It is not part of the deploy's atomicity.** wrangler deploying and your
-   data landing are two operations with no shared transaction. Decide which
-   order fails better for your service — data first means the new Worker meets
-   data it understands; Worker first means old code may meet new data — and
-   write the answer down next to the command.
-4. **Keep it out of the pull-request lane.** `cloudflare-build.yml` declares no
-   secrets precisely so pull requests hold no credential. Do not reach for a
-   data push there.
-
-Where it goes:
+**There is no input for it.** The deploy job runs no caller command, so a data
+push runs in a job of your own, after this workflow, with its own token:
 
 ```yaml
-    with:
-      enabled: ${{ vars.CLOUDFLARE_DEPLOY_ENABLED }}
-      environment: production
-      # One command, owned by your repository. Everything the workflow resolved
-      # is already in the environment: CLOUDFLARE_API_TOKEN,
-      # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ENV, CF_DEPLOY_VERSION,
-      # CF_DEPLOY_CONFIG, CF_DEPLOY_REF.
-      deploy_command: ./scripts/deploy-with-data.sh
+  seed:
+    needs: deploy
+    if: ${{ needs.deploy.outputs.deployed == 'true' }}
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@<sha> # pin it
+        with:
+          persist-credentials: false
+      - run: ./scripts/seed-kv.sh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_KV_TOKEN }}
 ```
 
-The kill switch, the Environment and its required reviewer, the credential
-preflight, the version string, the smoke test and the summary all still run.
-Only the mechanism is yours — which is the point: the part that can destroy data
-stays in the repository that owns the data, where it is reviewed against that
-project's rules rather than a shared workflow's defaults.
-
-### Things worth knowing before you rely on this
-
-- **`deployed` is a string.** `if: needs.deploy.outputs.deployed` is truthy for
-  `"false"` too — every non-empty string is. Compare it against `'true'`.
-- **`--dry-run` proves less than it looks.** It validates the config and bundles
-  the Worker. It does not check bindings, routes, or account access.
-- **`npx --yes wrangler@<version>` fetches from npm at deploy time**, which is an
-  unpinned-integrity dependency inside an otherwise SHA-pinned toolchain. For
-  anything you care about, set `wrangler_command: "pnpm exec wrangler"` so your
-  lockfile pins it. The default is convenience, and says so.
-- **Set `smoke_version_path`.** Without it the smoke test proves something
-  answered, which passes just as happily against the release that was already
-  live. The summary says so rather than reporting a clean pass.
+Writing KV needs *Workers KV Storage > Edit*, which a Worker deploy does not;
+a separate token keeps the deploy token narrow. Guard the job with
+`== 'true'`, never a bare truthiness test (a job output is a string, and
+`"false"` is truthy). Make the push idempotent, or have it refuse when data is
+already there: deploys get re-run.
 
 ## Overriding defaults
 

@@ -99,13 +99,16 @@ on:
         default: sha7
       wrangler_version:
         type: string
-        default: "4.42.0"
+        default: ""
+        description: >
+          Empty, or the pinned WRANGLER_VERSION in toolchain-pins.env. Any
+          other value fails the run: the library installs one pinned wrangler.
       wrangler_command:
         type: string
         default: ""
         description: >
-          Overrides how wrangler is run, e.g. "pnpm exec wrangler" so a
-          lockfile pins it rather than npx fetching wrangler_version.
+          REMOVED. Setting it fails the run. The dry run uses the library's
+          pinned wrangler (toolchain-pins.env).
       dry_run:
         type: boolean
         default: true
@@ -134,6 +137,17 @@ jobs:
       version: ${{ steps.version.outputs.value }}
       config_path: ${{ steps.config.outputs.path }}
     steps:
+      - name: Refuse removed inputs
+        shell: bash
+        env:
+          IN_WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
+        run: |
+          set -euo pipefail
+          if [ -n "${IN_WRANGLER_COMMAND}" ]; then
+            echo "::error::wrangler_command is removed: the dry run uses the library's pinned wrangler (WRANGLER_VERSION in toolchain-pins.env). Drop the input"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
@@ -142,7 +156,6 @@ jobs:
       # The library's scripts, at this workflow's commit. A directory of that
       # name already in the caller's tree is refused, not reused.
       - name: Reserve ci-helpers scripts directory
-        if: ${{ inputs.package_manager == 'pnpm' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -152,7 +165,6 @@ jobs:
           fi
 
       - name: Check out ci-helpers scripts
-        if: ${{ inputs.package_manager == 'pnpm' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: ${{ job.workflow_repository }}
@@ -165,7 +177,6 @@ jobs:
 
       - name: Isolate ci-helpers scripts
         id: ci_lib
-        if: ${{ inputs.package_manager == 'pnpm' }}
         shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
@@ -343,37 +354,129 @@ jobs:
             fi
             path="$1"
           fi
+          path="${path#./}"
           echo "path=${path}" >> "${GITHUB_OUTPUT}"
           if [ -n "${path}" ]; then
             echo "deploy config: ${path}"
           fi
 
+      # wrangler's own Node, chosen by the library, after the caller's steps
+      # (the pinned wrangler needs Node 22 or later). No package cache.
+      - name: Setup Node for wrangler
+        if: ${{ inputs.dry_run }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 @ 2026-10-16
+        with:
+          node-version: "24"
+          cache: ""
+          package-manager-cache: false
+
+      # The wrangler cloudflare-deploy.yml runs: the tarball's sha256 from
+      # toolchain-pins.env, every dependency by the lockfile's integrity, no
+      # package script.
+      - name: Install the pinned wrangler
+        id: wrangler
+        if: ${{ inputs.dry_run }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          IN_WRANGLER_VERSION: ${{ inputs.wrangler_version }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" IN_WRANGLER_VERSION="$IN_WRANGLER_VERSION" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          pinned="$(/usr/bin/sed -n 's/^WRANGLER_VERSION=//p' "$run_lib/toolchain-pins.env")"
+          if [[ -n "$IN_WRANGLER_VERSION" && "$IN_WRANGLER_VERSION" != "$pinned" ]]; then
+            echo "::error::wrangler_version '$IN_WRANGLER_VERSION' is not the pinned wrangler $pinned. Leave it empty; the library installs one pinned version."
+            exit 1
+          fi
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_wrangler.sh"
+          CI_HELPERS_RUN
+          )"
+
+      # No credentials reach this step: a dry run must not need them.
       - name: Validate with a dry run
         if: ${{ inputs.dry_run }}
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
+        shell: sh
         env:
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
-          WRANGLER_COMMAND: ${{ inputs.wrangler_command }}
-          WRANGLER_VERSION: ${{ inputs.wrangler_version }}
-          RUNNER_TEMP_DIR: ${{ runner.temp }}
-        # No credentials are set in this step's environment, deliberately: a
-        # dry run must not need them, and if a future wrangler starts requiring
-        # a token here we want that to fail loudly rather than quietly consume
-        # one this workflow never promised to handle.
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          NODE: ${{ steps.wrangler.outputs.node }}
+          WRANGLER_JS: ${{ steps.wrangler.outputs.wrangler }}
+          WORKDIR: ${{ inputs.working_directory }}
+          CF_CONFIG: ${{ steps.config.outputs.path }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
-          runner="${WRANGLER_COMMAND}"
-          if [ -z "${runner}" ]; then
-            runner="npx --yes wrangler@${WRANGLER_VERSION}"
-          fi
-          set -- deploy --dry-run --outdir "${RUNNER_TEMP_DIR}/cf-dryrun"
-          if [ -n "${CONFIG_PATH}" ]; then
-            set -- "$@" --config "${CONFIG_PATH}"
-          fi
-          echo "wrangler $*"
-          # shellcheck disable=SC2086
-          ${runner} "$@"
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" NODE="$NODE" WRANGLER_JS="$WRANGLER_JS" WORKDIR="$WORKDIR" CF_CONFIG="$CF_CONFIG" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          work="$(cd "$GITHUB_WORKSPACE" && cd "$WORKDIR" && pwd -P)"
+          CF_WORKDIR="$work" CF_COMMAND=deploy CF_ENV_NAME=none CF_BUNDLE_DIR="$RUNNER_TEMP/cf-dryrun" \
+            /bin/bash "$run_lib/scripts/wrangler_run.sh" dryrun
+          CI_HELPERS_RUN
+          )"
 
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.

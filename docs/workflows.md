@@ -237,6 +237,8 @@ Purpose: Deploy to Cloudflare with wrangler, behind a kill switch and a GitHub E
 
 **Disabled by default.** Nothing deploys until the kill switch reads the string `true` — either the `enabled` input, or the repository variable `CLOUDFLARE_DEPLOY_ENABLED` when that input is empty. While it is off, a `disabled-notice` job writes a job summary explaining how to arm it, so a switched-off repository does not look like a broken workflow.
 
+Two jobs do the work. `build` (`contents: read`, no Cloudflare secret, no Environment) checks out the caller, runs `install_command` and `build_command`, bundles the Worker with the library's pinned wrangler (`wrangler deploy --dry-run --outdir`) or takes the Pages directory, and uploads the result with a sha256 manifest. `deploy` holds the token and the Environment, checks out nothing of the caller's, checks every file against the manifest, and runs the pinned wrangler (`WRANGLER_VERSION` in `toolchain-pins.env`, installed with `npm ci --ignore-scripts` from `scripts/wrangler/package-lock.json`) with arguments built from checked inputs only (`scripts/cloudflare_wrangler.py`). The Workers lane deploys the bundle with `--no-bundle` and a checked copy of the config: `build` is dropped (the build job ran it), and every key must be on an allowlist of wrangler keys that name data (`ALLOWED_KEYS` in `scripts/cloudflare_wrangler.py`; `unsafe` may hold only `bindings` and `metadata`). `containers`, `site`, `wasm_modules`, `text_blobs`, `data_blobs`, `base_dir`, `tsconfig`, `alias`, `python_modules`, `rules`, `find_additional_modules` (the deploy uploads the single-file bundle), any key not on the list, an assets directory outside the artifact, any `.env` or `.dev.vars` file and a source map comment naming a file outside the bundle are refused. A TOML config needs Python 3.11 or later on `deploy_runner`. `build_command` sees repository variables only, not the Environment's.
+
 **The caller must use `secrets: inherit`** when the token lives on an Environment. A job that calls a reusable workflow cannot declare `environment:`, and `on.workflow_call` has no `environment` keyword, so an environment-scoped secret cannot be passed explicitly. It is resolved by the `environment:` declared on this workflow's deploy job, and `secrets: inherit` is what makes that possible. An explicit `secrets:` block still works for a repository-level secret.
 
 Inputs:
@@ -246,12 +248,14 @@ Inputs:
 - `ref` (string, default `""`)
 - `production_environment` (string, default `production`)
 - `enabled` (string, default `""`) — the kill switch
-- `runner` (string, default `ubuntu-latest`), `timeout_minutes` (number, default `30`), `fetch_depth` (number, default `1`), `working_directory` (string, default `"."`)
+- `runner` (string, default `ubuntu-latest`) runs `resolve` and `build`; `deploy_runner` (string, default `ubuntu-latest`) runs `deploy` and needs `/usr/bin/python3` 3.11 or later
+- `timeout_minutes` (number, default `30`), `fetch_depth` (number, default `1`), `working_directory` (string, default `"."`)
 - `node_version` (string, default `""`), `package_manager` (string, default `npm`), `install_command` (string, default `""`), `build_command` (string, default `""`)
-- `config_path` (string, default `""`), `config_glob` (string, default `""`)
+- `config_path` (string, default `""`), `config_glob` (string, default `""`) - Workers lane only; empty uses `wrangler.json`, `wrangler.jsonc` or `wrangler.toml` in `working_directory`
 - `version` (string, default `""`), `version_file` (string, default `VERSION`), `version_suffix` (string, default `sha7`), `version_var` (string, default `VERSION`)
-- `deploy_args` (string, default `""`), `wrangler_version` (string, default `4.42.0`), `wrangler_command` (string, default `""`)
-- `deploy_command` (string, default `""`) — the passthrough lane
+- `deploy_args` (string, default `""`) - checked word by word. Pages lane: the directory to upload first, then `--project-name`, `--branch`, `--commit-hash`, `--commit-dirty`, `--skip-caching`. Workers lane: `--name`, `--compatibility-date`, `--compatibility-flag(s)`, `--keep-vars`, `--dispatch-namespace`, `--tag`, `--message`. Any other word fails the run.
+- `wrangler_version` (string, default `""`) - empty or the pinned version; any other value fails the run
+- `deploy_command`, `wrangler_command` (string, default `""`) - removed. Setting either fails the `resolve` job with an error naming the replacement: `build_command` for the build, `command` and `deploy_args` for the wrangler call.
 - `base_url` (string, default `""`), `smoke_path` (string, default `/health`), `smoke_version_path` (string, default `""`), `smoke_version_field` (string, default `version`)
 - `concurrency_key` (string, default `""`)
 
@@ -297,7 +301,7 @@ It declares **no secrets** and no write scope, so a caller that checks its Worke
 
 What the dry run proves: the configuration is valid and the Worker bundles. What it does **not** prove: bindings, routes, or that the token can reach the account — none of that is reachable without calling the API. A green build means "this would compile", not "this would deploy".
 
-Inputs: `runner`, `timeout_minutes`, `fetch_depth`, `working_directory`, `node_version`, `package_manager`, `install_command`, `build_command`, `config_path`, `config_glob`, `version_file`, `version_suffix`, `wrangler_version`, `wrangler_command`, `dry_run` (boolean, default `true`).
+Inputs: `runner`, `timeout_minutes`, `fetch_depth`, `working_directory`, `node_version`, `package_manager`, `install_command`, `build_command`, `config_path`, `config_glob`, `version_file`, `version_suffix`, `wrangler_version` (empty or the pinned version), `dry_run` (boolean, default `true`). `wrangler_command` is removed: setting it fails the run. The dry run uses the same pinned wrangler as `cloudflare-deploy.yml`.
 
 Outputs: `version`, `config_path`.
 

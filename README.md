@@ -20,7 +20,7 @@ Includes:
 - Tauri CI/CD: `tauri-scan.yml` (fast gate), `tauri.yml` (CI), `tauri-release.yml` (three independent build jobs — macOS, Windows, and a Linux job whose runner is an input — with signing, notarization, and GitHub release).
 - `winget-submit.yml` for automated Windows Package Manager manifest submission.
 - `docker-multiarch.yml` for multi-architecture Docker builds (QEMU + buildx, optional Trivy scan).
-- Cloudflare deploys: `cloudflare-deploy.yml` (disabled until a kill switch is armed, deploys through a GitHub Environment, refuses an empty account id, and asserts the deployed version is the one now live) and `cloudflare-build.yml` (dry-run validation declaring no secrets, so pull requests hold no deploy credential).
+- Cloudflare deploys: `cloudflare-deploy.yml` (disabled until a kill switch is armed, deploys through a GitHub Environment from a job that runs no caller code and a pinned wrangler, refuses an empty account id, and asserts the deployed version is the one now live) and `cloudflare-build.yml` (dry-run validation declaring no secrets, so pull requests hold no deploy credential).
 - `manifest-version.yml` for manifest-based auto-versioning and release dispatch (supports `package.json`, `Cargo.toml`, `pubspec.yaml`, `pyproject.toml`, `VERSION`, and custom commands).
 - `release-rc-pr.yml` as a reusable `workflow_call` workflow — add 10 lines to any repo to get automatic release PRs on `release/*` branch pushes.
 - Vendored [`script-helpers`](https://github.com/nikolareljin/script-helpers) to reuse common Bash logging/utilities.

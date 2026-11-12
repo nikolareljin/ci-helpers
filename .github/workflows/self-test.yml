@@ -624,6 +624,9 @@ jobs:
       - name: docker-multiarch pushes only the layout its build job made
         shell: bash
         run: bash tests/docker_multiarch_split_test.sh
+      - name: cloudflare-deploy deploys only the bundle its build job made
+        shell: bash
+        run: bash tests/cloudflare_deploy_split_test.sh
       - name: token steps keep the publication guard's hooks
         shell: bash
         run: bash tests/token_keeps_guard_hooks_test.sh
