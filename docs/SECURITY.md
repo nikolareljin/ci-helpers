@@ -243,6 +243,9 @@ run in a separate job that:
   the artifact when its file list differs from the manifest or it holds
   anything but regular files, and runs `sha256sum --check --strict` before
   it uses a file;
+- joins a file the build job stored as `<name>.split-NNN` parts (over
+  60 MiB, the publication check's per-file limit is 64 MiB) only after that
+  check; `scripts/artifact_parts.sh` does both ends;
 - runs only steps from this workflow, at the workflow's commit.
 
 Every value the build job hands over (file names, the `.changes` name, the
@@ -278,13 +281,16 @@ A tool the pattern does not know is not seen.
 Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
 `ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys) and
 `manifest-version.yml` (`version`, then `tag-and-dispatch` with the write
-token). `java-scan.yml` fetches the NVD data in an `nvd` job that holds
+token) and `docker-multiarch.yml` (`build` to an OCI layout, then `push`
+with the registry token, which checks each blob against its digest).
+`java-scan.yml` fetches the NVD data in an `nvd` job that holds
 `nvd_api_key` and checks out nothing of the caller's, and the scan job
 reads that data from an artifact checked against a sha256 manifest.
 `auto-tag.yml` (`production`) and `update-production.yml` (`move`) run this
 library's `create_production.sh` from the verified copy, never the
 caller's. Each privileged job runs on its own runner input
-(`deploy_runner`, `publish_runner`, `tag_runner`, `nvd_runner`, default
+(`deploy_runner`, `publish_runner`, `tag_runner`, `nvd_runner`,
+`push_runner`, default
 `ubuntu-latest`):
 a reused self-hosted machine can carry state left by the build. The
 release workflows (`release-build.yml`, `deb-build.yml`, `rpm-build.yml`,
