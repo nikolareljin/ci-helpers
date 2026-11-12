@@ -23,7 +23,7 @@ argv    Prints the wrangler argv, NUL-separated, built only from values
         each checked against its own pattern.
 account Checks CLOUDFLARE_ACCOUNT_ID is 32 hex characters, without printing it.
 bundle  Checks that the trailing `//# sourceMappingURL=` comment of each
-        .js, .mjs or .cjs file under DIR (the one wrangler reads) names a
+        regular file under DIR (the one wrangler reads) names a
         file under DIR; wrangler reads that file and uploads it when
         upload_source_maps is set. Refuses a symlink under DIR.
 
@@ -75,7 +75,8 @@ PAGES_FLAGS: dict[str, re.Pattern | None] = {
 # data: a binding, a route, a setting. Left out on purpose: keys that run a
 # command (containers, cloudchamber), read a file outside the bundle and the
 # assets (site, wasm_modules, text_blobs, data_blobs, base_dir, tsconfig,
-# alias, python_modules), or belong to another lane (pages_build_output_dir).
+# alias, python_modules, rules: it can make any bundle file a module whose
+# source map comment wrangler follows), or belong to another lane (pages_build_output_dir).
 # Anything not listed, including a key a later wrangler adds, is refused.
 ALLOWED_KEYS = frozenset((
     "$schema", "name", "main", "account_id", "compatibility_date", "compatibility_flags",
@@ -84,9 +85,9 @@ ALLOWED_KEYS = frozenset((
     "agent_memory", "hyperdrive", "workflows", "secrets_store_secrets", "artifacts",
     "services", "analytics_engine_datasets", "ai", "images", "stream", "media",
     "version_metadata", "unsafe_hello_world", "flagship", "ratelimits", "worker_loaders",
-    "keep_vars", "addresses", "find_additional_modules", "preserve_file_names",
+    "keep_vars", "addresses", "preserve_file_names",
     "workers_dev", "preview_urls", "route", "routes", "jsx_factory", "jsx_fragment",
-    "migrations", "exports", "triggers", "rules", "build", "no_bundle", "minify",
+    "migrations", "exports", "triggers", "build", "no_bundle", "minify",
     "keep_names", "dispatch_namespaces", "first_party_worker", "logfwdr", "logpush",
     "upload_source_maps", "assets", "observability", "access", "cache",
     "compliance_region", "define", "send_email", "browser", "analytics", "unsafe",
@@ -262,6 +263,10 @@ def config_cmd(tree: Path, config: str, env: str, write: bool) -> dict[str, str]
                 raise Refused(f"the config sets '{key}' ({where}), which is not on the allowlist of "
                               f"wrangler config keys (scripts/cloudflare_wrangler.py ALLOWED_KEYS); a key "
                               f"that runs a command or reads a file outside the bundle is refused.")
+        if "find_additional_modules" in t:
+            raise Refused(f"the config sets 'find_additional_modules' ({where}): the deploy uploads the "
+                          f"single-file bundle from the build job's dry run, and without `rules` (refused) "
+                          f"the dry run does not copy additional modules. Let wrangler bundle the Worker.")
         unsafe = t.get("unsafe")
         if unsafe is not None:
             if not isinstance(unsafe, dict) or set(unsafe) - UNSAFE_KEYS:
@@ -326,7 +331,8 @@ def bundle_cmd(top: Path) -> None:
     for p in sorted(top.rglob("*")):
         if p.is_symlink():
             raise Refused(f"'{p.relative_to(top)}' in the bundle is a symlink.")
-        if p.suffix not in (".js", ".mjs", ".cjs") or not p.is_file():
+        # Every file, not only scripts: a module type is not tied to a suffix.
+        if not p.is_file():
             continue
         url = map_url(p.read_text(encoding="utf-8", errors="replace"))
         if url is None:

@@ -178,13 +178,16 @@ done
 for extra in $'made_up_key = 1\n[assets]' $'[unsafe.capnp]\ncompiled_schema = "/proc/self/environ"' \
              $'[env.staging.unsafe.capnp]\nbase_path = "/"\nsource_schemas = ["x"]' \
              $'pages_build_output_dir = "/"\n[assets]' $'[env.staging]\nmade_up_key = 1' $'[env.staging.env.x]\nname = "y"' \
+             $'[[rules]]\ntype = "ESModule"\nglobs = ["**/*.txt"]' $'[[env.staging.rules]]\ntype = "CommonJS"\nglobs = ["**/*"]' \
              $'[env.staging]\npython_modules = { exclude = [] }'; do
   if [[ "$extra" == *$'\n[assets]' ]]; then body="${extra%$'\n[assets]'}"$'\n'"$base"; else body="$base"$'\n'"$extra"; fi
   if cfg "$body" >/dev/null; then bad "config accepted: $extra"; fi
 done
-keep=$'find_additional_modules = true\nupload_source_maps = true\n[[rules]]\ntype = "ESModule"\nglobs = ["**/*.mjs"]\n[vars]\nA = "b"\n[dev]\nport = 1\n[[unsafe.bindings]]\nname = "R"\ntype = "ratelimit"\n[env.staging]\nname = "w-s"\n[[env.staging.kv_namespaces]]\nbinding = "K"\nid = "x"'
+out="$(cfg $'find_additional_modules = true\n'"$base")" || true
+if [[ "$out" == *"find_additional_modules"*"bundle"* ]]; then ok "config: find_additional_modules is refused with a reason"; else bad "config: find_additional_modules got '$out'"; fi
+keep=$'upload_source_maps = true\n[vars]\nA = "b"\n[dev]\nport = 1\n[[unsafe.bindings]]\nname = "R"\ntype = "ratelimit"\n[env.staging]\nname = "w-s"\n[[env.staging.kv_namespaces]]\nbinding = "K"\nid = "x"'
 if [[ "$(cfg "$base"$'\n'"$keep" 2>&1)" == $'assets=public\nentry=index.js' ]]; then
-  ok "config: known keys (modules, rules, source maps, unsafe.bindings, env bindings) pass"
+  ok "config: known keys (source maps, unsafe.bindings, env bindings) pass"
 else bad "config: known keys refused: $(cfg "$base"$'\n'"$keep")"; fi
 [[ $fail == 0 ]] && ok "config: an unknown key, unsafe.capnp and a nested env are refused"
 out="$(cfg "$base"$'\n[build]\ncommand = "touch /tmp/x"\n[env.staging]\nname = "w-s"\n[env.staging.build]\ncommand = "id"' --write)"
@@ -381,6 +384,9 @@ printf '//# sourceMappingURL=/etc/passwd\n' > "$work/b/sub/c.cjs"
 if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then bad "bundle accepted an outside map in a nested module"; fi
 printf 'var r = /# sourceMappingURL=(.+)/g;\nexport default r;\n' > "$work/b/sub/c.cjs"
 if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then ok "bundle: a sourceMappingURL in code, not the trailing comment, is ignored"; else bad "bundle: false positive on code"; fi
+printf 'x\n//# sourceMappingURL=../../etc/passwd\n' > "$work/b/sub/m.txt"
+if python3 -I "$cw" bundle "$work/b" >/dev/null 2>&1; then bad "bundle accepted an outside map in a .txt module (rules can make it ESM)"; fi
+rm -f "$work/b/sub/m.txt"
 [[ $fail == 0 ]] && ok "bundle: a source map comment naming a file outside the bundle is refused"
 
 # --- config: a TOML config on a Python without tomllib fails clearly ---------
