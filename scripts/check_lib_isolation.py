@@ -131,7 +131,7 @@ LIB_PATH_SECRET = LIB_PATH_LINE + " secret"
 # to the trusted links, /usr/bin and /bin (lib_path.sh secret).
 SECRET_VALUE = re.compile(r"secrets\.|github\.token")
 SECRET_NAME = re.compile(r"TOKEN|PASSWORD|SECRET|LICEN[CS]E|SERIAL")
-GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git'
+GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git.exe'
 # git runs under `env -i` with a bare PATH; Git Bash's git.exe does not
 # start without the Windows environment, so there the git variables are
 # dropped one by one instead.

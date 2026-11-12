@@ -101,7 +101,7 @@ jobs:
           NODE_OPTIONS: ""
         run: |
           set -euo pipefail
-          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git
+          git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git.exe
           genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
           [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
           got="$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-actions rev-parse HEAD)"

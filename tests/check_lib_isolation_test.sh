@@ -226,7 +226,7 @@ pubverify="      - name: Verify publication action revision
           TRUSTED_SHA: \${{ job.workflow_sha }}
 $blanks
         run: |
-          git=/usr/bin/git; [[ -x \"\$git\" ]] || git=/mingw64/bin/git
+          git=/usr/bin/git; [[ -x \"\$git\" ]] || git=/mingw64/bin/git.exe
           genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
           [[ \"\$(\"\${genv[@]}\" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \"\$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)\" == \"\$TRUSTED_SHA\" ]] || exit 1"
 pubuse="      - uses: ./.ci-helpers-publication/.github/actions/publication-check
@@ -270,7 +270,7 @@ expect "library script without lib_path.sh" 1 "$(wf "$checkout" "$isolate" "${us
 expect "trusted tools set after the script runs" 1 "$(wf "$checkout" "$isolate" "${use/          . \"\$run_lib\/scripts\/lib_path.sh\"
           \/bin\/bash \"\$run_lib\/scripts\/setup_rust.sh\"/          /bin/bash \"\$run_lib/scripts/setup_rust.sh\"
           . \"\$run_lib/scripts/lib_path.sh\"}")"
-expect "verify step without the git= line" 1 "$(wf_raw "$pubco" "${pubverify/git=\/usr\/bin\/git;*mingw64\/bin\/git
+expect "verify step without the git= line" 1 "$(wf_raw "$pubco" "${pubverify/git=\/usr\/bin\/git;*mingw64\/bin\/git.exe
 /}")"
 expect "verify step also running git through PATH" 1 "$(wf_raw "$pubco" "$pubverify
           git status" "$pubuse")"
