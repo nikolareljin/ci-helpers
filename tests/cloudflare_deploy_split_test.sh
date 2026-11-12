@@ -345,6 +345,16 @@ run CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DI
 if ! grep -q '^CLOUDFLARE_ENV=' "$work/run-env" && [[ "$(tr '\n' ' ' < "$work/run-argv")" == *"pages deploy site --project-name s "* ]]; then
   ok "wrangler_run: Pages sets no CLOUDFLARE_ENV"
 else bad "wrangler_run: pages env or argv"; fi
+# wrangler pages deploy looks for a wrangler config in its directory and
+# every parent; a stub in the directory stops that walk.
+if [[ "$(cat "$work/in2/wrangler.json" 2>/dev/null)" == "{}" ]]; then
+  ok "wrangler_run: Pages runs beside an empty config, so no parent config is read"
+else bad "wrangler_run: no stub config for Pages"; fi
+rm -f "$work/in2/wrangler.json"; echo 'x' > "$work/in2/wrangler.toml"; : > "$work/run-argv"
+if run CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DIR=site >/dev/null || [[ -s "$work/run-argv" ]]; then
+  bad "wrangler_run: Pages ran beside an existing config"
+else ok "wrangler_run: Pages refuses a config already in its directory"; fi
+rm -f "$work/in2/wrangler.toml"
 
 # --- deploy_args: a single-value flag given twice ----------------------------
 for a in "--name a --name b" "--name=a --name b" "--keep-vars --keep-vars=false"; do

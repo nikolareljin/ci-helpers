@@ -6,6 +6,8 @@
 #              `dryrun` bundles the Worker into CF_BUNDLE_DIR (build job,
 #              no token). `deploy` uploads the bundle or Pages directory the
 #              build job made, from the verified artifact (deploy job).
+#              A Pages deploy runs beside an empty wrangler.json, so wrangler
+#              reads no config from a parent directory.
 # USAGE: bash scripts/wrangler_run.sh dryrun|deploy
 # ENVIRONMENT:
 #   NODE, WRANGLER_JS      From setup_wrangler.sh (absolute paths).
@@ -44,6 +46,15 @@ if [[ "$mode" == deploy ]]; then
 fi
 
 CF_COMMAND_KEPT="${CF_COMMAND:-}" CF_ENV_KEPT="${CF_ENV_NAME:-}" CF_WORKDIR_KEPT="$CF_WORKDIR"
+# `pages deploy` takes no --config: it reads the first wrangler config in its
+# directory or any parent. An empty one here ends that search (wrangler
+# warns that it has no pages_build_output_dir and ignores it).
+if [[ "$mode" == deploy && "$CF_COMMAND_KEPT" == "pages deploy" ]]; then
+  for f in wrangler.json wrangler.jsonc wrangler.toml; do
+    [[ ! -e "$CF_WORKDIR/$f" && ! -L "$CF_WORKDIR/$f" ]] || fail "$CF_WORKDIR/$f already exists; Pages deploys run beside an empty config only."
+  done
+  printf '{}' > "$CF_WORKDIR/wrangler.json"
+fi
 echo "wrangler ${argv[*]}"
 # A clean environment, built in this shell: the token stays out of every
 # argv, including env(1)'s.
