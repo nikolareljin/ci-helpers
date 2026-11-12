@@ -372,7 +372,9 @@ def argv_cmd(env: dict[str, str]) -> list[str]:
         raise Refused(f"CF_MODE must be deploy or dryrun, not '{mode}'.")
     if command == "pages deploy":
         pages = rel_path(env.get("CF_PAGES_DIR", ""), "the staged Pages directory")
-        return ["pages", "deploy", pages, *flags]
+        # --no-bundle: a _worker.js is uploaded as built. Bundling it here
+        # would run esbuild, which follows imports to any file on the runner.
+        return ["pages", "deploy", pages, "--no-bundle", *flags]
     entry = env.get("CF_ENTRY", "")
     full(re.compile(r"bundle/" + ENTRY.pattern), entry, "the bundle entry")
     if not config:

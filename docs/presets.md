@@ -1811,7 +1811,9 @@ on the bundle the `build` job uploaded. `deploy_command` and
 
 Pages is an input combination. The build job uploads the directory named first
 in `deploy_args`, and the deploy job runs `wrangler pages deploy` on that copy;
-`config_path` and `config_glob` do not apply and are refused. Neither lane has
+`config_path` and `config_glob` do not apply and are refused. It passes
+`--no-bundle`, so a `_worker.js` (file or directory) is uploaded as it is: bundle
+it in `build_command`, because the deploy job runs no esbuild. Neither lane has
 been run against a live account from this repository.
 
 ```yaml

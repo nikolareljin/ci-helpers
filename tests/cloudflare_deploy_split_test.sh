@@ -147,9 +147,9 @@ for kv in "CF_VERSION=1.0;id" "CF_VERSION=" "CF_VERSION=-x" "CF_VERSION_VAR=A:B"
   if env "$kv" true && out="$(argv "$kv")" && [[ "$out" != *"::error::"* ]]; then bad "argv accepted $kv: $out"; fi
 done
 [[ $fail == 0 ]] && ok "argv: a bad version, var, env, entry, config, command or flag is refused"
-want="pages deploy site --project-name s "
+want="pages deploy site --no-bundle --project-name s "
 if [[ "$(argv CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DIR=site CF_CONFIG= CF_ENTRY=)" == "$want" ]]; then
-  ok "argv: the Pages argv uploads the staged site/, not the caller's path"
+  ok "argv: the Pages argv uploads the staged site/ with --no-bundle (no esbuild run on _worker.js)"
 else bad "argv: pages got '$(argv CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DIR=site CF_CONFIG= CF_ENTRY=)'"; fi
 if [[ "$(argv CF_ENV_NAME=none CF_VERSION_VAR=)" == "deploy bundle/index.js --no-bundle --config tree/ci-helpers-deploy.wrangler.json --name w " ]]; then
   ok "argv: wrangler_env none and an empty version_var omit --env and --var"
@@ -241,6 +241,11 @@ rm -rf "$work/o"; mkdir -p "$work/o"
 if bash "$stage" pages "$work/w" "$work/o" linked >/dev/null 2>&1; then bad "stage accepted a symlinked pages dir"; fi
 rm -rf "$work/o"; mkdir -p "$work/o"
 if bash "$stage" pages "$work/w" "$work/o" public > "$work/list" && grep -q '  ./site/sub/a.txt$' "$work/list"; then ok "stage: the Pages directory goes to site/"; else bad "stage: pages"; fi
+for w in _worker.js _routes.json; do
+  ln -s /etc/passwd "$work/w/public/$w"; rm -rf "$work/o"; mkdir -p "$work/o"
+  if bash "$stage" pages "$work/w" "$work/o" public >/dev/null 2>&1; then bad "stage accepted a symlinked Pages $w"; fi
+  rm "$work/w/public/$w"
+done
 [[ $fail == 0 ]] && ok "stage: traversal and symlinked directories are refused"
 
 # --- the deploy job's artifact check ----------------------------------------
@@ -345,7 +350,7 @@ if run CLOUDFLARE_API_TOKEN= >/dev/null; then bad "wrangler_run deployed with no
 if run WRANGLER_JS=/usr/bin/id >/dev/null; then bad "wrangler_run ran another script"; else ok "wrangler_run: WRANGLER_JS must be the installed wrangler"; fi
 if run CF_VERSION='1;id' >/dev/null; then bad "wrangler_run accepted an injected version"; else ok "wrangler_run: a version outside the pattern is refused before wrangler runs"; fi
 run CF_COMMAND="pages deploy" CF_DEPLOY_ARGS="dist --project-name s" CF_PAGES_DIR=site >/dev/null || true
-if ! grep -q '^CLOUDFLARE_ENV=' "$work/run-env" && [[ "$(tr '\n' ' ' < "$work/run-argv")" == *"pages deploy site --project-name s "* ]]; then
+if ! grep -q '^CLOUDFLARE_ENV=' "$work/run-env" && [[ "$(tr '\n' ' ' < "$work/run-argv")" == *"pages deploy site --no-bundle --project-name s "* ]]; then
   ok "wrangler_run: Pages sets no CLOUDFLARE_ENV"
 else bad "wrangler_run: pages env or argv"; fi
 # wrangler pages deploy looks for a wrangler config in its directory and
