@@ -22,9 +22,10 @@ config  Reads the wrangler config CONFIG (a path relative to TREE; TOML,
 argv    Prints the wrangler argv, NUL-separated, built only from values
         each checked against its own pattern.
 account Checks CLOUDFLARE_ACCOUNT_ID is 32 hex characters, without printing it.
-bundle  Checks that every `sourceMappingURL` comment in a .js, .mjs or .cjs
-        file under DIR names a file under DIR; wrangler reads that file
-        and uploads it when upload_source_maps is set.
+bundle  Checks that the trailing `//# sourceMappingURL=` comment of each
+        .js, .mjs or .cjs file under DIR (the one wrangler reads) names a
+        file under DIR; wrangler reads that file and uploads it when
+        upload_source_maps is set. Refuses a symlink under DIR.
 
 Exit 0 on success, 1 on a refusal, 2 on a usage error.
 """
