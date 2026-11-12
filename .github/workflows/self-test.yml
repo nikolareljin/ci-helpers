@@ -440,8 +440,9 @@ jobs:
           if "uses" in step:
               raise SystemExit("the Snyk step is an action again; Snyk is disabled")
           # Nothing in the workflow runs Snyk or reads its token: no container,
-          # no image, no `secrets.snyk_token` outside the declaration.
-          for banned in ("docker run", "docker.sock", "snyk test", "snyk/actions", "SNYK_TOKEN", "secrets.snyk_token"):
+          # no image, no read of the snyk_token secret outside the declaration.
+          # The secret reference is assembled so this job names no secret.
+          for banned in ("docker run", "docker.sock", "snyk test", "snyk/actions", "SNYK_TOKEN", "secrets." + "snyk_token"):
               if banned in text:
                   raise SystemExit(f"docker-scan.yml contains `{banned}`; Snyk is disabled and its token is never read")
           print(step["run"])
@@ -620,6 +621,9 @@ jobs:
       - name: java-scan keeps the NVD key out of the scan job
         shell: bash
         run: bash tests/java_scan_nvd_split_test.sh
+      - name: docker-multiarch pushes only the layout its build job made
+        shell: bash
+        run: bash tests/docker_multiarch_split_test.sh
       - name: token steps keep the publication guard's hooks
         shell: bash
         run: bash tests/token_keeps_guard_hooks_test.sh
@@ -2424,8 +2428,9 @@ jobs:
   # docker-multiarch's registry path, against a registry of this job's own:
   # a digest-pinned registry container on 127.0.0.1:5000 with password auth.
   # The wrong password is refused at login and not later; the right one gets
-  # a push whose digest the registry confirms, and the logout leaves no
-  # credential behind. Single platform: emulation is the leg above's.
+  # a push of the OCI layout the build half wrote, whose digest the registry
+  # confirms, and the logout leaves no credential behind. Single platform:
+  # emulation is the leg above's.
   docker-multiarch-logs-in-and-pushes-to-a-local-registry:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -2493,29 +2498,44 @@ jobs:
           print("credential stored for 127.0.0.1:5000")
           PY
 
-      # The builder runs in a container, so 127.0.0.1 is the host only with
-      # the host network, and the registry speaks plain HTTP.
-      - name: Set up a builder that can reach the registry
+      # The build job's half: an OCI layout on disk, no registry, no token.
+      - name: Set up a builder
         id: buildx
         shell: bash
-        env:
-          BUILDX_DRIVER_OPTS: network=host
-        run: |
-          set -euo pipefail
-          printf '[registry."127.0.0.1:5000"]\n  http = true\n' > "$RUNNER_TEMP/buildkitd.toml"
-          BUILDKITD_CONFIG="$RUNNER_TEMP/buildkitd.toml" bash scripts/setup_buildx.sh
+        run: bash scripts/setup_buildx.sh
 
-      - name: Build and push two tags
-        id: build
+      - name: Build into an OCI layout and split it as the build job does
+        id: layout
         shell: bash
         env:
           CONTEXT: tests/fixtures/docker-image
           PLATFORMS: linux/amd64
-          TAGS: 127.0.0.1:5000/ci-helpers/selftest:1.0,127.0.0.1:5000/ci-helpers/selftest:latest
           BUILDER: ${{ steps.buildx.outputs.name }}
-          PUSH: "true"
+          PUSH: "false"
           LABELS: org.opencontainers.image.title=ci-helpers self-test
-        run: bash scripts/docker_build.sh
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/layout"
+          OUTPUTS="type=oci,dest=$out,tar=false" bash scripts/docker_build.sh
+          bash scripts/artifact_parts.sh split "$out"
+          (cd "$out" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done) > "$RUNNER_TEMP/layout.sha256"
+
+      # The push job's half: verify the layout against the manifest, then
+      # push it with skopeo under both tags. The registry speaks plain HTTP.
+      - name: Verify and push the layout with skopeo
+        id: build
+        shell: bash
+        env:
+          IMAGE: 127.0.0.1:5000/ci-helpers/selftest
+          TAGS: 1.0,latest
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/containers/registries.conf.d
+          printf '[[registry]]\nlocation = "127.0.0.1:5000"\ninsecure = true\n' \
+            | sudo tee /etc/containers/registries.conf.d/ci-helpers-self-test.conf > /dev/null
+          bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/layout" "$RUNNER_TEMP/layout.sha256" \
+            'oci-layout|index\.json|blobs/sha256/[0-9a-f]{64}'
+          LAYOUT="$RUNNER_TEMP/layout" bash scripts/docker_push_oci.sh
 
       - name: The registry holds both tags at the reported digest
         shell: bash

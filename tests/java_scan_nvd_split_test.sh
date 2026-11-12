@@ -102,13 +102,24 @@ if (( rc == 0 )) && [[ "$over" == 0 && "$parts" == 3 && ! -e "$work/databig/big.
 else bad "big file not split (rc=$rc, over=$over, parts=$parts)"; sed 's/^/     /' "$work/log"; fi
 
 # --- the scan job's verify step ---------------------------------------------
-python3 - "$wf" > "$work/verify.sh" <<'PY'
-import sys, yaml
+# The step runs scripts/artifact_parts.sh verify from the library copy with
+# the path pattern below; the test runs the same script with that pattern.
+python3 - "$wf" > "$work/re" <<'PY'
+import re, sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 s = [s for s in d["jobs"]["scan"]["steps"] if s.get("name") == "Verify the NVD data against its manifest"]
 assert len(s) == 1
-print(s[0]["run"])
+m = re.search(r'artifact_parts\.sh" verify "\$RUNNER_TEMP/java-scan-nvd-in" "\$list" \'([^\']+)\'', s[0]["run"])
+assert m, "the verify step does not run artifact_parts.sh verify"
+print(m.group(1))
 PY
+re_paths="$(cat "$work/re")"
+cat > "$work/verify.sh" <<'SH'
+list="$RUNNER_TEMP/m.sha256"
+printf '%s\n' "$MANIFEST" > "$list"
+bash "$ROOT/scripts/artifact_parts.sh" verify "$DIR" "$list" "$RE_PATHS"
+SH
+export ROOT="$root" RE_PATHS="$re_paths"
 manifest="$(cd "$work/data" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done)"
 
 verify() {  # verify <tamper> -> rc

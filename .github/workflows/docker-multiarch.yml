@@ -39,7 +39,7 @@ on:
         type: string
         default: ""
       scan_after_build:
-        description: Run Trivy vulnerability scan on the pushed image
+        description: Run a Trivy vulnerability scan on the pushed image
         type: boolean
         default: true
       trivy_severity:
@@ -53,6 +53,16 @@ on:
       fetch_depth:
         type: number
         default: 0
+      # The job that builds the caller's Dockerfile, with no registry token.
+      runner:
+        type: string
+        default: ubuntu-latest
+      # The job that holds the registry token and pushes the built layout. A
+      # fresh hosted runner by default: a reused self-hosted machine can carry
+      # state left by the build. It needs skopeo (on GitHub's Ubuntu images).
+      push_runner:
+        type: string
+        default: ubuntu-latest
     secrets:
       registry_token:
         description: Token for registry login (GITHUB_TOKEN or PAT)
@@ -60,25 +70,27 @@ on:
     outputs:
       image_digest:
         description: SHA digest of the pushed image
-        value: ${{ jobs.build-push.outputs.image_digest }}
+        value: ${{ jobs.push.outputs.image_digest }}
       image_ref:
         description: Full image reference (image_name:tag)
-        value: ${{ jobs.build-push.outputs.image_ref }}
+        value: ${{ jobs.push.outputs.image_ref }}
 
 # Opt into Node.js 24 early — Node 20 actions deprecated (removed Sep 2026)
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-push:
-    runs-on: ubuntu-latest
+  # Builds the caller's Dockerfile into an OCI image layout with no registry
+  # token on the runner. The push job below holds the token and runs none of
+  # the caller's code.
+  build:
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 120
     permissions:
       contents: read
-      packages: write
     outputs:
-      image_digest: ${{ steps.build.outputs.digest }}
-      image_ref: ${{ steps.tags.outputs.primary }}
+      artifact: ${{ steps.stage.outputs.artifact }}
+      manifest: ${{ steps.stage.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -114,7 +126,7 @@ jobs:
       # default branch and run today's scripts after all; refuse instead.
       - name: Isolate ci-helpers scripts
         id: ci_lib
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}
           BASH_ENV: ""
@@ -145,7 +157,7 @@ jobs:
       # QEMU user-mode emulators from the binfmt image pinned by digest in
       # the library's toolchain-pins.env; every platform, as before.
       - name: Set up QEMU (cross-arch emulation)
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -194,7 +206,7 @@ jobs:
       # BuildKit image pinned in toolchain-pins.env.
       - name: Set up Docker Buildx
         id: buildx
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -238,9 +250,428 @@ jobs:
           CI_HELPERS_RUN
           )"
 
+      # Every former input, as an environment variable: the caller's build
+      # context and Dockerfile, the platforms and the build-args. The image
+      # goes to an OCI layout directory, every platform and the provenance
+      # attestation in it, not to a registry. No layer cache from the Actions
+      # cache: the push job publishes these layers with the registry token
+      # (scripts/check_cache_trust.py).
+      - name: Build the multi-arch image into an OCI layout
+        id: build
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          CONTEXT: ${{ inputs.context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          PLATFORMS: ${{ inputs.platforms }}
+          BUILD_ARGS: ${{ inputs.build_args }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
+          OUTPUTS: type=oci,dest=${{ runner.temp }}/docker-multiarch-out,tar=false
+          PUSH: "false"
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" CONTEXT="$CONTEXT" DOCKERFILE="$DOCKERFILE" PLATFORMS="$PLATFORMS" BUILD_ARGS="$BUILD_ARGS" BUILDER="$BUILDER" OUTPUTS="$OUTPUTS" PUSH="$PUSH" REPOSITORY_PRIVATE="$REPOSITORY_PRIVATE" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          /bin/rm -rf -- "$RUNNER_TEMP/docker-multiarch-out"
+          /bin/bash "$run_lib/scripts/docker_build.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Remove the builder
+        if: ${{ always() && steps.buildx.outputs.name != '' }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BUILDX_NAME: ${{ steps.buildx.outputs.name }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" BUILDX_NAME="$BUILDX_NAME" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_buildx.sh" --remove
+          CI_HELPERS_RUN
+          )"
+
+      # A blob over 60 MiB leaves as <digest>.split-NNN parts; the push job
+      # joins them after checking the manifest.
+      - name: Split and list the image layout
+        id: stage
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          out="$RUNNER_TEMP/docker-multiarch-out"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
+          if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
+            echo "::error::the image layout holds a symlink or special file."; exit 1
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=docker-multiarch-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            (cd "$out" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | while IFS= read -r f; do /usr/bin/sha256sum -- "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.stage.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/docker-multiarch-out
+
+      - name: Upload the image layout
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.stage.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
+
+  # Holds the registry token. No checkout of the caller's repository: it
+  # pushes the layout the build job made, each file checked against its
+  # manifest and each blob against its digest first.
+  push:
+    needs: build
+    runs-on: ${{ inputs.push_runner }}
+    timeout-minutes: 60
+    permissions:
+      packages: write
+    outputs:
+      image_digest: ${{ steps.push.outputs.digest }}
+      image_ref: ${{ format('{0}:{1}', inputs.image_name, inputs.tag) }}
+    steps:
+      # The library's scripts and pins at this workflow's commit: the layout
+      # check, login, push and the Trivy installer. `./scripts`
+      # would resolve in the caller's checkout, so the library is checked out
+      # beside it. A directory of that name already in the caller's tree is
+      # refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's scripts after all; refuse instead.
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      - name: Download the image layout
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/docker-multiarch-in
+
+      - name: Verify the image layout against the build manifest
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          list="$RUNNER_TEMP/docker-multiarch-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/docker-multiarch-in" "$list" 'oci-layout|index\.json|blobs/sha256/[0-9a-f]{64}'
+          CI_HELPERS_RUN
+          )"
+
       # The token reaches docker on stdin; it is in no argument and no log.
       - name: Log in to registry
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -286,43 +717,16 @@ jobs:
           CI_HELPERS_RUN
           )"
 
-      - name: Compute image tags
-        id: tags
-        env:
-          IMAGE: ${{ inputs.image_name }}
-          TAG: ${{ inputs.tag }}
-          PUSH_LATEST: ${{ inputs.push_latest }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          primary="${IMAGE}:${TAG}"
-          tags="${primary}"
-          if [ "${PUSH_LATEST}" = "true" ]; then
-            tags="${tags},${IMAGE}:latest"
-          fi
-          echo "primary=${primary}" >> "${GITHUB_OUTPUT}"
-          echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
-
-      # Every former input, as an environment variable: the caller's build
-      # context and Dockerfile, the platforms, the tags computed above, the
-      # build-args, and a push. No layer cache from the Actions cache: this
-      # job pushes with the registry token, and a restored layer is a layer of
-      # the pushed image, built by whichever run owned the key first
-      # (scripts/check_cache_trust.py). Every layer is built here.
-      - name: Build and push multi-arch image
-        id: build
-        shell: /bin/sh -e {0}
+      # skopeo copies every platform and attestation from the layout with
+      # its digest kept, using the docker config the login step wrote.
+      - name: Push the image layout
+        id: push
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
-          CONTEXT: ${{ inputs.context }}
-          DOCKERFILE: ${{ inputs.dockerfile }}
-          PLATFORMS: ${{ inputs.platforms }}
-          TAGS: ${{ steps.tags.outputs.tags }}
-          BUILD_ARGS: ${{ inputs.build_args }}
-          BUILDER: ${{ steps.buildx.outputs.name }}
-          PUSH: "true"
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          IMAGE: ${{ inputs.image_name }}
+          TAGS: ${{ inputs.push_latest && format('{0},latest', inputs.tag) || inputs.tag }}
           BASH_ENV: ""
           ENV: ""
           SHELLOPTS: ""
@@ -346,7 +750,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" CONTEXT="$CONTEXT" DOCKERFILE="$DOCKERFILE" PLATFORMS="$PLATFORMS" TAGS="$TAGS" BUILD_ARGS="$BUILD_ARGS" BUILDER="$BUILDER" PUSH="$PUSH" REPOSITORY_PRIVATE="$REPOSITORY_PRIVATE" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" IMAGE="$IMAGE" TAGS="$TAGS" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -357,8 +761,9 @@ jobs:
           if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
           now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
           [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          . "$run_lib/scripts/lib_path.sh"
-          /bin/bash "$run_lib/scripts/docker_build.sh"
+          . "$run_lib/scripts/lib_path.sh" secret
+          export LAYOUT="$RUNNER_TEMP/docker-multiarch-in"
+          /bin/bash "$run_lib/scripts/docker_push_oci.sh"
           CI_HELPERS_RUN
           )"
 
@@ -369,7 +774,7 @@ jobs:
       - name: Install Trivy
         if: ${{ inputs.scan_after_build }}
         id: trivy
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -418,7 +823,7 @@ jobs:
         env:
           TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
           CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
-          IMAGE_REF: ${{ steps.tags.outputs.primary }}
+          IMAGE_REF: ${{ format('{0}:{1}', inputs.image_name, inputs.tag) }}
           SEVERITY: ${{ inputs.trivy_severity }}
           EXIT_CODE: ${{ inputs.fail_on_scan_findings && '1' || '0' }}
         run: |
@@ -432,7 +837,7 @@ jobs:
       # the login action's post step did.
       - name: Log out of registry
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -476,58 +881,11 @@ jobs:
           CI_HELPERS_RUN
           )"
 
-      - name: Remove the builder
-        if: ${{ always() && steps.buildx.outputs.name != '' }}
-        shell: /bin/sh -e {0}
-        env:
-          LIB: ${{ steps.ci_lib.outputs.lib }}
-          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
-          BUILDX_NAME: ${{ steps.buildx.outputs.name }}
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-          GIT_DIR: ""
-          GIT_CONFIG_PARAMETERS: ""
-          GIT_EXEC_PATH: ""
-        run: |
-          set +xv
-          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" BUILDX_NAME="$BUILDX_NAME" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
-            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
-          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
-          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
-          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
-          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
-          /bin/cp -RP "$LIB/." "$run_lib/"
-          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
-          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
-          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
-          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
-          . "$run_lib/scripts/lib_path.sh"
-          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
-          /bin/bash "$run_lib/scripts/setup_buildx.sh" --remove
-          CI_HELPERS_RUN
-          )"
-
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.
       - name: Release ci-helpers library copy
         if: ${{ always() }}
-        shell: /bin/sh -e {0}
+        shell: sh
         env:
           LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""
