@@ -167,16 +167,27 @@ jobs:
             done
           fi
 
+          # Only regular files under the working directory: a symlink could
+          # name any file on the runner, and the deploy job would ship it.
+          top="$(pwd -P)"
+          stage_file() {  # stage_file <file> <dest dir>
+            local real
+            [[ -f "$1" && ! -L "$1" ]] || { echo "::error::'$1' is not a regular file (symlinks are refused)."; exit 1; }
+            real="$(realpath -e -- "$1")"
+            [[ "$real" == "$top"/* ]] || { echo "::error::'$1' resolves outside the working directory."; exit 1; }
+            cp -P -- "$1" "$2/"
+          }
           bin_file="${BIN##*/}"
-          [[ -f "$BIN" && ! -L "$BIN" ]] || { echo "::error::$BIN is not a regular file."; exit 1; }
-          cp -- "$BIN" "$out/bin/$bin_file"
+          stage_file "$BIN" "$out/bin"
           n=0
           for f in ${extras[@]+"${extras[@]}"}; do
             n=$((n + 1))
             mkdir -p "$out/extra/$n"
-            # cp follows a symlink: the artifact carries the file it names.
-            cp -- "$f" "$out/extra/$n/"
+            stage_file "$f" "$out/extra/$n"
           done
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
           if [[ -n "$(find "$out" -name "$(printf '*\n*')")" ]]; then
             echo "::error::a staged file name holds a newline."; exit 1
           fi

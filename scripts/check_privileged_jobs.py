@@ -22,7 +22,10 @@ Every workflow under .github/workflows is read with PyYAML. A job is
               tree (docker/build-push-action, tauri-apps/tauri-action,
               a local `./` action outside `.ci-helpers-*`).
 
-A job that is both fails. The split is: build in a read-only job, upload
+A job that is both fails. So does a step named `Stage ...` that copies
+files for an artifact without refusing symlinks (`! -L`), checking each
+file resolves under its tree (`realpath -e`), copying with `cp -P` and
+checking the staged tree holds only regular files. The split is: build in a read-only job, upload
 the outputs with a sha256 manifest, and publish or sign in a job that runs
 only library code on the downloaded files.
 
@@ -137,6 +140,27 @@ def caller_steps(job: dict) -> list[str]:
     return hits
 
 
+STAGE_NEEDS = (re.compile(r'! -L "\$'), re.compile(r"realpath -e"), re.compile(r"cp -P"),
+               re.compile(r"find \"\$out\" -mindepth 1 ! -type f"))
+
+
+def staging_gaps(job: dict) -> list[str]:
+    """A step named `Stage ...` that copies files for an artifact refuses
+    symlinks, keeps each file under its tree, copies with `cp -P` and
+    checks the staged tree holds only regular files."""
+    gaps = []
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not str(step.get("name") or "").startswith("Stage "):
+            continue
+        run = str(step.get("run") or "")
+        if not re.search(r"(?:^|[\s;&|(])cp\s", run):
+            continue
+        missing = [p.pattern for p in STAGE_NEEDS if not p.search(run)]
+        if missing:
+            gaps.append(f"{step['name']} copies without the symlink refusal (missing {', '.join(missing)})")
+    return gaps
+
+
 def scan(root: Path) -> dict[str, str]:
     found: dict[str, str] = {}
     wdir = root / ".github" / "workflows"
@@ -149,6 +173,9 @@ def scan(root: Path) -> dict[str, str]:
         for jname, job in (wf.get("jobs") or {}).items():
             if not isinstance(job, dict) or "steps" not in job:
                 continue
+            gaps = staging_gaps(job)
+            if gaps:
+                found[f"{path.name}:{jname}:stage"] = "; ".join(gaps)
             why = privileged(job, wf)
             if not why:
                 continue
@@ -177,7 +204,9 @@ def main() -> int:
             if args.list:
                 print(f"pending {key}: {msg}")
             continue
-        print(f"::error::{key} {msg}. Move the write permission and secrets to a job that runs only library code.")
+        fix = ("Refuse symlinks and special files when staging an artifact." if key.endswith(":stage")
+               else "Move the write permission and secrets to a job that runs only library code.")
+        print(f"::error::{key} {msg}. {fix}")
         bad = 1
     for key in pending:
         if key not in found:

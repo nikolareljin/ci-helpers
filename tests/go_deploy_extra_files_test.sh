@@ -102,5 +102,15 @@ for tamper in change add remove; do
   if [[ -s "$work/calls" ]]; then echo "FAIL: ssh or rsync ran after: $tamper"; fail=1; fi
 done
 
-(( fail == 0 )) && echo "go_deploy_extra_files: missing file fails in the build job, opt-in skips it, a changed artifact stops the deploy"
+ln -s /etc/hostname "$work/tree/link.conf"
+rc=0; out="$(stage "link.conf" false)" || rc=$?
+if (( rc == 0 )); then echo "FAIL: staged a symlinked extra file"; fail=1; fi
+grep -q "symlinks are refused" <<<"$out" || { echo "FAIL: symlink not named: $out"; fail=1; }
+rm "$work/tree/link.conf"
+echo x > "$work/outside"
+rc=0; out="$(stage "../outside" false)" || rc=$?
+if (( rc == 0 )); then echo "FAIL: staged a file outside the working directory"; fail=1; fi
+rm "$work/outside"
+
+(( fail == 0 )) && echo "go_deploy_extra_files: missing file fails in the build job, opt-in skips it, a changed artifact stops the deploy, a symlink or outside file is not staged"
 exit "$fail"

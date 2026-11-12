@@ -245,6 +245,9 @@ run in a separate job that:
   it uses a file;
 - runs only steps from this workflow, at the workflow's commit.
 
+The build job stages only regular files: it refuses a symlink and a file that
+resolves outside its tree, copies with `cp -P` and checks the staged tree
+holds nothing else, so caller code cannot point the artifact at a runner file.
 The build job uploads with `retention-days: 1`, under a name that carries
 the run id, the attempt and a random suffix, so two calls in one run do not
 collide.

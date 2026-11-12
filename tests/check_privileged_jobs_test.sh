@@ -163,6 +163,22 @@ jobs:
         env:
           GH_TOKEN: \${{ github.token }}
           K: \${{ secrets.signing_key }}" $np
+expect "staging that follows symlinks" 1 "$head
+    permissions:
+      contents: read
+    steps:
+      - name: Stage the files
+        run: cp -- \"\$f\" \"\$out/\"" $np
+expect "staging that refuses symlinks" 0 "$head
+    permissions:
+      contents: read
+    steps:
+      - name: Stage the files
+        run: |
+          [[ -f \"\$f\" && ! -L \"\$f\" ]] || exit 1
+          [[ \"\$(realpath -e -- \"\$f\")\" == \"\$top\"/* ]] || exit 1
+          cp -P -- \"\$f\" \"\$out/\"
+          [[ -z \"\$(find \"\$out\" -mindepth 1 ! -type f ! -type d)\" ]] || exit 1" $np
 expect "words that only look like tools" 0 "$head
     permissions:
       contents: write

@@ -81,5 +81,13 @@ for tamper in change add remove link; do
 done
 if verify "" "../x.changes"; then echo "FAIL: accepted a changes name with a path"; fail=1; fi
 
+# A symlink listed by dcmd is refused at staging.
+mv "$work/src/tool_1.0-1.tar.xz" "$work/real.tar.xz"
+ln -s "$work/real.tar.xz" "$work/src/tool_1.0-1.tar.xz"
+if env PATH="$work/bin:$PATH" RUNNER_TEMP="$work/tmp" GITHUB_OUTPUT="$work/out2" GITHUB_RUN_ID=1 \
+  GITHUB_RUN_ATTEMPT=1 CHANGES="$work/src/tool_1.0-1_source.changes" bash "$work/stage.sh" >/dev/null 2>&1; then
+  echo "FAIL: staged a symlinked file"; fail=1
+fi
+
 (( fail == 0 )) && echo "ok: ppa-deb hands the source package over with a manifest the ppa job checks"
 exit "$fail"

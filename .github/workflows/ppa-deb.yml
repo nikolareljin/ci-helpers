@@ -180,10 +180,17 @@ jobs:
           rm -rf "$out"
           mkdir -p "$out"
           dir="$(dirname "$CHANGES")"
+          top="$(cd "$dir" && pwd -P)"
+          # Only regular files beside the .changes: a symlink could name any
+          # file on the runner, and the ppa job would upload it.
           while IFS= read -r f; do
-            [[ -f "$f" && ! -L "$f" ]] || { echo "::error::$f is not a regular file."; exit 1; }
-            cp -- "$f" "$out/"
+            [[ -f "$f" && ! -L "$f" ]] || { echo "::error::$f is not a regular file (symlinks are refused)."; exit 1; }
+            [[ "$(realpath -e -- "$f")" == "$top"/* ]] || { echo "::error::$f resolves outside $dir."; exit 1; }
+            cp -P -- "$f" "$out/"
           done < <(dcmd "$CHANGES")
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
           base="$(basename "$CHANGES")"
           [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9.+_~-]*\.changes$ ]] || { echo "::error::unexpected changes file name '$base'."; exit 1; }
           [[ -f "$out/$base" ]] || { echo "::error::dcmd did not list $base."; exit 1; }
