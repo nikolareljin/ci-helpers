@@ -243,6 +243,21 @@ expect "an interpreter running a ./ script" 1 "$head
       contents: write
     steps:
       - run: bash ./build.sh" $np
+expect "dot-dir script by path" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: ./.github/scripts/x.sh" $np
+expect "interpreter on ./dot-dir script" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash ./.ci/x.sh" $np
+expect "interpreter on dot-dir script" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: sh .github/x.sh" $np
 expect "inline interpreter code" 0 "$head
     permissions:
       contents: write

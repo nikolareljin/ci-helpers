@@ -60,8 +60,10 @@ INPUT_AS_COMMAND = re.compile(r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b|\beval\s+)\s*[
 # A file from the caller's tree run by path or by an interpreter.
 _START = r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b)\s*"
 _INTERP = r"(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+"
-REL_SCRIPT = re.compile(_START + r"(?:(?:" + _INTERP + r")?[\"']?\./(?!\.ci-helpers-)[A-Za-z0-9_][A-Za-z0-9_./-]*"
-                        r"|" + _INTERP + r"[\"']?[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py|rb|pl|ps1)\b)", re.M)
+# Any relative path, dot-dirs included, except the verified library copy.
+_REL = r"(?!\.?/?\.ci-helpers-)(?![-$/~])[A-Za-z0-9_.][A-Za-z0-9_./-]*"
+REL_SCRIPT = re.compile(_START + r"(?:(?:" + _INTERP + r")?[\"']?\./(?!\.ci-helpers-)(?![\s\"';&|)]|$)[A-Za-z0-9_./-]+"
+                        r"|" + _INTERP + r"[\"']?" + _REL + r"\.(?:sh|py|rb|pl|ps1)\b)", re.M)
 # Tools that execute the caller's tree: build files, package scripts,
 # lifecycle hooks, Dockerfiles, test suites. Matched as a command word.
 TOOLS = (r"make|cmake|ninja|npm|npx|pnpm|yarn|bun|node|deno|cargo|rustc|go|flutter|dart|"
