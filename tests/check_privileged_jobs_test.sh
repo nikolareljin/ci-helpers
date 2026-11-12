@@ -225,6 +225,24 @@ expect "a caller script run by an interpreter" 1 "$head
       - run: |
           echo hi
           python3 tools/bump.py" $np
+expect "a caller executable without an extension" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: cd src && ./configure" $np
+expect "an interpreter running a ./ script" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash ./build.sh" $np
+expect "inline interpreter code" 0 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: |
+          python3 -c 'print(1)'
+          bash -c 'echo ok'
+          sh \"\$RUNNER_TEMP/x.sh\"" $np
 expect "a repository script outside a reusable workflow" 0 "on:
   push:
 jobs:

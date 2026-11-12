@@ -58,9 +58,10 @@ INPUT_CODE = re.compile(r"\$\{\{\s*inputs\.([A-Za-z0-9_-]*(?:command|commands|cm
 # Any input spliced as the command word of a line runs, whatever its name.
 INPUT_AS_COMMAND = re.compile(r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b|\beval\s+)\s*[\"']?\$\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}", re.M)
 # A file from the caller's tree run by path or by an interpreter.
-REL_SCRIPT = re.compile(r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b)\s*(?:(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+)?"
-                        r"[\"']?(?:\./(?!\.ci-helpers-)|(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+[\"']?(?![-$/.~]))"
-                        r"[A-Za-z0-9_./-]*\.(?:sh|py|rb|pl|ps1)\b", re.M)
+_START = r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b)\s*"
+_INTERP = r"(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+"
+REL_SCRIPT = re.compile(_START + r"(?:(?:" + _INTERP + r")?[\"']?\./(?!\.ci-helpers-)[A-Za-z0-9_][A-Za-z0-9_./-]*"
+                        r"|" + _INTERP + r"[\"']?[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|py|rb|pl|ps1)\b)", re.M)
 # Tools that execute the caller's tree: build files, package scripts,
 # lifecycle hooks, Dockerfiles, test suites. Matched as a command word.
 TOOLS = (r"make|cmake|ninja|npm|npx|pnpm|yarn|bun|node|deno|cargo|rustc|go|flutter|dart|"
