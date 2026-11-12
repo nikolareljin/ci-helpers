@@ -84,3 +84,147 @@ on each pull request. A plain CI job keeps `setup-*` caches: it
 holds no secret and no write token, and nothing it restores reaches a
 release. A composite action is held to the trusted rules, as it runs inside
 whatever job calls it.
+
+## Library Isolation
+
+The control is structure: a step that holds a secret or a write token
+(registry login, release upload, signing, publishing, a licence) must run in
+a job with no caller-controlled step, or before the first one. A caller step
+runs as the runner's user and can write `GITHUB_ENV`, `GITHUB_PATH`, the
+workspace and `RUNNER_TEMP`, and can leave a process running; nothing inside
+the same job is a trust boundary against it. Moving every publish step into
+such a job is separate work and not complete yet.
+
+What follows is defence in depth for the library steps that still share a
+job with caller code. The control is the second part of this work: publish,
+sign and login steps move to jobs with no caller code, and that change
+follows this one. A workflow that runs one of the library's scripts
+checks the library out at `job.workflow_sha` into `.ci-helpers-scripts` (or
+reads `scripts/` from the `.ci-helpers-publication` or `.ci-helpers-actions`
+checkout it already has), and the step right after it runs
+`scripts/lib_isolate.sh`:
+
+| What | How |
+|---|---|
+| commit | `git rev-parse HEAD` must equal `job.workflow_sha`, run once by absolute path with `-c core.fsmonitor= -c core.hooksPath=/dev/null` and no user or system config |
+| copy | `scripts/`, `toolchain-pins.env` and `scanner-pins.env` go to a fresh `mktemp -d` under `RUNNER_TEMP`; anything other than a regular file or a directory is refused |
+| hash | sha256 over every directory path and every file's content and path, recorded as the step output `hash`, with `lib` (the copy) and `pins` (sha256 of `toolchain-pins.env`, for cache keys) |
+| mode | files and directories read-only; the job's last step, `if: always()`, makes them writable again so a self-hosted runner can clear its `_temp` |
+| checkout | removed from the workspace; kept only with `--keep`, for a checkout that also holds a composite action the job uses next |
+
+Each step that runs library code, the isolate step and the release step
+included, has two layers:
+
+- its `env:` sets `BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PS4`,
+  `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, the `DYLD_*` loader
+  variables, `PYTHONPATH`, `PYTHONSTARTUP`, `PERL5LIB`, `PERL5OPT`,
+  `RUBYOPT`, `NODE_OPTIONS`, `GIT_DIR`, `GIT_CONFIG_PARAMETERS` and
+  `GIT_EXEC_PATH` to `""`. A step's `env:` wins over `GITHUB_ENV`, so these
+  never reach the shell the runner starts;
+- `shell: /bin/sh -e {0}` in a job whose `runs-on` names a Linux or macOS
+  runner, so bash's startup handling is not on the path where `sh` is
+  dash. The path is absolute because the runner looks a bare `sh` or `bash`
+  up on `PATH` with the `GITHUB_PATH` entries first, so a caller could
+  supply the shell itself. A job whose `runs-on` is an expression (a
+  `runner` input, a matrix) can land on Windows, where `/bin/sh` is not a
+  path the runner can start, so it keeps `shell: sh`; a Windows job uses
+  `bash`. In those jobs a `GITHUB_PATH` entry can still supply the shell.
+  This is a known limit: moving publish, sign and login steps to jobs with
+  no caller code closes it;
+- `set +xv`, then a refusal when an exported `BASH_FUNC_*` is present (where
+  `sh` is bash, on macOS and Git Bash);
+- `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
+  NAME="$NAME"... /bin/bash --noprofile --norc`: an allowlist of named
+  variables (the step's own `env:` keys and the runner's `GITHUB_*` and
+  `RUNNER_*` files and paths), never one that changes bash, the loader,
+  Python, Perl or git.
+
+Inside, the step copies the copy to a fresh directory, hashes that with
+tools at absolute paths, compares it to `LIB_HASH`, and only then runs a
+script from it, as `/bin/bash` or `/usr/bin/python3 -I`. Before the script
+runs, `scripts/lib_path.sh` (sourced from the checked copy) gives it the
+step's `PATH` back, because toolchains live there, behind a fresh
+directory of links to the `/usr/bin` or `/bin` copies of `git`, `gh`,
+`curl`, `wget`, `tar`, `gzip`, `xz`, `unzip`, `zip`, `sha256sum`,
+`shasum`, `gpg`, `openssl`, `ssh`, `scp`, `docker` and `cosign`, where they
+exist. A `GITHUB_PATH` entry can still shadow every other tool (`python3`,
+`node`, `php`, `cargo` and the like, which a toolchain step selects there),
+and those tools where the system has no copy (`gh` on macOS). A step
+that holds a token, password or licence (`github_release.sh`,
+`docker_login.sh`, `unity_test.sh`) sources `lib_path.sh secret` instead:
+its `PATH` is the links, `/usr/bin` and `/bin` only, and the step's `PATH`
+is dropped.
+
+The step that checks a library checkout's commit runs under
+`/bin/bash --noprofile --norc -e -o pipefail {0}` (bare `bash` where
+`runs-on` is an expression or Windows) with the same blanks
+except the `GIT_*` ones (an empty `GIT_DIR` stops git), and runs git as
+`"${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c
+core.fsmonitor= -c core.hooksPath=/dev/null -C <checkout> rev-parse HEAD`,
+with `git` the first of `/usr/bin/git`, `/mingw64/bin/git.exe`,
+`/clangarm64/bin/git.exe` and `/cmd/git.exe` that exists (`env` does not
+add `.exe`). `genv` is
+`/usr/bin/env -i PATH=/usr/bin:/bin`; under Git Bash, where `git.exe` does
+not start without the Windows environment, it is `/usr/bin/env` with each
+`GIT_*` variable that points git elsewhere unset.
+
+A composite or node action from a library checkout (`publication-check`,
+`publication-guard`, `macos-sign`, `windows-sign` and the scan actions)
+runs from the workspace through `uses:`, so it cannot run from the copy.
+Instead:
+
+- nothing runs between its checkout and the `uses:` step but the checkout's
+  own commit check, isolate and library steps, other actions from that
+  checkout, and actions pinned to a commit SHA. Where a workflow step must
+  run in between (release notes, staging), the job removes the checkout
+  and checks it out and verifies it again right before the action;
+- the `uses:` step sets the same blanks as the commit check, so
+  `NODE_OPTIONS` or `BASH_ENV` from `GITHUB_ENV` does not reach the action;
+- inside each action under `.github/actions`, every step sets those blanks
+  too, for a caller that uses the action directly. The Linux and macOS
+  actions (`macos-sign`, `trivy-scan`, `wp-plugin-check`,
+  `pimcore-bundle-check`) name their shell as `/bin/bash --noprofile
+  --norc -e -o pipefail {0}`; the actions callers also run on Windows (the
+  gitleaks, foxguard and data-safety scans, `publication-guard`,
+  `check-release-tag`, `semver-compare`, `windows-sign`) keep `bash`, or
+  `pwsh -NoProfile -NonInteractive`, found on `PATH`. Scripts in the
+  action's directory run as `/bin/bash`, and
+  `macos-sign` sets `PATH=/usr/bin:/bin:/usr/sbin:/sbin` before it touches
+  the certificate.
+
+`scripts/check_lib_isolation.py`, run by `workflow-yaml-check`, fails a
+workflow or action that:
+
+- runs a file under a library checkout, or under `$RUNNER_TEMP/ci-helpers-*`,
+  other than through the isolate step, or reads one through `env:` or
+  `with:` (a pins path, a `hashFiles()` cache key);
+- runs the isolate step anywhere but right after its checkout (or right after
+  that checkout's `Verify` step), or without the checkout's `if:`;
+- reads `$LIB` outside the envelope above, passes a forbidden or renamed
+  variable into it, uses the copy before comparing its hash, or runs a
+  library script through `PATH`;
+- has no `always()` step that releases the read-only copy, or releases it
+  under a bare `sh`;
+- runs a library step under a bare `sh`, sets `PATH` itself, or runs a
+  library script before sourcing `lib_path.sh`;
+- runs git on a library checkout other than in the hardened form above, or
+  under a bare `bash`, or without the blanks;
+- runs a step between a library checkout and an action from it, or uses
+  such an action without the blanks; or has a composite step without
+  them, under a shell named without its path, or calling `bash` by name;
+- runs a step that holds a secret without `lib_path.sh secret`;
+- runs git on a library checkout later than the step right after it, or on
+  the copy;
+- mounts the copy or a checkout into a container (`-v`, `--volume`,
+  `--mount`, `container.volumes`).
+
+Not covered here: a caller that uses one of these actions directly runs
+it after its own steps, which can rewrite the action's files in
+`_actions`; a process a caller step leaves running can still rewrite a
+checkout between two steps; where `runs-on` is an expression or Windows,
+and in the actions that run on Windows, the shell is found on `PATH` (Git
+Bash and pwsh live under `C:\Program Files`, and the runner splits
+`shell:` at the first space); on Windows `lib_path.sh` leaves the step's
+`PATH` as it is; the post step of `publication-check`
+runs from its checkout after every other step; and the gate does not yet
+hold publish steps to a job without caller code.

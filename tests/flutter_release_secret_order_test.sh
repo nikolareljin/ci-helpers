@@ -23,7 +23,7 @@ import re, sys
 import yaml
 
 TOOLCHAIN_USES = re.compile(r"^(actions/setup-|actions/cache@|actions/checkout@)")
-TOOLCHAIN_RUN = re.compile(r"flutter pub get|setup_flutter\.sh|setup_ruby\.sh|bundle install|gem install|\.ci-helpers-scripts")
+TOOLCHAIN_RUN = re.compile(r"flutter pub get|setup_flutter\.sh|setup_ruby\.sh|bundle install|gem install|\.ci-helpers-scripts|\$run_lib/scripts/")
 SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.")
 
 doc = yaml.safe_load(open(sys.argv[1]))
@@ -60,8 +60,8 @@ for tool, script in (("Ruby", "setup_ruby.sh"), ("Flutter", "setup_flutter.sh"))
     found = [s for s in steps if (s.get("name") or "") == f"Setup {tool}"]
     if not found:
         problems.append(f"no 'Setup {tool}' step")
-    elif "uses" in found[0] or f".ci-helpers-scripts/scripts/{script}" not in (found[0].get("run") or ""):
-        problems.append(f"'Setup {tool}' is not scripts/{script} from the library checkout")
+    elif "uses" in found[0] or f'"$run_lib/scripts/{script}"' not in (found[0].get("run") or ""):
+        problems.append(f"'Setup {tool}' is not scripts/{script} from the verified library copy")
 # The library checkout the scripts run from precedes the first of them and
 # runs unconditionally: Flutter is installed on every run.
 checkout = next((i for i, s in enumerate(steps) if (s.get("name") or "") == "Check out ci-helpers scripts"), None)

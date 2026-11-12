@@ -9,6 +9,7 @@ import importlib.util
 import io
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import types
@@ -187,7 +188,12 @@ class ReportJobTests(unittest.TestCase):
             env = step.get("env") or {}
             self.assertIn("TITLE", env, name)
             self.assertIn("RESULTS_GLOB", env, name)
-            checkout_dir = str(step["run"]).split("scripts/junit_summary.py")[0].split()[-1].rstrip("/")
+            self.assertIn('/usr/bin/python3 -I "$run_lib/scripts/junit_summary.py"', str(step["run"]), name)
+            sid = re.match(r"^\$\{\{ steps\.([\w-]+)\.outputs\.lib \}\}$", str(env.get("LIB", "")))
+            self.assertTrue(sid, f"{name}: LIB is an isolate step's output")
+            iso = [s for s in steps if s.get("id") == sid.group(1)]
+            self.assertEqual(len(iso), 1, f"{name}: one isolate step")
+            checkout_dir = re.search(r"(\.ci-helpers-[a-z]+)/scripts/lib_isolate\.sh", str(iso[0]["run"])).group(1)
             co = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")
                   and (s.get("with") or {}).get("path") == checkout_dir]
             self.assertEqual(len(co), 1, f"{name}: one checkout at {checkout_dir}")
@@ -196,8 +202,8 @@ class ReportJobTests(unittest.TestCase):
             self.assertEqual(with_.get("repository"), "${{ job.workflow_repository }}", name)
             self.assertEqual(str(with_.get("persist-credentials")).lower(), "false", name)
             self.assertIn("scripts", str(with_.get("sparse-checkout", "")).split(), name)
-            verify = [s for s in steps if "rev-parse HEAD" in str(s.get("run", ""))]
-            self.assertEqual(len(verify), 1, f"{name}: the checkout's commit is verified")
+            # lib_isolate.sh checks the commit against job.workflow_sha.
+            self.assertIn("WF_SHA", iso[0].get("env") or {}, name)
             inputs = (doc.get(True) or doc.get("on"))["workflow_call"]["inputs"]
             self.assertIn("upload_test_results", inputs, name)
             self.assertIn("artifact_suffix", inputs, name)

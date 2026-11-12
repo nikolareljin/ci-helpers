@@ -21,7 +21,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 fail=0
 
 # The stub docker: argv to STUB_LOG, the variables the container would read
@@ -30,6 +30,9 @@ mkdir -p "$work/stub"
 cat > "$work/stub/docker" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
+# The workflow steps run library code under `env -i` with a named
+# allowlist, so the stub's own variables fall back to fixed paths.
+: "${STUB_LOG:=@WORK@/log}" "${STUB_ENV:=@WORK@/env}"
 printf '%s\n' "$*" >> "$STUB_LOG"
 for v in UNITY_SERIAL UNITY_EMAIL UNITY_PASSWORD UNITY_LICENSE TEST_PLATFORMS CUSTOM_PARAMETERS COVERAGE_ENABLED COVERAGE_OPTIONS UNITY_VERSION PROJECT_PATH ARTIFACTS_PATH; do
   if [[ -n "${!v+x}" ]]; then printf '%s' "${!v}" > "$STUB_ENV.$v"; fi
@@ -45,6 +48,7 @@ for a in "$@"; do
 done
 exit "${STUB_RC:-0}"
 STUB
+sed -i "s|@WORK@|$work|g" "$work/stub/docker"
 chmod +x "$work/stub/docker"
 
 digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -440,11 +444,17 @@ mkdir -p "$work/wf"
 python3 - "$root/.github/workflows/unity.yml" "$work/wf" <<'PY2'
 import pathlib, sys, yaml
 doc = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text())
-want = {"Verify ci-helpers scripts commit": "verify", "Run Unity tests": "tests",
+want = {"Isolate ci-helpers scripts": "verify", "Run Unity tests": "tests",
         "Return the Unity licence": "return", "Test summary": "summary"}
 for step in doc["jobs"]["test"]["steps"]:
     if step.get("name") in want:
-        pathlib.Path(sys.argv[2], want[step["name"]] + ".sh").write_text(step["run"])
+        # The stub docker is found on PATH; lib_path.sh would hand the step
+        # the system docker instead (tested in check_lib_isolation_test.sh),
+        # so the step gets its PATH back as it is.
+        run = step["run"]
+        for line in ('. "$run_lib/scripts/lib_path.sh" secret', '. "$run_lib/scripts/lib_path.sh"'):
+            run = run.replace(line, 'export PATH="$STEP_PATH"')
+        pathlib.Path(sys.argv[2], want[step["name"]] + ".sh").write_text(run)
 PY2
 for f in verify tests return summary; do
   [[ -s "$work/wf/$f.sh" ]] || { echo "FAIL: unity.yml has no run block for the $f step"; fail=1; }
@@ -484,7 +494,7 @@ step() {
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
     UNITY_EMAIL="$email" UNITY_PASSWORD="$password" UNITY_SERIAL="$serial" UNITY_LICENSE="" \
     PROJECT_PATH=game UNITY_VERSION=auto TEST_MODE=editmode ARTIFACTS_PATH=artifacts \
-    bash "$work/wf/$block") > "$work/out" 2>&1 || rc=$?
+    /bin/sh -e "$work/wf/$block") > "$work/out" 2>&1 || rc=$?
   if [[ "$rc" != "$want" ]]; then
     echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; return 1
   fi
@@ -501,7 +511,7 @@ if step "$name" 0 verify; then
   [[ "$lib" == "$work/rt/"* ]] || { echo "FAIL $name: lib '$lib' is not under RUNNER_TEMP"; fail=1; }
   [[ -e "$lib/.git" ]] && { echo "FAIL $name: the copy carries .git"; fail=1; }
   [[ -w "$lib/scripts/unity_test.sh" ]] && { echo "FAIL $name: the copy's files are writable"; fail=1; }
-  [[ -w "$lib/scripts" ]] || { echo "FAIL $name: the copy's directories are read-only; a self-hosted runner could not clear them"; fail=1; }
+  [[ -w "$lib/scripts" ]] && { echo "FAIL $name: the copy's directories are writable"; fail=1; }
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL $name: hash output '$hash'"; fail=1; }
   [[ -e "$wsf/.ci-helpers-scripts" ]] && { echo "FAIL $name: .ci-helpers-scripts is still in the workspace"; fail=1; }
   [[ -e "$canary" ]] && { echo "FAIL $name: the planted fsmonitor or hook ran during the verify step"; fail=1; }
@@ -517,7 +527,7 @@ if [[ -n "$lib" && -n "$hash" ]]; then
     argv_has "--volume $wsf/game:/github/workspace/game"
     argv_lacks "$lib"
     [[ -f "$wsf/game/.written-by-container" ]] || { echo "FAIL $name: the stub did not write into the project"; fail=1; }
-    now="$(cd "$lib" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+    now="$(cd "$lib" && export LC_ALL=C && { find . -type d -print0 | sort -z | xargs -0 printf 'd %s\n'; find . -type f -print0 | sort -z | xargs -0 sha256sum; } | sha256sum | cut -d' ' -f1)"
     [[ "$now" == "$hash" ]] || { echo "FAIL $name: the library copy changed under a container run"; fail=1; }
   fi
   name="workflow: the return step runs after the test step, from the same copy"
@@ -530,18 +540,33 @@ if [[ -n "$lib" && -n "$hash" ]]; then
 
   # Tampered, each way the check must see: a changed script, a new file, a
   # hash that is not the copy's. No step runs a script from it.
+  # Each tamper is made read-only again, as a careful attacker would, so
+  # the hash is what catches it; a writable copy is refused on its own.
   chmod -R u+w "$lib"
+  name="workflow: the test step refuses a copy left writable"
+  step "$name" 1 tests && says "writable again" && not_called
   cp "$lib/scripts/unity_test.sh" "$work/unity_test.sh.orig"
   echo "# changed" >> "$lib/scripts/unity_test.sh"
+  chmod -R a-w "$lib"
   for block in tests return summary; do
     name="workflow: the $block step refuses a copy with a changed file"
     step "$name" 1 "$block" && says "::error::the library copy changed since it was verified" && not_called
   done
+  chmod -R u+w "$lib"
   cp "$work/unity_test.sh.orig" "$lib/scripts/unity_test.sh"
   touch "$lib/scripts/added-by-container.sh"
+  chmod -R a-w "$lib"
   name="workflow: the test step refuses a copy with a new file"
   step "$name" 1 tests && says "changed since it was verified" && not_called
+  chmod -R u+w "$lib"
   rm -f "$lib/scripts/added-by-container.sh"
+  mkdir "$lib/scripts/added-dir"
+  chmod -R a-w "$lib"
+  name="workflow: the test step refuses a copy with a new empty directory"
+  step "$name" 1 tests && says "changed since it was verified" && not_called
+  chmod -R u+w "$lib"
+  rmdir "$lib/scripts/added-dir"
+  chmod -R a-w "$lib"
   name="workflow: the test step refuses a hash that is not the copy's"
   LIB_HASH=1111111111111111111111111111111111111111111111111111111111111111 step "$name" 1 tests && says "changed since it was verified" && not_called
   name="workflow: the test step refuses an empty hash"

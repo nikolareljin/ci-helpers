@@ -58,9 +58,26 @@ runs:
     # fine. An empty one is not: Trivy accepts it, scans nothing and exits 0,
     # so the step goes green having looked at nothing.
     - name: A scan has to scan something
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         SCANNERS: ${{ inputs.scanners }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         if [[ -z "${SCANNERS// /}" ]]; then
@@ -74,13 +91,30 @@ runs:
     # below has no network call of its own.
     - name: Install Trivy
       id: trivy
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/../../../scripts/install_trivy.sh" --download-db
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
+      run: /bin/bash "$ACTION_PATH/../../../scripts/install_trivy.sh" --download-db
 
     - name: Run Trivy
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         TRIVY_BIN: ${{ steps.trivy.outputs.trivy_bin }}
         CACHE_DIR: ${{ steps.trivy.outputs.cache_dir }}
@@ -93,6 +127,23 @@ runs:
         SCANNERS: ${{ inputs.scanners }}
         SKIP_DIRS: ${{ inputs.skip_dirs }}
         EXIT_CODE: ${{ inputs.fail_on_findings == 'true' && '1' || '0' }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         args=(--skip-db-update --skip-check-update --offline-scan
@@ -109,9 +160,26 @@ runs:
     - name: Check for SARIF report
       id: sarif
       if: ${{ !cancelled() && inputs.upload_sarif == 'true' && inputs.format == 'sarif' }}
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         SARIF_OUTPUT: ${{ inputs.output }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         if [ -s "$SARIF_OUTPUT" ]; then
           echo "exists=true" >> "$GITHUB_OUTPUT"

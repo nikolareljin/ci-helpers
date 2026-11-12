@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     - name: Import Apple certificate into temporary keychain
-      shell: bash
+      shell: /bin/bash --noprofile --norc -e -o pipefail {0}
       env:
         CERT_B64: ${{ inputs.certificate_base64 }}
         CERT_PW: ${{ inputs.certificate_password }}
@@ -69,8 +69,28 @@ runs:
         APP_PW: ${{ inputs.app_password }}
         KEYCHAIN: ${{ inputs.keychain_name }}
         EXPORT_ENV: ${{ inputs.export_env }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
+        # The system tools only: a GITHUB_PATH entry from a caller step must
+        # not supply security, base64 or mktemp while the certificate is here.
+        export PATH=/usr/bin:/bin:/usr/sbin:/sbin
         # Mask all secrets before any output
         echo "::add-mask::${CERT_B64}"
         echo "::add-mask::${CERT_PW}"

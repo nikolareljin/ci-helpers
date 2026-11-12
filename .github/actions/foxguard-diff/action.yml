@@ -67,6 +67,23 @@ runs:
       env:
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       run: |
         set -euo pipefail
         if [[ "$FAIL_ON_FINDINGS" != true ]]; then
@@ -81,8 +98,25 @@ runs:
         FOXGUARD_VERSION: ${{ inputs.foxguard_version }}
         FOXGUARD_SHA256: ${{ inputs.foxguard_sha256 }}
         ACTION_PATH: ${{ github.action_path }}
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
       # The installer foxguard-scan uses, with the pins in scanner-pins.env.
-      run: bash "$ACTION_PATH/../../../scripts/install_foxguard.sh"
+      run: /bin/bash "$ACTION_PATH/../../../scripts/install_foxguard.sh"
 
     - name: Security checks on what the review adds
       shell: bash
@@ -95,4 +129,21 @@ runs:
         ALLOW_UNSCANNED: ${{ inputs.allow_unscanned }}
         FAIL_ON_FINDINGS: ${{ inputs.fail_on_findings }}
         ACTION_PATH: ${{ github.action_path }}
-      run: bash "$ACTION_PATH/run.sh"
+        BASH_ENV: ""
+        ENV: ""
+        SHELLOPTS: ""
+        BASHOPTS: ""
+        PS4: ""
+        LD_PRELOAD: ""
+        LD_LIBRARY_PATH: ""
+        LD_AUDIT: ""
+        DYLD_INSERT_LIBRARIES: ""
+        DYLD_LIBRARY_PATH: ""
+        DYLD_FRAMEWORK_PATH: ""
+        PYTHONPATH: ""
+        PYTHONSTARTUP: ""
+        PERL5LIB: ""
+        PERL5OPT: ""
+        RUBYOPT: ""
+        NODE_OPTIONS: ""
+      run: /bin/bash "$ACTION_PATH/run.sh"
