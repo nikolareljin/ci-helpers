@@ -234,19 +234,20 @@ Where signing runs: in `tauri-release`'s `sign-windows` job, not in the
 build job. The build runs the app's npm and cargo scripts, and anything they
 do can change files, `PATH` or `GITHUB_ENV` for every later step of that
 job, so a signing step there would hand them the certificate. `sign-windows`
-downloads the unsigned installers, checks out only the ci-helpers actions,
-runs no app code, and is the only job given the certificate secrets. The PFX
+downloads the unsigned installers, checks each against the build job's
+sha256 manifest, checks out only the ci-helpers library, runs no app code,
+and is the only job given the certificate secrets. The PFX
 is written to `RUNNER_TEMP` with an owner-only ACL for `signtool /f`, deleted
 when the step ends (on failure too), and never imported into a certificate
 store.
 
 What is signed: the installers the build job collects, the MSI and the NSIS
-setup EXE, found recursively under the downloaded folder; a symbolic
-link or junction there is refused. The application EXE inside the installers
+setup EXE, at the top of the downloaded folder. Anything else in the
+artifact (another file type, a subdirectory, a symbolic link) is refused
+before signing. The application EXE inside the installers
 is not signed by this step; sign it from Tauri's own
 `bundle.windows.signCommand` if you need that. Authenticode changes the file,
-so pfx cannot be combined with `tauri_updater` `.sig` files made during the
-build.
+so pfx cannot be combined with `tauri_updater` `.sig` files in one run.
 
 ## azure
 
@@ -294,6 +295,14 @@ before installing it. It is not Authenticode: Windows, SmartScreen and
 `signtool` never see it, and it does not replace `pfx` or `azure`. Generate
 the key with `cargo tauri signer generate -w ~/.tauri/myapp.key` and set
 `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+`tauri-release` builds with updater artifacts off, so the key never reaches
+the build job. `sign-windows` writes `<installer>.sig` for each MSI and
+setup EXE with `tauri signer sign` from the `tauri-cli` version pinned in the
+library (`TAURI_CLI_VERSION`), run from an empty directory, and the release
+publishes the `.sig` files beside the installers. On macOS,
+`macos_updater_sign: true` does the same for `<Name>.app.tar.gz` in
+`sign-macos`.
 
 ## Sources
 

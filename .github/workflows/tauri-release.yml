@@ -63,13 +63,39 @@ on:
         description: Notarize and staple the macOS DMG (requires Apple ID secrets)
         type: boolean
         default: true
+      macos_entitlements:
+        description: >
+          Entitlements plist for the macOS codesign, relative to
+          working_directory (empty = none). The bundler's own
+          bundle.macOS.entitlements is not read: sign-macos signs the app.
+        type: string
+        default: ""
+      macos_updater_sign:
+        description: >
+          Write <Name>.app.tar.gz.sig with TAURI_SIGNING_PRIVATE_KEY in the
+          sign-macos job (the pinned tauri-cli signer).
+        type: boolean
+        default: false
+      macos_sign_runner:
+        description: >
+          Runner for sign-macos, the job that holds the Apple and updater
+          secrets. A fresh hosted runner by default: a reused self-hosted
+          machine can carry state left by the build.
+        type: string
+        default: macos-latest
+      windows_sign_runner:
+        description: >
+          Runner for sign-windows, the job that holds the Windows and updater
+          signing secrets. A fresh hosted runner by default.
+        type: string
+        default: windows-latest
       windows_sign_mode:
         description: >
           Windows signing mode:
-            none          — no signing (default)
-            tauri_updater — free ED25519 updater bundle signing (.sig files only)
+            none          - no signing (default)
+            tauri_updater - free ED25519 updater signatures (.msi.sig, -setup.exe.sig), written in the sign-windows job
             pfx           - Authenticode with a .pfx certificate (MSI + EXE, signed in the sign-windows job)
-            azure         — paid Azure Trusted Signing (MSI + EXE, post-build)
+            azure         - paid Azure Trusted Signing (MSI + EXE, signed in the sign-windows job)
         type: string
         default: "none"
       windows_timestamp_server:
@@ -189,11 +215,17 @@ env:
 
 jobs:
   # ── macOS ──────────────────────────────────────────────────────────────────
+  # Builds the caller's app with no secret on the runner: the .app only,
+  # unsigned, with no updater bundle. sign-macos below signs, notarizes and
+  # packages it and runs none of the caller's code.
   build-macos:
     permissions:
       contents: read
     runs-on: macos-latest
     timeout-minutes: 120
+    outputs:
+      artifact: ${{ steps.list.outputs.artifact }}
+      manifest: ${{ steps.list.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 @ 2026-08-24
         with:
@@ -333,11 +365,11 @@ jobs:
           # Both targets required for --target universal-apple-darwin (Tauri v2 fat binary)
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      # No cargo cache in this job. It holds signing secrets or builds what
-      # the release job publishes, and a cache entry is whatever the run that
-      # owned the key first left under target/ and ~/.cargo; a restored one
-      # would put that into a signed installer unread. Dependencies come from
-      # the registry on every run (scripts/check_cache_trust.py).
+      # No cargo cache in this job. It builds what the release job publishes,
+      # and a cache entry is whatever the run that owned the key first left
+      # under target/ and ~/.cargo; a restored one would put that into an
+      # installer unread. Dependencies come from the registry on every run
+      # (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
@@ -375,150 +407,106 @@ jobs:
           set -euo pipefail
           cargo install tauri-cli --version '^2.0' --locked
 
-      # The library's own action, at the commit of this workflow file. A
-      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
-      # is today, even for a caller pinned to a SHA; `./.github/actions` would
-      # resolve in the caller's checkout, so the action is checked out beside it.
-      - name: Check out ci-helpers actions at this workflow's commit
-        if: ${{ inputs.sign_macos }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ci-helpers-actions
-          sparse-checkout: .github/actions
-          fetch-depth: 1
-          persist-credentials: false
-
-      # An empty job.workflow_sha would make the checkout above fall back to the
-      # default branch and run today's actions after all; refuse instead.
-      - name: Verify ci-helpers actions commit
-        if: ${{ inputs.sign_macos }}
-        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
-        env:
-          WF_SHA: ${{ job.workflow_sha }}
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
+      # The .app only: the DMG and the updater bundle are made in sign-macos,
+      # from the signed app. --config turns off the bundler's own signing and
+      # updater signing, whatever tauri.conf.json says.
+      - name: Build Tauri app (universal macOS binary, unsigned)
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
-          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
-          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
-          got="$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-actions rev-parse HEAD)"
-          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
-          echo "ci-helpers actions at $WF_SHA"
+          cargo tauri build --target universal-apple-darwin --bundles app \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":null}}}'
 
-      - name: Configure macOS codesigning
-        if: ${{ inputs.sign_macos }}
-        uses: ./.ci-helpers-actions/.github/actions/macos-sign
-        env:
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-        with:
-          certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
-          certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          team_id: ${{ secrets.APPLE_TEAM_ID }}
-          apple_id: ${{ secrets.APPLE_ID }}
-          app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
-          # The secrets go to the build step's env below, not to GITHUB_ENV.
-          export_env: "false"
-
-      # The action keeps nothing in its own directory, so the checkout is removed
-      # before the build and cannot end up in a bundle.
-      - name: Remove ci-helpers actions checkout
-        if: ${{ always() }}
-        shell: bash
-        run: rm -rf .ci-helpers-actions
-
-      # Tauri signs (and, with APPLE_ID set, notarizes) inside the build, so
-      # this step gets the Apple secrets; no later step does.
-      - name: Build Tauri app (universal macOS binary)
+      # One tarball keeps the app's symlinks and modes, which an artifact
+      # drops; sign-macos unpacks it with scripts/safe_untar.py.
+      - name: Pack the macOS app
         shell: bash
         working-directory: ${{ inputs.working_directory }}
         env:
-          APPLE_CERTIFICATE: ${{ inputs.sign_macos && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign_macos && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_ID: ${{ inputs.sign_macos && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ inputs.sign_macos && (secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD) || '' }}
+          ENTITLEMENTS: ${{ inputs.macos_entitlements }}
         run: |
           set -euo pipefail
-          # An empty variable is not an unset one to Tauri: drop the empty ones,
-          # as the action only exported what was set.
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD; do
-            [ -n "${!v}" ] || unset "$v"
-          done
-          if [ -z "${APPLE_ID:-}" ]; then unset APPLE_PASSWORD; fi
-          cargo tauri build --target universal-apple-darwin
-
-      - name: Notarize and staple DMG
-        if: ${{ inputs.sign_macos && inputs.notarize_macos }}
-        env:
-          APPLE_ID_EMAIL: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PW: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WORK_DIR: ${{ inputs.working_directory }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          dmg=$(find "${WORK_DIR}/src-tauri/target/universal-apple-darwin/release/bundle" \
-            -name '*.dmg' | head -1)
-          if [ -z "${dmg}" ]; then
-            echo "No DMG found for notarization." >&2
-            exit 1
+          out="${RUNNER_TEMP}/tauri-macos-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          top="$(pwd -P)"
+          bundle="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          shopt -s nullglob
+          apps=("$bundle"/*.app)
+          shopt -u nullglob
+          [[ ${#apps[@]} -eq 1 ]] || { echo "::error::expected one .app under $bundle, found ${#apps[@]}."; exit 1; }
+          app="${apps[0]}"
+          name="${app##*/}"
+          [[ -d "$app" && ! -L "$app" ]] || { echo "::error::$app is not a directory."; exit 1; }
+          [[ "$(cd "$app" && pwd -P)" == "$top"/* ]] || { echo "::error::$app resolves outside the working directory."; exit 1; }
+          [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._+-]{0,99}\.app$ ]] || { echo "::error::the app name '$name' holds a character other than letters, digits, space and ._+-."; exit 1; }
+          (cd "$bundle" && COPYFILE_DISABLE=1 tar -czf "$out/app.tar.gz" "$name")
+          if [[ -n "$ENTITLEMENTS" ]]; then
+            [[ -f "$ENTITLEMENTS" && ! -L "$ENTITLEMENTS" ]] || { echo "::error::macos_entitlements '$ENTITLEMENTS' is not a regular file (symlinks are refused)."; exit 1; }
+            [[ "$(cd "$(dirname "$ENTITLEMENTS")" && pwd -P)/" == "$top"/* ]] || { echo "::error::macos_entitlements resolves outside the working directory."; exit 1; }
+            cat -- "$ENTITLEMENTS" > "$out/entitlements.plist"
           fi
-          echo "Notarizing: ${dmg}"
-          xcrun notarytool submit "${dmg}" \
-            --apple-id "${APPLE_ID_EMAIL}" \
-            --password "${APPLE_APP_PW}" \
-            --team-id "${TEAM_ID}" \
-            --wait
-          echo "Stapling notarization ticket..."
-          xcrun stapler staple "${dmg}"
-          echo "Verifying..."
-          spctl --assess --type open --context context:primary-signature "${dmg}"
 
-      - name: Collect macOS installers
+      # The app tarball in parts of at most 60 MiB, and a sha256 manifest
+      # sign-macos checks before it unpacks anything.
+      - name: List the build output
+        id: list
+        shell: /bin/sh -e {0}
         env:
-          WORK_DIR: ${{ inputs.working_directory }}
-        shell: bash
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
-          mkdir -p out
-          find "${WORK_DIR}/src-tauri/target/universal-apple-darwin/release/bundle" \
-            -type f \( -name '*.dmg' -o -name '*.app.tar.gz' \) \
-            -exec cp {} out/ \;
-          ls -la out/
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          out="$RUNNER_TEMP/tauri-macos-out"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
+          if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
+            echo "::error::the build output holds a symlink or special file."; exit 1
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=tauri-macos-build-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            (cd "$out" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | while IFS= read -r f; do "${h[@]}" "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
 
       - name: Reserve trusted publication action directory
         id: ci_publication_prepare
@@ -602,26 +590,20 @@ jobs:
           NODE_OPTIONS: ""
         with:
           metadata: |
-            name: tauri-macos-artifacts
+            name: ${{ steps.list.outputs.artifact }}
           mode: artifact
-          paths: out/
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/tauri-macos-out
 
-      - name: Upload macOS artifacts
+      - name: Upload the unsigned app
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           include-hidden-files: true
-          name: tauri-macos-artifacts
+          name: ${{ steps.list.outputs.artifact }}
           path: ${{ steps.ci_publication_check_1.outputs.paths }}
-          retention-days: ${{ inputs.artifact_retention_days }}
-
-      - name: Cleanup macOS keychain
-        if: always()
-        shell: bash
-        env:
-          KEYCHAIN: ${{ env.CI_MACOS_KEYCHAIN }}
-        run: |
-          security delete-keychain "${KEYCHAIN:-ci-build.keychain-db}" 2>/dev/null || true
+          if-no-files-found: error
+          retention-days: 1
 
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.
@@ -655,7 +637,511 @@ jobs:
             if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
           done
 
+  # Signs, notarizes and packages the app build-macos made. No checkout of
+  # the caller's repository and none of its code: the Apple and updater
+  # secrets are in this job only, beside system tools, the library's
+  # scripts and the pinned updater signer.
+  sign-macos:
+    needs: build-macos
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.macos_sign_runner }}
+    timeout-minutes: 90
+    steps:
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Both values come from build-macos, which ran the caller's code. The name
+      # must be the one that job makes, so no other artifact of this run is
+      # downloaded in its place.
+      - name: Check the build outputs
+        shell: bash
+        env:
+          ARTIFACT: ${{ needs.build-macos.outputs.artifact }}
+          MANIFEST: ${{ needs.build-macos.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT" =~ ^tauri-macos-build-[0-9]+-[0-9]+-[0-9a-f]{16}$ ]] || { echo "::error::the build artifact name '$ARTIFACT' is not one build-macos makes."; exit 1; }
+          [[ -n "$MANIFEST" ]] || { echo "::error::the build manifest is empty."; exit 1; }
+
+      - name: Download the unsigned app
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build-macos.outputs.artifact }}
+          path: ${{ runner.temp }}/tauri-macos-in
+
+      - name: Verify the build output against its manifest
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build-macos.outputs.manifest }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          list="$RUNNER_TEMP/tauri-macos-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/tauri-macos-in" "$list" 'app\.tar\.gz|entitlements\.plist'
+          CI_HELPERS_RUN
+          )"
+
+      # The updater signer: tauri-cli at the version in toolchain-pins.env,
+      # built before any secret is in a step of this job.
+      - name: Setup Rust
+        if: ${{ inputs.macos_updater_sign }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUST_TOOLCHAIN: stable
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUST_TOOLCHAIN="$RUST_TOOLCHAIN" GITHUB_ENV="$GITHUB_ENV" GITHUB_PATH="$GITHUB_PATH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_rust.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Install the updater signer
+        id: signer
+        if: ${{ inputs.macos_updater_sign }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          ROOT="$RUNNER_TEMP/tauri-signer" /bin/bash "$run_lib/scripts/install_tauri_signer.sh"
+          CI_HELPERS_RUN
+          )"
+
+      # The library's own action, at the commit of this workflow file.
+      - name: Check out ci-helpers actions at this workflow's commit
+        if: ${{ inputs.sign_macos }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-actions
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+          persist-credentials: false
+
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
+      - name: Verify ci-helpers actions commit
+        if: ${{ inputs.sign_macos }}
+        shell: bash
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
+          got="$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-actions rev-parse HEAD)"
+          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
+          echo "ci-helpers actions at $WF_SHA"
+
+      - name: Configure macOS codesigning
+        if: ${{ inputs.sign_macos }}
+        uses: ./.ci-helpers-actions/.github/actions/macos-sign
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          certificate_base64: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          signing_identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          team_id: ${{ secrets.APPLE_TEAM_ID }}
+          apple_id: ${{ secrets.APPLE_ID }}
+          app_password: ${{ secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD }}
+          # The secrets go to the signing step's env below, not to GITHUB_ENV.
+          export_env: "false"
+
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .ci-helpers-actions
+
+      # System tools only (lib_path.sh secret): codesign, hdiutil, notarytool,
+      # stapler, and the signer installed above.
+      - name: Sign, notarize and package the macOS app
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          SIGN: ${{ inputs.sign_macos }}
+          NOTARIZE: ${{ inputs.notarize_macos }}
+          IDENTITY: ${{ inputs.sign_macos && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ inputs.sign_macos && inputs.notarize_macos && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ inputs.sign_macos && inputs.notarize_macos && (secrets.APPLE_APP_PASSWORD || secrets.APPLE_PASSWORD) || '' }}
+          TEAM_ID: ${{ inputs.sign_macos && secrets.APPLE_TEAM_ID || '' }}
+          SIGNER: ${{ steps.signer.outputs.signer }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.macos_updater_sign && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.macos_updater_sign && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" SIGN="$SIGN" NOTARIZE="$NOTARIZE" IDENTITY="$IDENTITY" APPLE_ID="$APPLE_ID" APPLE_PASSWORD="$APPLE_PASSWORD" TEAM_ID="$TEAM_ID" SIGNER="$SIGNER" TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          export IN="$RUNNER_TEMP/tauri-macos-in" OUT="$RUNNER_TEMP/tauri-macos-signed" LIB_SCRIPTS="$run_lib/scripts"
+          # The keychain macos-sign made, by path: codesign --keychain takes a file.
+          export KEYCHAIN="$HOME/Library/Keychains/ci-build.keychain-db"
+          /bin/rm -rf -- "$OUT"
+          /bin/mkdir -p -- "$OUT"
+          /bin/bash "$run_lib/scripts/tauri_macos_sign.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (success()) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: tauri-macos-artifacts
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/tauri-macos-signed
+
+      - name: Upload macOS artifacts
+        if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: tauri-macos-artifacts
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Cleanup macOS keychain
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain ci-build.keychain-db 2>/dev/null || true
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
+
   # ── Windows ────────────────────────────────────────────────────────────────
+  # Builds the caller's installers with no secret on the runner. sign-windows
+  # below signs them (Authenticode or updater signatures) and runs none of
+  # the caller's code.
   build-windows:
     permissions:
       contents: read
@@ -664,6 +1150,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    outputs:
+      artifact: ${{ steps.list.outputs.artifact }}
+      manifest: ${{ steps.list.outputs.manifest }}
     steps:
       # Same rule as the windows-sign 'Check sign mode' step (plus 'none'),
       # run first so a bad mode fails before checkout and cargo install.
@@ -811,11 +1300,11 @@ jobs:
           CI_HELPERS_RUN
           )"
 
-      # No cargo cache in this job. It holds signing secrets or builds what
-      # the release job publishes, and a cache entry is whatever the run that
-      # owned the key first left under target/ and ~/.cargo; a restored one
-      # would put that into a signed installer unread. Dependencies come from
-      # the registry on every run (scripts/check_cache_trust.py).
+      # No cargo cache in this job. It builds what the release job publishes,
+      # and a cache entry is whatever the run that owned the key first left
+      # under target/ and ~/.cargo; a restored one would put that into an
+      # installer unread. Dependencies come from the registry on every run
+      # (scripts/check_cache_trust.py).
 
       - name: Setup Node
         if: ${{ inputs.node_version != '' }}
@@ -850,119 +1339,99 @@ jobs:
           set -euo pipefail
           cargo install tauri-cli --version '^2.0' --locked
 
-      # The library's own action, at the commit of this workflow file. A
-      # `uses: <owner>/ci-helpers/...@production` here ran whatever production
-      # is today, even for a caller pinned to a SHA; `./.github/actions` would
-      # resolve in the caller's checkout, so the action is checked out beside it.
-      - name: Check out ci-helpers actions at this workflow's commit
-        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: .ci-helpers-actions
-          sparse-checkout: .github/actions
-          fetch-depth: 1
-          persist-credentials: false
-
-      # An empty job.workflow_sha would make the checkout above fall back to the
-      # default branch and run today's actions after all; refuse instead.
-      - name: Verify ci-helpers actions commit
-        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
-        shell: bash
-        env:
-          WF_SHA: ${{ job.workflow_sha }}
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-        run: |
-          set -euo pipefail
-          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
-          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
-          [[ "$WF_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::job.workflow_sha is '$WF_SHA', not a commit SHA."; exit 1; }
-          got="$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-actions rev-parse HEAD)"
-          [[ "$got" == "$WF_SHA" ]] || { echo "::error::checked out $got, expected $WF_SHA."; exit 1; }
-          echo "ci-helpers actions at $WF_SHA"
-
-      # Only the updater key is used in this job: Tauri writes the .sig files
-      # inside the build. The Authenticode secrets (pfx, azure) never reach a
-      # job that runs the app's code; sign-windows below signs the installers.
-      - name: Configure Windows signing
-        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
-        uses: ./.ci-helpers-actions/.github/actions/windows-sign
-        env:
-          BASH_ENV: ""
-          ENV: ""
-          SHELLOPTS: ""
-          BASHOPTS: ""
-          PS4: ""
-          LD_PRELOAD: ""
-          LD_LIBRARY_PATH: ""
-          LD_AUDIT: ""
-          DYLD_INSERT_LIBRARIES: ""
-          DYLD_LIBRARY_PATH: ""
-          DYLD_FRAMEWORK_PATH: ""
-          PYTHONPATH: ""
-          PYTHONSTARTUP: ""
-          PERL5LIB: ""
-          PERL5OPT: ""
-          RUBYOPT: ""
-          NODE_OPTIONS: ""
-        with:
-          sign_mode: tauri_updater
-          tauri_signing_private_key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          tauri_signing_private_key_password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # The key goes to the build step below, not to GITHUB_ENV.
-          export_env: "false"
-
-      # The action keeps nothing in its own directory, so the checkout is removed
-      # before the build and cannot end up in a bundle.
-      - name: Remove ci-helpers actions checkout
-        if: ${{ always() }}
-        shell: bash
-        run: rm -rf .ci-helpers-actions
-
-      # Tauri writes the updater signatures inside the build, so this step gets
-      # the updater key; no later step does.
-      - name: Build Tauri app (Windows)
+      # Unsigned installers only: --config turns off the bundler's own
+      # signing and updater signing, whatever tauri.conf.json says.
+      - name: Build Tauri app (Windows, unsigned)
         working-directory: ${{ inputs.working_directory }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.windows_sign_mode == 'tauri_updater' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.windows_sign_mode == 'tauri_updater' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
-          # An empty variable is not an unset one to Tauri.
-          [ -n "${TAURI_SIGNING_PRIVATE_KEY}" ] || unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          cargo tauri build
+          cargo tauri build \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"windows":{"certificateThumbprint":null,"signCommand":null}}}'
 
-      - name: Collect Windows installers
-        env:
-          WORK_DIR: ${{ inputs.working_directory }}
+      - name: Stage the Windows installers
+        working-directory: ${{ inputs.working_directory }}
         run: |
           set -euo pipefail
-          mkdir -p out
-          find "${WORK_DIR}/src-tauri/target/release/bundle" \
-            -type f \( -name '*.msi' -o -name '*-setup.exe' -o -name '*_x64-setup.exe' \) \
-            -exec cp {} out/ \;
-          ls -la out/
+          out="${RUNNER_TEMP}/tauri-windows-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          top="$(pwd -P)"
+          shopt -s nullglob
+          files=(src-tauri/target/release/bundle/msi/*.msi src-tauri/target/release/bundle/nsis/*-setup.exe)
+          shopt -u nullglob
+          [[ ${#files[@]} -gt 0 ]] || { echo "::error::no .msi or -setup.exe under src-tauri/target/release/bundle."; exit 1; }
+          for f in "${files[@]}"; do
+            name="${f##*/}"
+            [[ -f "$f" && ! -L "$f" ]] || { echo "::error::'$f' is not a regular file (symlinks are refused)."; exit 1; }
+            real="$(realpath -e -- "$f")"
+            [[ "$real" == "$top"/* ]] || { echo "::error::'$f' resolves outside the working directory."; exit 1; }
+            [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._+-]{0,150}\.(exe|msi)$ ]] || { echo "::error::the installer name '$name' holds a character other than letters, digits, space and ._+-."; exit 1; }
+            [[ ! -e "$out/$name" ]] || { echo "::error::two installers are named '$name'."; exit 1; }
+            cp -P -- "$f" "$out/$name"
+          done
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
+          ls -la "$out"
 
-      # With pfx or azure the installers are still unsigned: sign-windows
-      # takes them from tauri-windows-unsigned and publishes the signed ones
-      # as tauri-windows-artifacts, the name the release job collects.
+      - name: List the build output
+        id: list
+        shell: bash
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          out="$RUNNER_TEMP/tauri-windows-out"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
+          if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
+            echo "::error::the build output holds a symlink or special file."; exit 1
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=tauri-windows-build-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            (cd "$out" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | while IFS= read -r f; do "${h[@]}" "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
+
       - name: Reserve trusted publication action directory
         id: ci_publication_prepare
         if: ${{ always() }}
@@ -1045,19 +1514,20 @@ jobs:
           NODE_OPTIONS: ""
         with:
           metadata: |
-            name: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 'tauri-windows-unsigned' || 'tauri-windows-artifacts' }}
+            name: ${{ steps.list.outputs.artifact }}
           mode: artifact
-          paths: out/
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/tauri-windows-out
 
-      - name: Upload Windows artifacts
+      - name: Upload the unsigned installers
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           include-hidden-files: true
-          name: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 'tauri-windows-unsigned' || 'tauri-windows-artifacts' }}
+          name: ${{ steps.list.outputs.artifact }}
           path: ${{ steps.ci_publication_check_1.outputs.paths }}
-          # Unsigned installers are only an input to sign-windows: keep 1 day.
-          retention-days: ${{ (inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure') && 1 || inputs.artifact_retention_days }}
+          if-no-files-found: error
+          retention-days: 1
 
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.
@@ -1091,43 +1561,237 @@ jobs:
             if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
           done
 
-  # Authenticode signing, apart from the build. The build runs the app's own
-  # code (npm scripts, cargo build scripts), which can rewrite files, PATH or
-  # GITHUB_ENV for every later step of its job; a signing step there would
-  # hand the certificate or the Azure secret to that code. This job checks out
-  # no app code and runs none: it downloads the unsigned installers, checks
-  # out only the ci-helpers actions at this workflow's commit, signs, verifies
-  # and uploads. The signing secrets are passed to this job only.
+  # Signs the installers build-windows made: Authenticode (pfx, azure) or
+  # updater signatures (tauri_updater); with none it republishes them as
+  # they are. No checkout of the caller's repository and none of its code:
+  # the signing secrets are passed to this job only.
   sign-windows:
     needs: build-windows
-    if: ${{ inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure' }}
     permissions:
       contents: read
-    runs-on: windows-latest
-    timeout-minutes: 30
+    runs-on: ${{ inputs.windows_sign_runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: Download unsigned Windows installers
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Both values come from build-windows, which ran the caller's code. The name
+      # must be the one that job makes, so no other artifact of this run is
+      # downloaded in its place.
+      - name: Check the build outputs
+        shell: bash
+        env:
+          ARTIFACT: ${{ needs.build-windows.outputs.artifact }}
+          MANIFEST: ${{ needs.build-windows.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT" =~ ^tauri-windows-build-[0-9]+-[0-9]+-[0-9a-f]{16}$ ]] || { echo "::error::the build artifact name '$ARTIFACT' is not one build-windows makes."; exit 1; }
+          [[ -n "$MANIFEST" ]] || { echo "::error::the build manifest is empty."; exit 1; }
+
+      - name: Download the unsigned installers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
         with:
-          name: tauri-windows-unsigned
-          path: ${{ runner.temp }}/windows-installers
+          name: ${{ needs.build-windows.outputs.artifact }}
+          path: ${{ runner.temp }}/tauri-windows-in
 
-      # Everything in this folder is uploaded as tauri-windows-artifacts and
-      # published, but only .exe and .msi files are signed. The build job ran
-      # app code that could add other files, so anything else is refused
-      # rather than shipped unsigned.
-      - name: Only installers to sign
-        shell: pwsh
+      - name: Verify the build output against its manifest
+        shell: sh
         env:
-          DIR: ${{ runner.temp }}/windows-installers
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build-windows.outputs.manifest }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = "Stop"
-          $other = @(Get-ChildItem -LiteralPath $env:DIR -Recurse -File -Force | Where-Object { $_.Extension -notin '.exe', '.msi' })
-          foreach ($f in $other) { Write-Output "::error::not an installer, would ship unsigned: $($f.FullName)" }
-          if ($other.Count -gt 0) { exit 1 }
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          list="$RUNNER_TEMP/tauri-windows-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/tauri-windows-in" "$list" '[A-Za-z0-9][A-Za-z0-9 ._+-]{0,150}\.(exe|msi)'
+          CI_HELPERS_RUN
+          )"
 
+      # The updater signer: tauri-cli at the version in toolchain-pins.env,
+      # built before any secret is in a step of this job.
+      - name: Setup Rust
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUST_TOOLCHAIN: stable
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUST_TOOLCHAIN="$RUST_TOOLCHAIN" GITHUB_ENV="$GITHUB_ENV" GITHUB_PATH="$GITHUB_PATH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_rust.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Install the updater signer
+        id: signer
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          ROOT="$RUNNER_TEMP/tauri-signer" /bin/bash "$run_lib/scripts/install_tauri_signer.sh"
+          CI_HELPERS_RUN
+          )"
+
+      # The library's own action, at the commit of this workflow file.
       - name: Check out ci-helpers actions at this workflow's commit
+        if: ${{ inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           repository: ${{ job.workflow_repository }}
@@ -1137,7 +1801,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      # An empty job.workflow_sha would make the checkout above fall back to the
+      # default branch and run today's actions after all; refuse instead.
       - name: Verify ci-helpers actions commit
+        if: ${{ inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure' }}
         shell: bash
         env:
           WF_SHA: ${{ job.workflow_sha }}
@@ -1170,6 +1837,7 @@ jobs:
       # pfx: signs, timestamps and verifies every installer. azure: checks the
       # credentials; the Azure action below signs.
       - name: Sign Windows installers
+        if: ${{ inputs.windows_sign_mode == 'pfx' || inputs.windows_sign_mode == 'azure' }}
         uses: ./.ci-helpers-actions/.github/actions/windows-sign
         env:
           BASH_ENV: ""
@@ -1194,7 +1862,7 @@ jobs:
           certificate_base64: ${{ inputs.windows_sign_mode == 'pfx' && secrets.WINDOWS_CERTIFICATE || '' }}
           certificate_password: ${{ inputs.windows_sign_mode == 'pfx' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
           timestamp_server: ${{ inputs.windows_timestamp_server }}
-          files_folder: ${{ runner.temp }}/windows-installers
+          files_folder: ${{ runner.temp }}/tauri-windows-in
           verify_trust: ${{ inputs.windows_pfx_verify_trust && 'true' || 'false' }}
           azure_tenant_id: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_TENANT_ID || '' }}
           azure_client_id: ${{ inputs.windows_sign_mode == 'azure' && secrets.AZURE_CLIENT_ID || '' }}
@@ -1214,7 +1882,7 @@ jobs:
           endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
-          files-folder: ${{ runner.temp }}/windows-installers
+          files-folder: ${{ runner.temp }}/tauri-windows-in
           files-folder-filter: exe,msi
           file-digest: SHA256
           timestamp-rfc3161: https://timestamp.acs.microsoft.com
@@ -1225,7 +1893,7 @@ jobs:
         if: ${{ inputs.windows_sign_mode == 'azure' }}
         shell: pwsh
         env:
-          DIR: ${{ runner.temp }}/windows-installers
+          DIR: ${{ runner.temp }}/tauri-windows-in
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
@@ -1239,6 +1907,61 @@ jobs:
             } else { Write-Output "ok: $($f.Name) signed by $($sig.SignerCertificate.Subject)" }
           }
           exit $bad
+
+      - name: Remove ci-helpers actions checkout
+        if: ${{ always() }}
+        run: rm -rf .ci-helpers-actions
+
+      - name: Write the updater signatures
+        if: ${{ inputs.windows_sign_mode == 'tauri_updater' }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          SIGNER: ${{ steps.signer.outputs.signer }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" SIGNER="$SIGNER" TAURI_SIGNING_PRIVATE_KEY="$TAURI_SIGNING_PRIVATE_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          shopt -s nullglob
+          files=("$RUNNER_TEMP/tauri-windows-in"/*.msi "$RUNNER_TEMP/tauri-windows-in"/*.exe)
+          shopt -u nullglob
+          /bin/bash "$run_lib/scripts/tauri_updater_sign.sh" "${files[@]}"
+          CI_HELPERS_RUN
+          )"
 
       - name: Reserve trusted publication action directory
         id: ci_publication_prepare
@@ -1324,16 +2047,50 @@ jobs:
           metadata: |
             name: tauri-windows-artifacts
           mode: artifact
-          paths: ${{ runner.temp }}/windows-installers/
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/tauri-windows-in/
 
-      - name: Upload signed Windows installers
+      - name: Upload Windows artifacts
         if: ${{ (success()) && steps.ci_publication_check_1.outcome == 'success' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7 @ 2026-10-09
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           include-hidden-files: true
           name: tauri-windows-artifacts
           path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
           retention-days: ${{ inputs.artifact_retention_days }}
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
 
   # ── Linux ──────────────────────────────────────────────────────────────────
   build-linux:
@@ -1693,15 +2450,8 @@ jobs:
 
   # ── Release ────────────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, sign-windows, build-linux]
-    # sign-windows is skipped unless windows_sign_mode is pfx or azure; a skip
-    # there must not skip the release, a failure anywhere must stop it.
-    if: >-
-      ${{ !cancelled() && inputs.upload_release
-      && needs.build-macos.result == 'success'
-      && needs.build-windows.result == 'success'
-      && needs.build-linux.result == 'success'
-      && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+    needs: [sign-macos, sign-windows, build-linux]
+    if: ${{ inputs.upload_release }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:

@@ -627,6 +627,12 @@ jobs:
       - name: cloudflare-deploy deploys only the bundle its build job made
         shell: bash
         run: bash tests/cloudflare_deploy_split_test.sh
+      - name: tauri-release signs only what its build jobs made
+        shell: bash
+        run: bash tests/tauri_release_split_test.sh
+      - name: flutter-release signs and uploads only what its build job made
+        shell: bash
+        run: bash tests/flutter_release_split_test.sh
       - name: token steps keep the publication guard's hooks
         shell: bash
         run: bash tests/token_keeps_guard_hooks_test.sh

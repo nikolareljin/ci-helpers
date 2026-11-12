@@ -9,6 +9,7 @@
 #              tree holds only regular files and directories, the file list
 #              equals the manifest's, `sha256sum --check --strict` passes,
 #              and then the parts are joined back into their files.
+#              Runs on Linux, macOS (BSD tools) and Git Bash.
 # USAGE: bash scripts/artifact_parts.sh split DIR
 #        bash scripts/artifact_parts.sh verify DIR MANIFEST_FILE PATH_RE
 # PARAMETERS:
@@ -31,21 +32,28 @@ fail() { echo "::error::$*" >&2; exit 1; }
 part_bytes=62914560  # 60 MiB
 
 split_tree() {
-  local dir="$1" big
+  local dir="$1" big size n
   [[ -d "$dir" && ! -L "$dir" ]] || { echo "::error::$dir is not a directory." >&2; exit 2; }
   shopt -s globstar nullglob dotglob
   for big in "$dir"/**/*; do
     [[ -f "$big" && ! -L "$big" ]] || continue
-    (( $(stat -c %s -- "$big") > part_bytes )) || continue
+    size="$(wc -c < "$big" | tr -d ' ')"
+    (( size > part_bytes )) || continue
     [[ ! -e "${big}.split-000" && ! -L "${big}.split-000" ]] || fail "${big}.split-000 already exists."
-    split -b "$part_bytes" -d -a 3 -- "$big" "${big}.split-"
+    # dd, not split: BSD split has no numeric suffixes on every macOS.
+    n=0
+    while (( n * part_bytes < size )); do
+      dd if="$big" of="$(printf '%s.split-%03d' "$big" "$n")" bs=1048576 \
+        skip=$(( n * part_bytes / 1048576 )) count=$(( part_bytes / 1048576 )) 2>/dev/null
+      n=$((n + 1))
+    done
     rm -f -- "$big"
   done
   shopt -u globstar nullglob dotglob
 }
 
 verify_tree() {
-  local dir="$1" list="$2" re="$3" want have first whole n parts
+  local dir="$1" list="$2" re="$3" want have first whole n parts out sha
   [[ -d "$dir" && ! -L "$dir" ]] || fail "$dir is not a directory."
   [[ -f "$list" && ! -L "$list" ]] || fail "the manifest $list is not a regular file."
   [[ -s "$list" ]] || fail "the manifest is empty."
@@ -62,8 +70,12 @@ verify_tree() {
   have="$(cd "$dir" && find . -type f | sort)"
   [[ "$want" == "$have" ]] || fail "the artifact's files differ from the manifest."
   # Absolute path: a relative one would be read from inside DIR.
-  list="$(realpath -e -- "$list")"
-  (cd "$dir" && sha256sum --check --strict --quiet "$list") || fail "a file's sha256 differs from the manifest."
+  list="$(cd "$(dirname -- "$list")" && pwd -P)/$(basename -- "$list")"
+  if command -v sha256sum >/dev/null; then sha=(sha256sum); else sha=(shasum -a 256); fi
+  if ! out="$(cd "$dir" && "${sha[@]}" --check --strict "$list" 2>&1)"; then
+    printf '%s\n' "$out" | grep -v ': OK$' >&2 || true
+    fail "a file's sha256 differs from the manifest."
+  fi
   # Every symlink was refused above, so globstar walks only the tree.
   shopt -s globstar nullglob dotglob
   for first in "$dir"/**/*.split-000; do

@@ -61,15 +61,48 @@ on:
       ios_artifact_name:
         type: string
         default: flutter-ios
-      fastlane_android_lane:
+      # Google Play upload (deploy_google_play), run by the library's
+      # fastlane `supply` in the sign-android job.
+      android_package_name:
         type: string
-        default: android_release
-      fastlane_ios_lane:
+        default: ""
+      google_play_track:
         type: string
-        default: ios_release
+        default: internal
+      google_play_release_status:
+        type: string
+        default: completed
+      # The job that holds the upload key and the Play key. A fresh hosted
+      # runner by default: a reused self-hosted machine can carry state left
+      # by the build.
+      android_sign_runner:
+        type: string
+        default: ubuntu-latest
+      # App Store upload (deploy_app_store): the build job runs
+      # ios_archive_command and stages ios_archive_path; upload-app-store
+      # exports and signs it with match and uploads it with the library's
+      # fastlane (`pilot` for testflight, `deliver` for app_store).
+      ios_archive_command:
+        type: string
+        default: "flutter build ipa --release --no-codesign"
+      ios_archive_path:
+        type: string
+        default: "build/ios/archive/Runner.xcarchive"
+      ios_bundle_id:
+        type: string
+        default: ""
+      ios_team_id:
+        type: string
+        default: ""
+      app_store_destination:
+        type: string
+        default: testflight
+      app_store_runner:
+        type: string
+        default: macos-latest
       # A hung job otherwise bills until GitHub's six-hour default, and this one
       # can run on a macOS runner at a 10x minute multiplier. Sixty minutes
-      # covers a cold Flutter + fastlane build; raise it for a genuinely longer
+      # covers a cold Flutter build; raise it for a genuinely longer
       # one rather than removing it.
       timeout_minutes:
         type: number
@@ -103,7 +136,10 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  flutter_release:
+  # Builds the caller's app with no secret on the runner. sign-android signs
+  # and uploads to Google Play, upload-app-store exports, signs and uploads
+  # to App Store Connect; both run none of the caller's code.
+  build:
     permissions:
       contents: read
     runs-on: ${{ inputs.runner }}
@@ -112,34 +148,55 @@ jobs:
       run:
         shell: bash
         working-directory: ${{ inputs.working_directory }}
-    # No secret at job level: `flutter pub get`, the build commands and their
-    # dependencies run in this job. Each secret is env on the steps that use it.
-    env:
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH: .tmp/google-play.json
+    outputs:
+      artifact: ${{ steps.list.outputs.artifact }}
+      manifest: ${{ steps.list.outputs.manifest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch_depth }}
 
-      - name: Validate App Store runner
-        if: ${{ inputs.deploy_app_store && runner.os != 'macOS' }}
+      # The upload jobs check these again; failing here saves the build.
+      - name: Check the release inputs
+        env:
+          BUILD_ANDROID: ${{ inputs.build_android }}
+          DEPLOY_GOOGLE_PLAY: ${{ inputs.deploy_google_play }}
+          DEPLOY_APP_STORE: ${{ inputs.deploy_app_store }}
+          PACKAGE_NAME: ${{ inputs.android_package_name }}
+          TRACK: ${{ inputs.google_play_track }}
+          RELEASE_STATUS: ${{ inputs.google_play_release_status }}
+          BUNDLE_ID: ${{ inputs.ios_bundle_id }}
+          TEAM_ID: ${{ inputs.ios_team_id }}
+          DESTINATION: ${{ inputs.app_store_destination }}
         run: |
-          echo "App Store uploads require a macOS runner." >&2
-          exit 1
+          set -euo pipefail
+          bad=0
+          err() { echo "::error::$*"; bad=1; }
+          if [[ "$DEPLOY_GOOGLE_PLAY" == true ]]; then
+            [[ "$BUILD_ANDROID" == true ]] || err "deploy_google_play uploads the bundle this workflow builds: set build_android: true."
+            [[ "$PACKAGE_NAME" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || err "android_package_name '$PACKAGE_NAME' is not an application id such as com.example.app."
+            [[ "$TRACK" =~ ^[a-z0-9][a-z0-9_:-]{0,49}$ ]] || err "google_play_track '$TRACK' is not a track name."
+            [[ "$RELEASE_STATUS" =~ ^(completed|draft|halted|inProgress)$ ]] || err "google_play_release_status '$RELEASE_STATUS' is not completed, draft, halted or inProgress."
+          fi
+          if [[ "$DEPLOY_APP_STORE" == true ]]; then
+            [[ "$RUNNER_OS" == macOS ]] || err "App Store uploads require a macOS runner."
+            [[ "$BUNDLE_ID" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || err "ios_bundle_id '$BUNDLE_ID' is not a bundle identifier such as com.example.app."
+            [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || err "ios_team_id '$TEAM_ID' is not a 10-character Apple team id."
+            [[ "$DESTINATION" =~ ^(testflight|app_store)$ ]] || err "app_store_destination '$DESTINATION' is not testflight or app_store."
+          fi
+          exit "$bad"
 
-      # Toolchains first, secrets after. Every step below that decodes a
-      # secret or writes one to disk runs after the last toolchain step, so
-      # an installer, a resolver or a gem never runs beside a keystore or a
-      # store credential. tests/flutter_release_secret_order_test.sh holds
-      # the order.
+      # No step of this job reads a secret: the build commands and their
+      # dependencies run here. tests/flutter_release_secret_order_test.sh
+      # holds that.
       - name: Setup Java
         if: ${{ inputs.build_android || inputs.deploy_google_play }}
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
-          # Off by name: this job holds the store credentials
+          # Off by name: this job builds what the upload jobs ship
           # (scripts/check_cache_trust.py).
           cache: ""
 
@@ -199,7 +256,7 @@ jobs:
       # manifest's sha256 and, for the pinned default, the library's
       # toolchain-pins.env. A channel name in flutter_version is honoured as
       # the channel, as before; flutter_channel wins when both are set. No
-      # cache: this job holds the store credentials, and a cache entry is a
+      # cache: this job builds what the upload jobs ship, and a cache entry is a
       # tar archive that restore unpacks wherever its members point, not only
       # under the declared path (scripts/check_cache_trust.py). The archive is
       # downloaded and checked on every run.
@@ -255,13 +312,477 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      # Ruby from the runner's tool cache (3.2, 3.3, 3.4 and 4.0 on the hosted
-      # images), matched as the action matched it: `3.4` is the newest 3.4.z.
-      # Nothing is downloaded; a version the cache lacks fails with the list.
+      - name: Note for Android signing
+        if: ${{ inputs.build_android }}
+        run: |
+          echo "The build gets no keystore: android/key.properties is not written. sign-android signs the"
+          echo "app bundle with the upload key (jarsigner) after the build, replacing the build's own signature."
+
+      - name: Build Android appbundle
+        if: ${{ inputs.build_android }}
+        env:
+          FR_ANDROID_BUILD_COMMAND: ${{ inputs.android_build_command }}
+        run: |
+          set -euo pipefail
+          # Code by design, run in this shell as the inline form did.
+          eval "$FR_ANDROID_BUILD_COMMAND"
+
+      - name: Build iOS (no codesign)
+        if: ${{ inputs.build_ios && !inputs.deploy_app_store }}
+        env:
+          FR_IOS_BUILD_COMMAND: ${{ inputs.ios_build_command }}
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" != "macOS" ]]; then
+            echo "iOS builds require a macOS runner." >&2
+            exit 1
+          fi
+          # Code by design, run in this shell as the inline form did.
+          eval "$FR_IOS_BUILD_COMMAND"
+
+      # An unsigned archive: upload-app-store signs it while exporting the IPA.
+      - name: Build iOS archive (no codesign)
+        if: ${{ inputs.deploy_app_store }}
+        env:
+          FR_IOS_ARCHIVE_COMMAND: ${{ inputs.ios_archive_command }}
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" != "macOS" ]]; then
+            echo "iOS builds require a macOS runner." >&2
+            exit 1
+          fi
+          # Code by design, run in this shell as the inline form did.
+          eval "$FR_IOS_ARCHIVE_COMMAND"
+
+      # Regular files under the working directory only: a symlink could name
+      # any file on the runner, and the upload jobs would ship it. The
+      # archive is one tarball, which keeps its symlinks and modes;
+      # upload-app-store unpacks it with scripts/safe_untar.py.
+      - name: Stage the release files
+        if: ${{ inputs.build_android || inputs.deploy_app_store }}
+        env:
+          BUILD_ANDROID: ${{ inputs.build_android }}
+          DEPLOY_APP_STORE: ${{ inputs.deploy_app_store }}
+          ANDROID_PATH: ${{ inputs.android_artifact_path }}
+          ARCHIVE_PATH: ${{ inputs.ios_archive_path }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/flutter-release-out"
+          rm -rf "$out"
+          mkdir -p "$out"
+          top="$(pwd -P)"
+          if [[ "$BUILD_ANDROID" == true ]]; then
+            mkdir -p "$out/android"
+            shopt -s nullglob
+            # The input is a glob, expanded here as the upload step expanded it.
+            # shellcheck disable=SC2206
+            files=($ANDROID_PATH)
+            shopt -u nullglob
+            [[ ${#files[@]} -gt 0 ]] || { echo "::error::android_artifact_path '$ANDROID_PATH' matches no file."; exit 1; }
+            for f in "${files[@]}"; do
+              name="${f##*/}"
+              [[ -f "$f" && ! -L "$f" ]] || { echo "::error::'$f' is not a regular file (symlinks are refused)."; exit 1; }
+              # realpath -e is GNU; a macOS runner's realpath has no -e.
+              real="$(realpath -e -- "$f" 2>/dev/null || /usr/bin/python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$f")"
+              [[ "$real" == "$top"/* ]] || { echo "::error::'$f' resolves outside the working directory."; exit 1; }
+              [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)$ ]] || { echo "::error::'$name' is not an .aab or .apk name of letters, digits and ._-."; exit 1; }
+              [[ ! -e "$out/android/$name" ]] || { echo "::error::two files are named '$name'."; exit 1; }
+              cp -P -- "$f" "$out/android/$name"
+            done
+          fi
+          if [[ "$DEPLOY_APP_STORE" == true ]]; then
+            mkdir -p "$out/ios"
+            [[ -d "$ARCHIVE_PATH" && ! -L "$ARCHIVE_PATH" ]] || { echo "::error::ios_archive_path '$ARCHIVE_PATH' is not a directory."; exit 1; }
+            [[ "$(cd "$ARCHIVE_PATH" && pwd -P)" == "$top"/* ]] || { echo "::error::ios_archive_path resolves outside the working directory."; exit 1; }
+            name="${ARCHIVE_PATH%/}"
+            name="${name##*/}"
+            [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._+-]{0,99}\.xcarchive$ ]] || { echo "::error::the archive name '$name' is not <name>.xcarchive of letters, digits, space and ._+-."; exit 1; }
+            (cd "$ARCHIVE_PATH/.." && COPYFILE_DISABLE=1 tar -czf "$out/ios/archive.tar.gz" "$name")
+          fi
+          if [[ -n "$(find "$out" -mindepth 1 ! -type f ! -type d)" ]]; then
+            echo "::error::the staged tree holds a symlink or special file."; exit 1
+          fi
+
+      # Files over 60 MiB in parts, and a sha256 manifest the upload jobs
+      # check before they use anything.
+      - name: List the build output
+        id: list
+        if: ${{ inputs.build_android || inputs.deploy_app_store }}
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUN_ID="$RUN_ID" RUN_ATTEMPT="$RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          out="$RUNNER_TEMP/flutter-release-out"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
+          if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
+            echo "::error::the build output holds a symlink or special file."; exit 1
+          fi
+          delim="EOF_$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+          {
+            echo "artifact=flutter-release-build-${RUN_ID}-${RUN_ATTEMPT}-${delim#EOF_}"
+            echo "manifest<<$delim"
+            (cd "$out" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | while IFS= read -r f; do "${h[@]}" "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Reserve trusted publication action directory
+        id: ci_publication_prepare
+        if: ${{ always() }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-publication || -L .ci-helpers-publication ]]; then
+            echo "Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/"
+            exit 1
+          fi
+
+      - name: Check out trusted publication action
+        id: ci_publication_checkout
+        if: ${{ always() && steps.ci_publication_prepare.outcome == 'success' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-publication
+          sparse-checkout: |
+            .github/actions/publication-check
+            vendor/script-helpers
+          persist-credentials: false
+
+      - name: Verify publication action revision
+        id: ci_publication_verify
+        if: ${{ always() && steps.ci_publication_checkout.outcome == 'success' }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          TRUSTED_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        run: |
+          set -euo pipefail
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || { echo "::error::no git at a fixed path"; exit 1; }
+          genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
+          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
+            exclude=$("$git" rev-parse --git-path info/exclude)
+            printf '\n/.ci-helpers-publication/\n' >> "$exclude"
+          fi
+
+      - name: Check publication files
+        id: ci_publication_check_1
+        if: ${{ (inputs.build_android || inputs.deploy_app_store) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ steps.list.outputs.artifact }}
+          mode: artifact
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/flutter-release-out
+
+      - name: Upload the build output
+        if: ${{ (inputs.build_android || inputs.deploy_app_store) && steps.ci_publication_check_1.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ steps.list.outputs.artifact }}
+          path: ${{ steps.ci_publication_check_1.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Check publication files
+        id: ci_publication_check_2
+        if: ${{ (inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store) && steps.ci_publication_verify.outcome == 'success' }}
+        uses: ./.ci-helpers-publication/.github/actions/publication-check
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+        with:
+          metadata: |
+            name: ${{ inputs.ios_artifact_name }}
+          mode: artifact
+          paths: ${{ inputs.working_directory }}/${{ inputs.ios_artifact_path }}
+
+      - name: Upload iOS artifact
+        if: ${{ (inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store) && steps.ci_publication_check_2.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+        with:
+          include-hidden-files: true
+          name: ${{ inputs.ios_artifact_name }}
+          path: ${{ steps.ci_publication_check_2.outputs.paths }}
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        working-directory: ${{ github.workspace }}
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
+
+  # Signs the app bundle with the upload key and, with deploy_google_play,
+  # uploads it with the library's fastlane. No checkout of the caller's
+  # repository and none of its code: the keystore and the Play key are in
+  # this job only.
+  sign-android:
+    needs: build
+    if: ${{ inputs.build_android }}
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.android_sign_runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    steps:
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Both values come from build, which ran the caller's code. The name
+      # must be the one that job makes, so no other artifact of this run is
+      # downloaded in its place.
+      - name: Check the build outputs
+        env:
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT" =~ ^flutter-release-build-[0-9]+-[0-9]+-[0-9a-f]{16}$ ]] || { echo "::error::the build artifact name '$ARTIFACT' is not one build makes."; exit 1; }
+          [[ -n "$MANIFEST" ]] || { echo "::error::the build manifest is empty."; exit 1; }
+
+      - name: Download the build output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/flutter-release-in
+
+      - name: Verify the build output against its manifest
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          list="$RUNNER_TEMP/flutter-release-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz\'
+          CI_HELPERS_RUN
+          )"
+
+      - name: Setup Java
+        id: java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+          # Off by name: this job holds the upload key (scripts/check_cache_trust.py).
+          cache: ""
+
+      # Ruby from the runner's tool cache and fastlane at the version in
+      # toolchain-pins.env, installed before any secret is in a step of this job.
       - name: Setup Ruby
         id: ruby
-        if: ${{ inputs.deploy_google_play || inputs.deploy_app_store }}
+        if: ${{ inputs.deploy_google_play }}
         working-directory: ${{ github.workspace }}
+        shell: sh
         env:
           LIB: ${{ steps.ci_lib.outputs.lib }}
           LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
@@ -286,7 +807,6 @@ jobs:
           GIT_DIR: ""
           GIT_CONFIG_PARAMETERS: ""
           GIT_EXEC_PATH: ""
-        shell: sh
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
@@ -307,314 +827,161 @@ jobs:
           CI_HELPERS_RUN
           )"
 
-      # The gems install fresh under vendor/bundle on every run: this job holds
-      # the store credentials, and a cached vendor/bundle is whatever the run
-      # that owned the key first left there (scripts/check_cache_trust.py).
-      # With a Gemfile.lock the install is deployment mode, as the action's
-      # bundler-cache set it: the lockfile is frozen, a Gemfile that disagrees
-      # fails here, not in a lane.
-      - name: Install gems (Gemfile)
-        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) != '' }}
-        run: |
-          set -euo pipefail
-          bundle config set --local path vendor/bundle
-          if [ -f Gemfile.lock ]; then
-            bundle config set --local deployment true
-          fi
-          bundle install --jobs 4
-
-      - name: Install Fastlane (no Gemfile)
-        if: ${{ (inputs.deploy_google_play || inputs.deploy_app_store) && hashFiles(format('{0}/Gemfile', inputs.working_directory)) == '' }}
-        env:
-          FASTLANE_VERSION: ${{ steps.ruby.outputs.fastlane_version }}
-        run: |
-          set -euo pipefail
-          [[ "$FASTLANE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::fastlane version '$FASTLANE_VERSION' is not X.Y.Z" >&2; exit 1; }
-          gem install fastlane -N -v "$FASTLANE_VERSION"
-
-      - name: Note for Android signing config
-        if: ${{ inputs.build_android || inputs.deploy_google_play }}
-        env:
-          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-        run: |
-          echo "Android signing expects android/key.properties at the Flutter project's android/ directory."
-          echo "Ensure android/app/build.gradle loads it via: rootProject.file('key.properties')"
-          echo "Path resolves relative to the android/ directory (e.g., ${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android/key.properties)."
-
-      - name: Note for App Store deploys
-        if: ${{ inputs.deploy_app_store }}
-        run: |
-          echo "App Store deploys expect Fastlane to build/upload in the iOS lane."
-          echo "When deploy_app_store=true, the standalone iOS build step is skipped even if build_ios=true."
-
-      # Secrets from here on. Each is env on the steps that use it and
-      # nowhere else; the files are removed in the always() cleanup step.
-      - name: Mask fastlane match secrets
-        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
-        env:
-          MATCH_GIT_URL: ${{ secrets.match_git_url }}
-          MATCH_PASSWORD: ${{ secrets.match_password }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
-        run: |
-          set -euo pipefail
-          set +x
-          secrets_to_mask=(
-            "${MATCH_GIT_URL}"
-            "${MATCH_PASSWORD}"
-            "${MATCH_GIT_BASIC_AUTHORIZATION}"
-          )
-          for secret_value in "${secrets_to_mask[@]}"; do
-            if [[ -n "${secret_value}" ]]; then
-              # Workflow commands are line-oriented. Escape command-data control
-              # characters so multiline values stay within one mask command.
-              escaped_secret="${secret_value//'%'/'%25'}"
-              escaped_secret="${escaped_secret//$'\r'/'%0D'}"
-              escaped_secret="${escaped_secret//$'\n'/'%0A'}"
-              printf '::add-mask::%s\n' "${escaped_secret}"
-            fi
-          done
-
-      - name: Validate Android signing secrets
-        if: ${{ inputs.build_android || inputs.deploy_google_play }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
-          ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
-          DEPLOY_GOOGLE_PLAY: ${{ inputs.deploy_google_play }}
-        run: |
-          set -euo pipefail
-          signing_missing=false
-          [[ -z "${ANDROID_KEYSTORE_BASE64}" ]] && signing_missing=true
-          [[ -z "${ANDROID_KEYSTORE_PASSWORD}" ]] && signing_missing=true
-          [[ -z "${ANDROID_KEY_PASSWORD}" ]] && signing_missing=true
-          [[ -z "${ANDROID_KEY_ALIAS}" ]] && signing_missing=true
-          if [[ "${signing_missing}" == "true" ]]; then
-            if [[ "${DEPLOY_GOOGLE_PLAY}" == "true" ]]; then
-              echo "Missing Android signing secrets. Provide android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias." >&2
-              exit 1
-            fi
-            # Distinguish between no secrets (expected for debug builds) and a partial set (likely misconfiguration).
-            if [[ -z "${ANDROID_KEYSTORE_BASE64}" && -z "${ANDROID_KEYSTORE_PASSWORD}" && -z "${ANDROID_KEY_PASSWORD}" && -z "${ANDROID_KEY_ALIAS}" ]]; then
-              echo "::warning::No Android signing secrets provided; build will use the project's default signing config."
-            else
-              echo "::warning::Incomplete Android signing secrets: only some of the four required secrets are set. Custom signing will be skipped and the project's default signing config will be used. To enable custom signing, provide all four: android_keystore_base64, android_keystore_password, android_key_password, and android_key_alias."
-            fi
-          fi
-
-      - name: Validate Google Play credentials
+      - name: Install fastlane
+        id: fastlane
         if: ${{ inputs.deploy_google_play }}
+        working-directory: ${{ github.workspace }}
+        shell: sh
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUBY_BIN: ${{ steps.ruby.outputs.ruby_bin }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
-          if [[ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" ]]; then
-            echo "Missing Google Play service account JSON. Provide google_play_service_account_json." >&2
-            exit 1
-          fi
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUBY_BIN="$RUBY_BIN" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          GEMS="$RUNNER_TEMP/fastlane-gems" /bin/bash "$run_lib/scripts/install_fastlane.sh"
+          CI_HELPERS_RUN
+          )"
 
-      - name: Validate App Store Connect credentials
-        if: ${{ inputs.deploy_app_store }}
+      - name: Sign the Android app bundle
+        working-directory: ${{ github.workspace }}
+        shell: sh
         env:
-          FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
-          FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-          FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" || -z "${FASTLANE_APP_STORE_CONNECT_KEY_ID}" || -z "${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}" ]]; then
-            echo "Missing App Store Connect API key secrets. Provide app_store_connect_api_key_base64, app_store_connect_key_id, and app_store_connect_issuer_id." >&2
-            exit 1
-          fi
-          if [[ "$RUNNER_OS" != "macOS" ]]; then
-            echo "App Store deploys require a macOS runner." >&2
-            exit 1
-          fi
-
-      - name: Configure Android signing
-        if: ${{ inputs.build_android || inputs.deploy_google_play }}
-        env:
-          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          JARSIGNER: ${{ format('{0}/bin/jarsigner', steps.java.outputs.path) }}
+          REQUIRE_SIGNING: ${{ inputs.deploy_google_play }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
           ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
-          DEPLOY_GOOGLE_PLAY: ${{ inputs.deploy_google_play }}
-        run: |
-          set -euo pipefail
-          # Require all four secrets to be present before writing key.properties.
-          # A partial set would produce a broken config with empty values causing
-          # hard-to-diagnose Gradle failures; skip cleanly instead.
-          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || -z "${ANDROID_KEYSTORE_PASSWORD}" || -z "${ANDROID_KEY_PASSWORD}" || -z "${ANDROID_KEY_ALIAS}" ]]; then
-            echo "Signing secrets absent or incomplete; skipping key.properties setup."
-            exit 0
-          fi
-          set +x
-          umask 077
-          {
-            echo "::add-mask::${ANDROID_KEYSTORE_BASE64}"
-            echo "::add-mask::${ANDROID_KEYSTORE_PASSWORD}"
-            echo "::add-mask::${ANDROID_KEY_PASSWORD}"
-            echo "::add-mask::${ANDROID_KEY_ALIAS}"
-          }
-          android_dir="${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android"
-          mkdir -p "${android_dir}"
-          echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${android_dir}/upload-keystore.jks"
-          printf '%s\n' \
-            'storeFile=upload-keystore.jks' \
-            "storePassword=${ANDROID_KEYSTORE_PASSWORD}" \
-            "keyPassword=${ANDROID_KEY_PASSWORD}" \
-            "keyAlias=${ANDROID_KEY_ALIAS}" \
-            > "${android_dir}/key.properties"
-          chmod 600 "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
-          # For Google Play deployments, validate the keystore is usable before proceeding.
-          # This catches invalid/placeholder credentials early rather than failing deep in Gradle.
-          if [[ "${DEPLOY_GOOGLE_PLAY}" == "true" ]]; then
-            if ! keytool -list \
-                -keystore "${android_dir}/upload-keystore.jks" \
-                -storepass "${ANDROID_KEYSTORE_PASSWORD}" \
-                -alias "${ANDROID_KEY_ALIAS}" \
-                > /dev/null 2>&1; then
-              echo "Android keystore validation failed: verify that android_keystore_base64 is a valid JKS/PKCS12 keystore, android_keystore_password is correct, and the alias exists in the keystore." >&2
-              exit 1
-            fi
-            echo "Android keystore validated for Google Play deployment."
-          fi
-          set -x
-
-      - name: Build Android appbundle
-        if: ${{ inputs.build_android }}
-        env:
-          FR_ANDROID_BUILD_COMMAND: ${{ inputs.android_build_command }}
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
           ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
-          ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
-          # Code by design, run in this shell as the inline form did.
-          eval "$FR_ANDROID_BUILD_COMMAND"
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" JARSIGNER="$JARSIGNER" REQUIRE_SIGNING="$REQUIRE_SIGNING" ANDROID_KEYSTORE_BASE64="$ANDROID_KEYSTORE_BASE64" ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" ANDROID_KEY_ALIAS="$ANDROID_KEY_ALIAS" ANDROID_KEY_PASSWORD="$ANDROID_KEY_PASSWORD" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          export IN="$RUNNER_TEMP/flutter-release-in" OUT="$RUNNER_TEMP/flutter-android-signed" LIB_SCRIPTS="$run_lib/scripts"
+          /bin/rm -rf -- "$OUT"
+          /bin/mkdir -p -- "$OUT"
+          /bin/bash "$run_lib/scripts/flutter_android_sign.sh"
+          CI_HELPERS_RUN
+          )"
 
-      - name: Build iOS (no codesign)
-        if: ${{ inputs.build_ios && !inputs.deploy_app_store }}
-        env:
-          FR_IOS_BUILD_COMMAND: ${{ inputs.ios_build_command }}
-        run: |
-          set -euo pipefail
-          if [[ "$RUNNER_OS" != "macOS" ]]; then
-            echo "iOS builds require a macOS runner." >&2
-            exit 1
-          fi
-          # Code by design, run in this shell as the inline form did.
-          eval "$FR_IOS_BUILD_COMMAND"
-
-      - name: Prepare Google Play credentials
+      - name: Upload to Google Play
         if: ${{ inputs.deploy_google_play }}
+        working-directory: ${{ github.workspace }}
+        shell: sh
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          PACKAGE_NAME: ${{ inputs.android_package_name }}
+          TRACK: ${{ inputs.google_play_track }}
+          RELEASE_STATUS: ${{ inputs.google_play_release_status }}
+          RUBY_BIN: ${{ steps.ruby.outputs.ruby_bin }}
+          GEMS: ${{ steps.fastlane.outputs.gems }}
+          GOOGLE_PLAY_JSON: ${{ secrets.google_play_service_account_json }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
-          set +x
-          umask 077
-          echo "::add-mask::${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}"
-          mkdir -p "$(dirname "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}")"
-          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET}" > "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
-          chmod 600 "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
-          set -x
-
-      - name: Prepare App Store Connect API key
-        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
-        env:
-          FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
-          FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-          FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
-        run: |
-          set -euo pipefail
-          set +x
-          umask 077
-          {
-            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}"
-            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_KEY_ID}"
-            echo "::add-mask::${FASTLANE_APP_STORE_CONNECT_ISSUER_ID}"
-          }
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "${FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64}" | base64 -d > ~/.appstoreconnect/private_keys/"AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
-          chmod 600 ~/.appstoreconnect/private_keys/"AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
-          set -x
-
-      - name: Deploy to Google Play via Fastlane
-        if: ${{ inputs.deploy_google_play }}
-        env:
-          FR_FASTLANE_ANDROID_LANE: ${{ inputs.fastlane_android_lane }}
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.android_keystore_base64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.android_keystore_password }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.android_key_password }}
-          ANDROID_KEY_ALIAS: ${{ secrets.android_key_alias }}
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_SECRET: ${{ secrets.google_play_service_account_json }}
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: .tmp/google-play.json
-        run: |
-          set -euo pipefail
-          # A lane and its options, split as the shell would split quoted
-          # words (notes:"a b" stays one), but never expanded or run.
-          # A file, not a pipe, so an unbalanced quote fails the step.
-          words="$(mktemp)"
-          python3 -c 'import shlex, sys; sys.stdout.write("".join(w + "\0" for w in shlex.split(sys.argv[1])))' "$FR_FASTLANE_ANDROID_LANE" > "$words"
-          lane=()
-          while IFS= read -r -d '' w; do lane+=("$w"); done < "$words"
-          if [ -f Gemfile ]; then
-            bundle exec fastlane "${lane[@]}"
-          else
-            fastlane "${lane[@]}"
-          fi
-
-      - name: Deploy to App Store via Fastlane
-        if: ${{ inputs.deploy_app_store && runner.os == 'macOS' }}
-        env:
-          FR_FASTLANE_IOS_LANE: ${{ inputs.fastlane_ios_lane }}
-          FASTLANE_APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
-          FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-          FASTLANE_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
-          # Scoped here (not job-level) so match credentials are only exposed to
-          # the iOS deploy step. fastlane match reads these to sync certs/profiles.
-          MATCH_GIT_URL: ${{ secrets.match_git_url }}
-          MATCH_PASSWORD: ${{ secrets.match_password }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
-        run: |
-          set -euo pipefail
-          # A lane and its options, split as the shell would split quoted
-          # words (notes:"a b" stays one), but never expanded or run.
-          # A file, not a pipe, so an unbalanced quote fails the step.
-          words="$(mktemp)"
-          python3 -c 'import shlex, sys; sys.stdout.write("".join(w + "\0" for w in shlex.split(sys.argv[1])))' "$FR_FASTLANE_IOS_LANE" > "$words"
-          lane=()
-          while IFS= read -r -d '' w; do lane+=("$w"); done < "$words"
-          if [ -f Gemfile ]; then
-            bundle exec fastlane "${lane[@]}"
-          else
-            fastlane "${lane[@]}"
-          fi
-
-      - name: Cleanup signing and deploy credentials
-        if: ${{ always() && (inputs.build_android || inputs.deploy_google_play || inputs.deploy_app_store) }}
-        env:
-          FR_WORKING_DIRECTORY: ${{ inputs.working_directory }}
-          FASTLANE_APP_STORE_CONNECT_KEY_ID: ${{ secrets.app_store_connect_key_id }}
-        run: |
-          set -euo pipefail
-          android_dir="${GITHUB_WORKSPACE}/${FR_WORKING_DIRECTORY}/android"
-          rm -f "${android_dir}/upload-keystore.jks" "${android_dir}/key.properties"
-
-          google_play_json="${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH}"
-          rm -f "${google_play_json}"
-
-          appstore_keys_dir="${HOME}/.appstoreconnect/private_keys"
-          if [ -n "${FASTLANE_APP_STORE_CONNECT_KEY_ID:-}" ]; then
-            appstore_key_file="${appstore_keys_dir}/AuthKey_${FASTLANE_APP_STORE_CONNECT_KEY_ID}.p8"
-            rm -f "${appstore_key_file}" || true
-          fi
-          rmdir "${appstore_keys_dir}" 2>/dev/null || true
-          rmdir "${HOME}/.appstoreconnect" 2>/dev/null || true
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PACKAGE_NAME="$PACKAGE_NAME" TRACK="$TRACK" RELEASE_STATUS="$RELEASE_STATUS" RUBY_BIN="$RUBY_BIN" GEMS="$GEMS" GOOGLE_PLAY_JSON="$GOOGLE_PLAY_JSON" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          export DIR="$RUNNER_TEMP/flutter-android-signed" LIB_SCRIPTS="$run_lib/scripts"
+          /bin/bash "$run_lib/scripts/flutter_play_upload.sh"
+          CI_HELPERS_RUN
+          )"
 
       - name: Reserve trusted publication action directory
         id: ci_publication_prepare
@@ -676,7 +1043,7 @@ jobs:
 
       - name: Check publication files
         id: ci_publication_check_1
-        if: ${{ (inputs.upload_artifacts && inputs.build_android) && steps.ci_publication_verify.outcome == 'success' }}
+        if: ${{ (success() && inputs.upload_artifacts) && steps.ci_publication_verify.outcome == 'success' }}
         uses: ./.ci-helpers-publication/.github/actions/publication-check
         env:
           BASH_ENV: ""
@@ -700,21 +1067,25 @@ jobs:
           metadata: |
             name: ${{ inputs.android_artifact_name }}
           mode: artifact
-          paths: ${{ inputs.working_directory }}/${{ inputs.android_artifact_path }}
-
+          include_hidden_files: 'true'
+          paths: ${{ runner.temp }}/flutter-android-signed
 
       - name: Upload Android artifact
-        if: ${{ (inputs.upload_artifacts && inputs.build_android) && steps.ci_publication_check_1.outcome == 'success' }}
+        if: ${{ (success() && inputs.upload_artifacts) && steps.ci_publication_check_1.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
         with:
           include-hidden-files: true
           name: ${{ inputs.android_artifact_name }}
           path: ${{ steps.ci_publication_check_1.outputs.paths }}
-      - name: Check publication files
-        id: ci_publication_check_2
-        if: ${{ (inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store) && steps.ci_publication_verify.outcome == 'success' }}
-        uses: ./.ci-helpers-publication/.github/actions/publication-check
+          if-no-files-found: error
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
         env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
           BASH_ENV: ""
           ENV: ""
           SHELLOPTS: ""
@@ -732,19 +1103,301 @@ jobs:
           PERL5OPT: ""
           RUBYOPT: ""
           NODE_OPTIONS: ""
-        with:
-          metadata: |
-            name: ${{ inputs.ios_artifact_name }}
-          mode: artifact
-          paths: ${{ inputs.working_directory }}/${{ inputs.ios_artifact_path }}
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done
 
-      - name: Upload iOS artifact
-        if: ${{ (inputs.upload_artifacts && inputs.build_ios && !inputs.deploy_app_store) && steps.ci_publication_check_2.outcome == 'success' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 @ 2026-10-07
+  # Exports the unsigned archive into a signed IPA and uploads it with the
+  # library's fastlane. No checkout of the caller's repository and none of
+  # its code: the match and App Store Connect secrets are in this job only.
+  upload-app-store:
+    needs: build
+    if: ${{ inputs.deploy_app_store }}
+    permissions:
+      contents: read
+    runs-on: ${{ inputs.app_store_runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}
+    steps:
+      # The library's scripts, at this workflow's commit. A directory of that
+      # name already in the caller's tree is refused, not reused.
+      - name: Reserve ci-helpers scripts directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
+            exit 1
+          fi
+
+      - name: Check out ci-helpers scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
         with:
-          include-hidden-files: true
-          name: ${{ inputs.ios_artifact_name }}
-          path: ${{ steps.ci_publication_check_2.outputs.paths }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
+
+      # Both values come from build, which ran the caller's code. The name
+      # must be the one that job makes, so no other artifact of this run is
+      # downloaded in its place.
+      - name: Check the build outputs
+        env:
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT" =~ ^flutter-release-build-[0-9]+-[0-9]+-[0-9a-f]{16}$ ]] || { echo "::error::the build artifact name '$ARTIFACT' is not one build makes."; exit 1; }
+          [[ -n "$MANIFEST" ]] || { echo "::error::the build manifest is empty."; exit 1; }
+
+      - name: Download the build output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 @ 2026-10-16
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/flutter-release-in
+
+      - name: Verify the build output against its manifest
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          MANIFEST: ${{ needs.build.outputs.manifest }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" MANIFEST="$MANIFEST" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          list="$RUNNER_TEMP/flutter-release-manifest.sha256"
+          /usr/bin/printf '%s\n' "$MANIFEST" > "$list"
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" verify "$RUNNER_TEMP/flutter-release-in" "$list" 'android/[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.(aab|apk)|ios/archive\.tar\.gz\'
+          CI_HELPERS_RUN
+          )"
+
+      # Ruby from the runner's tool cache and fastlane at the version in
+      # toolchain-pins.env, installed before any secret is in a step of this job.
+      - name: Setup Ruby
+        id: ruby
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUBY_VERSION: ${{ inputs.ruby_version }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUBY_VERSION="$RUBY_VERSION" GITHUB_ENV="$GITHUB_ENV" GITHUB_PATH="$GITHUB_PATH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          /bin/bash "$run_lib/scripts/setup_ruby.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Install fastlane
+        id: fastlane
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          RUBY_BIN: ${{ steps.ruby.outputs.ruby_bin }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUBY_BIN="$RUBY_BIN" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh"
+          export TOOLCHAIN_PINS="$run_lib/toolchain-pins.env"
+          GEMS="$RUNNER_TEMP/fastlane-gems" /bin/bash "$run_lib/scripts/install_fastlane.sh"
+          CI_HELPERS_RUN
+          )"
+
+      - name: Export, sign and upload the IPA
+        working-directory: ${{ github.workspace }}
+        shell: sh
+        env:
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          BUNDLE_ID: ${{ inputs.ios_bundle_id }}
+          TEAM_ID: ${{ inputs.ios_team_id }}
+          DESTINATION: ${{ inputs.app_store_destination }}
+          RUBY_BIN: ${{ steps.ruby.outputs.ruby_bin }}
+          GEMS: ${{ steps.fastlane.outputs.gems }}
+          MATCH_GIT_URL: ${{ secrets.match_git_url }}
+          MATCH_PASSWORD: ${{ secrets.match_password }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.match_git_basic_authorization }}
+          ASC_KEY_ID: ${{ secrets.app_store_connect_key_id }}
+          ASC_ISSUER_ID: ${{ secrets.app_store_connect_issuer_id }}
+          ASC_KEY_BASE64: ${{ secrets.app_store_connect_api_key_base64 }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" BUNDLE_ID="$BUNDLE_ID" TEAM_ID="$TEAM_ID" DESTINATION="$DESTINATION" RUBY_BIN="$RUBY_BIN" GEMS="$GEMS" MATCH_GIT_URL="$MATCH_GIT_URL" MATCH_PASSWORD="$MATCH_PASSWORD" MATCH_GIT_BASIC_AUTHORIZATION="$MATCH_GIT_BASIC_AUTHORIZATION" ASC_KEY_ID="$ASC_KEY_ID" ASC_ISSUER_ID="$ASC_ISSUER_ID" ASC_KEY_BASE64="$ASC_KEY_BASE64" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          export IN="$RUNNER_TEMP/flutter-release-in" LIB_SCRIPTS="$run_lib/scripts"
+          /bin/bash "$run_lib/scripts/flutter_app_store_upload.sh"
+          CI_HELPERS_RUN
+          )"
 
       # The copies are read-only; a self-hosted runner clears its _temp
       # between jobs and needs them writable again.
