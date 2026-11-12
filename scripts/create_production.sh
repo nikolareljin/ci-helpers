@@ -19,11 +19,21 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-${ROOT_DIR}/vendor/script-helpers}"
-# shellcheck source=/dev/null
-source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help
+# The workflows run this from a verified library copy that holds scripts/
+# only, so script-helpers is optional: the *_safe loggers fall back to echo.
+if [[ -f "${SCRIPT_HELPERS_DIR}/helpers.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "${SCRIPT_HELPERS_DIR}/helpers.sh"
+  shlib_import logging help
+fi
 
-usage() { display_help; }
+usage() {
+  if declare -F display_help >/dev/null 2>&1; then
+    display_help
+  else
+    sed -n '2,/^# ---/{/^# ---/d;s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]}"
+  fi
+}
 
 log_info_safe() {
   if declare -F log_info >/dev/null 2>&1; then

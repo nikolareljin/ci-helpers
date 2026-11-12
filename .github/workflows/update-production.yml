@@ -13,8 +13,8 @@ name: update-production
 # own (see docs/workflows.md), and it does nothing until a human runs it and
 # names a tag.
 #
-# Requires `scripts/create_production.sh` in the calling repository -- the same
-# script auto-tag.yml uses. ci-helpers does not supply it to consumers.
+# Runs this library's scripts/create_production.sh from a verified copy, the
+# same script auto-tag.yml uses. A copy in the calling repository is not run.
 
 on:
   # Consumers call this from their own workflow_dispatch wrapper.
@@ -161,37 +161,58 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Bootstrap script-helpers
+      # The library's own create_production.sh, from a verified copy: no
+      # script from the caller's tree runs in this job, which holds the
+      # push token.
+      - name: Reserve ci-helpers scripts directory
         shell: bash
-        env:
-          GIT_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
-          echo "::add-mask::${auth}"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          # A caller's private submodule may not be fetchable with this token,
-          # so a failure warns instead of failing the build, but never silently.
-          if ! git submodule update --init --recursive; then
-            echo "::warning::git submodule update failed; continuing with the submodules already checked out"
-          fi
-          if [[ -d "scripts/script-helpers" && ! -e "vendor/script-helpers" ]]; then
-            mkdir -p vendor
-            ln -sfn ../scripts/script-helpers vendor/script-helpers
-          fi
-          if [[ ! -e "vendor/script-helpers" ]]; then
-            echo "::error::vendor/script-helpers not found; ensure script-helpers is vendored or initialized."
+          if [[ -e .ci-helpers-scripts || -L .ci-helpers-scripts ]]; then
+            echo "::error::.ci-helpers-scripts already exists in the checkout; the library's scripts run only from a fresh checkout at the workflow's commit"
             exit 1
           fi
-          if [[ ! -f "scripts/create_production.sh" ]]; then
-            echo "::error::scripts/create_production.sh is missing. This workflow moves a floating ref by running that script from your repository; ci-helpers does not supply it."
-            exit 1
-          fi
-          if [[ ! -x "scripts/create_production.sh" ]]; then
-            echo "::error::scripts/create_production.sh is not executable. Run: chmod +x scripts/create_production.sh && git update-index --chmod=+x scripts/create_production.sh"
-            exit 1
-          fi
+
+      - name: Check out ci-helpers scripts at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-helpers-scripts
+          sparse-checkout: |
+            scripts
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Isolate ci-helpers scripts
+        id: ci_lib
+        shell: sh
+        env:
+          WF_SHA: ${{ job.workflow_sha }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
 
       # inputs.tag reaches us from a manual dispatch, so it is untrusted text.
       # It is read from the environment and never interpolated into a command,
@@ -294,75 +315,156 @@ jobs:
             echo "::notice::${REF_NAME} already points at ${TARGET_TAG} (${target}). Nothing to do."
           fi
 
-      # scripts/create_production.sh belongs to the calling repository and may
-      # be a copy from before the guard flags existed. Passing them to such a
-      # copy fails with "Unknown argument", so check what it supports first.
-      - name: Detect script flags
-        id: flags
-        shell: bash
-        run: |
-          set -euo pipefail
-          if grep -q -- '--allow-rollback' scripts/create_production.sh \
-            && grep -q -- '--dry-run' scripts/create_production.sh; then
-            echo "guarded=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "guarded=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::scripts/create_production.sh has no production guard (off-branch, pre-release and older-tag checks). Copy the current script from ci-helpers."
-          fi
-
       - name: Report only (dry run)
         if: ${{ inputs.dry_run }}
-        shell: bash
+        shell: sh
         env:
-          GIT_TOKEN: ${{ github.token }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          PUSH_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           TARGET: ${{ steps.resolve.outputs.target }}
           CURRENT: ${{ steps.resolve.outputs.current }}
-          GUARDED: ${{ steps.flags.outputs.guarded }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" TARGET="$TARGET" CURRENT="$CURRENT" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          # Checked again here: the values cross into git and the script's arguments.
+          [[ "$TARGET_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::tag '$TARGET_TAG' contains characters not allowed here."; exit 1; }
+          [[ "$REF_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::ref_name '$REF_NAME' contains characters not allowed here."; exit 1; }
           # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')"
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          # The script's checks (release tag, on the default branch) decide
-          # whether the real run would move anything, so the dry run runs them
-          # too instead of reporting success for a move that would be refused.
-          # The script is the caller's own copy; one older than these flags
-          # would stop on "Unknown argument", so it gets a report only.
-          if [[ "$GUARDED" == "true" ]]; then
-            ./scripts/create_production.sh -t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags \
-              --allow-prerelease --allow-rollback --dry-run
-          else
-            echo "::warning::scripts/create_production.sh predates --dry-run; its checks were not run. Copy the current script from ci-helpers."
-          fi
+          # The script's checks (release tag, on the default branch) decide whether
+          # the real run would move anything, so the dry run runs them too.
+          /bin/bash "$run_lib/scripts/create_production.sh" -t "$TARGET_TAG" --name "$REF_NAME" --repo "$GITHUB_WORKSPACE" --fetch-tags \
+            --allow-prerelease --allow-rollback --dry-run
           echo "::notice::Dry run. Would move ${REF_NAME} from ${CURRENT:-<unset>} to ${TARGET} (${TARGET_TAG}). Nothing was pushed."
+          CI_HELPERS_RUN
+          )"
 
       - name: Move the floating ref
         if: ${{ !inputs.dry_run }}
-        shell: bash
+        shell: sh
         env:
-          GIT_TOKEN: ${{ github.token }}
+          LIB: ${{ steps.ci_lib.outputs.lib }}
+          LIB_HASH: ${{ steps.ci_lib.outputs.hash }}
+          PUSH_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ inputs.ref_name }}
           UPDATE_BRANCH: ${{ inputs.update_branch }}
-          GUARDED: ${{ steps.flags.outputs.guarded }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
         run: |
-          set -euo pipefail
+          set +xv
+          case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" PUSH_TOKEN="$PUSH_TOKEN" TARGET_TAG="$TARGET_TAG" REF_NAME="$REF_NAME" UPDATE_BRANCH="$UPDATE_BRANCH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_SERVER_URL="$GITHUB_SERVER_URL" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+            /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
+          [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
+          [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
+          run_lib="$(/usr/bin/mktemp -d "$LIB.run.XXXXXX")"
+          trap '/bin/chmod -R u+w "$run_lib"; /bin/rm -rf -- "$run_lib"' EXIT
+          /bin/cp -RP "$LIB/." "$run_lib/"
+          [[ -z "$(cd "$run_lib" && /usr/bin/find . ! -type f ! -type d -print)" ]] || { echo "::error::the library copy holds something other than files and directories."; exit 1; }
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          now="$(cd "$run_lib" && export LC_ALL=C && { /usr/bin/find . -type d -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/printf 'd %s\n'; /usr/bin/find . -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 "${h[@]}"; } | "${h[@]}" | /usr/bin/cut -d' ' -f1)"
+          [[ "$now" == "$LIB_HASH" ]] || { echo "::error::the library copy changed since it was verified; nothing runs from it."; exit 1; }
+          . "$run_lib/scripts/lib_path.sh" secret
+          # Checked again here: the values cross into git and the script's arguments.
+          [[ "$TARGET_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::tag '$TARGET_TAG' contains characters not allowed here."; exit 1; }
+          [[ "$REF_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::ref_name '$REF_NAME' contains characters not allowed here."; exit 1; }
           # The checkout keeps no token on disk; hand it to git for this step only.
-          auth="$(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 | tr -d '\n')"
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | /usr/bin/base64 | /usr/bin/tr -d '\n')"
           echo "::add-mask::${auth}"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
-          # Built as an array in bash rather than as a conditional expression in
-          # YAML: in an Actions expression the empty string is falsy, so the
-          # obvious `x && '' || '--no-branch'` returns the flag in both cases.
-          # This is the manual path: promoting a candidate and rolling back
-          # are what it is for. The tag must still be on the default branch.
-          args=(-t "$TARGET_TAG" --name "$REF_NAME" --fetch-tags)
-          # A caller's copy older than the guard has neither flag, and does
-          # not refuse what they allow, so it is called as before.
-          [[ "$GUARDED" == "true" ]] && args+=(--allow-prerelease --allow-rollback)
+          # This is the manual path: promoting a candidate and rolling back are
+          # what it is for. The tag must still be on the default branch.
+          args=(-t "$TARGET_TAG" --name "$REF_NAME" --repo "$GITHUB_WORKSPACE" --fetch-tags --allow-prerelease --allow-rollback)
           [[ "$UPDATE_BRANCH" == "true" ]] || args+=(--no-branch)
-          ./scripts/create_production.sh "${args[@]}"
+          /bin/bash "$run_lib/scripts/create_production.sh" "${args[@]}"
           echo "::notice::${REF_NAME} now points at ${TARGET_TAG}."
+          CI_HELPERS_RUN
+          )"
+
+      # The copies are read-only; a self-hosted runner clears its _temp
+      # between jobs and needs them writable again.
+      - name: Release ci-helpers library copy
+        if: ${{ always() }}
+        shell: sh
+        env:
+          LIB_0: ${{ steps.ci_lib.outputs.lib }}
+          BASH_ENV: ""
+          ENV: ""
+          SHELLOPTS: ""
+          BASHOPTS: ""
+          PS4: ""
+          LD_PRELOAD: ""
+          LD_LIBRARY_PATH: ""
+          LD_AUDIT: ""
+          DYLD_INSERT_LIBRARIES: ""
+          DYLD_LIBRARY_PATH: ""
+          DYLD_FRAMEWORK_PATH: ""
+          PYTHONPATH: ""
+          PYTHONSTARTUP: ""
+          PERL5LIB: ""
+          PERL5OPT: ""
+          RUBYOPT: ""
+          NODE_OPTIONS: ""
+          GIT_DIR: ""
+          GIT_CONFIG_PARAMETERS: ""
+          GIT_EXEC_PATH: ""
+        run: |
+          for d in "$LIB_0" "$LIB_1"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then /bin/chmod -R u+w "$d"; /bin/rm -rf -- "$d"; fi
+          done

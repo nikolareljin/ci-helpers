@@ -1536,10 +1536,17 @@ Inputs:
   ```yaml
   dependency_check_command: >-
     mvn -B org.owasp:dependency-check-maven:13.0.0:check
-    -DfailBuildOnCVSS=7 -DnvdApiKey=$NVD_API_KEY
+    -DfailBuildOnCVSS=7
   ```
 
   Keep `-DfailBuildOnCVSS`: the plugin's own default threshold of 11 never fails.
+  The key never reaches the job that runs this command. A separate `nvd` job
+  holds it, runs the dependency-check CLI pinned in `scanner-pins.env`
+  (13.0.0) with `--updateonly`, and passes the data to the scan job as an
+  artifact with a sha256 manifest. The command gets the data in `DC_DATA_DIR`,
+  and `MAVEN_ARGS` carries `-DdataDirectory=$DC_DATA_DIR -DautoUpdate=false`.
+  Use plugin 13.x so the data format matches the CLI.
+- `nvd_runner` (string, default `ubuntu-latest`): runner for the `nvd` job.
 
 Example:
 
@@ -1869,7 +1876,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
-- `update_production_tag` (boolean, default `false`) — when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref **and** ships `scripts/create_production.sh`, which the step runs — the Bootstrap step fails early if that script is missing.
+- `update_production_tag` (boolean, default `false`): when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref. The job runs this library's `scripts/create_production.sh` from a verified copy; a copy in the calling repository is not run.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
 Outputs:
@@ -1933,7 +1940,7 @@ The two ways `production` can move are **independent**, and a repository may hav
 
 Release candidates are deliberately accepted here. Automatic tagging never moves `production` for a candidate — that is a rule, not an option — so this is how a candidate that has been exercised on a pilot consumer gets promoted without waiting for a final `X.Y.Z`, and how a bad move is rolled back onto an earlier tag.
 
-Requires `scripts/create_production.sh` in the calling repository, the same script `auto-tag.yml` uses. ci-helpers does not supply it. This workflow passes it `--allow-prerelease --allow-rollback`; the tag must still be on the default branch.
+Runs this library's `scripts/create_production.sh` from a verified copy, the same script `auto-tag.yml` uses; a copy in the calling repository is not run. This workflow passes it `--allow-prerelease --allow-rollback`; the tag must still be on the default branch.
 
 Every workflow that moves `production` (`auto-tag.yml`, `production-branch.yml`, this one) runs in the concurrency group `ci-helpers-production-move-<owner>/<repo>`, so a manual move waits for a release in flight. Do not give a caller workflow the same group name: the inner job would wait on its own caller.
 
