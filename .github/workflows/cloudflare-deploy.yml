@@ -1146,7 +1146,7 @@ jobs:
       #
       # The account id is the reason this step exists at all. wrangler treats an
       # empty accountId as "resolve it from the token", which is correct for a
-      # token scoped to one account and a coin toss otherwise — so a deploy that
+      # token scoped to one account and a coin toss otherwise, so a deploy that
       # lands on the wrong account looks exactly like a deploy that worked.
       # Reading `vars` first and `secrets` second means putting it in either
       # place works; reading only one silently yields an empty string from the
