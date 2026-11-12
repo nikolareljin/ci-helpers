@@ -351,6 +351,11 @@ jobs:
           INPUT_POST_DEPLOY_COMMAND: ${{ inputs.post_deploy_command }}
         run: |
           set -euo pipefail
+          # bin_file came from the build job, which ran the caller's code: it
+          # must name the one file under bin/, not a path such as ../key.
+          if [[ ! "$BIN_FILE" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ || ! -f "bin/$BIN_FILE" || -L "bin/$BIN_FILE" ]]; then
+            echo "::error::bin_file '$BIN_FILE' is not a file name under bin/ in the artifact."; exit 1
+          fi
 
           quote_remote_shell_arg() {
             local value="$1"

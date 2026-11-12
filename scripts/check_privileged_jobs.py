@@ -15,7 +15,10 @@ Every workflow under .github/workflows is read with PyYAML. A job is
               `environment:` (environment secrets reach every step);
   caller      when a step runs code the caller controls: a run: that
               splices `${{ inputs.<name> }}` where the name ends in
-              `command`, `commands`, `script` or `args`, or calls a build,
+              `command`, `cmd`, `script`, `script_path`, `args` or `hook`
+              (plurals too), or uses any input as a command word; a uses:
+              handed such an input; in a reusable workflow, a script from
+              the checked-out tree run by path or interpreter; or calls a build,
               package or install tool (make, npm, cargo, go build, flutter,
               docker build, dpkg-buildpackage, ...) or a library script that
               builds the caller's tree; or a uses: that builds the caller's
@@ -50,7 +53,14 @@ except ImportError:  # pragma: no cover
 WRITE_SCOPES = {"contents", "packages", "id-token", "pages", "deployments",
                 "attestations", "actions"}
 SECRET = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
-INPUT_CODE = re.compile(r"\$\{\{\s*inputs\.([A-Za-z0-9_-]*(?:command|commands|script|args))\s*\}\}")
+INPUT_CODE = re.compile(r"\$\{\{\s*inputs\.([A-Za-z0-9_-]*(?:command|commands|cmd|cmds|script|scripts|"
+                        r"script_path|args|hook|hooks))\s*\}\}")
+# Any input spliced as the command word of a line runs, whatever its name.
+INPUT_AS_COMMAND = re.compile(r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b|\beval\s+)\s*[\"']?\$\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}", re.M)
+# A file from the caller's tree run by path or by an interpreter.
+REL_SCRIPT = re.compile(r"(?:^|[;&|(`]|\$\(|\bthen\b|\bdo\b)\s*(?:(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+)?"
+                        r"[\"']?(?:\./(?!\.ci-helpers-)|(?:bash|sh|zsh|python3?|ruby|perl|pwsh)\s+[\"']?(?![-$/.~]))"
+                        r"[A-Za-z0-9_./-]*\.(?:sh|py|rb|pl|ps1)\b", re.M)
 # Tools that execute the caller's tree: build files, package scripts,
 # lifecycle hooks, Dockerfiles, test suites. Matched as a command word.
 TOOLS = (r"make|cmake|ninja|npm|npx|pnpm|yarn|bun|node|deno|cargo|rustc|go|flutter|dart|"
@@ -78,9 +88,11 @@ REMOTE_INPUTS = {"post_deploy_command"}
 
 # Jobs not yet split. "file:job" -> why it still holds both.
 PENDING: dict[str, str] = {
+    "auto-tag.yml:production": "runs the caller's scripts/create_production.sh with the push token (opt-in); split next",
     "cloudflare-deploy.yml:deploy": "wrangler resolves and deploys from the caller's tree; split next",
     "docker-multiarch.yml:build-push": "builds and pushes in one buildx call; next: build to an OCI layout artifact, push in a separate job",
     "flutter-release.yml:flutter_release": "signs and uploads to the stores from the build job; split next",
+    "update-production.yml:move": "runs the caller's scripts/create_production.sh with the push token; split next",
     "java-scan.yml:scan": "nvd_api_key feeds the caller's dependency_check_command; split next",
     "self-test.yml:docker-refuses-what-it-must": "snyk_token reaches the job that builds the test images; split next",
     "tauri-release.yml:build-macos": "signs inside tauri build; next: sign the downloaded bundle in its own macOS job",
@@ -109,7 +121,9 @@ def privileged(job: dict, wf: dict) -> list[str]:
     return why
 
 
-def caller_steps(job: dict) -> list[str]:
+def caller_steps(job: dict, reusable: bool = True) -> list[str]:
+    """reusable: the workflow is called by another repository, so a script
+    in the checked-out tree is the caller's, not this repository's."""
     hits = []
     for i, step in enumerate(job.get("steps") or []):
         if not isinstance(step, dict):
@@ -117,17 +131,25 @@ def caller_steps(job: dict) -> list[str]:
         name = step.get("name") or step.get("uses") or f"step {i + 1}"
         uses = str(step.get("uses") or "")
         run = str(step.get("run") or "")
+        with_text = " ".join(str(v) for v in (step.get("with") or {}).values())
+        fwd = INPUT_CODE.search(with_text) if uses else None
         if uses and (CALLER_USES.match(uses) or LOCAL_ACTION.match(uses)):
             hits.append(f"{name} (uses {uses.split('@')[0]})")
+        elif fwd and fwd.group(1) not in REMOTE_INPUTS:
+            # A library action handed a command input runs it.
+            hits.append(f"{name} (uses {uses.split('@')[0]} with inputs.{fwd.group(1)})")
         elif run:
             # A command input reaches the script through env: as often as inline.
             env_text = " ".join(str(v) for v in (step.get("env") or {}).values())
-            m = next((m for m in [*INPUT_CODE.finditer(run), *INPUT_CODE.finditer(env_text)]
+            m = next((m for m in [*INPUT_CODE.finditer(run), *INPUT_CODE.finditer(env_text),
+                                  *INPUT_AS_COMMAND.finditer(run)]
                       if m.group(1) not in REMOTE_INPUTS), None)
             if m:
                 hits.append(f"{name} (inputs.{m.group(1)})")
             elif LIB_BUILDERS.search(run):
                 hits.append(f"{name} ({LIB_BUILDERS.search(run).group(0)})")
+            elif reusable and REL_SCRIPT.search(run):
+                hits.append(f"{name} ({REL_SCRIPT.search(run).group(0).strip()})")
             elif DOCKER_BUILD.search(run):
                 hits.append(f"{name} (docker build)")
             else:
@@ -179,7 +201,9 @@ def scan(root: Path) -> dict[str, str]:
             why = privileged(job, wf)
             if not why:
                 continue
-            steps = caller_steps(job)
+            triggers = wf.get("on", wf.get(True)) or {}
+            reusable = "workflow_call" in (triggers if isinstance(triggers, (dict, list)) else [triggers])
+            steps = caller_steps(job, reusable)
             if steps:
                 found[f"{path.name}:{jname}"] = (f"holds {', '.join(why)} and runs caller code: "
                                                  f"{'; '.join(steps)}")

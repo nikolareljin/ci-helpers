@@ -250,8 +250,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Checked again here: the version job ran the caller's code.
-          if ! printf '%s' "${VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$'; then
+          # Checked again here: the version job ran the caller's code. [[ =~ ]]
+          # matches the whole value; grep would pass a second line.
+          re='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$'
+          if [[ ! "${VERSION}" =~ $re ]]; then
             echo "::error::version '${VERSION}' is not X.Y.Z." >&2
             exit 1
           fi

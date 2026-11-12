@@ -245,6 +245,13 @@ run in a separate job that:
   it uses a file;
 - runs only steps from this workflow, at the workflow's commit.
 
+Every value the build job hands over (file names, the `.changes` name, the
+version) is caller-chosen data. The privileged job checks each against a
+strict pattern before use: `go-deploy` requires `bin_file` to be a plain
+name under `bin/`, `ppa-deb` requires every file a `.changes` or `.dsc`
+names to be a plain name in the artifact, and `manifest-version` matches
+the whole version value, so a second line cannot pass.
+
 The build job stages only regular files: it refuses a symlink and a file that
 resolves outside its tree, copies with `cp -P` and checks the staged tree
 holds nothing else, so caller code cannot point the artifact at a runner file.
@@ -257,9 +264,12 @@ collide.
 write (or no `permissions:` block, which takes the caller's), a
 `secrets.<name>` or an `environment:`, and also runs caller code. It finds
 caller code by pattern: a `${{ inputs.<name> }}` ending in `command`,
-`commands`, `script` or `args`, a build, package or install tool as a
-command word, a library script that builds the caller's tree, or an action
-that does. Installing a named tool (`dotnet tool install`, `npm install -g`,
+`cmd`, `script`, `script_path`, `args` or `hook` (plural forms too), any
+input used as a command word, a library action handed such an input, a
+build, package or install tool as a command word, a script from the
+checked-out tree run by path or by an interpreter (in a reusable
+workflow, where that tree is the caller's), a library script that builds
+the caller's tree, or an action that does. Installing a named tool (`dotnet tool install`, `npm install -g`,
 `cargo install <crate>`, `go install <path>@<version>`) is not caller code.
 A tool the pattern does not know is not seen.
 

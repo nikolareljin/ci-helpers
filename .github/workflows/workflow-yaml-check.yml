@@ -405,6 +405,10 @@ jobs:
         shell: bash
         run: bash tests/ppa_split_test.sh
 
+      - name: manifest-version checks the handed-over version as one line
+        shell: bash
+        run: bash tests/manifest_version_tag_test.sh
+
   zizmor:
     # Every zizmor finding fails, among them a checkout that keeps its token,
     # a job with no permissions block and a text input spliced into a script.

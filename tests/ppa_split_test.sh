@@ -3,7 +3,8 @@
 # DESCRIPTION: ppa-deb.yml's build job stages every file the .changes names
 #              with a sha256 manifest; the ppa job's verify step accepts that
 #              artifact and refuses a changed, added or missing file and a
-#              bad .changes name, before any key is imported. dcmd is
+#              bad .changes name, and a .changes or .dsc that names a file
+#              outside the artifact, before any key is imported. dcmd is
 #              stubbed.
 # USAGE: bash tests/ppa_split_test.sh
 # ----------------------------------------------------
@@ -80,6 +81,27 @@ for tamper in change add remove link; do
   if verify "$tamper"; then echo "FAIL: accepted after: $tamper"; fail=1; fi
 done
 if verify "" "../x.changes"; then echo "FAIL: accepted a changes name with a path"; fail=1; fi
+
+# The build job writes the .changes and the manifest, so both can agree
+# on a .changes that names a path outside the artifact; debsign and dput
+# would then read it. The ppa job must refuse it before any key is imported.
+restage() {
+  rm -rf "$work/tmp/ppa-out"; : > "$work/out"
+  env PATH="$work/bin:$PATH" RUNNER_TEMP="$work/tmp" GITHUB_OUTPUT="$work/out" GITHUB_RUN_ID=1 \
+    GITHUB_RUN_ATTEMPT=1 CHANGES="$work/src/tool_1.0-1_source.changes" bash "$work/stage.sh" >/dev/null
+  manifest="$(out_val manifest)"
+}
+good=$'Format: 1.8\nSource: tool\nFiles:\n 0123 10 utils optional tool_1.0-1.dsc\n 0123 10 utils optional tool_1.0-1.tar.xz\nChecksums-Sha256:\n 0123 10 tool_1.0-1.dsc\n 0123 10 tool_1.0-1.tar.xz\n'
+printf '%s' "$good" > "$work/src/tool_1.0-1_source.changes"; restage
+verify "" || { echo "FAIL: a .changes naming only artifact files was refused"; fail=1; }
+for bad in ../../.ssh/id_ed25519 /home/runner/.ssh/id_ed25519 missing.tar.xz -oX; do
+  printf '%s 0123 10 %s\n' "$good" "$bad" > "$work/src/tool_1.0-1_source.changes"; restage
+  if verify ""; then echo "FAIL: accepted a .changes naming '$bad'"; fail=1; fi
+done
+printf 'Format: 3.0\nFiles:\n 0123 10 ../../.ssh/id_ed25519\n' > "$work/src/tool_1.0-1.dsc"
+printf '%s' "$good" > "$work/src/tool_1.0-1_source.changes"; restage
+if verify ""; then echo "FAIL: accepted a .dsc naming a path outside the artifact"; fail=1; fi
+echo tool_1.0-1.dsc > "$work/src/tool_1.0-1.dsc"
 
 # A symlink listed by dcmd is refused at staging.
 mv "$work/src/tool_1.0-1.tar.xz" "$work/real.tar.xz"

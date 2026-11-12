@@ -4,7 +4,8 @@
 # verify and deploy steps. A missing extra_files entry fails in the build
 # job, before anything is staged, unless allow_missing_extra_files is true,
 # which skips it with a warning. A file changed after staging, or one added
-# to the artifact, stops the deploy before ssh runs.
+# to the artifact, or a bin_file that is not a plain name under bin/, stops
+# the deploy before ssh runs.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,7 +72,7 @@ deploy() {  # hand the staged files over as the artifact, verify, deploy
     DEPLOY_SSH_HOST=deploy.example DEPLOY_SSH_USER=u DEPLOY_SSH_KEY=k \
     DEPLOY_SSH_KNOWN_HOSTS="deploy.example ssh-ed25519 AAAA" \
     INPUT_REMOTE_PATH=/srv/app INPUT_BIN_NAME=app INPUT_REMOTE_BIN_NAME= \
-    BIN_FILE="$(output "$work/out" bin_file)" \
+    BIN_FILE="${BIN_OVERRIDE-$(output "$work/out" bin_file)}" \
     INPUT_POST_DEPLOY_COMMAND= bash "$work/deploy.sh" 2>&1)
 }
 
@@ -100,6 +101,14 @@ for tamper in change add remove; do
   rc=0; out="$(deploy "$tamper")" || rc=$?
   if (( rc == 0 )); then echo "FAIL: deployed after: $tamper"; fail=1; fi
   if [[ -s "$work/calls" ]]; then echo "FAIL: ssh or rsync ran after: $tamper"; fail=1; fi
+done
+
+# bin_file is a build job output: caller code can set it to any path.
+echo secret > "$work/tmp/key"
+for bad in ../key ../../key -oX "" "app/../../key" $'app\nx'; do
+  rc=0; out="$(BIN_OVERRIDE="$bad" deploy)" || rc=$?
+  if (( rc == 0 )); then echo "FAIL: deployed with bin_file '$bad'"; fail=1; fi
+  if [[ -s "$work/calls" ]]; then echo "FAIL: ssh or rsync ran with bin_file '$bad'"; fail=1; fi
 done
 
 ln -s /etc/hostname "$work/tree/link.conf"

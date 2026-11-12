@@ -189,6 +189,56 @@ expect "words that only look like tools" 0 "$head
 
 # A PENDING entry that no longer fails is a finding: the fixture tree has
 # none of the pending jobs.
+expect "write-all and a *_cmd input" 1 "$head
+    permissions: write-all
+    steps:
+      - run: \${{ inputs.build_cmd }}" $np
+expect "a script_path input" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash \"\${{ inputs.script_path }}\"" $np
+expect "an input of any name run as the command, matrix job, environment" 1 "$head
+    permissions: {}
+    environment: prod
+    strategy:
+      matrix:
+        a: [1]
+    steps:
+      - run: \${{ inputs.build }}" $np
+expect "a library action handed a command input" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - uses: ./.ci-helpers-x/.github/actions/wp-plugin-check
+        with:
+          phpunit_command: \${{ inputs.phpunit_command }}" $np
+expect "a caller script run by path" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: ./scripts/release.sh" $np
+expect "a caller script run by an interpreter" 1 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: |
+          echo hi
+          python3 tools/bump.py" $np
+expect "a repository script outside a reusable workflow" 0 "on:
+  push:
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: ./scripts/create_production.sh" $np
+expect "a library script from the trusted checkout" 0 "$head
+    permissions:
+      contents: write
+    steps:
+      - run: bash .ci-helpers-x/scripts/tag.sh" $np
 expect "stale PENDING entries" 1 "$head
     permissions:
       contents: read
