@@ -65,23 +65,27 @@ if (( fail == 0 )); then ok "build holds no secret; push holds the token, checks
 re_paths="$(cat "$work/re" 2>/dev/null || true)"
 
 # --- an OCI layout fixture ----------------------------------------------------
-blob() {  # blob <dir> <content file> -> prints digest hex
-  local h; h="$(sha256sum < "$2" | cut -d' ' -f1)"
-  mkdir -p "$1/blobs/sha256"; cp "$2" "$1/blobs/sha256/$h"; echo "$h"
+# The layout is built in $work/build, then moved into place: blob() works on
+# fixed paths only.
+blob() {  # blob: $work/blob.in -> $work/build/blobs/sha256/<sha256>, prints the hex
+  local h; h="$(sha256sum < "$work/blob.in" | cut -d' ' -f1)"
+  mkdir -p "$work/build/blobs/sha256"; cp "$work/blob.in" "$work/build/blobs/sha256/$h"; echo "$h"
 }
-mk_layout() {  # mk_layout <dir> [big]
-  local d="$1" c l m
-  mkdir -p "$d"
-  printf '{"imageLayoutVersion":"1.0.0"}' > "$d/oci-layout"
-  echo '{"config":1}' > "$work/c.json"; c="$(blob "$d" "$work/c.json")"
-  if [[ "${2:-}" == big ]]; then head -c 70000000 /dev/urandom > "$work/l.bin"; else echo layer > "$work/l.bin"; fi
-  l="$(blob "$d" "$work/l.bin")"
-  printf '{"schemaVersion":2,"config":{"digest":"sha256:%s"},"layers":[{"digest":"sha256:%s"}]}' "$c" "$l" > "$work/m.json"
-  m="$(blob "$d" "$work/m.json")"
-  printf '{"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"sha256:%s","size":1}]}' "$m" > "$d/index.json"
-  echo "sha256:$m" > "$work/digest.$(basename "$d")"
+mk_layout() {  # mk_layout layout|big
+  local c l m name
+  case "$1" in layout) name=layout ;; big) name=big ;; *) return 1 ;; esac
+  rm -rf "$work/build"; mkdir -p "$work/build"
+  printf '{"imageLayoutVersion":"1.0.0"}' > "$work/build/oci-layout"
+  echo '{"config":1}' > "$work/blob.in"; c="$(blob)"
+  if [[ "$name" == big ]]; then head -c 70000000 /dev/urandom > "$work/blob.in"; else echo layer > "$work/blob.in"; fi
+  l="$(blob)"
+  printf '{"schemaVersion":2,"config":{"digest":"sha256:%s"},"layers":[{"digest":"sha256:%s"}]}' "$c" "$l" > "$work/blob.in"
+  m="$(blob)"
+  printf '{"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"sha256:%s","size":1}]}' "$m" > "$work/build/index.json"
+  echo "sha256:$m" > "$work/digest.$name"
+  mv "$work/build" "$work/$name"
 }
-mk_layout "$work/layout"
+mk_layout layout
 manifest_of() { (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -- "$f"; done); }
 
 # --- the push job's verify step -----------------------------------------------
@@ -107,7 +111,7 @@ for t in change add remove link traverse notblob inject empty; do
 done
 
 # A blob over 60 MiB leaves as parts and comes back whole, under its digest.
-mk_layout "$work/big" big
+mk_layout big
 bash "$root/scripts/artifact_parts.sh" split "$work/big"
 parts="$(find "$work/big" -name '*.split-*' | wc -l)"
 manifest_of "$work/big" > "$work/list"

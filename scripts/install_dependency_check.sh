@@ -6,8 +6,8 @@
 #              its own (--updateonly). The API key is read from NVD_API_KEY
 #              and written to a mode 600 properties file, never to an
 #              argument. No caller code runs: the CLI is pointed at no
-#              project. A file over 60 MiB is stored as <name>.split-NNN
-#              parts (publication-check's limit is 64 MiB per file).
+#              project. The caller splits a file over 60 MiB for the
+#              artifact (scripts/artifact_parts.sh).
 # USAGE: NVD_API_KEY=... bash scripts/install_dependency_check.sh --data DIR [--pins FILE]
 # PARAMETERS:
 #   --data DIR   Directory for the NVD data (created; must not exist yet).
@@ -82,8 +82,4 @@ props="$work/nvd.properties"
 mkdir -p "$data"
 chmod u+x "$cli"
 "$cli" --updateonly --data "${data}" --propertyfile "$props" --disableOssIndex
-# publication-check refuses a file over 64 MiB and the database is several
-# hundred, so a large file leaves as <name>.split-NNN parts of 60 MiB; the
-# scan job joins them after checking the manifest.
-bash "$script_dir/artifact_parts.sh" split "$data"
 echo "NVD data for dependency-check ${version} in $data"

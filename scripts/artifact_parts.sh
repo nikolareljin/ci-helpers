@@ -33,16 +33,19 @@ part_bytes=62914560  # 60 MiB
 split_tree() {
   local dir="$1" big
   [[ -d "$dir" && ! -L "$dir" ]] || { echo "::error::$dir is not a directory." >&2; exit 2; }
-  while IFS= read -r -d '' big; do
+  shopt -s globstar nullglob dotglob
+  for big in "$dir"/**/*; do
+    [[ -f "$big" && ! -L "$big" ]] || continue
     (( $(stat -c %s -- "$big") > part_bytes )) || continue
     [[ ! -e "${big}.split-000" && ! -L "${big}.split-000" ]] || fail "${big}.split-000 already exists."
     split -b "$part_bytes" -d -a 3 -- "$big" "${big}.split-"
     rm -f -- "$big"
-  done < <(find "$dir" -type f -print0)
+  done
+  shopt -u globstar nullglob dotglob
 }
 
 verify_tree() {
-  local dir="$1" list="$2" re="$3" want have first whole n
+  local dir="$1" list="$2" re="$3" want have first whole n parts
   [[ -d "$dir" && ! -L "$dir" ]] || fail "$dir is not a directory."
   [[ -f "$list" && ! -L "$list" ]] || fail "the manifest $list is not a regular file."
   [[ -s "$list" ]] || fail "the manifest is empty."
@@ -61,17 +64,21 @@ verify_tree() {
   # Absolute path: a relative one would be read from inside DIR.
   list="$(realpath -e -- "$list")"
   (cd "$dir" && sha256sum --check --strict --quiet "$list") || fail "a file's sha256 differs from the manifest."
-  while IFS= read -r -d '' first; do
+  # Every symlink was refused above, so globstar walks only the tree.
+  shopt -s globstar nullglob dotglob
+  for first in "$dir"/**/*.split-000; do
+    [[ -f "$first" && ! -L "$first" ]] || continue
     whole="${first%.split-000}"
     [[ ! -e "$whole" && ! -L "$whole" ]] || fail "the artifact holds both a file and its parts."
     # Parts are numbered from 000 with no gap.
     n=0
     while [[ -f "$(printf '%s.split-%03d' "$whole" "$n")" ]]; do n=$((n + 1)); done
-    [[ "$(find "$(dirname -- "$whole")" -maxdepth 1 -type f -name "$(basename -- "$whole").split-*" | wc -l)" == "$n" ]] \
-      || fail "the parts of a file are not numbered 000 up with no gap."
-    cat -- "$whole".split-[0-9][0-9][0-9] > "$whole"
-    rm -f -- "$whole".split-[0-9][0-9][0-9]
-  done < <(cd "$dir" && find "$PWD" -type f -name '*.split-000' -print0)
+    parts=("$whole".split-*)
+    [[ "${#parts[@]}" == "$n" ]] || fail "the parts of a file are not numbered 000 up with no gap."
+    cat -- "${parts[@]}" > "$whole"
+    rm -f -- "${parts[@]}"
+  done
+  shopt -u globstar nullglob dotglob
 }
 
 case "${1:-}" in

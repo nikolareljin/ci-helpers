@@ -93,8 +93,10 @@ done
 rc=0; inst "$work/pins.good" "$work/data4" "" || rc=$?
 if (( rc == 2 )); then ok "refuses an empty key"; else bad "empty key (rc=$rc)"; fi
 
-# A file over the per-file publication limit leaves as parts and comes back whole.
+# A file over the per-file publication limit leaves as parts (the nvd step
+# runs artifact_parts.sh split after the install) and comes back whole.
 rc=0; DC_BIG="$work/big.sum" inst "$work/pins.good" "$work/databig" || rc=$?
+bash "$root/scripts/artifact_parts.sh" split "$work/databig"
 over="$(find "$work/databig" -type f -size +62914560c | wc -l)"
 parts="$(find "$work/databig" -name 'big.mv.db.split-*' | wc -l)"
 if (( rc == 0 )) && [[ "$over" == 0 && "$parts" == 3 && ! -e "$work/databig/big.mv.db" ]]; then

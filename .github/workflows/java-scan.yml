@@ -180,6 +180,10 @@ jobs:
           out="$RUNNER_TEMP/java-scan-nvd"
           /bin/rm -rf -- "$out"
           /bin/bash "$run_lib/scripts/install_dependency_check.sh" --data "$out" --pins "$run_lib/scanner-pins.env"
+          # publication-check refuses a file over 64 MiB and the database is
+          # several hundred: a large file leaves as <name>.split-NNN parts of
+          # 60 MiB, which the scan job joins after checking the manifest.
+          /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
           if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
             echo "::error::the NVD data holds a symlink or special file."; exit 1
           fi
