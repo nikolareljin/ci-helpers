@@ -131,7 +131,9 @@ LIB_PATH_SECRET = LIB_PATH_LINE + " secret"
 # to the trusted links, /usr/bin and /bin (lib_path.sh secret).
 SECRET_VALUE = re.compile(r"secrets\.|github\.token")
 SECRET_NAME = re.compile(r"TOKEN|PASSWORD|SECRET|LICEN[CS]E|SERIAL")
-GIT_DEF = 'git=/usr/bin/git; [[ -x "$git" ]] || git=/mingw64/bin/git.exe'
+GIT_DEF = ('git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do '
+           'if [[ -x "$g" ]]; then git="$g"; break; fi; done; [[ -n "$git" ]] || '
+           '{ echo "::error::no git at a fixed path"; exit 1; }')
 # git runs under `env -i` with a bare PATH; Git Bash's git.exe does not
 # start without the Windows environment, so there the git variables are
 # dropped one by one instead.
@@ -321,7 +323,7 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
                 errors.append(f"{name}: sets genv only as `{GENV_DEF}`")
             if GIT_DEF not in lines or any(re.match(r"(?:export\s+)?git=", ln) and ln != GIT_DEF for ln in lines):
                 errors.append(f"{name}: sets git only as `{GIT_DEF}`")
-            if any(GIT_LINE.search(ln) for ln in lines):
+            if any(GIT_LINE.search(ln) for ln in lines if ln != GIT_DEF):
                 errors.append(f"{name}: runs git through PATH in the step that checks a library checkout")
             if shell != git_shell:
                 errors.append(f"{name}: shell must be `{git_shell}` here (`{BASH}` where runs-on names a Linux or macOS runner)")

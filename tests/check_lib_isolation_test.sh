@@ -226,7 +226,7 @@ pubverify="      - name: Verify publication action revision
           TRUSTED_SHA: \${{ job.workflow_sha }}
 $blanks
         run: |
-          git=/usr/bin/git; [[ -x \"\$git\" ]] || git=/mingw64/bin/git.exe
+          git=; for g in /usr/bin/git /mingw64/bin/git.exe /clangarm64/bin/git.exe /cmd/git.exe; do if [[ -x \"\$g\" ]]; then git=\"\$g\"; break; fi; done; [[ -n \"\$git\" ]] || { echo \"::error::no git at a fixed path\"; exit 1; }
           genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
           [[ \"\$(\"\${genv[@]}\" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \"\$git\" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)\" == \"\$TRUSTED_SHA\" ]] || exit 1"
 pubuse="      - uses: ./.ci-helpers-publication/.github/actions/publication-check
@@ -247,7 +247,7 @@ expect "publication action without the NODE_OPTIONS blank" 1 "$(wf_raw "$pubco" 
 expect "verify through PATH git" 1 "$(wf_raw "$pubco" "${pubverify/\"\$git\" -c core.fsmonitor= -c core.hooksPath=\/dev\/null -C/git -C}" "$pubuse")"
 expect "verify git without hooksPath off" 1 "$(wf_raw "$pubco" "${pubverify/ -c core.hooksPath=\/dev\/null/}" "$pubuse")"
 expect "verify git reading the global config" 1 "$(wf_raw "$pubco" "${pubverify/ GIT_CONFIG_GLOBAL=\/dev\/null/}" "$pubuse")"
-expect "verify git from a planted \$git" 1 "$(wf_raw "$pubco" "${pubverify/git=\/usr\/bin\/git; /git=git; }" "$pubuse")"
+expect "verify git from a planted \$git" 1 "$(wf_raw "$pubco" "${pubverify/git=; for g in/git=git; for g in}" "$pubuse")"
 expect "verify step under PATH bash" 1 "$(wf_raw "$pubco" "${pubverify/shell: \/bin\/bash --noprofile --norc -e -o pipefail \{0\}/shell: bash}" "$pubuse")"
 expect "verify step without the PS4 blank" 1 "$(wf_raw "$pubco" "${pubverify/          PS4: \"\"
 /}" "$pubuse")"
@@ -270,7 +270,7 @@ expect "library script without lib_path.sh" 1 "$(wf "$checkout" "$isolate" "${us
 expect "trusted tools set after the script runs" 1 "$(wf "$checkout" "$isolate" "${use/          . \"\$run_lib\/scripts\/lib_path.sh\"
           \/bin\/bash \"\$run_lib\/scripts\/setup_rust.sh\"/          /bin/bash \"\$run_lib/scripts/setup_rust.sh\"
           . \"\$run_lib/scripts/lib_path.sh\"}")"
-expect "verify step without the git= line" 1 "$(wf_raw "$pubco" "${pubverify/git=\/usr\/bin\/git;*mingw64\/bin\/git.exe
+expect "verify step without the git= line" 1 "$(wf_raw "$pubco" "${pubverify/git=; for g in*no git at a fixed path\"; exit 1; \}
 /}")"
 expect "verify step also running git through PATH" 1 "$(wf_raw "$pubco" "$pubverify
           git status" "$pubuse")"

@@ -161,7 +161,9 @@ The step that checks a library checkout's commit runs under
 except the `GIT_*` ones (an empty `GIT_DIR` stops git), and runs git as
 `"${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c
 core.fsmonitor= -c core.hooksPath=/dev/null -C <checkout> rev-parse HEAD`,
-with `git` set to `/usr/bin/git` or `/mingw64/bin/git.exe` (`env` does not add `.exe`). `genv` is
+with `git` the first of `/usr/bin/git`, `/mingw64/bin/git.exe`,
+`/clangarm64/bin/git.exe` and `/cmd/git.exe` that exists (`env` does not
+add `.exe`). `genv` is
 `/usr/bin/env -i PATH=/usr/bin:/bin`; under Git Bash, where `git.exe` does
 not start without the Windows environment, it is `/usr/bin/env` with each
 `GIT_*` variable that points git elsewhere unset.
