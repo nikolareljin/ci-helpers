@@ -644,7 +644,7 @@ reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work
 planted_target="$work/elsewhere/info/exclude"; verify_skipped "a .git file"
 reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; ln -s "$work/elsewhere" "$work/ws/.git"
 planted_target="$work/elsewhere/info/exclude"; verify_skipped "a symlinked .git"
-# A caller can export CDPATH; `cd .git` would then leave the workspace.
+# A caller can export CDPATH; a planted commondir that CDPATH matches must still be refused.
 reset_ws_git; rm -rf "$work/cdp"; git -c init.defaultBranch=main init -q --bare "$work/cdp/.git"; : > "$work/cdp/.git/info/exclude"
 printf '%s\n' "$work/cdp/.git" > "$work/ws/.git/commondir"
 planted_target="$work/cdp/.git/info/exclude"; verify_planted "a commondir matched by CDPATH"
