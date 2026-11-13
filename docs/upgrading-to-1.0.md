@@ -155,7 +155,7 @@ not read. Metadata, images and changelogs are not uploaded to Google Play.
     with:
       build_android: true
       deploy_google_play: true
-      android_package_name: com.example.app
+      android_package_name: com.example.app   # plus the four keystore secrets
       google_play_track: internal          # default
       runner: macos-latest                 # an App Store build needs macOS
       deploy_app_store: true
@@ -172,8 +172,9 @@ not read. Metadata, images and changelogs are not uploaded to Google Play.
 Affected: every caller that requires the workflow's checks; apps that set
 signing in `tauri.conf.json`.
 
-If nothing changes: new checks `<caller job> / sign-macos` and
-`<caller job> / sign-windows` report (`release` needs both).
+If nothing changes: a new check `<caller job> / sign-macos` reports, and
+`<caller job> / sign-windows` reports in every `windows_sign_mode`
+(`release` needs both).
 `bundle.macOS.signingIdentity`, `bundle.macOS.entitlements`,
 `bundle.windows.signCommand` and `certificateThumbprint` have no effect. A
 custom DMG background or layout is not applied. App and installer names with
@@ -230,4 +231,4 @@ An empty `flutter_version` with `flutter_channel: stable` installs the pinned
 Flutter 3.47.9. PHP presets default `runner` to `ubuntu-24.04`. `unity.yml`'s
 `cache` input has no effect.
 
-See the [CHANGELOG](../CHANGELOG.md) 1.0.0 section for every change.
+See the [CHANGELOG](https://github.com/nikolareljin/ci-helpers/blob/main/CHANGELOG.md) 1.0.0 section for every change.
