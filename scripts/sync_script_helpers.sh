@@ -294,11 +294,10 @@ echo "$COMMIT_HASH" > "$ROOT_DIR/vendor/.script-helpers-sha"
 echo "$REF_LABEL"   > "$ROOT_DIR/vendor/.script-helpers-ref"
 
 
-# vendor/ is gitignored (only the two lockfiles are re-included), yet the
-# vendored tree is committed. A plain `git add` therefore updates files that are
-# already tracked but silently skips any file a new upstream release *adds* --
-# which is how 0.28.0's release_notes.sh and check_changelog_section.sh were
-# left out of a commit that claimed to bring them in. Force-stage the whole tree
+# A plain `git add` skips any new file an ignore rule names, and the vendored
+# tree carries upstream's own .gitignore. 0.28.0's release_notes.sh and
+# check_changelog_section.sh were once left out of a commit that claimed to
+# bring them in that way. Force-stage the whole tree
 # here, in the tool that owns it, so an addition can never be dropped again.
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git -C "$ROOT_DIR" add --force --all -- \
