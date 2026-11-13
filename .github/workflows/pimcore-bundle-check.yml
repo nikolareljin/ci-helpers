@@ -359,7 +359,7 @@ jobs:
           [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
           if [[ -e .git || -L .git ]]; then
             [[ -d .git && ! -L .git ]] || { echo "::error::.git is not a plain directory; refusing to edit its exclude file"; exit 1; }
-            gd=$(cd .git && pwd -P); exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --path-format=absolute --git-path info/exclude)
+            gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --path-format=absolute --git-path info/exclude)
             [[ ! -x /usr/bin/cygpath ]] || exclude=$(/usr/bin/cygpath -u "$exclude")
             [[ "$exclude" == "$gd/info/exclude" && ! -L "$gd/info" && ! -L "$exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"

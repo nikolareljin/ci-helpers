@@ -611,7 +611,7 @@ grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
 # planted redirect must fail the step and leave the target untouched.
 verify_planted() {  # verify_planted <label>; the target file is in $planted_target
   local before; before="$(cat "$planted_target" 2>/dev/null || true)"
-  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" CDPATH="$work/cdp" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
     "$work/step-verify.sh") > "$work/verify.out" 2>&1 && { echo "FAIL the Verify step accepted $1"; fail=1; }
   [[ "$(cat "$planted_target" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
   grep -q '^::error::.*refusing' "$work/verify.out" || { echo "FAIL the Verify step did not refuse $1 by name:"; cat "$work/verify.out"; fail=1; }
@@ -631,6 +631,10 @@ ln "$work/victim" "$work/ws/.git/info/exclude"
 planted_target="$work/victim"; verify_planted "a hard-linked .git/info/exclude"
 reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work/elsewhere" > "$work/ws/.git"
 planted_target="$work/elsewhere/info/exclude"; verify_planted "a .git file"
+# A caller can export CDPATH; `cd .git` would then leave the workspace.
+reset_ws_git; rm -rf "$work/cdp"; git -c init.defaultBranch=main init -q --bare "$work/cdp/.git"; : > "$work/cdp/.git/info/exclude"
+printf '%s\n' "$work/cdp/.git" > "$work/ws/.git/commondir"
+planted_target="$work/cdp/.git/info/exclude"; verify_planted "a commondir matched by CDPATH"
 reset_ws_git; rm -f "$work/ws/.git/info/exclude"
 (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
   "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step with no exclude file:"; cat "$work/verify.out"; fail=1; }
