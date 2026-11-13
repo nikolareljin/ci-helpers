@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Security
+
+- **The `Verify publication action revision` step no longer follows a caller-planted `.git` when it adds `/.ci-helpers-publication/` to `info/exclude`.** Caller code runs before it and can write the workspace `.git` (the Unity container mounts it as root). The step ran bare `git rev-parse --git-path info/exclude` and appended to whatever path came back, so a planted `.git/commondir` or a symlinked `info/exclude` sent the write to another file. All 48 copies in 26 workflows now resolve the path with the same clean-env git as the revision check, and fail the step when git cannot read `.git`, `.git/info` cannot be created, or the exclude file resolves outside `.git`, through a symlink, or is hard-linked. The check compares the relative `--git-path` output, so it needs no `--path-format` (git 2.31). When `.git` is a `gitdir:` file (worktree, submodule) or a symlink, the step prints a warning and skips the exclude write. `tests/check_lib_isolation_test.sh` plants each case.
+
 ### Changed
 
 - **Secrets no longer reach `env` as arguments in library steps.** The 23 steps that passed a secret as `NAME="$VALUE"` to `env -i` (cloudflare deploy, registry login, release uploads, Android, Apple and updater signing, Unity licence, production ref moves, NVD fetch) now hand a bash the variable names to keep, started through `env -u` for the bash and loader start-up variables the step also blanks; it drops every other name with `env -u` and execs the clean bash, so the value stays in the environment and never shows in `/proc/<pid>/cmdline`. The keep form also refuses an environment entry `env -u` cannot remove and any entry after its per-run end marker; `tests/keep_env_snippet_test.sh` runs it on Linux, macOS and Windows. `scripts/check_lib_isolation.py` refuses a secret passed to `env` as an argument in any step (#375).

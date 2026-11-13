@@ -253,8 +253,14 @@ jobs:
           genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$("$git" rev-parse --git-path info/exclude)
+          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
+            echo "::warning::.git is not a plain directory; not adding the publication checkout to its exclude file"
+          elif [[ -d .git ]]; then
+            gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
+            [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
+            exclude="$gd/info/exclude"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
+            [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 
