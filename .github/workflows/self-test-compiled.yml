@@ -634,9 +634,9 @@ jobs:
           if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
             echo "::warning::.git is not a plain directory; not adding the publication checkout to its exclude file"
           elif [[ -d .git ]]; then
-            gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --path-format=absolute --git-path info/exclude)
-            [[ ! -x /usr/bin/cygpath ]] || exclude=$(/usr/bin/cygpath -u "$exclude")
-            [[ "$exclude" == "$gd/info/exclude" && ! -L "$gd/info" && ! -L "$exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
+            gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
+            [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
+            exclude="$gd/info/exclude"
             [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"

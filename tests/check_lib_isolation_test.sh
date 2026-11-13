@@ -653,6 +653,8 @@ reset_ws_git; rm -f "$work/ws/.git/info/exclude"
   "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step with no exclude file:"; cat "$work/verify.out"; fail=1; }
 grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
   || { echo "FAIL the Verify step did not create a missing exclude file"; fail=1; }
+# A .git dir git cannot read fails the step by name, not with a bare git error.
+reset_ws_git; rm -rf "$work/ws/.git"; mkdir "$work/ws/.git"; planted_target="$work/ws/.git/info/exclude"; verify_planted "a .git dir git cannot read"
 reset_ws_git
 # Every copy of the step resolves the exclude path with the hardened git.
 if grep -rn '"\$git" rev-parse --git-' "$root/.github/workflows"; then
