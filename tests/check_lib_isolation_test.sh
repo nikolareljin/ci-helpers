@@ -608,7 +608,8 @@ grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
   || { echo "FAIL the Verify step no longer keeps the checkout out of the caller's git status"; fail=1; }
 
 # Caller code can rewrite the workspace .git before Verify runs. Each
-# planted redirect must fail the step and leave the target untouched.
+# planted redirect inside a real .git dir must fail the step and leave
+# the target untouched.
 verify_planted() {  # verify_planted <label>; the target file is in $planted_target
   local before; before="$(cat "$planted_target" 2>/dev/null || true)"
   (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" CDPATH="$work/cdp" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
@@ -629,8 +630,20 @@ planted_target="$work/victim"; verify_planted "a symlinked .git/info"
 reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
 ln "$work/victim" "$work/ws/.git/info/exclude"
 planted_target="$work/victim"; verify_planted "a hard-linked .git/info/exclude"
+# A .git that is a gitdir: file (worktree, submodule) or a symlink is not
+# an attack sign: the step warns, writes nothing and still passes.
+verify_skipped() {  # verify_skipped <label>; the target file is in $planted_target
+  local before; before="$(cat "$planted_target" 2>/dev/null || true)"
+  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+    "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step failed on $1:"; cat "$work/verify.out"; fail=1; }
+  [[ "$(cat "$planted_target" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+  grep -q '^::warning::.git is not a plain directory' "$work/verify.out" || { echo "FAIL the Verify step did not warn on $1:"; cat "$work/verify.out"; fail=1; }
+  ! grep -rqs '/.ci-helpers-publication/' "$work/ws/.git" "$work/elsewhere" || { echo "FAIL the Verify step wrote an exclude entry for $1"; fail=1; }
+}
 reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work/elsewhere" > "$work/ws/.git"
-planted_target="$work/elsewhere/info/exclude"; verify_planted "a .git file"
+planted_target="$work/elsewhere/info/exclude"; verify_skipped "a .git file"
+reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; ln -s "$work/elsewhere" "$work/ws/.git"
+planted_target="$work/elsewhere/info/exclude"; verify_skipped "a symlinked .git"
 # A caller can export CDPATH; `cd .git` would then leave the workspace.
 reset_ws_git; rm -rf "$work/cdp"; git -c init.defaultBranch=main init -q --bare "$work/cdp/.git"; : > "$work/cdp/.git/info/exclude"
 printf '%s\n' "$work/cdp/.git" > "$work/ws/.git/commondir"
