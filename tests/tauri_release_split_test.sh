@@ -282,18 +282,31 @@ cat > "$work/cargo/cargo" <<EOF
 #!/bin/bash
 echo "cargo \$*" > "$work/cargo.log"
 echo "home=\${CARGO_HOME:-unset} cwd-entries=\$(ls -A | wc -l)" >> "$work/cargo.log"
+echo "leak=\$(env | cut -d= -f1 | grep -E '^(CARGO_|RUSTC|RUSTFLAGS)' | grep -vx CARGO_HOME | tr '\n' ' ')" >> "$work/cargo.log"
 [[ -z "\${CARGO_HOME:-}" || ! -e "\$CARGO_HOME/config.toml" ]] || echo "config-seen" >> "$work/cargo.log"
-root="\${@: -1}"; mkdir -p "\$root/bin"; : > "\$root/bin/cargo-tauri"
+a=("\$@"); for ((i=0; i<\${#a[@]}; i++)); do [[ "\${a[i]}" == --root ]] && root="\${a[i+1]}"; done; mkdir -p "\$root/bin"; : > "\$root/bin/cargo-tauri"
 EOF
 chmod +x "$work/cargo/cargo"
 if out="$(cd "$work/home" && env -i PATH="$work/cargo:/usr/bin:/bin" HOME="$work/home" ROOT="$work/signer" bash "$root/scripts/install_tauri_signer.sh" 2>&1)" \
     && [[ "$out" == "signer=$work/signer/bin/cargo-tauri" ]] \
-    && grep -qE "^cargo install tauri-cli --version =[0-9]+\.[0-9]+\.[0-9]+ --locked --root $work/signer$" "$work/cargo.log" \
+    && grep -qE "^cargo install tauri-cli --version =[0-9]+\.[0-9]+\.[0-9]+ --locked --root $work/signer " "$work/cargo.log" \
     && grep -qE "^home=/.+ cwd-entries=0$" "$work/cargo.log" && ! grep -q "home=$work/home" "$work/cargo.log" \
     && ! grep -q config-seen "$work/cargo.log"; then
   ok "install_tauri_signer installs the pinned version with --locked, a fresh CARGO_HOME, from an empty directory"
 else
   bad "install_tauri_signer: $out"
+fi
+mkdir -p "$work/rt/.cargo" "$work/rt/sub"
+printf '[build]\nrustc-wrapper = "/bin/false"\n' > "$work/rt/.cargo/config.toml"
+rc=0; env -i PATH="$work/cargo:/usr/bin:/bin" HOME="$work/home" RUNNER_TEMP="$work/rt/sub" ROOT="$work/signer3" bash "$root/scripts/install_tauri_signer.sh" >/dev/null 2>&1 || rc=$?
+[[ "$rc" == 1 && ! -e "$work/signer3" ]] && ok "install_tauri_signer refuses a .cargo/config above its work directory" || bad "a planted ancestor cargo config exited $rc"
+: > "$work/cargo.log"; mkdir -p "$work/rt2"
+env -i PATH="$work/cargo:/usr/bin:/bin" HOME="$work/home" RUNNER_TEMP="$work/rt2" RUSTFLAGS=-Cx CARGO_BUILD_RUSTC_WRAPPER=/bin/false RUSTC_WRAPPER=/bin/false ROOT="$work/signer4" bash "$root/scripts/install_tauri_signer.sh" >/dev/null 2>&1 || true
+if grep -q "build.rustc-wrapper=\"\"" "$work/cargo.log" && grep -q "build.rustc-workspace-wrapper=\"\"" "$work/cargo.log" \
+    && grep -q "^leak=$" "$work/cargo.log" && grep -q "^home=$work/rt2/cargo\." "$work/cargo.log"; then
+  ok "install_tauri_signer clears CARGO_/RUSTC/RUSTFLAGS env, overrides wrappers, works under RUNNER_TEMP"
+else
+  bad "install_tauri_signer env/config: $(cat "$work/cargo.log")"
 fi
 printf 'TAURI_CLI_VERSION=^2\n' > "$work/pins.env"
 rc=0; env -i PATH="$work/cargo:/usr/bin:/bin" ROOT="$work/signer2" TOOLCHAIN_PINS="$work/pins.env" bash "$root/scripts/install_tauri_signer.sh" >/dev/null 2>&1 || rc=$?
