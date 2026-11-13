@@ -10,7 +10,7 @@ To automate Google Play uploads you need:
 
 1. **Google Play Console app** (package created)
 2. **Service account** with upload permissions
-3. **Fastlane lane** in the app repo
+3. **Upload key** (keystore) for the app
 4. **GitHub Actions secrets** wired to the reusable workflow
 
 ---
@@ -37,8 +37,10 @@ Required secret (per workflow):
 
 ---
 
-## Fastlane Lane (app repo)
-Example `fastlane/Fastfile` lane:
+## Fastlane Lane (app repo, local use only)
+`flutter-release.yml` does not run the app's lanes: it uploads with its own
+`fastlane supply` call (see below). A lane like this one is still useful
+from a workstation:
 ```
 platform :android do
   lane :android_release do
@@ -62,7 +64,8 @@ jobs:
     with:
       build_android: true
       deploy_google_play: true
-      fastlane_android_lane: android_release
+      android_package_name: com.example.app
+      google_play_track: internal
       working_directory: "."
     secrets:
       android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -72,12 +75,18 @@ jobs:
       google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
 ```
 
+The `sign-android` job signs the bundle with the upload key (`jarsigner`)
+and runs `fastlane supply --aab <bundle> --package_name
+<android_package_name> --track <google_play_track> --release_status
+<google_play_release_status>` from an empty directory, with the fastlane
+version pinned in the library. Metadata, images and changelogs are not
+uploaded.
+
 ---
 
 ## Troubleshooting
 
 - **Upload fails with 403**: ensure service account has access to the app.
-- **Fastlane not found**: ensure Fastlane is installed or use `bundle exec`.
 - **Track not found**: verify the release track exists in Play Console.
 
 ---

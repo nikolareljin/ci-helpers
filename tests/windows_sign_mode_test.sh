@@ -16,7 +16,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$root/.github/actions/windows-sign/action.yml" "$root/.github/workflows/tauri-release.yml" <<'PY'
-import sys, yaml
+import re, sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 rd = yaml.safe_load(open(sys.argv[2]))
 fail = []
@@ -39,31 +39,33 @@ for name in ("WINDOWS_CERTIFICATE", "AZURE_"):
 if not sign:
     fail.append("tauri-release has no sign-windows job")
 else:
-    if sign.get("needs") != "build-windows":
+    if sign.get("needs") != ["build-windows", "build-signer-windows"]:
         fail.append("sign-windows does not need build-windows")
     for st in sign["steps"]:
         uses = st.get("uses", "")
         if uses.startswith("actions/checkout@"):
             w = st.get("with", {})
             if w.get("repository") != "${{ job.workflow_repository }}" or w.get("ref") != "${{ job.workflow_sha }}" \
-               or w.get("sparse-checkout") not in (".github/actions", ".github/actions/publication-check\nvendor/script-helpers\n"):
+               or w.get("sparse-checkout") not in (".github/actions", "scripts\n", ".github/actions/publication-check\nvendor/script-helpers\n"):
                 fail.append("sign-windows checks out something other than the ci-helpers actions")
         run = st.get("run", "")
-        for tool in ("cargo", "npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
+        if re.search(r"(?<![\w-])(cargo|rustup|rustc)(?![\w-])|install_tauri_signer|setup_rust", run):
+            fail.append("sign-windows runs cargo or rustup: the signer comes from build-signer-windows")
+        for tool in ("npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
             if tool in run:
                 fail.append(f"sign-windows runs {tool.strip()}: it must run no app or build code")
         if "working-directory" in st:
             fail.append("sign-windows has a step with working-directory: it has no app tree")
     stext = yaml.safe_dump(sign)
-    if "tauri-windows-unsigned" not in stext or "tauri-windows-artifacts" not in stext:
-        fail.append("sign-windows does not download tauri-windows-unsigned and upload tauri-windows-artifacts")
+    if "needs.build-windows.outputs.artifact" not in stext or "tauri-windows-artifacts" not in stext:
+        fail.append("sign-windows does not download the build-windows artifact and upload tauri-windows-artifacts")
     calls = [st for st in sign["steps"] if st.get("uses", "").endswith("/windows-sign")]
     if len(calls) != 1 or not calls[0].get("with", {}).get("files_folder"):
         fail.append("sign-windows does not run windows-sign with files_folder")
     elif "secrets.WINDOWS_CERTIFICATE " not in calls[0]["with"].get("certificate_base64", "") + " ":
         fail.append("sign-windows does not pass WINDOWS_CERTIFICATE to windows-sign")
-up = [st for st in build["steps"] if st.get("name") == "Upload Windows artifacts"]
-if not up or "&& 1 ||" not in str(up[0].get("with", {}).get("retention-days", "")):
+up = [st for st in build["steps"] if st.get("name") == "Upload the unsigned installers"]
+if not up or str(up[0].get("with", {}).get("retention-days", "")) != "1":
     fail.append("the unsigned Windows artifact is kept for artifact_retention_days, not 1 day")
 if "sign-windows" not in jobs["release"].get("needs", []):
     fail.append("release does not wait for sign-windows")
@@ -75,36 +77,41 @@ if fail:
 print("ok: pfx is wired in; tauri-release signs in sign-windows, away from the build")
 PY
 
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" \
+  "$root/.github/workflows/tauri-release.yml" "$tmp/release.ps1" "$tmp/path_re" <<'PY'
+import re, sys, yaml
+open(sys.argv[2], "w").write(yaml.safe_load(open(sys.argv[1]))["runs"]["steps"][0]["run"])
+jobs = yaml.safe_load(open(sys.argv[3]))["jobs"]
+open(sys.argv[4], "w").write(jobs["build-windows"]["steps"][0]["run"])
+v = [s for s in jobs["sign-windows"]["steps"] if s.get("name") == "Verify the build output against its manifest"]
+m = re.search(r"artifact_parts\.sh\" verify .* '([^']+)'$", v[0]["run"], re.M) if v else None
+open(sys.argv[5], "w").write(m.group(1) if m else "")
+PY
+# sign-windows refuses a file it would publish unsigned: the verify step's
+# pattern admits .exe and .msi files at the top of the artifact only.
+path_re="$(cat "$tmp/path_re")"
+[ -n "$path_re" ] || { echo "FAIL: sign-windows has no artifact_parts.sh verify step"; exit 1; }
+verify_tree() {
+  (cd "$tmp/inst" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done) > "$tmp/list"
+  bash "$root/scripts/artifact_parts.sh" verify "$tmp/inst" "$tmp/list" "$path_re" >/dev/null 2>&1
+}
+mkdir -p "$tmp/inst"
+: > "$tmp/inst/App.msi"; : > "$tmp/inst/App 1.0 setup.EXE.exe"
+verify_tree || { echo "FAIL: sign-windows refused installers only"; exit 1; }
+: > "$tmp/inst/payload.dll"
+if verify_tree; then echo "FAIL: sign-windows would publish payload.dll unsigned"; exit 1; fi
+rm "$tmp/inst/payload.dll"; : > "$tmp/inst/.payload.dll"
+if verify_tree; then echo "FAIL: sign-windows would publish hidden .payload.dll unsigned"; exit 1; fi
+rm "$tmp/inst/.payload.dll"; mkdir "$tmp/inst/nsis dir"; : > "$tmp/inst/nsis dir/App.exe"
+if verify_tree; then echo "FAIL: sign-windows would publish an installer from a subdirectory"; exit 1; fi
+echo "ok: sign-windows refuses a file it would not sign"
 if ! command -v pwsh >/dev/null 2>&1; then
   if [ -n "${CI:-}" ]; then echo "FAIL: pwsh not found"; exit 1; fi
   echo "SKIP: pwsh not found, the pwsh checks were not run"
   exit 0
 fi
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-python3 - "$root/.github/actions/windows-sign/action.yml" "$tmp/check.ps1" \
-  "$root/.github/workflows/tauri-release.yml" "$tmp/release.ps1" <<'PY'
-import sys, yaml
-open(sys.argv[2], "w").write(yaml.safe_load(open(sys.argv[1]))["runs"]["steps"][0]["run"])
-jobs = yaml.safe_load(open(sys.argv[3]))["jobs"]
-open(sys.argv[4], "w").write(jobs["build-windows"]["steps"][0]["run"])
-only = [s for s in jobs["sign-windows"]["steps"] if s.get("name") == "Only installers to sign"]
-open(sys.argv[2] + ".only.ps1", "w").write(only[0]["run"] if only else "exit 0")
-PY
-# sign-windows refuses a file it would publish unsigned.
-mkdir -p "$tmp/inst/nsis dir"
-: > "$tmp/inst/App.msi"; : > "$tmp/inst/nsis dir/App setup.EXE"
-DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1 || { echo "FAIL: sign-windows refused installers only"; exit 1; }
-: > "$tmp/inst/nsis dir/payload.dll"
-if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
-  echo "FAIL: sign-windows would publish payload.dll unsigned"; exit 1
-fi
-rm "$tmp/inst/nsis dir/payload.dll"; : > "$tmp/inst/.payload.dll"
-# A hidden file (a dot file here, the hidden attribute on Windows) counts too.
-if DIR="$tmp/inst" pwsh -NoProfile -File "$tmp/check.ps1.only.ps1" >/dev/null 2>&1; then
-  echo "FAIL: sign-windows would publish hidden .payload.dll unsigned"; exit 1
-fi
-echo "ok: sign-windows refuses a file it would not sign"
 fail=0
 need_secrets="sign_mode pfx needs certificate_base64 and certificate_password"
 check() { # want_rc mode cert password want_text

@@ -96,9 +96,6 @@ REMOTE_INPUTS = {"post_deploy_command"}
 
 # Jobs not yet split. "file:job" -> why it still holds both.
 PENDING: dict[str, str] = {
-    "flutter-release.yml:flutter_release": "signs and uploads to the stores from the build job; split next",
-    "tauri-release.yml:build-macos": "signs inside tauri build; next: sign the downloaded bundle in its own macOS job",
-    "tauri-release.yml:build-windows": "signs the updater bundle inside tauri build; split next",
     "unity.yml:test": "the licence is activated for the caller's test run and returned after it; see docs/SECURITY.md",
 }
 

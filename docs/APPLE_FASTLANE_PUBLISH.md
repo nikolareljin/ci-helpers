@@ -110,25 +110,32 @@ jobs:
   ios_release:
     uses: nikolareljin/ci-helpers/.github/workflows/flutter-release.yml@production
     with:
-      build_ios: true
+      build_android: false
       deploy_app_store: true
-      fastlane_ios_lane: ios_release
+      ios_bundle_id: com.example.app
+      ios_team_id: XXXXXXXXXX
       working_directory: "."
       runner: macos-latest
     secrets:
       app_store_connect_api_key_base64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
       app_store_connect_key_id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       app_store_connect_issuer_id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      match_git_url: ${{ secrets.MATCH_GIT_URL }}
+      match_password: ${{ secrets.MATCH_PASSWORD }}
+      match_git_basic_authorization: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 ```
 
 > App Store uploads require a **macOS runner**.
 
 ---
 
-## Fastlane Files Required (app repo)
+## Fastlane Files (app repo, local use only)
+`flutter-release.yml` reads none of these: the bundle id and team id come
+from `ios_bundle_id` and `ios_team_id`. They are still useful from a
+workstation:
+
 - `fastlane/Fastfile`
 - `fastlane/Appfile` (with bundle ID and team ID)
-- Optional `Gemfile` if you want pinned Fastlane
 
 Example `fastlane/Appfile`:
 ```
@@ -143,20 +150,30 @@ This repository ships a reusable Flutter workflow:
 
 That workflow:
 
-- Builds Android/iOS artifacts
-- Can deploy to App Store and Google Play using Fastlane
-- Requires a macOS runner for iOS uploads
+- Builds Android/iOS artifacts with no secret on the runner
+- Builds an unsigned `.xcarchive` (`ios_archive_command`) for an App Store
+  upload; the `upload-app-store` job fetches the App Store certificate and
+  profile with `fastlane match appstore --readonly`, exports and signs the
+  IPA with `xcodebuild -exportArchive`, and uploads it with `fastlane pilot
+  upload` (TestFlight) or `fastlane deliver`, all with the fastlane version
+  pinned in the library, from an empty directory
+- Requires a macOS runner for iOS builds and uploads
 
 Inputs for App Store deploy:
 
 - `deploy_app_store: true`
-- `fastlane_ios_lane` (defaults to `ios_release`)
+- `ios_bundle_id`, `ios_team_id`
+- `app_store_destination` (`testflight`, the default, or `app_store`)
 
 Secrets for App Store deploy:
 
 - `APP_STORE_CONNECT_API_KEY_BASE64`
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
+- `MATCH_GIT_URL`, `MATCH_PASSWORD` (and `MATCH_GIT_BASIC_AUTHORIZATION` for a private repository)
+
+The profile name must be match's default, `match AppStore <bundle id>`. An
+app with extensions (more than one bundle id) is not supported.
 
 ---
 
@@ -171,10 +188,6 @@ Secrets for App Store deploy:
 
 - Verify Key ID / Issuer ID
 - Verify .p8 file is correct and base64 encoded
-
-**Fastlane not found**
-
-- Ensure `bundle exec fastlane` or `gem install fastlane` is used
 
 ---
 

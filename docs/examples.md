@@ -93,7 +93,7 @@ jobs:
       working_directory: "apps/mobile"
       build_android: true
       deploy_google_play: true
-      fastlane_android_lane: "android_release"
+      android_package_name: com.example.app
     secrets:
       android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
