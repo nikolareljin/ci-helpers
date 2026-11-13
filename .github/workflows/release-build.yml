@@ -976,7 +976,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" GH_TOKEN="$GH_TOKEN" TAG_NAME="$TAG_NAME" RELEASE_NAME="$RELEASE_NAME" BODY_PATH="$BODY_PATH" FILES="$FILES" OVERWRITE_FILES="$OVERWRITE_FILES" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /bin/bash --noprofile --norc -c 'set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); while IFS= read -r -d "" e; do n="${e%%=*}"; k=0; for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; [[ -z "$n" || "$k" == 1 ]] || u+=(-u "$n"); done < <(/usr/bin/env -0); exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"' ci-helpers-env 'HOME STEP_PATH LIB LIB_HASH GH_TOKEN TAG_NAME RELEASE_NAME BODY_PATH FILES OVERWRITE_FILES GITHUB_OUTPUT GITHUB_STEP_SUMMARY GITHUB_WORKSPACE GITHUB_ACTIONS RUNNER_TEMP RUNNER_OS RUNNER_ARCH RUNNER_TOOL_CACHE CI' \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }
@@ -1057,7 +1057,7 @@ jobs:
         run: |
           set +xv
           case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function is in the environment; nothing runs."; exit 1 ;; esac
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" GH_TOKEN="$GH_TOKEN" TAG_NAME="$TAG_NAME" RELEASE_NAME="$RELEASE_NAME" BODY_PATH="$BODY_PATH" OVERWRITE_FILES="$OVERWRITE_FILES" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_TEMP="$RUNNER_TEMP" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" RUNNER_TOOL_CACHE="$RUNNER_TOOL_CACHE" CI="$CI" \
+          exec /bin/bash --noprofile --norc -c 'set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); while IFS= read -r -d "" e; do n="${e%%=*}"; k=0; for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; [[ -z "$n" || "$k" == 1 ]] || u+=(-u "$n"); done < <(/usr/bin/env -0); exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"' ci-helpers-env 'HOME STEP_PATH LIB LIB_HASH GH_TOKEN TAG_NAME RELEASE_NAME BODY_PATH OVERWRITE_FILES GITHUB_OUTPUT GITHUB_STEP_SUMMARY GITHUB_WORKSPACE GITHUB_ACTIONS RUNNER_TEMP RUNNER_OS RUNNER_ARCH RUNNER_TOOL_CACHE CI' \
             /bin/bash --noprofile --norc -euo pipefail -c "$(/bin/cat <<'CI_HELPERS_RUN'
           [[ "$LIB_HASH" =~ ^[0-9a-f]{64}$ && -d "$LIB" ]] || { echo "::error::no verified library copy to run from."; exit 1; }
           [[ -z "$(/usr/bin/find "$LIB" -type f -perm -u+w -print -quit)" ]] || { echo "::error::the library copy is writable again; nothing runs from it."; exit 1; }

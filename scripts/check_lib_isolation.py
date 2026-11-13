@@ -41,8 +41,13 @@ with PyYAML. In every job, and in a composite action:
              `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME"
              LANG=C.UTF-8 NAME="$NAME"... /bin/bash --noprofile --norc`:
              an allowlist of named variables, never BASH_ENV, SHELLOPTS,
-             BASHOPTS, LD_*, GIT_*, CI_HELPERS_* and the like. Library code
-             runs only in the heredoc body that bash gets with -c;
+             BASHOPTS, LD_*, GIT_*, CI_HELPERS_* and the like, or
+             KEEP_PREFIX with the names to keep, for a step that passes a
+             secret on. Library code runs only in the heredoc body that
+             bash gets with -c;
+  secret     no step passes a secret to env as an argument: a NAME="$X"
+             where X is a step env: key with a secrets. or github.token
+             value or a SECRET_NAME name, or a secrets. expression;
   release    a job with an isolate step ends with an always() step that
              makes the read-only copy writable again;
   git        git on a library checkout runs only in the step right after
@@ -93,6 +98,22 @@ ISOLATE = re.compile(
 GUARD = ('case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function '
          'is in the environment; nothing runs."; exit 1 ;; esac')
 EXEC_PREFIX = 'exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 '
+# A step that holds a secret starts the clean bash through KEEP_PREFIX
+# instead: a bash that is handed the variable NAMES to keep, drops every
+# other exported name with `env -u`, and execs the clean bash. A secret's
+# value stays in the environment and never becomes an argument, where any
+# process of the same user could read it from /proc/<pid>/cmdline.
+KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); '
+                'while IFS= read -r -d "" e; do n="${e%%=*}"; k=0; '
+                'for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; '
+                '[[ -z "$n" || "$k" == 1 ]] || u+=(-u "$n"); done < <(/usr/bin/env -0); '
+                'exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"')
+KEEP_PREFIX = "exec /bin/bash --noprofile --norc -c '" + KEEP_SNIPPET + "' ci-helpers-env '"
+KEEP_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# `env` started with arguments, and an argument that carries a variable.
+ENV_CMD = re.compile(r"(?:^|[\s;&|(!])(?:/usr/bin/)?env\s")
+ENV_ARG = re.compile(r'(?:^|\s)[A-Za-z_][A-Za-z0-9_]*="?\$\{?([A-Za-z_][A-Za-z0-9_]*)')
+SECRET_EXPR = re.compile(r"\$\{\{[^}]*(?:secrets\.|github\.token)")
 PAIR = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="\$([A-Za-z_][A-Za-z0-9_]*)"\s+')
 # Names that change how bash, the loader, Python, Perl or git behave, and
 # the ones the envelope sets itself. Never passed through.
@@ -193,12 +214,26 @@ def envelope(run: str) -> tuple[list[str], str, str | None, list[str]]:
             continue
         head += ln
         break
-    if not head.startswith(EXEC_PREFIX):
-        errs.append(f"does not start through `{EXEC_PREFIX.strip()}`")
-        return [], "", None, errs
-    tail = head[len(EXEC_PREFIX):]
     names = []
-    while True:
+    if head.startswith(KEEP_PREFIX):
+        listed, sep, tail = head[len(KEEP_PREFIX):].partition("'")
+        if not sep:
+            errs.append("does not close the list of names to keep")
+        for n in listed.split():
+            if not KEEP_NAME.match(n):
+                errs.append(f"keeps {n!r}, which is not a variable name")
+            elif FORBIDDEN.match(n) and n not in ("HOME", "STEP_PATH"):
+                errs.append(f"passes {n} into the clean environment")
+            else:
+                names.append(n)
+        if "HOME" not in names:
+            errs.append("keeps no HOME")
+    elif not head.startswith(EXEC_PREFIX):
+        errs.append(f"does not start through `{EXEC_PREFIX.strip()}` or `{KEEP_PREFIX}...'`")
+        return [], "", None, errs
+    else:
+        tail = head[len(EXEC_PREFIX):]
+    while not head.startswith(KEEP_PREFIX):
         m = PAIR.match(tail)
         if not m:
             break
@@ -263,6 +298,21 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         uses = str(step.get("uses") or "")
         if re.search(r"\.ci-helpers-[a-z]+/(?:scripts|vendor)/", uses):
             errors.append(f"{name}: uses a library file from the workspace checkout")
+
+        # A secret never reaches env as an argument: /proc/<pid>/cmdline
+        # shows it to every process of the runner's user until the exec.
+        secrets = {k for k, v in env.items() if SECRET_VALUE.search(str(v)) or SECRET_NAME.search(str(k))}
+        for line in logical_lines(run):
+            m = ENV_CMD.search(line)
+            if not m:
+                continue
+            args = line[m.end() - 1:]
+            leaked = sorted({a.group(1) for a in ENV_ARG.finditer(args)} & secrets)
+            if SECRET_EXPR.search(args):
+                leaked.append("a secrets. or github.token expression")
+            for s in leaked:
+                errors.append(f"{name}: passes {s} to env as an argument, which /proc/<pid>/cmdline shows; "
+                              f"keep it by name with `{KEEP_PREFIX}NAME ...'`")
 
         shell = str(step.get("shell") or "")
         env_names, tail, body, env_errs = envelope(run) if "lib_isolate.sh" in run or "LIB" in env else ([], "", None, [])
