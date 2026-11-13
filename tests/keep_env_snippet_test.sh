@@ -122,7 +122,7 @@ ld=LD_PRELOAD=; [[ "$(uname -s)" != Linux ]] || ld=LD_PRELOAD=/nonexistent.so
 sh_bin=/bin/sh; command -v dash >/dev/null 2>&1 && sh_bin="$(command -v dash)"
 for caller in "$sh_bin" "/bin/bash --posix"; do
   for blanks in yes no; do
-    rm -f "$work/canary"
+    rm -f "$work/canary" "$work/keepenv"
     if [[ "$blanks" == yes ]]; then
       vals=(BASH_ENV= ENV= SHELLOPTS= PS4= LD_PRELOAD=)
     elif [[ "$caller" == "$sh_bin" ]]; then
@@ -134,7 +134,9 @@ for caller in "$sh_bin" "/bin/bash --posix"; do
     /usr/bin/env "${vals[@]}" $caller -c "$cmd" > "$work/out" 2>&1 || { echo "FAIL [$caller, blanks=$blanks] the step failed:"; cat "$work/out"; fail=1; }
     [[ ! -e "$work/canary" ]] || { echo "FAIL [$caller, blanks=$blanks] a start-up variable ran code"; fail=1; }
     if [[ -r /proc/self/environ && "$blanks" == no ]]; then
-      ! grep -q -E '^(BASH_ENV|ENV|LD_PRELOAD)=.' "$work/keepenv" || { echo "FAIL [$caller, blanks=$blanks] a start-up variable reached the keep bash"; fail=1; }
+      if [[ ! -e "$work/keepenv" ]] || grep -q -E '^(BASH_ENV|ENV|LD_PRELOAD)=.' "$work/keepenv"; then
+        echo "FAIL [$caller, blanks=$blanks] a start-up variable reached the keep bash, or it recorded nothing"; fail=1
+      fi
     fi
   done
 done
