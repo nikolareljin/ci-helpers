@@ -2,16 +2,16 @@
 
 ### Breaking changes
 
-Each line says what a caller must change; the notes below give the detail, and [docs/upgrading-to-1.0.md](docs/upgrading-to-1.0.md) gives before/after YAML.
+Each line says what a caller must change; the notes below give the detail, and [Upgrading to 1.0](https://github.com/nikolareljin/ci-helpers/blob/main/docs/upgrading-to-1.0.md) gives before/after YAML.
 
 - `docker-multiarch.yml`: replace a required check `<caller job> / build-push` with `<caller job> / build` and `<caller job> / push`; `image_name` must be `registry/name`; for Amazon ECR pass the output of `aws ecr get-login-password` as `registry_token`.
-- `go-deploy.yml`, `ppa-deb.yml`: add the required check `<caller job> / build`; a self-hosted `runner` no longer runs the deploy or PPA job, set `deploy_runner` / `publish_runner` for that.
-- `manifest-version.yml`: add the required check `<caller job> / version`; set `tag_runner` to pick the runner of `tag-and-dispatch`.
+- `go-deploy.yml`, `ppa-deb.yml`: `runner` picks only the new `build` job (new check `<caller job> / build`); set `deploy_runner` / `publish_runner` when the deploy or PPA job needs a self-hosted machine.
+- `manifest-version.yml`: `runner` picks only the new `version` job (new check `<caller job> / version`); set `tag_runner` when `tag-and-dispatch` needs a self-hosted machine.
 - `cloudflare-deploy.yml`, `cloudflare-build.yml`: remove `deploy_command` and `wrangler_command` (a run that sets either fails); put the build in `build_command` and the wrangler call in `command` and `deploy_args`; set `wrangler_version` to empty or the pinned `4.154.0`, any other value fails.
-- `java-scan.yml`: remove `-DnvdApiKey=$NVD_API_KEY` from `dependency_check_command` and use dependency-check-maven 13.x; add the required check `<caller job> / nvd`.
+- `java-scan.yml`: remove `-DnvdApiKey=$NVD_API_KEY` from `dependency_check_command` and use dependency-check-maven 13.x; the NVD data comes from the new `nvd` job.
 - `flutter-release.yml`: replace a required check `<caller job> / flutter_release` with `<caller job> / build` (plus `sign-android` / `upload-app-store`); remove `fastlane_android_lane` and `fastlane_ios_lane`; set `android_package_name` for Google Play and `ios_bundle_id` / `ios_team_id` for the App Store.
 - `tauri-release.yml`: add the required check `<caller job> / sign-macos` (`sign-windows` now runs in every mode); signing settings in `tauri.conf.json` (`signingIdentity`, `entitlements`, `signCommand`, `certificateThumbprint`) have no effect, use `macos_entitlements`.
-- `auto-tag.yml` (`update_production_tag: true`), `auto-tag-release.yml`, `update-production.yml`: the repository's own `scripts/create_production.sh` is not run; move any local change to it into the library or drop it.
+- `auto-tag.yml` (`update_production_tag: true`), `auto-tag-release.yml`, `update-production.yml`: the repository's own `scripts/create_production.sh` is not run; move any behaviour a local copy added into a step of its own.
 - `pnpm.yml`, `pnpm-cypress.yml`, `pnpm-playwright.yml` with `upload_test_results: true`: drop the required check run `Tests<suffix>`; results are on the job summary.
 - PHP workflows: `php_version` must be `X.Y`; `latest`, `nightly` and `X.Y.Z` fail.
 - `godot.yml`, `ci.yml` / `pr-gate.yml` with `godot_version`: only `4.3.0` and `4.7.2` install.
