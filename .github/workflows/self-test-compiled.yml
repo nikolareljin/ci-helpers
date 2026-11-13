@@ -631,8 +631,13 @@ jobs:
           genv=(/usr/bin/env -i PATH=/usr/bin:/bin); [[ ! -x /usr/bin/cygpath ]] || genv=(/usr/bin/env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_EXEC_PATH)
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C .ci-helpers-publication rev-parse HEAD)" == "$TRUSTED_SHA" ]] || exit 1
-          if "$git" rev-parse --git-dir >/dev/null 2>&1; then
-            exclude=$("$git" rev-parse --git-path info/exclude)
+          if [[ -e .git || -L .git ]]; then
+            [[ -d .git && ! -L .git ]] || { echo "::error::.git is not a plain directory; refusing to edit its exclude file"; exit 1; }
+            gd=$(cd .git && pwd -P); exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --path-format=absolute --git-path info/exclude)
+            [[ ! -x /usr/bin/cygpath ]] || exclude=$(/usr/bin/cygpath -u "$exclude")
+            [[ "$exclude" == "$gd/info/exclude" && ! -L "$gd/info" && ! -L "$exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
 

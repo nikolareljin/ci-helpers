@@ -607,6 +607,40 @@ done
 grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
   || { echo "FAIL the Verify step no longer keeps the checkout out of the caller's git status"; fail=1; }
 
+# Caller code can rewrite the workspace .git before Verify runs. Each
+# planted redirect must fail the step and leave the target untouched.
+verify_planted() {  # verify_planted <label> <target file>
+  local before; before="$(cat "$2" 2>/dev/null || true)"
+  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+    "$work/step-verify.sh") > "$work/verify.out" 2>&1 && { echo "FAIL the Verify step accepted $1"; fail=1; }
+  [[ "$(cat "$2" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+}
+reset_ws_git() { rm -rf "$work/ws/.git" "$work/elsewhere" "$work/victim"; git -C "$work/ws" -c init.defaultBranch=main init -q; }
+reset_ws_git; git -c init.defaultBranch=main init -q --bare "$work/elsewhere"; : > "$work/elsewhere/info/exclude"
+printf '%s\n' "$work/elsewhere" > "$work/ws/.git/commondir"
+verify_planted "a planted .git/commondir" "$work/elsewhere/info/exclude"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
+ln -s "$work/victim" "$work/ws/.git/info/exclude"
+verify_planted "a symlinked .git/info/exclude" "$work/victim"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -rf "$work/ws/.git/info"; mkdir -p "$work/elsewhere"
+ln -s "$work/elsewhere" "$work/ws/.git/info"; ln -s "$work/victim" "$work/elsewhere/exclude"
+verify_planted "a symlinked .git/info" "$work/victim"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
+ln "$work/victim" "$work/ws/.git/info/exclude"
+verify_planted "a hard-linked .git/info/exclude" "$work/victim"
+reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work/elsewhere" > "$work/ws/.git"
+verify_planted "a .git file" "$work/elsewhere/info/exclude"
+reset_ws_git; rm -f "$work/ws/.git/info/exclude"
+(cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+  "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step with no exclude file:"; cat "$work/verify.out"; fail=1; }
+grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
+  || { echo "FAIL the Verify step did not create a missing exclude file"; fail=1; }
+reset_ws_git
+# Every copy of the step resolves the exclude path with the hardened git.
+if grep -rn '"\$git" rev-parse --git-' "$root/.github/workflows"; then
+  echo "FAIL a workflow resolves the caller's .git with unhardened git (above)"; fail=1
+fi
+
 # The scripts that hold a token, password or licence run with
 # `lib_path.sh secret`: every tool they call by name must resolve to the
 # trusted links, /usr/bin or /bin, with a hostile entry for each of those
