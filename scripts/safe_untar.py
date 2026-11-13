@@ -8,8 +8,8 @@ exactly one top-level directory whose name matches TOP_RE whole, and under
 it only directories, regular files and relative symlinks that point down
 (no `..`). Refused: absolute or `..` paths, a backslash, a
 control character, a hard link, a device or fifo, a duplicate name, a
-member under a symlink, a symlink target with `..`, and more than 8 GiB
-in all; after unpacking, every entry must resolve under DEST. Members are written by
+member under a symlink, a symlink target with `..`, more than 8 GiB
+in all, and more than MAX_ENTRIES members; after unpacking, every entry must resolve under DEST. Members are written by
 this script, not by tar, into DEST, which must be an empty directory.
 Modes are 0755 for a file with any execute bit, else 0644; owners, times
 and extended headers are dropped.
@@ -25,6 +25,7 @@ import tarfile
 from pathlib import Path
 
 LIMIT = 8 << 30
+MAX_ENTRIES = 500000
 BAD_CHARS = re.compile(r"[\x00-\x1f\x7f\\]")
 
 
@@ -62,6 +63,8 @@ def main(argv):
     top = None
     with tarfile.open(tarball, "r:gz") as tf:
         for m in tf:
+            if len(members) >= MAX_ENTRIES:
+                fail(f"the tarball holds more than {MAX_ENTRIES} members.")
             name = check_path(m.name)
             first = name.split("/")[0]
             if top is None:

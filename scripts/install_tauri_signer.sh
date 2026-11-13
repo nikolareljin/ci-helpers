@@ -24,7 +24,12 @@ version="$(awk -F= '$1 == "TAURI_CLI_VERSION" { print $2; exit }' "$pins")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::TAURI_CLI_VERSION in $pins is '$version', not X.Y.Z." >&2; exit 2; }
 command -v cargo >/dev/null || { echo "::error::no cargo on PATH." >&2; exit 2; }
 
-cargo install tauri-cli --version "=$version" --locked --root "$ROOT"
+# A fresh CARGO_HOME and an empty working directory: no cargo config from
+# HOME or the current directory (rustc-wrapper, source replacement) applies.
+cargo_home="$(mktemp -d)"
+trap 'rm -rf "$cargo_home"' EXIT
+mkdir "$cargo_home/home" "$cargo_home/cwd"
+(cd "$cargo_home/cwd" && CARGO_HOME="$cargo_home/home" cargo install tauri-cli --version "=$version" --locked --root "$ROOT")
 bin="$ROOT/bin/cargo-tauri"
 [[ -f "$bin.exe" ]] && bin="$bin.exe"
 [[ -f "$bin" && ! -L "$bin" ]] || { echo "::error::cargo install left no $bin." >&2; exit 1; }

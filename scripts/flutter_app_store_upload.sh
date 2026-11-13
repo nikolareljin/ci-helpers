@@ -65,9 +65,11 @@ security unlock-keychain -p "$kc_pw" "$keychain"
 # shellcheck disable=SC2046 # the existing search list, one path per word
 security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 
-export MATCH_PASSWORD MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION:-}"
+# Credentials go by env (match reads MATCH_*), never argv: a git URL can
+# carry a token, and argv is visible to every process on the runner.
+export MATCH_PASSWORD MATCH_GIT_URL MATCH_GIT_BASIC_AUTHORIZATION="${MATCH_GIT_BASIC_AUTHORIZATION:-}" MATCH_KEYCHAIN_PASSWORD="$kc_pw"
 fastlane_run match appstore --readonly true --app_identifier "$BUNDLE_ID" --team_id "$TEAM_ID" \
-  --git_url "$MATCH_GIT_URL" --keychain_name "$keychain" --keychain_password "$kc_pw"
+  --keychain_name "$keychain"
 
 profile="match AppStore $BUNDLE_ID"
 plist="$work/exportOptions.plist"

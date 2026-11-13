@@ -94,6 +94,15 @@ refuse "a hard link"             d:A.app f:A.app/f h:A.app/h:A.app/f
 refuse "a fifo"                  d:A.app p:A.app/p
 refuse "a member under a symlink (link first)" d:A.app d:A.app/real l:A.app/dir:real f:A.app/dir/x
 refuse "a member under a symlink (link last)"  d:A.app f:A.app/dir/x l:A.app/dir:real
+rm -rf "$work/many" "$work/manyout" && mkdir -p "$work/many/A.app" "$work/manyout"
+for i in 1 2 3 4 5 6; do : > "$work/many/A.app/f$i"; done
+(cd "$work/many" && tar -czf "$work/many.tgz" A.app)
+if python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import safe_untar as s; s.MAX_ENTRIES = 5; sys.exit(s.main(["x"] + sys.argv[2:]))' \
+    "$root/scripts" "$work/many.tgz" "$work/manyout" "$APP_RE" >/dev/null 2>&1; then
+  bad "safe_untar accepted more members than MAX_ENTRIES"
+else
+  ok "safe_untar refuses more members than MAX_ENTRIES"
+fi
 refuse "two top-level entries"   d:A.app d:B.app
 refuse "a duplicate member"      d:A.app f:A.app/x f:A.app/x
 refuse "a top-level file"        f:A.app
@@ -267,17 +276,22 @@ rc=0; env -i PATH=/usr/bin:/bin SIGNER="$stubs/signer" TAURI_SIGNING_PRIVATE_KEY
 [[ "$rc" == 2 ]] && ok "updater: a symlink is refused" || bad "updater on a symlink exited $rc"
 
 # ---------------------------------------------------------------- install_tauri_signer.sh
-mkdir -p "$work/cargo"
+mkdir -p "$work/cargo" "$work/home/.cargo"
+printf '[build]\nrustc-wrapper = "/bin/false"\n' > "$work/home/.cargo/config.toml"
 cat > "$work/cargo/cargo" <<EOF
 #!/bin/bash
 echo "cargo \$*" > "$work/cargo.log"
+echo "home=\${CARGO_HOME:-unset} cwd-entries=\$(ls -A | wc -l)" >> "$work/cargo.log"
+[[ -z "\${CARGO_HOME:-}" || ! -e "\$CARGO_HOME/config.toml" ]] || echo "config-seen" >> "$work/cargo.log"
 root="\${@: -1}"; mkdir -p "\$root/bin"; : > "\$root/bin/cargo-tauri"
 EOF
 chmod +x "$work/cargo/cargo"
-if out="$(env -i PATH="$work/cargo:/usr/bin:/bin" ROOT="$work/signer" bash "$root/scripts/install_tauri_signer.sh" 2>&1)" \
+if out="$(cd "$work/home" && env -i PATH="$work/cargo:/usr/bin:/bin" HOME="$work/home" ROOT="$work/signer" bash "$root/scripts/install_tauri_signer.sh" 2>&1)" \
     && [[ "$out" == "signer=$work/signer/bin/cargo-tauri" ]] \
-    && grep -qE "^cargo install tauri-cli --version =[0-9]+\.[0-9]+\.[0-9]+ --locked --root $work/signer$" "$work/cargo.log"; then
-  ok "install_tauri_signer installs the pinned version with --locked"
+    && grep -qE "^cargo install tauri-cli --version =[0-9]+\.[0-9]+\.[0-9]+ --locked --root $work/signer$" "$work/cargo.log" \
+    && grep -qE "^home=/.+ cwd-entries=0$" "$work/cargo.log" && ! grep -q "home=$work/home" "$work/cargo.log" \
+    && ! grep -q config-seen "$work/cargo.log"; then
+  ok "install_tauri_signer installs the pinned version with --locked, a fresh CARGO_HOME, from an empty directory"
 else
   bad "install_tauri_signer: $out"
 fi

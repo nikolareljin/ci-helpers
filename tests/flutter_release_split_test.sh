@@ -121,6 +121,7 @@ cat > "$rb/ruby" <<EOF
 [[ "\$2 \$3" == "exec fastlane" ]] || { echo "not bundle exec fastlane: \$*" >> "$log"; exit 9; }
 shift 3
 echo "fastlane \$* | cwd-entries=\$(ls -A | wc -l) skip=\${FASTLANE_SKIP_UPDATE_CHECK:-} frozen=\${BUNDLE_FROZEN:-} gemfile=\${BUNDLE_GEMFILE:-unset}" >> "$log"
+[[ "\$1" != match ]] || echo "match-env git=\${MATCH_GIT_URL:-} kcpw=\${MATCH_KEYCHAIN_PASSWORD:+set}" >> "$log"
 args=("\$@")
 for ((i=0; i<\${#args[@]}; i++)); do
   case "\${args[i]}" in --json_key|--api_key_path) echo "keyfile=\${args[i+1]} content=\$(cat "\${args[i+1]}")" >> "$log" ;; esac
@@ -198,6 +199,14 @@ if run_asc; then
   fi
 else
   bad "app store upload"; cat "$work/asc.out"
+fi
+ios_in com.example.app
+if run_asc MATCH_GIT_URL=https://ci:TOKEN123@git.example/certs \
+    && ! grep -q '^fastlane.*\(TOKEN123\|--git_url\|--keychain_password\)' "$log" \
+    && grep -q '^match-env git=https://ci:TOKEN123@git.example/certs kcpw=set$' "$log"; then
+  ok "app store: match git url and keychain password reach match by env, not argv"
+else
+  bad "app store: match credentials on the command line"; cat "$log"
 fi
 ios_in com.example.app
 if run_asc DESTINATION=app_store && grep -q '^fastlane deliver --ipa .* --submit_for_review false' "$log" && ! grep -q '^fastlane pilot' "$log"; then
