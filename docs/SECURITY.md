@@ -137,7 +137,16 @@ included, has two layers:
   NAME="$NAME"... /bin/bash --noprofile --norc`: an allowlist of named
   variables (the step's own `env:` keys and the runner's `GITHUB_*` and
   `RUNNER_*` files and paths), never one that changes bash, the loader,
-  Python, Perl or git.
+  Python, Perl or git. A step that passes a secret on starts the clean bash
+  through a bash that gets only the variable names to keep
+  (`exec /usr/bin/env -u BASH_ENV ... /bin/bash --noprofile --norc -c
+  '<keep>' ci-helpers-env 'HOME NAME...'`; the `-u` names are the bash and
+  loader start-up variables, also blanked in the step's `env:`), drops every other exported name with `/usr/bin/env -u`, and
+  execs the clean bash. The secret stays in the environment and is never an
+  argument, which `/proc/<pid>/cmdline` would show to every process of the
+  runner's user. It fails closed: when `env -0` fails, its listing lacks
+  the end marker or `PATH`, or it holds an entry `env -u` cannot remove
+  (no `=`, or an empty name), nothing runs.
 
 Inside, the step copies the copy to a fresh directory, hashes that with
 tools at absolute paths, compares it to `LIB_HASH`, and only then runs a
@@ -213,6 +222,11 @@ workflow or action that:
   such an action without the blanks; or has a composite step without
   them, under a shell named without its path, or calling `bash` by name;
 - runs a step that holds a secret without `lib_path.sh secret`;
+- passes a secret to `env`, or to the command `env` starts, as an
+  argument (`"$SECRET"`, where `SECRET` is a step, job or workflow `env:`
+  key holding a `secrets.*` or `github.token` expression or named like a
+  token, password, secret, licence or serial, or a `secrets.*` expression
+  itself), in any step;
 - runs git on a library checkout later than the step right after it, or on
   the copy;
 - mounts the copy or a checkout into a container (`-v`, `--volume`,
