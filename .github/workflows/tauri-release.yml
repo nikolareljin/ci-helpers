@@ -2110,7 +2110,7 @@ jobs:
           out="$RUNNER_TEMP/tauri-signer-windows-out"
           [[ ! -e "$out" ]] || { echo "::error::$out already exists."; exit 1; }
           /bin/mkdir "$out"
-          [[ "$SIGNER" == "$RUNNER_TEMP/tauri-signer/bin/cargo-tauri"* && -f "$SIGNER" && ! -L "$SIGNER" ]] || { echo "::error::no signer at $SIGNER."; exit 1; }
+          [[ "$SIGNER" == "$RUNNER_TEMP/tauri-signer/bin/cargo-tauri.exe" && -f "$SIGNER" && ! -L "$SIGNER" ]] || { echo "::error::no signer at $SIGNER."; exit 1; }
           /bin/cp "$SIGNER" "$out/"
           /bin/bash "$run_lib/scripts/artifact_parts.sh" split "$out"
           if [[ -n "$(/usr/bin/find "$out" -mindepth 1 ! -type f ! -type d -print -quit)" ]]; then
