@@ -108,7 +108,7 @@ KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift
                 'for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; '
                 '[[ -z "$n" || "$k" == 1 ]] || u+=(-u "$n"); done < <(/usr/bin/env -0); '
                 'exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"')
-KEEP_PREFIX = "exec /bin/bash --noprofile --norc -c '" + KEEP_SNIPPET + "' ci-helpers-env '"
+KEEP_PREFIX = "".join(("exec /bin/bash --noprofile --norc -c '", KEEP_SNIPPET, "' ci-helpers-env '"))
 KEEP_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # `env` started with arguments, and an argument that carries a variable.
 ENV_CMD = re.compile(r"(?:^|[\s;&|(!])(?:/usr/bin/)?env\s")
