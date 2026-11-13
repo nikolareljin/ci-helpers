@@ -116,6 +116,9 @@ printf '#!/bin/sh\necho fired >> "%s/canary"\n' "$work" > "$work/bashenv.sh"
 probe="$snip"
 [[ ! -r /proc/self/environ ]] || probe="/usr/bin/tr '\\0' '\\n' < /proc/\$\$/environ > $work/keepenv; $snip"
 cmd="$prefix'$probe' ci-helpers-env 'HOME' /bin/bash --noprofile --norc -c 'true'"
+# On Windows the MSYS runtime loads LD_PRELOAD into the caller shell itself,
+# which only the env: blanks protect, so the probe sets it on Linux only.
+ld=LD_PRELOAD=; [[ "$(uname -s)" != Linux ]] || ld=LD_PRELOAD=/nonexistent.so
 sh_bin=/bin/sh; command -v dash >/dev/null 2>&1 && sh_bin="$(command -v dash)"
 for caller in "$sh_bin" "/bin/bash --posix"; do
   for blanks in yes no; do
@@ -123,9 +126,9 @@ for caller in "$sh_bin" "/bin/bash --posix"; do
     if [[ "$blanks" == yes ]]; then
       vals=(BASH_ENV= ENV= SHELLOPTS= PS4= LD_PRELOAD=)
     elif [[ "$caller" == "$sh_bin" ]]; then
-      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS=xtrace "PS4=\$(echo fired >> $work/canary)" LD_PRELOAD=/nonexistent.so)
+      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS=xtrace "PS4=\$(echo fired >> $work/canary)" "$ld")
     else
-      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS= PS4= LD_PRELOAD=/nonexistent.so)
+      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS= PS4= "$ld")
     fi
     # shellcheck disable=SC2086 # caller is a command with its flags
     /usr/bin/env "${vals[@]}" $caller -c "$cmd" > "$work/out" 2>&1 || { echo "FAIL [$caller, blanks=$blanks] the step failed:"; cat "$work/out"; fail=1; }
