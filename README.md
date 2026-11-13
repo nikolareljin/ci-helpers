@@ -513,8 +513,8 @@ Do this whenever script-helpers cuts a release. Two commands:
 git add -f vendor/ && git commit
 ```
 
-`vendor/` is gitignored and the tree is tracked by force-add, so **`git add -f` is
-required** -- a plain `git add` stages modified files and silently skips new ones,
+The vendored tree carries upstream's own `.gitignore`, so **`git add -f` is
+required** -- a plain `git add` silently skips a new file those rules name,
 which leaves `VERSION` claiming a release the tree does not contain.
 
 `sync_script_helpers.sh` excludes upstream's `.github/` (see `VENDOR_EXCLUDES`).

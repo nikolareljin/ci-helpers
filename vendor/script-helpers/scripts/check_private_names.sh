@@ -11,7 +11,9 @@
 #   --names <a,b>       Comma-separated names, instead of a list file. For tests.
 #   --repo <path>       Repository to scan (default: cwd).
 #   --only-public       Do nothing unless this repository is public, per the list.
-#   --for-repo <name>   Judge visibility by this repository name, not the git remote.
+#                       The list is read as namespace/name; an unlisted one is checked.
+#   --for-repo <name>   Judge visibility by this repository (owner/name, a URL, or a
+#                       bare name), not the git remote.
 #   --strict-ambiguous  Fail on a bare everyday-word name, or an allowed word written in
 #                       the shape of a repository reference, rather than warning, and
 #                       check the tree for a bare one as well. For text about to be
@@ -401,19 +403,37 @@ if [[ "$ONLY_PUBLIC" == true && -z "$NAMES" ]]; then
     if [[ -n "$FOR_REPO" ]]; then
       # A caller that already knows which repository the text is destined for --
       # a `gh pr create --repo X` run from somewhere else entirely.
-      origin_name="${FOR_REPO%.git}"
-      origin_name="${origin_name##*/}"
+      origin_ref="$FOR_REPO"
     else
-      # owner/name from either git@host:owner/name.git or https://host/owner/name
-      origin_name="${origin_url%.git}"
-      origin_name="${origin_name##*/}"
+      origin_ref="$origin_url"
+    fi
+    origin_ref="${origin_ref%/}"
+    origin_ref="${origin_ref%.git}"
+    # owner/name from git@host:owner/name.git, https://host/owner/name,
+    # ssh://git@host/owner/name or a bare owner/name. The namespace is the
+    # component before the name, after the last `/` or `:` ahead of it; a bare
+    # name has none.
+    origin_name="${origin_ref##*/}"
+    origin_ns=""
+    if [[ "$origin_ref" == */* ]]; then
+      origin_ns="${origin_ref%/*}"
+      origin_ns="${origin_ns##*[/:]}"
     fi
     if [[ -n "$origin_name" ]]; then
       # Column 3 is the repository name; column 2 is its namespace. Reading the wrong one
       # here does not merely mis-report -- it decides whether the check runs at all, so it
       # would quietly skip every public repository whose name is not also a namespace.
       # Located by header, as everywhere else.
-      visibility="$(awk -F'\t' -v want="$(printf '%s' "$origin_name" | tr 'A-Z' 'a-z')" '
+      #
+      # The row is matched as namespace/name, not by name alone. The list holds
+      # several accounts, and the same name is private in one and public in
+      # another: by name alone, the private row (sorted first) read as this
+      # repository's visibility and switched the check off in the public one.
+      # When the remote gives no namespace, the check is skipped only if every
+      # row of that name is private. With a namespace, an unknown namespace/name
+      # is an unlisted repository, which is checked.
+      visibility="$(awk -F'\t' -v want="$(printf '%s' "$origin_name" | tr 'A-Z' 'a-z')" \
+                       -v wantns="$(printf '%s' "$origin_ns" | tr 'A-Z' 'a-z')" '
         /^# *visibility/ {
           for (i = 1; i <= NF; i++) { h = $i; sub(/^# */, "", h); col[h] = i }
           hdr = 1; next
@@ -421,15 +441,20 @@ if [[ "$ONLY_PUBLIC" == true && -z "$NAMES" ]]; then
         /^#/ { next }
         {
           vi = (hdr && ("visibility" in col)) ? col["visibility"] : 1
+          ni = (hdr && ("namespace" in col))  ? col["namespace"]  : 2
           mi = (hdr && ("name" in col))       ? col["name"]       : 3
           fi = (hdr && ("flags" in col))      ? col["flags"]      : 5
           # A former name says nothing about the repository that has the name
           # now; reading one here would switch the whole check off.
           if (" " $fi " " ~ / alias /) next
-          if (tolower($mi) == want) { print $vi; exit }
-        }' "$LIST")"
+          if (tolower($mi) != want) next
+          if (wantns != "" && tolower($ni) != wantns) next
+          matched++
+          if ($vi != "private") public = 1
+        }
+        END { if (matched && !public) print "private" }' "$LIST")"
       if [[ "$visibility" == "private" ]]; then
-        log_info "$origin_name is private; a private name here does not become public."
+        log_info "${origin_ns:+$origin_ns/}$origin_name is private; a private name here does not become public."
         exit 0
       fi
     fi
