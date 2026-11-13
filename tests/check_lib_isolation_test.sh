@@ -143,6 +143,7 @@ tok_use="${use/RUST_TOOLCHAIN: stable/RUST_TOOLCHAIN: stable
           GH_TOKEN: \$\{\{ secrets.GH_TOKEN \}\}}"
 tok_use="${tok_use/          . \"\$run_lib\/scripts\/lib_path.sh\"/          . \"\$run_lib\/scripts\/lib_path.sh\" secret}"
 leak_use="${tok_use/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" \\/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" GH_TOKEN=\"\$GH_TOKEN\" \\}"
+# shellcheck disable=SC1003 # the trailing backslash is literal workflow text
 keep_old='exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUST_TOOLCHAIN="$RUST_TOOLCHAIN" \'
 keep_use="${tok_use/"$keep_old"/"${keep_line}HOME STEP_PATH LIB LIB_HASH RUST_TOOLCHAIN GH_TOKEN' \\"}"
 [[ "$leak_use" != "$tok_use" && "$keep_use" != "$tok_use" && "$tok_use" != "$use" ]] || { echo "FAIL premise: the issue 375 fixtures did not change"; fail=1; }
