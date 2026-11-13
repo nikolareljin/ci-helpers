@@ -293,7 +293,9 @@ Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
 token), `docker-multiarch.yml` (`build` to an OCI layout, then `push`
 with the registry token, which checks each blob against its digest),
 `tauri-release.yml` (`build-macos` and `build-windows` unsigned, then
-`sign-macos` and `sign-windows` with the Apple, Windows and updater keys)
+`sign-macos` and `sign-windows` with the Apple, Windows and updater keys,
+which run the `tauri-cli` that `build-signer-macos` and
+`build-signer-windows` built with no secret, after a sha256 check)
 and `flutter-release.yml` (`build`, then `sign-android` with the upload and
 Play keys and `upload-app-store` with the `match` and App Store Connect
 keys, which run the library's fastlane from an empty directory, never the

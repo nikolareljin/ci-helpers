@@ -299,7 +299,8 @@ the key with `cargo tauri signer generate -w ~/.tauri/myapp.key` and set
 `tauri-release` builds with updater artifacts off, so the key never reaches
 the build job. `sign-windows` writes `<installer>.sig` for each MSI and
 setup EXE with `tauri signer sign` from the `tauri-cli` version pinned in the
-library (`TAURI_CLI_VERSION`), run from an empty directory, and the release
+library (`TAURI_CLI_VERSION`), built in `build-signer-windows` (no secret)
+and run from an empty directory, and the release
 publishes the `.sig` files beside the installers. On macOS,
 `macos_updater_sign: true` does the same for `<Name>.app.tar.gz` in
 `sign-macos`.

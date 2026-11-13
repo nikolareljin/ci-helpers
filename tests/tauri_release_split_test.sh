@@ -167,7 +167,15 @@ setup_win; vrefuse "Windows installers against the macOS pattern" mac
 # ---------------------------------------------------------------- tauri_macos_sign.sh
 stubs="$work/stubs"; mkdir -p "$stubs"
 log="$work/calls.log"
-for t in codesign xcrun spctl; do
+cat > "$stubs/xcrun" <<EOF
+#!/bin/bash
+echo "xcrun \$*" >> "$log"
+a=("\$@"); for ((i=0; i<\${#a[@]}; i++)); do
+  if [[ "\${a[i]}" == --key ]]; then k="\${a[i+1]}"; echo "keyfile=\$k mode=\$(stat -c %a "\$k" 2>/dev/null || stat -f %Lp "\$k") dirmode=\$(stat -c %a "\$(dirname "\$k")" 2>/dev/null || stat -f %Lp "\$(dirname "\$k")") content=\$(cat "\$k")" >> "$log"; fi
+done
+true
+EOF
+for t in codesign spctl; do
   printf '#!/bin/bash\necho "%s $*" >> "%s"\n' "$t" "$log" > "$stubs/$t"
 done
 cat > "$stubs/plutil" <<EOF
@@ -236,6 +244,35 @@ else
   bad "macOS signed run failed"; cat "$work/mac.out"
 fi
 
+UUID=c0ffee00-1234-4abc-9def-0123456789ab
+mac_in 1.2.3
+if run_mac SIGN=true NOTARIZE=true IDENTITY=x KEYCHAIN=k TEAM_ID=ABCDE12345 \
+      NOTARY_API_KEY="$(printf 'P8SECRET' | base64)" NOTARY_KEY_ID=KEYID12345 NOTARY_ISSUER_ID=$UUID; then
+  key="$(sed -n 's/^keyfile=\([^ ]*\) .*/\1/p' "$log")"
+  if grep -q "^xcrun notarytool submit .* --key $key --key-id KEYID12345 --issuer $UUID --wait$" "$log" \
+      && grep -q "mode=600 dirmode=700 content=P8SECRET$" "$log" && ! grep -q '^xcrun.*P8SECRET' "$log" \
+      && ! grep -q -- '--password' "$log" && [[ -n "$key" && ! -e "$key" ]] && ! grep -q '::warning::' "$work/mac.out"; then
+    ok "macOS notarizes with the API key: key file 0600 in a 0700 dir, not in argv, removed"
+  else
+    bad "macOS API key notarization"; cat "$log" "$work/mac.out"
+  fi
+else
+  bad "macOS API key notarization run failed"; cat "$work/mac.out"
+fi
+mac_in 1.2.3
+if run_mac SIGN=true NOTARIZE=true IDENTITY=x KEYCHAIN=k APPLE_ID=a@b.example APPLE_PASSWORD=pw TEAM_ID=ABCDE12345 \
+    && grep -q '^xcrun notarytool submit .* --apple-id' "$log" && grep -q '::warning::.*API key' "$work/mac.out"; then
+  ok "macOS Apple ID notarization still works and warns to use the API key"
+else
+  bad "macOS Apple ID fallback"; cat "$work/mac.out"
+fi
+for kv in "NOTARY_KEY_ID=bad;id" "NOTARY_ISSUER_ID=not-a-uuid" "NOTARY_KEY_ID=" "NOTARY_API_KEY=%%%"; do
+  mac_in 1.2.3
+  if run_mac SIGN=true NOTARIZE=true IDENTITY=x KEYCHAIN=k TEAM_ID=ABCDE12345 NOTARY_API_KEY="$(printf 'P8' | base64)" \
+      NOTARY_KEY_ID=KEYID12345 NOTARY_ISSUER_ID=$UUID APPLE_ID=a@b.example APPLE_PASSWORD=pw "$kv"; then
+    bad "macOS notarization accepted $kv"
+  elif grep -q '^xcrun notarytool' "$log"; then bad "notarytool ran with $kv"; else ok "macOS refuses $kv before notarytool"; fi
+done
 mac_in '1.0;rm -rf x'
 if run_mac SIGN=false; then bad "a version with ';' was accepted"; else ok "macOS refuses a CFBundleShortVersionString that is not a version"; fi
 mac_in '$(id)'
@@ -342,8 +379,17 @@ if '"signCommand":null' not in runs("build-windows"):
     problems.append("build-windows does not turn the bundler's signCommand off")
 for sj, bj in (("sign-macos", "build-macos"), ("sign-windows", "build-windows")):
     job = jobs[sj]
-    if job.get("needs") != bj:
-        problems.append(f"{sj} does not need {bj}")
+    sg = "build-signer-" + bj.split("-")[1]
+    if job.get("needs") != [bj, sg]:
+        problems.append(f"{sj} does not need {bj} and {sg}")
+    sgt = yaml.safe_dump(jobs[sg], width=10**9)
+    if re.search(r"secrets\.", sgt) or jobs[sg].get("permissions") != {"contents": "read"} or "needs" in jobs[sg]:
+        problems.append(f"{sg} names a secret, has wider permissions, or waits on a job")
+    if "install_tauri_signer.sh" not in sgt or "upload-artifact@" not in sgt or "publication-check" not in sgt:
+        problems.append(f"{sg} does not build, check and upload the signer")
+    for s in job["steps"]:
+        if re.search(r"(?<![\w-])(cargo|rustup|rustc)(?![\w-])|install_tauri_signer|setup_rust", str(s.get("run") or "")):
+            problems.append(f"{sj} step '{s.get('name')}' runs cargo or rustup")
     if "${{ inputs." not in str(job.get("runs-on")):
         problems.append(f"{sj} has no runner input")
     names = [s.get("name") or s.get("uses") for s in job["steps"]]
@@ -385,7 +431,15 @@ jobs = yaml.safe_load(open(sys.argv[1]))["jobs"]
 for j in ("sign-macos", "sign-windows"):
     s = next(s for s in jobs[j]["steps"] if s.get("name") == "Check the build outputs")
     open(f"{sys.argv[2]}/{j}.check.sh", "w").write(s["run"])
+    s = next((s for s in jobs[j]["steps"] if s.get("name") == "Check the signer outputs"), {"run": "exit 0"})
+    open(f"{sys.argv[2]}/{j}.signer-check.sh", "w").write(s["run"])
 PY
+for j in macos windows; do
+  if ARTIFACT="tauri-signer-$j-123-1-0123456789abcdef" MANIFEST=x bash "$work/sign-$j.signer-check.sh" >/dev/null 2>&1; then ok "sign-$j accepts its signer artifact name"; else bad "sign-$j refused its signer artifact name"; fi
+  for a in "tauri-$j-build-1-1-0123456789abcdef" "tauri-signer-$j-1-1-0123456789abcdef/../x" 'x$(id)'; do
+    if ARTIFACT="$a" MANIFEST=x bash "$work/sign-$j.signer-check.sh" >/dev/null 2>&1; then bad "sign-$j accepted signer artifact name '$a'"; else ok "sign-$j refuses signer artifact name '$a'"; fi
+  done
+done
 for j in macos windows; do
   if ARTIFACT="tauri-$j-build-123-1-0123456789abcdef" MANIFEST=x bash "$work/sign-$j.check.sh" >/dev/null 2>&1; then
     ok "sign-$j accepts its build artifact name"

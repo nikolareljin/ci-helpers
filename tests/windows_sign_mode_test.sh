@@ -16,7 +16,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$root/.github/actions/windows-sign/action.yml" "$root/.github/workflows/tauri-release.yml" <<'PY'
-import sys, yaml
+import re, sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 rd = yaml.safe_load(open(sys.argv[2]))
 fail = []
@@ -39,7 +39,7 @@ for name in ("WINDOWS_CERTIFICATE", "AZURE_"):
 if not sign:
     fail.append("tauri-release has no sign-windows job")
 else:
-    if sign.get("needs") != "build-windows":
+    if sign.get("needs") != ["build-windows", "build-signer-windows"]:
         fail.append("sign-windows does not need build-windows")
     for st in sign["steps"]:
         uses = st.get("uses", "")
@@ -49,7 +49,9 @@ else:
                or w.get("sparse-checkout") not in (".github/actions", "scripts\n", ".github/actions/publication-check\nvendor/script-helpers\n"):
                 fail.append("sign-windows checks out something other than the ci-helpers actions")
         run = st.get("run", "")
-        for tool in ("cargo", "npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
+        if re.search(r"(?<![\w-])(cargo|rustup|rustc)(?![\w-])|install_tauri_signer|setup_rust", run):
+            fail.append("sign-windows runs cargo or rustup: the signer comes from build-signer-windows")
+        for tool in ("npm", "pnpm", "yarn", "node ", "bash -c", "INSTALL_CMD", "BUILD_CMD"):
             if tool in run:
                 fail.append(f"sign-windows runs {tool.strip()}: it must run no app or build code")
         if "working-directory" in st:

@@ -19,7 +19,12 @@
 #   NOTARIZE         true (with SIGN=true): notarize and staple.
 #   IDENTITY         Signing identity (SIGN=true).
 #   KEYCHAIN         Keychain holding it (SIGN=true).
-#   APPLE_ID, APPLE_PASSWORD, TEAM_ID   notarytool credentials (NOTARIZE=true).
+#   NOTARY_API_KEY, NOTARY_KEY_ID, NOTARY_ISSUER_ID   App Store Connect API
+#                    key (base64 .p8), its id and issuer: the preferred
+#                    notarytool credentials (NOTARIZE=true). The key goes to
+#                    a 0600 file in a private directory, never to argv.
+#   APPLE_ID, APPLE_PASSWORD, TEAM_ID   Apple ID notarytool credentials, used
+#                    when no API key is set (with a warning).
 #   SIGNER           cargo-tauri, when the updater key is set.
 #   TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]  The updater key; empty: no .sig.
 # EXIT CODES:
@@ -42,9 +47,34 @@ NOTARIZE="${NOTARIZE:-false}"
 [[ "$SIGN" == true ]] || NOTARIZE=false
 [[ -f "$IN/app.tar.gz" && ! -L "$IN/app.tar.gz" ]] || fail "the artifact has no app.tar.gz."
 
+# Notarization credentials, checked before anything is signed.
+notary=
+if [[ "$NOTARIZE" == true ]]; then
+  if [[ -n "${NOTARY_API_KEY:-}${NOTARY_KEY_ID:-}${NOTARY_ISSUER_ID:-}" ]]; then
+    [[ -n "${NOTARY_API_KEY:-}" && -n "${NOTARY_KEY_ID:-}" && -n "${NOTARY_ISSUER_ID:-}" ]] || fail "the notarization API key needs NOTARY_API_KEY, NOTARY_KEY_ID and NOTARY_ISSUER_ID together."
+    [[ "$NOTARY_KEY_ID" =~ ^[A-Z0-9]{8,12}$ ]] || fail "NOTARY_KEY_ID is not an App Store Connect key id."
+    [[ "$NOTARY_ISSUER_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "NOTARY_ISSUER_ID is not an issuer UUID."
+    notary=key
+  else
+    [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" && -n "${TEAM_ID:-}" ]] || fail "NOTARIZE=true needs NOTARY_API_KEY, NOTARY_KEY_ID and NOTARY_ISSUER_ID, or APPLE_ID, APPLE_PASSWORD and TEAM_ID."
+    echo "::warning::Notarizing with the Apple ID password, which notarytool takes on its command line. Set NOTARY_API_KEY, NOTARY_KEY_ID and NOTARY_ISSUER_ID (an App Store Connect API key) instead."
+    notary=password
+  fi
+fi
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+chmod 700 "$work"
 mkdir "$work/app" "$work/dmg"
+if [[ "$notary" == key ]]; then
+  mkdir -m 700 "$work/notary"
+  (umask 077 && NOTARY_API_KEY="$NOTARY_API_KEY" /usr/bin/python3 -I -c '
+import base64, os, sys
+sys.stdout.buffer.write(base64.b64decode(os.environ["NOTARY_API_KEY"], validate=True))
+' > "$work/notary/key.p8") 2>/dev/null || fail "NOTARY_API_KEY is not base64."
+  [[ -s "$work/notary/key.p8" ]] || fail "NOTARY_API_KEY is empty once decoded."
+  chmod 600 "$work/notary/key.p8"
+fi
 # Name: letters, digits, space, dot, underscore, plus, hyphen; it becomes
 # part of every published file name and of the DMG volume name.
 name="$(/usr/bin/python3 -I "$LIB_SCRIPTS/safe_untar.py" "$IN/app.tar.gz" "$work/app" '[A-Za-z0-9][A-Za-z0-9 ._+-]{0,99}\.app')"
@@ -75,8 +105,12 @@ if [[ "$SIGN" == true ]]; then
   codesign --force --timestamp --keychain "$KEYCHAIN" --sign "$IDENTITY" "$dmg"
 fi
 if [[ "$NOTARIZE" == true ]]; then
-  [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" && -n "${TEAM_ID:-}" ]] || fail "NOTARIZE=true needs APPLE_ID, APPLE_PASSWORD and TEAM_ID."
-  xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+  if [[ "$notary" == key ]]; then
+    xcrun notarytool submit "$dmg" --key "$work/notary/key.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
+    rm -rf "$work/notary"
+  else
+    xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$TEAM_ID" --wait
+  fi
   xcrun stapler staple "$dmg"
   # Notarizing the DMG notarizes the app inside it; the updater bundle
   # carries the stapled app.

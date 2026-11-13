@@ -2659,8 +2659,10 @@ Jobs:
 | Job | Runs | Holds |
 |-----|------|-------|
 | `build-macos` | `cargo tauri build --bundles app`, unsigned | nothing (`contents: read`) |
+| `build-signer-macos` | `cargo install tauri-cli --locked` on `macos_sign_runner`, with `macos_updater_sign` | nothing (`contents: read`) |
 | `sign-macos` | on `macos_sign_runner` | the Apple secrets, and the updater key with `macos_updater_sign` |
 | `build-windows` | `cargo tauri build`, unsigned | nothing (`contents: read`) |
+| `build-signer-windows` | `cargo install tauri-cli --locked` on `windows_sign_runner`, with `tauri_updater` | nothing (`contents: read`) |
 | `sign-windows` | on `windows_sign_runner` | the PFX, Azure or updater secrets of `windows_sign_mode` |
 | `build-linux` | `cargo tauri build` | nothing |
 | `release` | uploads `tauri-*-artifacts` | `contents: write`, `DIST_REPO_TOKEN` |
@@ -2682,16 +2684,28 @@ Key design notes:
   the top of the artifact only), and run only library scripts, the
   ci-helpers actions at this workflow's commit, system signing tools and
   the updater signer: `tauri-cli` at the version in the library's
-  `toolchain-pins.env` (`TAURI_CLI_VERSION`), installed with `cargo install
-  --locked` before any secret is read, and run as `tauri signer sign` from an
-  empty directory (`scripts/tauri_updater_sign.sh`). No bundler hook runs
-  there.
+  `toolchain-pins.env` (`TAURI_CLI_VERSION`), run as `tauri signer sign`
+  from an empty directory (`scripts/tauri_updater_sign.sh`). No bundler
+  hook and no cargo runs there.
+- `build-signer-macos` and `build-signer-windows` hold no secret. They build
+  that `tauri-cli` with `scripts/install_tauri_signer.sh`: `cargo install
+  --locked`, a fresh `CARGO_HOME` and an empty directory under
+  `RUNNER_TEMP`, no `CARGO_*`, `RUSTC*` or `RUSTFLAGS` from the
+  environment, empty `rustc-wrapper`s, `RUSTUP_TOOLCHAIN=stable`, and a
+  refusal when a `.cargo/config` or `rust-toolchain` file sits above that
+  directory. They upload the binary with a sha256 manifest as
+  `tauri-signer-<macos|windows>-<run id>-<attempt>-<random>`; the sign job
+  checks the name, verifies the binary against the manifest and runs it.
 - `sign-macos` (`scripts/tauri_macos_sign.sh`) unpacks the app
   (`scripts/safe_untar.py`), signs it with the hardened runtime
   (`codesign --deep --options runtime --timestamp`, with
   `macos_entitlements` when set), builds `<Name>_<version>_universal.dmg`
   with `hdiutil` (the app and an `/Applications` link), signs it, notarizes
-  and staples it (`notarize_macos`), staples the app and makes
+  and staples it (`notarize_macos`: with `NOTARY_API_KEY`, `NOTARY_KEY_ID`
+  and `NOTARY_ISSUER_ID` the key goes to `notarytool --key` as a 0600 file
+  in a private directory, removed after; without them the Apple ID and
+  app password are used, which `notarytool` takes on its command line, and
+  the job warns), staples the app and makes
   `<Name>.app.tar.gz`, plus `.sig` with `macos_updater_sign`. The version
   is the app's `CFBundleShortVersionString`. With `sign_macos: false` the
   DMG and bundle are unsigned.
@@ -2754,6 +2768,9 @@ Secrets:
 | `APPLE_ID` | `notarize_macos: true` |
 | `APPLE_APP_PASSWORD` | `notarize_macos: true` |
 | `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD`, the name most consumers already hold; pass either, not both |
+| `NOTARY_API_KEY` | `notarize_macos: true`, preferred: base64 App Store Connect API key (`.p8`) |
+| `NOTARY_KEY_ID` | with `NOTARY_API_KEY` |
+| `NOTARY_ISSUER_ID` | with `NOTARY_API_KEY` (issuer UUID) |
 | `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` or `macos_updater_sign: true` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` or `macos_updater_sign: true` |
 | `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` (base64 `.pfx`) |
