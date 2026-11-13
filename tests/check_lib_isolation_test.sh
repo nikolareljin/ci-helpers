@@ -136,6 +136,48 @@ wf() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%
 wf_raw() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%s\n' "$@"; }
 
 expect "isolated, then used after the caller's build" 0 "$(wf "$checkout" "$isolate" "$build" "$use")"
+# Issue 375: a secret never becomes an argument of env. The keep form
+# passes names; the env -i form may still carry the step's other variables.
+keep_line="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import check_lib_isolation as c; print(c.KEEP_PREFIX, end="")' "$root/scripts")"
+tok_use="${use/RUST_TOOLCHAIN: stable/RUST_TOOLCHAIN: stable
+          GH_TOKEN: \$\{\{ secrets.GH_TOKEN \}\}}"
+tok_use="${tok_use/          . \"\$run_lib\/scripts\/lib_path.sh\"/          . \"\$run_lib\/scripts\/lib_path.sh\" secret}"
+leak_use="${tok_use/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" \\/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" GH_TOKEN=\"\$GH_TOKEN\" \\}"
+# shellcheck disable=SC1003 # the trailing backslash is literal workflow text
+keep_old='exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 STEP_PATH="$PATH" LIB="$LIB" LIB_HASH="$LIB_HASH" RUST_TOOLCHAIN="$RUST_TOOLCHAIN" \'
+keep_use="${tok_use/"$keep_old"/"${keep_line}HOME STEP_PATH LIB LIB_HASH RUST_TOOLCHAIN GH_TOKEN' \\"}"
+[[ "$leak_use" != "$tok_use" && "$keep_use" != "$tok_use" && "$tok_use" != "$use" ]] || { echo "FAIL premise: the issue 375 fixtures did not change"; fail=1; }
+expect "secret step that does not pass the secret on" 0 "$(wf "$checkout" "$isolate" "$tok_use")"
+expect "secret passed as an env -i argument" 1 "$(wf "$checkout" "$isolate" "$leak_use")"
+expect "secret kept by name" 0 "$(wf "$checkout" "$isolate" "$keep_use")"
+expect "keep form without HOME" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME STEP_PATH/STEP_PATH}")"
+expect "keep form keeping BASH_ENV" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME STEP_PATH/HOME BASH_ENV STEP_PATH}")"
+expect "keep form keeping a non-name" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME STEP_PATH/HOME A-B STEP_PATH}")"
+expect "keep form with an edited snippet" 1 "$(wf "$checkout" "$isolate" "${keep_use/-u \"\$n\"/-u x}")"
+expect "keep form without the start-up -u layer" 1 "$(wf "$checkout" "$isolate" "${keep_use/-u BASH_ENV /}")"
+expect "plain step: secret passed to env" 1 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: /usr/bin/env -i PATH=/usr/bin:/bin T="$NPM_TOKEN" npm publish')"
+expect "plain step: secrets expression passed to env" 1 "$(wf_raw '      - run: env X=${{ secrets.NPM_TOKEN }} npm publish')"
+expect "plain step: secret-named variable passed to env" 1 "$(wf_raw '      - env:
+          DEPLOY_PASSWORD: ${{ inputs.pw }}
+        run: env P="${DEPLOY_PASSWORD}" ./deploy')"
+expect "plain step: non-secret variable passed to env beside a secret" 0 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REGISTRY: https://registry.example.com
+        run: env R="$REGISTRY" npm publish')"
+expect "plain step: secret inside a longer env argument" 1 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: env AUTH="Bearer:${NPM_TOKEN}" ./upload')"
+expect "plain step: secret from the job env passed to env" 1 "$(printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      API_KEY: ${{ secrets.K }}\n    steps:\n      - run: env -i K="$API_KEY" ./x\n')"
+expect "plain step: secret from the workflow env passed to env" 1 "$(printf 'env:\n  API_KEY: ${{ secrets.K }}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: env -i K="$API_KEY" ./x\n')"
+expect "plain step: secret as an argument of the command env starts" 1 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: env -i PATH=/usr/bin:/bin ./upload "a $NPM_TOKEN"')"
+expect "plain step: secret read from the environment" 0 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish')"
+
 expect "script run from the checkout after a build" 1 "$(wf "$checkout" "$isolate" "$build" '      - run: bash .ci-helpers-scripts/scripts/setup_rust.sh')"
 expect "script run from a checkout moved under RUNNER_TEMP" 1 "$(wf "$checkout" "$isolate" '      - run: bash "$RUNNER_TEMP/ci-helpers-scripts/scripts/setup_php.sh"')"
 expect "release upload from the publication checkout" 1 "$(wf "$build" '      - run: bash .ci-helpers-publication/scripts/github_release.sh')"
@@ -421,7 +463,7 @@ fi
 # first. `sh` would be the caller's shim.
 runner_shell() {  # runner_shell <tag> -> the command the runner starts
   local s f
-  case "$1" in isolate) f=isolate ;; use) f=use ;; release) f=release ;; verify) f=verify ;; *) return 1 ;; esac
+  case "$1" in isolate) f=isolate ;; use) f=use ;; release|argv) f=release ;; verify) f=verify ;; *) return 1 ;; esac
   s="$(< "$work/shell-$f")"; s="${s%% *}"
   if [[ "$s" == /* ]]; then echo "$s"; else PATH="$work/shim:$PATH" command -v "$s"; fi
 }
@@ -430,7 +472,7 @@ step_as_runner() {  # step_as_runner <tag> <shell...> -- <extra env...>
   local -a sh=() extra=() blanks=()
   while [[ "$1" != -- ]]; do sh+=("$1"); shift; done; shift
   extra=("$@")
-  mapfile -t blanks < "$work/blanks-$tag"
+  mapfile -t blanks < "$work/blanks-${tag/argv/release}"
   # The binary the runner would start, with the arguments of the variant.
   [[ "$(runner_shell "$tag")" == "/bin/sh" ]] || sh[0]="$(runner_shell "$tag")"
   env PATH="$work/shim:$PATH" BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" \
@@ -481,6 +523,41 @@ for shell in "/bin/sh -e" "/bin/bash --posix -e"; do
   for c in bashenv ps4 preload shim; do
     [[ ! -e "$work/canary-$c" ]] || { echo "FAIL [$shell] the $c canary fired"; fail=1; }
   done
+  # The token never becomes an argument: every env and the bash that starts
+  # it record their own /proc/self/cmdline, and none may hold the value. The
+  # step is the real one, with only those two paths pointed at the recorders.
+  if [[ -r /proc/self/cmdline ]]; then
+    tok="tok-375-$$-$RANDOM"
+    rm -rf "$work/argv"; mkdir -p "$work/argv"; rm -f "$work/script-env"
+    for t in env bash; do
+      d=/usr/bin; [[ "$t" == env ]] || d=/bin
+      printf '#!/bin/sh\n/usr/bin/tr "\\000" " " < /proc/$$/cmdline >> "%s/argv/seen"; echo >> "%s/argv/seen"\nexec %s/%s "$@"\n' \
+        "$work" "$work" "$d" "$t" > "$work/argv/$t"
+      chmod +x "$work/argv/$t"
+    done
+    sed -e "s#/usr/bin/env #$work/argv/env #g" -e "s#^exec /bin/bash #exec $work/argv/bash #" "$work/step-release.sh" > "$work/step-argv.sh"
+    (cd "$work" && step_as_runner argv "${shv[@]}" -- A-B=1 LIB="$lib" LIB_HASH="$hash" GH_TOKEN="$tok" TAG_NAME=v1 \
+      RELEASE_NAME=v1 BODY_PATH= PRERELEASE=false MAKE_LATEST=true RUNNER_TEMP="$work/tmp" HOME="$work") > "$work/rel.out" 2>&1 \
+      || { echo "FAIL [$shell] the Create GitHub Release step with recorded argv:"; cat "$work/rel.out"; fail=1; }
+    grep -q -- '-u' "$work/argv/seen" 2>/dev/null || grep -q -- ' -i ' "$work/argv/seen" 2>/dev/null \
+      || { echo "FAIL premise [$shell] no env stage was recorded"; fail=1; }
+    ! grep -qF -- "$tok" "$work/argv/seen" 2>/dev/null \
+      || { echo "FAIL [$shell] GH_TOKEN's value is in the argv of the env stage"; fail=1; }
+    grep -qx "GH_TOKEN=$tok" "$work/script-env" 2>/dev/null || { echo "FAIL [$shell] GH_TOKEN did not reach github_release.sh by the environment"; fail=1; }
+    ! grep -q '^A-B=' "$work/script-env" 2>/dev/null || { echo "FAIL [$shell] a variable with an invalid name reached github_release.sh"; fail=1; }
+    # Fail closed: an env -0 that fails, or lists nothing, must stop the
+    # step, not let the whole environment through.
+    for mode in fail empty; do
+      if [[ "$mode" == fail ]]; then act='exit 1'; else act='exit 0'; fi
+      printf '#!/bin/sh\n[ "$1" != -0 ] || %s\nexec /usr/bin/env "$@"\n' "$act" > "$work/argv/env"
+      rm -f "$work/script-env"
+      (cd "$work" && step_as_runner argv "${shv[@]}" -- LIB="$lib" LIB_HASH="$hash" GH_TOKEN="$tok" TAG_NAME=v1 \
+        RELEASE_NAME=v1 BODY_PATH= PRERELEASE=false MAKE_LATEST=true RUNNER_TEMP="$work/tmp" HOME="$work") > "$work/rel.out" 2>&1 \
+        && { echo "FAIL [$shell] the step ran when env -0 did $mode"; fail=1; }
+      grep -q 'could not list the environment' "$work/rel.out" || { echo "FAIL [$shell] no refusal when env -0 did $mode:"; cat "$work/rel.out"; fail=1; }
+      [[ ! -e "$work/script-env" ]] || { echo "FAIL [$shell] github_release.sh ran when env -0 did $mode"; fail=1; }
+    done
+  fi
   # The envelope alone, without the env: blanks: still nothing reaches the
   # library script, though the outer shell may have read them.
   rm -f "$work/script-env"

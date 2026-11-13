@@ -41,8 +41,14 @@ with PyYAML. In every job, and in a composite action:
              `exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME"
              LANG=C.UTF-8 NAME="$NAME"... /bin/bash --noprofile --norc`:
              an allowlist of named variables, never BASH_ENV, SHELLOPTS,
-             BASHOPTS, LD_*, GIT_*, CI_HELPERS_* and the like. Library code
-             runs only in the heredoc body that bash gets with -c;
+             BASHOPTS, LD_*, GIT_*, CI_HELPERS_* and the like, or
+             KEEP_PREFIX with the names to keep, for a step that passes a
+             secret on. Library code runs only in the heredoc body that
+             bash gets with -c;
+  secret     no step passes a secret to env, or to the command env
+             starts, as an argument: a $X where X is a step, job or
+             workflow env: key with a secrets. or github.token value or a
+             SECRET_NAME name, or a secrets. expression;
   release    a job with an isolate step ends with an always() step that
              makes the read-only copy writable again;
   git        git on a library checkout runs only in the step right after
@@ -93,6 +99,39 @@ ISOLATE = re.compile(
 GUARD = ('case "$(/usr/bin/env)" in *BASH_FUNC_*) echo "::error::an exported shell function '
          'is in the environment; nothing runs."; exit 1 ;; esac')
 EXEC_PREFIX = 'exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 '
+# A step that holds a secret starts the clean bash through KEEP_PREFIX
+# instead: a bash that is handed the variable NAMES to keep, drops every
+# other exported name with `env -u`, and execs the clean bash. It fails
+# closed: the listing must end with a per-run marker printed only after
+# `env -0` succeeded, hold PATH, and hold nothing after the marker. An
+# entry `env -u` cannot remove (no `=`, or an empty name such as `=C:`)
+# also stops it; bash drops those at start-up, so none is expected. A
+# secret's value stays in the environment and never becomes an argument,
+# where any process of the same user could read it from
+# /proc/<pid>/cmdline. tests/keep_env_snippet_test.sh runs it on Linux,
+# macOS and Windows.
+KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); ok=0; seen=0; bad=0; '
+                'm="CI_HELPERS_ENV_END.$$.$RANDOM.$RANDOM.$RANDOM"; '
+                'while IFS= read -r -d "" e; do if [[ "$ok" == 1 ]]; then bad=1; elif [[ "$e" == "$m" ]]; then ok=1; '
+                'elif [[ "$e" != *=* || "$e" == =* ]]; then bad=1; else n="${e%%=*}"; [[ "$n" != PATH ]] || seen=1; k=0; '
+                'for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; '
+                '[[ "$k" == 1 ]] || u+=(-u "$n"); fi; '
+                'done < <(/usr/bin/env -0 && printf "%s\\0" "$m"); '
+                '[[ "$ok" == 1 && "$seen" == 1 && "$bad" == 0 ]] || { echo "::error::could not list the environment, or it holds an entry env -u cannot remove; nothing runs."; exit 1; }; '
+                'exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"')
+# The outer bash starts with the caller's environment. The step's env:
+# blanks those start-up names; dropping them by name here as well means a
+# missing blank alone lets none of them act.
+KEEP_UNSET = ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "LD_PRELOAD", "LD_LIBRARY_PATH",
+              "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH")
+KEEP_PREFIX = "".join(("exec /usr/bin/env ", "".join(f"-u {n} " for n in KEEP_UNSET),
+                       "/bin/bash --noprofile --norc -c '", KEEP_SNIPPET, "' ci-helpers-env '"))
+KEEP_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# `env` started with arguments; every variable after it on the line is an
+# argument of env or of the command it starts.
+ENV_CMD = re.compile(r"(?:^|[\s;&|(!])(?:/usr/bin/)?env\s")
+VAR_REF = re.compile(r'\$\{?([A-Za-z_][A-Za-z0-9_]*)')
+SECRET_EXPR = re.compile(r"\$\{\{[^}]*(?:secrets\.|github\.token)")
 PAIR = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="\$([A-Za-z_][A-Za-z0-9_]*)"\s+')
 # Names that change how bash, the loader, Python, Perl or git behave, and
 # the ones the envelope sets itself. Never passed through.
@@ -193,12 +232,26 @@ def envelope(run: str) -> tuple[list[str], str, str | None, list[str]]:
             continue
         head += ln
         break
-    if not head.startswith(EXEC_PREFIX):
-        errs.append(f"does not start through `{EXEC_PREFIX.strip()}`")
-        return [], "", None, errs
-    tail = head[len(EXEC_PREFIX):]
     names = []
-    while True:
+    if head.startswith(KEEP_PREFIX):
+        listed, sep, tail = head[len(KEEP_PREFIX):].partition("'")
+        if not sep:
+            errs.append("does not close the list of names to keep")
+        for n in listed.split():
+            if not KEEP_NAME.match(n):
+                errs.append(f"keeps {n!r}, which is not a variable name")
+            elif FORBIDDEN.match(n) and n not in ("HOME", "STEP_PATH"):
+                errs.append(f"passes {n} into the clean environment")
+            else:
+                names.append(n)
+        if "HOME" not in names:
+            errs.append("keeps no HOME")
+    elif not head.startswith(EXEC_PREFIX):
+        errs.append(f"does not start through `{EXEC_PREFIX.strip()}` or `{KEEP_PREFIX}...'`")
+        return [], "", None, errs
+    else:
+        tail = head[len(EXEC_PREFIX):]
+    while not head.startswith(KEEP_PREFIX):
         m = PAIR.match(tail)
         if not m:
             break
@@ -228,7 +281,7 @@ def envelope(run: str) -> tuple[list[str], str, str | None, list[str]]:
 
 
 def check_steps(where: str, steps: list, container: dict | None, windows: bool = False,
-                dynamic: bool = False) -> list[str]:
+                dynamic: bool = False, outer_env: dict | None = None) -> list[str]:
     # A runs-on with an expression can be a Windows runner, where /bin/sh is
     # not a path the runner can start: those jobs keep the bare names.
     env_shell = "bash" if windows else ("sh" if dynamic else SH)
@@ -263,6 +316,24 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
         uses = str(step.get("uses") or "")
         if re.search(r"\.ci-helpers-[a-z]+/(?:scripts|vendor)/", uses):
             errors.append(f"{name}: uses a library file from the workspace checkout")
+
+        # A secret never reaches env as an argument: /proc/<pid>/cmdline
+        # shows it to every process of the runner's user until the exec.
+        # The job's and the workflow's env: reach the step too.
+        secrets = {k for k, v in {**(outer_env or {}), **env}.items()
+                   if SECRET_VALUE.search(str(v)) or SECRET_NAME.search(str(k))}
+        for line in logical_lines(run):
+            m = ENV_CMD.search(line)
+            if not m:
+                continue
+            args = line[m.end() - 1:]
+            refs = {r.group(1) for r in VAR_REF.finditer(args)}
+            leaked = sorted(refs & secrets)
+            if SECRET_EXPR.search(args):
+                leaked.append("a secrets. or github.token expression")
+            for s in leaked:
+                errors.append(f"{name}: passes {s} to env as an argument, which /proc/<pid>/cmdline shows; "
+                              f"keep it by name with KEEP_PREFIX (docs/SECURITY.md)")
 
         shell = str(step.get("shell") or "")
         env_names, tail, body, env_errs = envelope(run) if "lib_isolate.sh" in run or "LIB" in env else ([], "", None, [])
@@ -453,8 +524,10 @@ def check_file(path: Path) -> list[str]:
         for jid, job in jobs.items():
             if isinstance(job, dict) and isinstance(job.get("steps"), list):
                 ro = str(job.get("runs-on") or "")
+                outer = {**(doc.get("env") if isinstance(doc.get("env"), dict) else {}),
+                         **(job.get("env") if isinstance(job.get("env"), dict) else {})}
                 errors += check_steps(f"{path}: job {jid}", job["steps"], job.get("container"),
-                                      "windows" in ro.lower() and "${{" not in ro, "${{" in ro)
+                                      "windows" in ro.lower() and "${{" not in ro, "${{" in ro, outer)
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)

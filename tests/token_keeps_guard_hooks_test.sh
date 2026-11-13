@@ -32,17 +32,17 @@ while IFS=: read -r file line; do
 done < <(grep -n -E 'GIT_CONFIG_(KEY|VALUE)_[^=]*=.*extraheader' "$root"/.github/workflows/*.yml | cut -d: -f1,2)
 [[ "$sites" -gt 0 ]] || { echo "FAIL no extraheader sites found"; fail=1; }
 
-# Clean-environment steps that push: the guard's entry crosses env -i.
+# Clean-environment steps that push: the guard's entry crosses into the
+# clean bash, kept by name with the token (the token is never an argument).
 for wf in auto-tag.yml update-production.yml; do
   f="$root/.github/workflows/$wf"
-  n_envi="$(grep -c 'exec /usr/bin/env -i .*PUSH_TOKEN=' "$f" || true)"
-  # shellcheck disable=SC2016 # literal $NAME text in the workflow
-  n_pass="$(grep -c 'exec /usr/bin/env -i .*PUSH_TOKEN=.*GUARD_COUNT="\$GUARD_COUNT" GUARD_KEY="\$GUARD_KEY" GUARD_HOOKS="\$GUARD_HOOKS" GITLEAKS_BIN="\$GITLEAKS_BIN"' "$f" || true)"
+  n_envi="$(grep -c "ci-helpers-env '.* PUSH_TOKEN " "$f" || true)"
+  n_pass="$(grep -c "ci-helpers-env '.* PUSH_TOKEN .*GUARD_COUNT GUARD_KEY GUARD_HOOKS GITLEAKS_BIN[ ']" "$f" || true)"
   n_req="$(grep -c 'the outbound guard is not configured; nothing is pushed' "$f" || true)"
   if [[ "$n_envi" -gt 0 && "$n_pass" == "$n_envi" && "$n_req" == "$n_envi" ]]; then
     echo "ok   $wf: $n_envi clean-environment push steps carry and require the guard"
   else
-    echo "FAIL $wf: env -i push steps $n_envi, carrying the guard $n_pass, requiring it $n_req"; fail=1
+    echo "FAIL $wf: clean-environment push steps $n_envi, carrying the guard $n_pass, requiring it $n_req"; fail=1
   fi
 done
 exit "$fail"
