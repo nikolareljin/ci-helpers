@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_scan_output.sh
 # DESCRIPTION: Refuse scanner results before a commit, push or text publication.
-# USAGE: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>]
+# USAGE: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
 # PARAMETERS:
 #   --staged          Check staged blobs, not working files.
 #   --push-refs FILE  Check every outgoing commit and annotated tag.
@@ -11,9 +11,15 @@
 #   --stdin           Check publication text on stdin.
 #   --remote NAME     Target remote for new refs.
 #   --repo PATH       Repository, default current directory.
+#   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
+#                     or CHECK_SCAN_OUTPUT_MAX_MIB). Above 64 MiB files are
+#                     streamed; executables also have embedded data decoded.
+#   --non-blocking    Exit 0 when a file above 64 MiB was not fully checked
+#                     (the default when GITHUB_ACTIONS=true).
 #   -h, --help        Show help.
 # EXIT_CODES:
-#   0 Clear; 1 prohibited output; 2 unable to check. Both failures block publication.
+#   0 Clear; 1 prohibited output; 2 unable to check; 3 a file above 64 MiB was
+#   not fully checked (warning printed; 0 with --non-blocking or in CI).
 # EXAMPLE: scripts/check_scan_output.sh --staged
 # ----------------------------------------------------
 set -euo pipefail

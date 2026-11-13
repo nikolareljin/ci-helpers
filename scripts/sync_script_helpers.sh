@@ -140,10 +140,14 @@ cp -r "$TMP_DIR/script-helpers" "$STAGE_DIR"
 #     it is what proves publish_homebrew keeps a token out of argv -- but a
 #     repository that never runs those tests has no reason to carry them.
 #
+#   scripts/check_workflow_actions.sh  upstream's gate for its own workflow
+#     files. It names this repository's @production refs as the allowed form,
+#     which the circular-reference check refuses, and nothing here runs it.
+#
 # The alternative was an allowlist entry per fixture, maintained forever, each
 # one a standing exemption in a secret scanner. Not copying the file is smaller
 # and cannot rot.
-VENDOR_EXCLUDES=(".git" ".github" "docs" "CHANGELOG.md" "tests")
+VENDOR_EXCLUDES=(".git" ".github" "docs" "CHANGELOG.md" "tests" "scripts/check_workflow_actions.sh")
 for excluded in "${VENDOR_EXCLUDES[@]}"; do
   rm -rf "${STAGE_DIR:?}/${excluded}"
 done

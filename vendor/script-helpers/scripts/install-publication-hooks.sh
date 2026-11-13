@@ -19,7 +19,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 py="$(security_python)" || fail
 umask 077
 log="$(mktemp "${RUNNER_TEMP}/security-install.XXXXXX")" || fail
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f "$log"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$log"; fi' EXIT
 stage="$("$py" -I -c '
 import os, pathlib, shutil, subprocess, sys, tempfile
 root, runner = (str(pathlib.Path(p).resolve()) for p in sys.argv[1:])

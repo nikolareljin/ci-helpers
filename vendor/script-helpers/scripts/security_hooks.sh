@@ -46,7 +46,20 @@ sec_scan_output() {
     sec_unchecked security "publication checker missing; reinstall the hooks"
     return 1
   }
+  local out rc=0
+  out="$(
+  exec 2>&1
   bash "$gate" "$@"
+  )" || rc=$?
+  [[ -z "$out" ]] || printf '%s\n' "$out"
+  # sec_guard keeps output in a private report. Lines for a file above 64 MiB
+  # that was not fully checked (path and reason only) go to the terminal or the
+  # CI log instead: fd 8 is the caller's stdout, fd 9 its stderr.
+  if [[ "$rc" -eq 0 || "$rc" -eq 3 ]]; then
+    { true >&8; } 2>/dev/null && { grep -E '^::warning title=Security check incomplete::' <<<"$out" >&8 || true; }
+    { true >&9; } 2>/dev/null && { grep -E '^WARNING: security check incomplete' <<<"$out" >&9 || true; }
+  fi
+  return "$rc"
 }
 
 # sec_guard <check> [args]: diagnostics stay local; CI only receives a verdict.
@@ -60,13 +73,13 @@ sec_guard() (
       security_notice Security
       return 1
     }
-    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf "${report%/*}"; fi' EXIT
+    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf -- "${report%/*}"; fi' EXIT
     trap 'exit 1' HUP INT TERM
     if ! { printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report"; } 2>/dev/null; then
       security_notice Security
       return 1
     fi
-    { "$@" >>"$report" 2>&1; } 2>/dev/null || rc=$?
+    { "$@" >>"$report" 2>&1; } 8>&1 9>&2 2>/dev/null || rc=$?
     if [[ "$rc" -ne 0 ]]; then
       security_notice "$(security_notice_tool "$report")"
     fi
@@ -76,7 +89,7 @@ sec_guard() (
       return 1
     }
     printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report" || return 1
-    "$@" >>"$report" 2>&1 || rc=$?
+    "$@" 8>&1 9>&2 >>"$report" 2>&1 || rc=$?
     if [[ "$rc" -eq 0 ]]; then
       printf 'Security checks passed. Local report: %s\n' "$report"
     else

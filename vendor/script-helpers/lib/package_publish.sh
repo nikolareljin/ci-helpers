@@ -106,8 +106,8 @@ pkg_build_source_package() {
     # removes the file at once and remembers the signal; it is re-delivered
     # once the caller's traps are restored, so the caller still sees it.
     old_int="$(trap -p INT)"; old_term="$(trap -p TERM)"
-    trap 'rm -f "$pass_file"; sig=INT' INT
-    trap 'rm -f "$pass_file"; sig=TERM' TERM
+    trap 'rm -f -- "$pass_file"; sig=INT' INT
+    trap 'rm -f -- "$pass_file"; sig=TERM' TERM
 
     if debuild -S -sa -k"$key_id" -p"gpg --batch --pinentry-mode loopback --passphrase-file ${pass_file}"; then
       rc=0

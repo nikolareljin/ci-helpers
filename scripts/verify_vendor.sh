@@ -30,7 +30,7 @@ UPSTREAM_URL="${SCRIPT_HELPERS_REPO_URL:-https://github.com/${UPSTREAM_REPO}.git
 # Paths that must never appear in the vendored tree. Keep in step with
 # VENDOR_EXCLUDES in sync_script_helpers.sh; the content comparison below also
 # removes exactly these from upstream's tree before comparing.
-FORBIDDEN_PATHS=(".git" ".github" "docs" "CHANGELOG.md" "tests")
+FORBIDDEN_PATHS=(".git" ".github" "docs" "CHANGELOG.md" "tests" "scripts/check_workflow_actions.sh")
 
 OFFLINE=false
 while [[ $# -gt 0 ]]; do

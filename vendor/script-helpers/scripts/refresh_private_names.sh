@@ -710,7 +710,7 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   ' new="$tmp.newrows" "$tmp.newrows" "$tmp.oldrows")"
   old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
   new_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.newrows")"
-  rm -f "$tmp.oldrows" "$tmp.newrows"
+  rm -f -- "$tmp.oldrows" "$tmp.newrows"
   if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" || -n "$lost_alias" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"
