@@ -165,6 +165,14 @@ expect "plain step: non-secret variable passed to env beside a secret" 0 "$(wf_r
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           REGISTRY: https://registry.example.com
         run: env R="$REGISTRY" npm publish')"
+expect "plain step: secret inside a longer env argument" 1 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: env AUTH="Bearer:${NPM_TOKEN}" ./upload')"
+expect "plain step: secret from the job env passed to env" 1 "$(printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    env:\n      API_KEY: ${{ secrets.K }}\n    steps:\n      - run: env -i K="$API_KEY" ./x\n')"
+expect "plain step: secret from the workflow env passed to env" 1 "$(printf 'env:\n  API_KEY: ${{ secrets.K }}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: env -i K="$API_KEY" ./x\n')"
+expect "plain step: secret as an argument of the command env starts" 1 "$(wf_raw '      - env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: env -i PATH=/usr/bin:/bin ./upload "a $NPM_TOKEN"')"
 expect "plain step: secret read from the environment" 0 "$(wf_raw '      - env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish')"
@@ -536,6 +544,18 @@ for shell in "/bin/sh -e" "/bin/bash --posix -e"; do
       || { echo "FAIL [$shell] GH_TOKEN's value is in the argv of the env stage"; fail=1; }
     grep -qx "GH_TOKEN=$tok" "$work/script-env" 2>/dev/null || { echo "FAIL [$shell] GH_TOKEN did not reach github_release.sh by the environment"; fail=1; }
     ! grep -q '^A-B=' "$work/script-env" 2>/dev/null || { echo "FAIL [$shell] a variable with an invalid name reached github_release.sh"; fail=1; }
+    # Fail closed: an env -0 that fails, or lists nothing, must stop the
+    # step, not let the whole environment through.
+    for mode in fail empty; do
+      if [[ "$mode" == fail ]]; then act='exit 1'; else act='exit 0'; fi
+      printf '#!/bin/sh\n[ "$1" != -0 ] || %s\nexec /usr/bin/env "$@"\n' "$act" > "$work/argv/env"
+      rm -f "$work/script-env"
+      (cd "$work" && step_as_runner argv "${shv[@]}" -- LIB="$lib" LIB_HASH="$hash" GH_TOKEN="$tok" TAG_NAME=v1 \
+        RELEASE_NAME=v1 BODY_PATH= PRERELEASE=false MAKE_LATEST=true RUNNER_TEMP="$work/tmp" HOME="$work") > "$work/rel.out" 2>&1 \
+        && { echo "FAIL [$shell] the step ran when env -0 did $mode"; fail=1; }
+      grep -q 'could not list the environment' "$work/rel.out" || { echo "FAIL [$shell] no refusal when env -0 did $mode:"; cat "$work/rel.out"; fail=1; }
+      [[ ! -e "$work/script-env" ]] || { echo "FAIL [$shell] github_release.sh ran when env -0 did $mode"; fail=1; }
+    done
   fi
   # The envelope alone, without the env: blanks: still nothing reaches the
   # library script, though the outer shell may have read them.
