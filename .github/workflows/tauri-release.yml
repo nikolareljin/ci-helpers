@@ -576,7 +576,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -933,7 +933,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -1415,7 +1415,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -1850,7 +1850,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -2209,7 +2209,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -2724,7 +2724,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -3088,7 +3088,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
@@ -3357,7 +3357,7 @@ jobs:
             gd="$(pwd -P)/.git"; exclude=$("${genv[@]}" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "$git" -c core.fsmonitor= -c core.hooksPath=/dev/null rev-parse --git-path info/exclude) || { echo "::error::git cannot read .git; refusing to edit its exclude file"; exit 1; }
             [[ "$exclude" == ".git/info/exclude" && ! -L "$gd/info" && ! -L "$gd/info/exclude" ]] || { echo "::error::.git/info/exclude resolves outside .git or through a symlink; refusing to edit it"; exit 1; }
             exclude="$gd/info/exclude"
-            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info"
+            [[ -d "$gd/info" ]] || /bin/mkdir "$gd/info" || { echo "::error::cannot create .git/info; refusing to edit its exclude file"; exit 1; }
             [[ ! -e "$exclude" || ( -f "$exclude" && -z "$(/usr/bin/find "$exclude" -prune -links +1)" ) ]] || { echo "::error::.git/info/exclude is not a plain file with one link; refusing to edit it"; exit 1; }
             printf '\n/.ci-helpers-publication/\n' >> "$exclude"
           fi
