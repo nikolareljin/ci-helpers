@@ -159,7 +159,7 @@ refuse "a restore after the setup step" engine "$work/laterestore.yml" "the Flut
 python3 - "$root/.github/workflows/flutter-release.yml" "$work/releasesave.yml" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
-steps = doc["jobs"]["flutter_release"]["steps"]
+steps = doc["jobs"]["build"]["steps"]
 at = next(i for i, s in enumerate(steps) if s.get("name") == "Setup Flutter") + 1
 steps.insert(at, {"name": "Save Flutter archive", "uses": "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
                   "with": {"path": "${{ steps.flutter_resolve.outputs.cache_path }}", "key": "${{ steps.flutter_resolve.outputs.cache_key }}"}})

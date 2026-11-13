@@ -332,101 +332,115 @@ See the detailed `release-build.yml` section later in this document for the full
 
 Workflow: `.github/workflows/flutter-release.yml`
 
-Purpose: Build Flutter Android/iOS artifacts and optionally deploy to Google Play and Apple App Store via Fastlane.
+Purpose: Build Flutter Android/iOS artifacts and optionally upload to Google
+Play and App Store Connect with fastlane.
 
-Notes:
+Jobs:
 
-- iOS builds/uploads require a macOS runner.
-- For store deploys, a Fastlane lane is expected in the app repo (Gemfile optional).
-- Ruby comes from the runner's tool cache through `scripts/setup_ruby.sh`,
-  which the job checks out from this library at the workflow's own commit; no
-  third-party action, and no download. `ruby_version` is matched as
-  `ruby/setup-ruby` matched it: `3` is the newest 3.y.z the cache holds,
-  `3.4` the newest 3.4.z, `3.4.12` that release only; empty reads
-  `.ruby-version`, `.tool-versions` or `mise.toml` at the workspace root. The hosted Ubuntu,
-  macOS and Windows images cache Ruby 3.2, 3.3, 3.4 and 4.0; a version the
-  cache lacks fails the `Setup Ruby` step with the versions it holds. A
-  self-hosted `runner` needs the Ruby under `$RUNNER_TOOL_CACHE/Ruby/<x.y.z>/<x64|arm64>`.
-- With a `Gemfile`, gems install under `vendor/bundle` on every run; nothing
-  is cached, as this job holds the store credentials (see
-  [Cache trust](SECURITY.md#cache-trust)); with a `Gemfile.lock` the install is frozen
-  (`bundle config set --local deployment true`), so a `Gemfile` that disagrees
-  with it fails at `Install gems`. Without a `Gemfile`, fastlane is installed
-  at the version pinned in the library's `toolchain-pins.env`
-  (`FASTLANE_VERSION`). `gem install` checks no digest, so that pin is the
-  version only; commit a `Gemfile.lock` to pin the whole dependency tree.
+| Job | Runs | Holds |
+|-----|------|-------|
+| `build` | the caller's build (`runner`) | nothing: `contents: read`, no secret |
+| `sign-android` | when `build_android`; on `android_sign_runner` | the upload key and, with `deploy_google_play`, the Play service account |
+| `upload-app-store` | when `deploy_app_store`; on `app_store_runner` | the `match_*` and App Store Connect secrets |
+
+- `build` runs `android_build_command`, `ios_build_command` (when
+  `build_ios` and not `deploy_app_store`) and `ios_archive_command` (when
+  `deploy_app_store`), stages the files matching `android_artifact_path`
+  (`.aab` or `.apk`, a plain name) and the archive at `ios_archive_path` (as
+  one tarball), and uploads them with a sha256 manifest under
+  `flutter-release-build-<run id>-<attempt>-<random>`, kept one day. It gets
+  no keystore: `android/key.properties` is not written, so Gradle signs with
+  the project's own release config (the Flutter template's is the debug key).
+- `sign-android` and `upload-app-store` check out nothing of the caller's,
+  check the artifact name, then check every file against the manifest
+  (`scripts/artifact_parts.sh verify`) before they use it. They run only
+  library scripts, the pinned Java (`actions/setup-java`), Ruby from the
+  runner's tool cache (`scripts/setup_ruby.sh`) and fastlane installed by
+  `scripts/install_fastlane.sh` from the library's
+  `scripts/fastlane/Gemfile.lock`: frozen, rubygems.org only, every gem
+  checked against the lockfile's sha256 by Bundler (`BUNDLER_VERSION`,
+  itself checked against `BUNDLER_GEM_SHA256` in `toolchain-pins.env`), all
+  installed before a secret is read.
+- `sign-android` removes the build's signature from each `.aab`
+  (`scripts/zip_strip_signature.py`), signs it with `jarsigner` and the
+  upload key, verifies it, and uploads `android_artifact_name` (when
+  `upload_artifacts`). Without the four keystore secrets the bundle is passed
+  on as built, with a warning; with `deploy_google_play` that fails. An
+  `.apk` is not signed here (it needs `apksigner`): build an app bundle.
+- With `deploy_google_play`, `sign-android` runs `fastlane supply` with the
+  one signed `.aab`, `android_package_name`, `google_play_track` and
+  `google_play_release_status`; metadata, images and changelogs are not
+  uploaded.
+- `upload-app-store` unpacks the archive (`scripts/safe_untar.py`: one
+  `<name>.xcarchive`, no `..`, no absolute path, no link target with `..`), checks
+  that its one app's `CFBundleIdentifier` is `ios_bundle_id`, fetches the
+  App Store certificate and profile with `fastlane match appstore --readonly`
+  into a keychain of its own (deleted on exit), writes `exportOptions.plist`
+  (`app-store-connect`, manual signing, profile `match AppStore
+  <ios_bundle_id>`, `ios_team_id`) and runs `xcodebuild -exportArchive`. It
+  then uploads the IPA with `fastlane pilot upload` (`app_store_destination:
+  testflight`) or `fastlane deliver` without metadata, screenshots or a
+  review submission (`app_store`).
+- fastlane runs from an empty directory with `FASTLANE_SKIP_UPDATE_CHECK`,
+  `FASTLANE_OPT_OUT_USAGE` and `FASTLANE_HIDE_CHANGELOG` set and no
+  `BUNDLE_GEMFILE` (`scripts/fastlane_run.sh`): no `Fastfile`, `Appfile`,
+  `Matchfile`, `Pluginfile` or `Gemfile` of the caller is read, and no lane
+  runs. Every value it gets is a checked input or a secret.
+- The key files (keystore, Play JSON, App Store Connect key) are written
+  under a 0700 directory the script removes on exit.
+- Ruby: `ruby_version` is matched as `ruby/setup-ruby` matched it (`3` is
+  the newest 3.y.z the tool cache holds, `3.4` the newest 3.4.z). The hosted
+  images cache Ruby 3.2, 3.3, 3.4 and 4.0.
 - Flutter comes from the official release archive through
-  `scripts/setup_flutter.sh`, from the same library checkout, on every run;
-  no third-party action. An empty `flutter_version` on the `stable` channel
-  installs the release pinned in the library's `toolchain-pins.env`
-  (`FLUTTER_VERSION`), checked against both the pin and the manifest's
-  sha256; an exact version or an `X.Y` prefix is checked against the
-  manifest's sha256; `beta` or `dev` without a version is the newest of the
-  channel. A channel name in `flutter_version` is read as the channel, as
-  before; `master` and `main` are refused (git clones, no digest). The
-  archive is downloaded, checked against its sha256 and extracted on every
-  run; this job holds secrets and neither restores nor saves a cache entry
-  (see [Cache trust](SECURITY.md#cache-trust)).
-- Every toolchain step (Java, the library checkout, Flutter, `flutter pub
-  get`, Ruby, gems, fastlane) runs before any step that reads a secret; the
-  keystore, the Play service account file and the App Store Connect key are
-  written right before the steps that use them and removed by an `always()`
-  cleanup step.
-- This workflow handles Google Play and App Store deployments when `deploy_google_play` / `deploy_app_store` are enabled and secrets are provided.
+  `scripts/setup_flutter.sh` from the library checkout, on every run; no
+  third-party action. An empty `flutter_version` on the `stable` channel
+  installs the release pinned in `toolchain-pins.env` (`FLUTTER_VERSION`),
+  checked against both the pin and the manifest's sha256; an exact version
+  or an `X.Y` prefix is checked against the manifest's sha256; `beta` or
+  `dev` without a version is the newest of the channel. A channel name in
+  `flutter_version` is read as the channel; `master` and `main` are refused.
+  Nothing is cached (see [Cache trust](SECURITY.md#cache-trust)).
 
 Inputs:
 
-- `runner` (string, default `ubuntu-latest`)
+- `runner` (string, default `ubuntu-latest`; the `build` job. `macos-latest` for iOS)
 - `working_directory` (string, default `"."`)
 - `fetch_depth` (number, default `0`)
 - `flutter_version` (string, default `""`; empty is the pinned release on `stable`, the newest on another channel; `3.47.9`, or `3.47` for the newest of that line)
 - `flutter_channel` (string, default `stable`; `stable`, `beta` or `dev`)
 - `java_version` (string, default `"17"`)
-- `ruby_version` (string, default `"3.4"`)
+- `ruby_version` (string, default `"3.4"`; the upload jobs' Ruby for fastlane)
 - `build_android` (boolean, default `true`)
 - `build_ios` (boolean, default `false`)
-- `deploy_google_play` (boolean, default `false`)
-- `deploy_app_store` (boolean, default `false`)
+- `deploy_google_play` (boolean, default `false`; needs `build_android: true`)
+- `deploy_app_store` (boolean, default `false`; needs a macOS `runner`)
 - `android_build_command` (string, default `flutter build appbundle --release`; shell code, run as written)
-- `ios_build_command` (string, default `flutter build ipa --release`; shell code, run as written)
+- `ios_build_command` (string, default `flutter build ipa --release`; shell code, run as written; not run when `deploy_app_store`)
+- `ios_archive_command` (string, default `flutter build ipa --release --no-codesign`; shell code, run when `deploy_app_store`; must leave an unsigned archive at `ios_archive_path`)
+- `ios_archive_path` (string, default `build/ios/archive/Runner.xcarchive`; relative to `working_directory`)
 - `android_artifact_path` (string, default `build/app/outputs/bundle/release/*.aab`)
 - `ios_artifact_path` (string, default `build/ios/ipa/*.ipa`)
 - `upload_artifacts` (boolean, default `true`)
-- `android_artifact_name` (string, default `flutter-android`)
+- `android_artifact_name` (string, default `flutter-android`; uploaded by `sign-android`)
 - `ios_artifact_name` (string, default `flutter-ios`)
-- `fastlane_android_lane` (string, default `android_release`; a lane and its options, such as `beta skip_upload:true`, split as the shell splits quoted words (`notes:"a b"` stays one) and passed to fastlane as text, never expanded or run; the split uses `python3`, which GitHub-hosted runners have, so a self-hosted `runner` needs it for the deploy steps)
-- `fastlane_ios_lane` (string, default `ios_release`; split and passed as for `fastlane_android_lane`)
-- `timeout_minutes` (number, default `60`) — job timeout; the higher default covers
-  cold Flutter and Fastlane builds, including expensive macOS runners.
+- `android_package_name` (string, default `""`; the application id, such as `com.example.app`; required by `deploy_google_play`)
+- `google_play_track` (string, default `internal`; `internal`, `alpha`, `beta`, `production` or a custom track of `[a-z0-9_:-]`)
+- `google_play_release_status` (string, default `completed`; `completed`, `draft`, `halted` or `inProgress`)
+- `android_sign_runner` (string, default `ubuntu-latest`; the `sign-android` job)
+- `ios_bundle_id` (string, default `""`; required by `deploy_app_store`)
+- `ios_team_id` (string, default `""`; the 10-character Apple team id; required by `deploy_app_store`)
+- `app_store_destination` (string, default `testflight`; `testflight` runs `pilot upload`, `app_store` runs `deliver`)
+- `app_store_runner` (string, default `macos-latest`; the `upload-app-store` job)
+- `timeout_minutes` (number, default `60`) - the `build` job's timeout; the
+  default covers a cold Flutter build on a macOS runner.
 
 Secrets:
 
-- `android_keystore_base64` (optional)
-- `android_keystore_password` (optional)
-- `android_key_alias` (optional)
-- `android_key_password` (optional)
-- `google_play_service_account_json` (optional, for deploy)
-- `app_store_connect_api_key_base64` (optional, for deploy)
-- `app_store_connect_key_id` (optional, for deploy)
-- `app_store_connect_issuer_id` (optional, for deploy)
-- `match_git_url` (optional, private fastlane `match` storage repository URL)
-- `match_password` (optional, password used to decrypt the fastlane `match` repository)
-- `match_git_basic_authorization` (optional, Base64-encoded Git Basic authorization credentials for fastlane `match`)
-
-Additional notes:
-
-- The workflow writes the Google Play JSON to a file at the path specified by `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_FILE_PATH` for Fastlane.
-- When `deploy_app_store` is true, Fastlane is expected to build and upload the iOS app inside the iOS lane.
-- The optional `match_*` secrets are exposed to that lane as `MATCH_GIT_URL`, `MATCH_PASSWORD`, and `MATCH_GIT_BASIC_AUTHORIZATION` so it can sync signing certificates and provisioning profiles.
-- `fastlane match` installs certificates/profiles into the runner's keychain and provisioning-profile directories. On GitHub-hosted runners this is discarded when the ephemeral VM is torn down, but on **self-hosted macOS runners this state persists across runs** — have your iOS lane call `setup_ci` (creates a temporary keychain) and clean up afterwards to avoid leaking signing material between builds.
-- If `deploy_app_store` is true, the standalone iOS build step is skipped even when `build_ios` is enabled.
-- Android signing files are written to `${{ inputs.working_directory }}/android` and your `android/app/build.gradle` should load `key.properties` from the Android project root (e.g., `rootProject.file("key.properties")`).
-- **Signing secrets are required only when `deploy_google_play: true`.** When `build_android: true` without `deploy_google_play`, omitting signing secrets emits a warning and skips `key.properties` setup — the build uses the project's own signing config (e.g. debug signing). This allows CI/test builds without keystore credentials.
-
-Security notes:
-
-- The workflow masks secrets via `::add-mask::` before use.
-- Secret-handling steps temporarily disable shell tracing (`set +x`).
+- `android_keystore_base64`, `android_keystore_password`, `android_key_alias`, `android_key_password` (the upload key; all four or none; required by `deploy_google_play`)
+- `google_play_service_account_json` (required by `deploy_google_play`)
+- `app_store_connect_api_key_base64`, `app_store_connect_key_id`, `app_store_connect_issuer_id` (required by `deploy_app_store`)
+- `match_git_url`, `match_password` (required by `deploy_app_store`: the `match` storage repository and its passphrase)
+- `match_git_basic_authorization` (optional, base64 `user:token` for a private `match` repository)
 
 Example (Android build + Play Store deploy):
 
@@ -438,7 +452,8 @@ jobs:
       working_directory: "apps/mobile"
       build_android: true
       deploy_google_play: true
-      fastlane_android_lane: "android_release"
+      android_package_name: com.example.app
+      google_play_track: internal
     secrets:
       android_keystore_base64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       android_keystore_password: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -447,7 +462,7 @@ jobs:
       google_play_service_account_json: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
 ```
 
-Example (iOS build + App Store deploy, macOS runner):
+Example (iOS build + TestFlight upload, macOS runner):
 
 ```yaml
 jobs:
@@ -456,13 +471,17 @@ jobs:
     with:
       runner: macos-latest
       working_directory: "apps/mobile"
-      build_ios: true
+      build_android: false
       deploy_app_store: true
-      fastlane_ios_lane: "ios_release"
+      ios_bundle_id: com.example.app
+      ios_team_id: ABCDE12345
     secrets:
       app_store_connect_api_key_base64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
       app_store_connect_key_id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       app_store_connect_issuer_id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      match_git_url: ${{ secrets.MATCH_GIT_URL }}
+      match_password: ${{ secrets.MATCH_PASSWORD }}
+      match_git_basic_authorization: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
 ```
 
 ## trivy-scan.yml
@@ -2630,34 +2649,74 @@ jobs:
 
 Workflow: `.github/workflows/tauri-release.yml`
 
-Purpose: Cross-platform Tauri desktop release — three independent build jobs
-(`macos-latest`, `windows-latest`, and the `runner` input — default
-`ubuntu-24.04`), signs/notarizes, uploads
-artifacts, publishes a GitHub release, and optionally submits to WinGet.
+Purpose: Cross-platform Tauri desktop release: three build jobs
+(`macos-latest`, `windows-latest`, and the `runner` input, default
+`ubuntu-24.04`), two signing jobs, a GitHub release, and optionally a WinGet
+submission.
+
+Jobs:
+
+| Job | Runs | Holds |
+|-----|------|-------|
+| `build-macos` | `cargo tauri build --bundles app`, unsigned | nothing (`contents: read`) |
+| `build-signer-macos` | `cargo install tauri-cli --locked` on `macos_sign_runner`, with `macos_updater_sign` | nothing (`contents: read`) |
+| `sign-macos` | on `macos_sign_runner` | the Apple secrets, and the updater key with `macos_updater_sign` |
+| `build-windows` | `cargo tauri build`, unsigned | nothing (`contents: read`) |
+| `build-signer-windows` | `cargo install tauri-cli --locked` on `windows_sign_runner`, with `tauri_updater` | nothing (`contents: read`) |
+| `sign-windows` | on `windows_sign_runner` | the PFX, Azure or updater secrets of `windows_sign_mode` |
+| `build-linux` | `cargo tauri build` | nothing |
+| `release` | uploads `tauri-*-artifacts` | `contents: write`, `DIST_REPO_TOKEN` |
 
 Key design notes:
 - macOS builds a **universal binary** (`aarch64 + x86_64`); both rustup targets
-  must be added — `universal-apple-darwin` is a Tauri synthetic target, not a
-  native rustup triple.
-- Windows signing modes: `none` (default), `tauri_updater` (free ED25519),
-  `pfx` (Authenticode with a `.pfx`) and `azure` (Azure Artifact Signing).
-  Any other value fails the first step of the Windows job.
-  [Windows signing](windows-signing.md) covers certificates and setup.
-- pfx and azure sign in a `sign-windows` job, not in `build-windows`. The
-  build runs the app's own npm and cargo scripts, which can change files,
-  `PATH` or `GITHUB_ENV` for the rest of that job; a signing step there would
-  hand them the certificate. `build-windows` uploads the unsigned installers
-  as `tauri-windows-unsigned`; `sign-windows` downloads them, checks out only
-  the ci-helpers actions at this workflow's commit, signs, verifies, and
-  uploads `tauri-windows-artifacts`, which the release job publishes. It
-  checks out and runs no app code, and is the only job given
-  `WINDOWS_CERTIFICATE*` or `AZURE_*`. A missing or bad certificate therefore
-  fails after the build, in `sign-windows`.
-- Uses the `macos-sign` and `windows-sign` composite actions from this repo.
-- Signing secrets reach only the step that signs: the Apple certificate,
-  passwords and the updater key are env on the build step (Tauri needs them
-  during the build), the PFX and Azure values go to `sign-windows` only. Both actions run with
-  `export_env: "false"`, so nothing secret is in `GITHUB_ENV`.
+  must be added, as `universal-apple-darwin` is a Tauri synthetic target, not
+  a native rustup triple.
+- The build jobs run the app's own npm and cargo scripts, which can change
+  files, `PATH` or `GITHUB_ENV` for the rest of their job, so no secret
+  reaches them. They build with `--config` turning off the bundler's own
+  signing (`signingIdentity`, `certificateThumbprint`, `signCommand`) and
+  updater artifacts, whatever `tauri.conf.json` says, and upload their
+  output with a sha256 manifest under
+  `tauri-<macos|windows>-build-<run id>-<attempt>-<random>`, kept one day.
+- `sign-macos` and `sign-windows` check out nothing of the caller's, check
+  the artifact name and every file against the manifest
+  (`scripts/artifact_parts.sh verify`; Windows: `.exe` and `.msi` names at
+  the top of the artifact only), and run only library scripts, the
+  ci-helpers actions at this workflow's commit, system signing tools and
+  the updater signer: `tauri-cli` at the version in the library's
+  `toolchain-pins.env` (`TAURI_CLI_VERSION`), run as `tauri signer sign`
+  from an empty directory (`scripts/tauri_updater_sign.sh`). No bundler
+  hook and no cargo runs there.
+- `build-signer-macos` and `build-signer-windows` hold no secret. They build
+  that `tauri-cli` with `scripts/install_tauri_signer.sh`: `cargo install
+  --locked`, a fresh `CARGO_HOME` and an empty directory under
+  `RUNNER_TEMP`, no `CARGO_*`, `RUSTC*` or `RUSTFLAGS` from the
+  environment, empty `rustc-wrapper`s, `RUSTUP_TOOLCHAIN=stable`, and a
+  refusal when a `.cargo/config` or `rust-toolchain` file sits above that
+  directory. They upload the binary with a sha256 manifest as
+  `tauri-signer-<macos|windows>-<run id>-<attempt>-<random>`; the sign job
+  checks the name, verifies the binary against the manifest and runs it.
+- `sign-macos` (`scripts/tauri_macos_sign.sh`) unpacks the app
+  (`scripts/safe_untar.py`), signs it with the hardened runtime
+  (`codesign --deep --options runtime --timestamp`, with
+  `macos_entitlements` when set), builds `<Name>_<version>_universal.dmg`
+  with `hdiutil` (the app and an `/Applications` link), signs it, notarizes
+  and staples it (`notarize_macos`: with `NOTARY_API_KEY`, `NOTARY_KEY_ID`
+  and `NOTARY_ISSUER_ID` the key goes to `notarytool --key` as a 0600 file
+  in a private directory, removed after; without them the Apple ID and
+  app password are used, which `notarytool` takes on its command line, and
+  the job warns), staples the app and makes
+  `<Name>.app.tar.gz`, plus `.sig` with `macos_updater_sign`. The version
+  is the app's `CFBundleShortVersionString`. With `sign_macos: false` the
+  DMG and bundle are unsigned.
+- Windows signing modes: `none` (default), `tauri_updater` (free ED25519
+  `.sig` per installer), `pfx` (Authenticode with a `.pfx`) and `azure`
+  (Azure Artifact Signing). Any other value fails the first step of
+  `build-windows`. [Windows signing](windows-signing.md) covers certificates
+  and setup. `sign-windows` runs in every mode; with `none` it republishes
+  the installers as built.
+- Both actions (`macos-sign`, `windows-sign`) run with `export_env:
+  "false"`, so nothing secret is in `GITHUB_ENV`.
 - A published installer is never replaced, on the release or on `dist_repo`:
   one already there with the same sha256 passes (a rerun of the `release` job),
   a different sha256 fails. Delete the asset to republish.
@@ -2677,6 +2736,10 @@ Inputs (selected):
 | `frontend_build_command` | `""` | Empty = skip explicit build step |
 | `sign_macos` | `true` | Gate macOS codesigning |
 | `notarize_macos` | `true` | Gate notarization + staple |
+| `macos_entitlements` | `""` | Entitlements plist for `codesign`, relative to `working_directory`; the bundler's `bundle.macOS.entitlements` is not read |
+| `macos_updater_sign` | `false` | Write `<Name>.app.tar.gz.sig` with `TAURI_SIGNING_PRIVATE_KEY` |
+| `macos_sign_runner` | `macos-latest` | Runner for `sign-macos` |
+| `windows_sign_runner` | `windows-latest` | Runner for `sign-windows` |
 | `windows_sign_mode` | `none` | `none`, `tauri_updater`, `pfx`, `azure` |
 | `windows_timestamp_server` | `""` | RFC 3161 URL for `pfx`; empty uses `http://timestamp.digicert.com` |
 | `windows_pfx_verify_trust` | `true` | `pfx`: require `signtool verify /pa`; `false` for a private CA or self-signed certificate |
@@ -2705,8 +2768,11 @@ Secrets:
 | `APPLE_ID` | `notarize_macos: true` |
 | `APPLE_APP_PASSWORD` | `notarize_macos: true` |
 | `APPLE_PASSWORD` | accepted as an alias of `APPLE_APP_PASSWORD`, the name most consumers already hold; pass either, not both |
-| `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` |
+| `NOTARY_API_KEY` | `notarize_macos: true`, preferred: base64 App Store Connect API key (`.p8`) |
+| `NOTARY_KEY_ID` | with `NOTARY_API_KEY` |
+| `NOTARY_ISSUER_ID` | with `NOTARY_API_KEY` (issuer UUID) |
+| `TAURI_SIGNING_PRIVATE_KEY` | `windows_sign_mode: tauri_updater` or `macos_updater_sign: true` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `windows_sign_mode: tauri_updater` or `macos_updater_sign: true` |
 | `WINDOWS_CERTIFICATE` | `windows_sign_mode: pfx` (base64 `.pfx`) |
 | `WINDOWS_CERTIFICATE_PASSWORD` | `windows_sign_mode: pfx` |
 | `AZURE_TENANT_ID` | `windows_sign_mode: azure` |

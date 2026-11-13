@@ -253,7 +253,16 @@ version) is caller-chosen data. The privileged job checks each against a
 strict pattern before use: `go-deploy` requires `bin_file` to be a plain
 name under `bin/`, `ppa-deb` requires every file a `.changes` or `.dsc`
 names to be a plain name in the artifact, and `manifest-version` matches
-the whole version value, so a second line cannot pass.
+the whole version value, so a second line cannot pass. The artifact name
+itself is matched against the one the build job makes before it is
+downloaded (`tauri-release`, `flutter-release`). A directory tree that must
+keep its symlinks (a macOS `.app`, an `.xcarchive`) crosses as one
+tarball, and `scripts/safe_untar.py` unpacks it itself: one top-level
+directory of the expected name, only files, directories and relative
+symlinks with no `..` in the target, no `..`, no absolute path, no hard
+link or device, no member under a symlink, and every unpacked entry must
+resolve under the destination. `artifact_parts.sh verify` refuses when
+grep fails (a malformed pattern exits 2), so an error never passes.
 
 The build job stages only regular files: it refuses a symlink and a file that
 resolves outside its tree, copies with `cp -P` and checks the staged tree
@@ -281,8 +290,16 @@ A tool the pattern does not know is not seen.
 Split: `go-deploy.yml` (`build`, then `deploy` with the SSH key),
 `ppa-deb.yml` (`build`, then `ppa` with the GPG and Launchpad keys) and
 `manifest-version.yml` (`version`, then `tag-and-dispatch` with the write
-token) and `docker-multiarch.yml` (`build` to an OCI layout, then `push`
-with the registry token, which checks each blob against its digest).
+token), `docker-multiarch.yml` (`build` to an OCI layout, then `push`
+with the registry token, which checks each blob against its digest),
+`tauri-release.yml` (`build-macos` and `build-windows` unsigned, then
+`sign-macos` and `sign-windows` with the Apple, Windows and updater keys,
+which run the `tauri-cli` that `build-signer-macos` and
+`build-signer-windows` built with no secret, after a sha256 check)
+and `flutter-release.yml` (`build`, then `sign-android` with the upload and
+Play keys and `upload-app-store` with the `match` and App Store Connect
+keys, which run the library's fastlane from an empty directory, never the
+caller's lanes).
 `java-scan.yml` fetches the NVD data in an `nvd` job that holds
 `nvd_api_key` and checks out nothing of the caller's, and the scan job
 reads that data from an artifact checked against a sha256 manifest.
@@ -290,8 +307,9 @@ reads that data from an artifact checked against a sha256 manifest.
 library's `create_production.sh` from the verified copy, never the
 caller's. Each privileged job runs on its own runner input
 (`deploy_runner`, `publish_runner`, `tag_runner`, `nvd_runner`,
-`push_runner`, default
-`ubuntu-latest`):
+`push_runner`, `android_sign_runner`, default `ubuntu-latest`;
+`macos_sign_runner` and `app_store_runner`, default `macos-latest`;
+`windows_sign_runner`, default `windows-latest`):
 a reused self-hosted machine can carry state left by the build. The
 release workflows (`release-build.yml`, `deb-build.yml`, `rpm-build.yml`,
 `go-release.yml`, `rust-release*.yml`, `fpc-release.yml`) already build in
