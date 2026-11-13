@@ -12,7 +12,8 @@
 #   GITHUB_OUTPUT   Receives signer=<absolute path of the binary> when set.
 # EXIT CODES:
 #   0  Installed.
-#   1  cargo failed, the binary is missing, or a .cargo/config sits
+#   1  cargo failed, the binary is missing, or a .cargo/config or
+#      rust-toolchain file sits
 #      above the work directory.
 #   2  Usage error: no ROOT, no pin, a pin not X.Y.Z, no cargo.
 # ----------------------------------------------------
@@ -28,7 +29,8 @@ command -v cargo >/dev/null || { echo "::error::no cargo on PATH." >&2; exit 2; 
 
 # cargo reads .cargo/config* in every ancestor of its working directory
 # and in CARGO_HOME, and honours CARGO_*/RUSTC*/RUSTFLAGS env: any of them
-# can set rustc-wrapper or replace the registry. So: a fresh CARGO_HOME
+# can set rustc-wrapper or replace the registry, and a rust-toolchain
+# file picks the toolchain. So: a fresh CARGO_HOME
 # under RUNNER_TEMP, an empty working directory with no config above it,
 # an allowlisted environment, and the wrappers and registry forced.
 base="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -37,13 +39,14 @@ trap 'rm -rf "$cargo_home"' EXIT
 mkdir "$cargo_home/home" "$cargo_home/cwd"
 dir="$(cd "$cargo_home/cwd" && pwd -P)"
 while :; do
-  for c in "$dir/.cargo/config" "$dir/.cargo/config.toml"; do
+  for c in "$dir/.cargo/config" "$dir/.cargo/config.toml" "$dir/rust-toolchain" "$dir/rust-toolchain.toml"; do
     [[ ! -e "$c" && ! -L "$c" ]] || { echo "::error::$c exists above the cargo work directory; refusing to run cargo." >&2; exit 1; }
   done
   [[ "$dir" != / && -n "$dir" ]] || break
   dir="$(dirname -- "$dir")"
 done
-keep=(PATH="$PATH" HOME="${HOME:-}" CARGO_HOME="$cargo_home/home")
+# RUSTUP_TOOLCHAIN beats any directory override or rust-toolchain file.
+keep=(PATH="$PATH" HOME="${HOME:-}" CARGO_HOME="$cargo_home/home" RUSTUP_TOOLCHAIN=stable)
 for v in RUSTUP_HOME USERPROFILE SYSTEMROOT SystemRoot TEMP TMP APPDATA LOCALAPPDATA; do
   [[ -z "${!v:-}" ]] || keep+=("$v=${!v}")
 done
