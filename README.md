@@ -35,6 +35,7 @@ Includes:
 
 See detailed usage, inputs, and examples in:
 - [Docs index](docs/README.md)
+- [Upgrading to 1.0](docs/upgrading-to-1.0.md)
 - [Reusable workflows](docs/workflows.md)
 - [Packaging and signing (DEB, PPA, macOS)](docs/packaging.md)
 - [Windows signing (certificates, PFX, Azure)](docs/windows-signing.md)
