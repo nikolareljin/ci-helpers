@@ -200,6 +200,11 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
     # Commit pins have no release heading. Copy only their changelog delta.
     echo "## Changelog changes in this pin"
     echo
+    # A tag is cloned with --depth 1, so the previous commit is not in the
+    # clone. Fetch it by SHA (GitHub serves reachable commits) before diffing.
+    if ! git -C "$TMP_DIR/script-helpers" cat-file -e "${current_sha}^{commit}" 2>/dev/null; then
+      git -C "$TMP_DIR/script-helpers" fetch --quiet origin "$current_sha" >/dev/null 2>&1 || true
+    fi
     if git -C "$TMP_DIR/script-helpers" cat-file -e "${current_sha}^{commit}" 2>/dev/null; then
       git -C "$TMP_DIR/script-helpers" diff --no-ext-diff --unified=0 "$current_sha" "$COMMIT_HASH" -- CHANGELOG.md \
         | sed -n '/^+++/d; s/^+//p'
