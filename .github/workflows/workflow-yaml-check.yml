@@ -409,6 +409,28 @@ jobs:
         shell: bash
         run: bash tests/manifest_version_tag_test.sh
 
+  keep-env-snippet:
+    # The keep form that hands secret-holding library steps their variables
+    # by name, run for real: /bin/bash 3.2 and BSD env on macOS, Git Bash on
+    # Windows. A kept name arrives, any other is gone, the secret is never an
+    # argument, and a listing it cannot trust stops the step.
+    name: keep form (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+      - name: The keep form keeps, drops and refuses what it must
+        shell: bash
+        run: bash tests/keep_env_snippet_test.sh
+
   zizmor:
     # Every zizmor finding fails, among them a checkout that keeps its token,
     # a job with no permissions block and a text input spliced into a script.

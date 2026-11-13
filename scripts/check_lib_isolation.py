@@ -102,18 +102,22 @@ EXEC_PREFIX = 'exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8
 # A step that holds a secret starts the clean bash through KEEP_PREFIX
 # instead: a bash that is handed the variable NAMES to keep, drops every
 # other exported name with `env -u`, and execs the clean bash. It fails
-# closed: the listing must end with a marker printed only after `env -0`
-# succeeded (a name with no `=`, so no variable can forge it) and must
-# hold PATH, or nothing runs. A secret's value stays in the environment and
-# never becomes an argument, where any process of the same user could read
-# it from /proc/<pid>/cmdline.
-KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); ok=0; seen=0; '
-                'while IFS= read -r -d "" e; do if [[ "$e" == CI_HELPERS_ENV_END ]]; then ok=1; continue; fi; '
-                'n="${e%%=*}"; [[ "$n" != PATH ]] || seen=1; k=0; '
+# closed: the listing must end with a per-run marker printed only after
+# `env -0` succeeded, hold PATH, and hold nothing after the marker. An
+# entry `env -u` cannot remove (no `=`, or an empty name such as `=C:`)
+# also stops it; bash drops those at start-up, so none is expected. A
+# secret's value stays in the environment and never becomes an argument,
+# where any process of the same user could read it from
+# /proc/<pid>/cmdline. tests/keep_env_snippet_test.sh runs it on Linux,
+# macOS and Windows.
+KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift; u=(); ok=0; seen=0; bad=0; '
+                'm="CI_HELPERS_ENV_END.$$.$RANDOM.$RANDOM.$RANDOM"; '
+                'while IFS= read -r -d "" e; do if [[ "$ok" == 1 ]]; then bad=1; elif [[ "$e" == "$m" ]]; then ok=1; '
+                'elif [[ "$e" != *=* || "$e" == =* ]]; then bad=1; else n="${e%%=*}"; [[ "$n" != PATH ]] || seen=1; k=0; '
                 'for a in "${keep[@]}"; do [[ "$n" != "$a" ]] || k=1; done; '
-                '[[ -z "$n" || "$k" == 1 ]] || u+=(-u "$n"); '
-                'done < <(/usr/bin/env -0 && printf "CI_HELPERS_ENV_END\\0"); '
-                '[[ "$ok" == 1 && "$seen" == 1 ]] || { echo "::error::could not list the environment; nothing runs."; exit 1; }; '
+                '[[ "$k" == 1 ]] || u+=(-u "$n"); fi; '
+                'done < <(/usr/bin/env -0 && printf "%s\\0" "$m"); '
+                '[[ "$ok" == 1 && "$seen" == 1 && "$bad" == 0 ]] || { echo "::error::could not list the environment, or it holds an entry env -u cannot remove; nothing runs."; exit 1; }; '
                 'exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"')
 KEEP_PREFIX = "".join(("exec /bin/bash --noprofile --norc -c '", KEEP_SNIPPET, "' ci-helpers-env '"))
 KEEP_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

@@ -143,8 +143,9 @@ included, has two layers:
   NAME...'`), drops every other exported name with `/usr/bin/env -u`, and
   execs the clean bash. The secret stays in the environment and is never an
   argument, which `/proc/<pid>/cmdline` would show to every process of the
-  runner's user. It fails closed: when `env -0` fails or its listing
-  lacks the end marker or `PATH`, nothing runs.
+  runner's user. It fails closed: when `env -0` fails, its listing lacks
+  the end marker or `PATH`, or it holds an entry `env -u` cannot remove
+  (no `=`, or an empty name), nothing runs.
 
 Inside, the step copies the copy to a fresh directory, hashes that with
 tools at absolute paths, compares it to `LIB_HASH`, and only then runs a
