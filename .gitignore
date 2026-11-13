@@ -6,6 +6,8 @@
 !/vendor/.script-helpers-sha
 !/vendor/.script-helpers-ref
 !/vendor/.script-helpers-notes.md
+# Any other vendor/ directory (composer installs in fixtures) stays ignored.
+/*/**/vendor/
 
 # IDE files
 .vscode/
