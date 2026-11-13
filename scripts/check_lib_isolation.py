@@ -119,7 +119,13 @@ KEEP_SNIPPET = ('set +xv -f +o posix; export STEP_PATH="$PATH"; keep=($1); shift
                 'done < <(/usr/bin/env -0 && printf "%s\\0" "$m"); '
                 '[[ "$ok" == 1 && "$seen" == 1 && "$bad" == 0 ]] || { echo "::error::could not list the environment, or it holds an entry env -u cannot remove; nothing runs."; exit 1; }; '
                 'exec /usr/bin/env "${u[@]}" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"')
-KEEP_PREFIX = "".join(("exec /bin/bash --noprofile --norc -c '", KEEP_SNIPPET, "' ci-helpers-env '"))
+# The outer bash starts with the caller's environment. The step's env:
+# blanks those start-up names; dropping them by name here as well means a
+# missing blank alone lets none of them act.
+KEEP_UNSET = ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "LD_PRELOAD", "LD_LIBRARY_PATH",
+              "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH")
+KEEP_PREFIX = "".join(("exec /usr/bin/env ", "".join(f"-u {n} " for n in KEEP_UNSET),
+                       "/bin/bash --noprofile --norc -c '", KEEP_SNIPPET, "' ci-helpers-env '"))
 KEEP_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # `env` started with arguments; every variable after it on the line is an
 # argument of env or of the command it starts.

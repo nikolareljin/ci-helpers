@@ -139,8 +139,9 @@ included, has two layers:
   `RUNNER_*` files and paths), never one that changes bash, the loader,
   Python, Perl or git. A step that passes a secret on starts the clean bash
   through a bash that gets only the variable names to keep
-  (`exec /bin/bash --noprofile --norc -c '<keep>' ci-helpers-env 'HOME
-  NAME...'`), drops every other exported name with `/usr/bin/env -u`, and
+  (`exec /usr/bin/env -u BASH_ENV ... /bin/bash --noprofile --norc -c
+  '<keep>' ci-helpers-env 'HOME NAME...'`; the `-u` names are the bash and
+  loader start-up variables, also blanked in the step's `env:`), drops every other exported name with `/usr/bin/env -u`, and
   execs the clean bash. The secret stays in the environment and is never an
   argument, which `/proc/<pid>/cmdline` would show to every process of the
   runner's user. It fails closed: when `env -0` fails, its listing lacks

@@ -12,7 +12,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 fail=0
 
-line="$(grep -h -m1 -F "exec /bin/bash --noprofile --norc -c 'set +xv -f +o posix;" "$root/.github/workflows/auto-tag.yml")"
+line="$(grep -h -m1 -F -- "--norc -c 'set +xv -f +o posix;" "$root/.github/workflows/auto-tag.yml")"
+line="${line#"${line%%exec *}"}"
+prefix="${line%%\'set +xv*}"
 snip="${line#*-c \'}"
 snip="${snip%%\' ci-helpers-env *}"
 [[ -n "$snip" && "$snip" != "$line" && "$snip" == *"/usr/bin/env -0"* ]] || { echo "FAIL premise: no keep snippet in auto-tag.yml"; exit 1; }
@@ -103,6 +105,36 @@ refuses "holds an entry with no =" '/usr/bin/env -0; printf "NOEQ\000"'
 refuses "printed the marker, then failed" '/usr/bin/env -0; printf "CI_HELPERS_ENV_END\000"; exit 1'
 refuses "printed the marker, then more" '/usr/bin/env -0; printf "CI_HELPERS_ENV_END\000LATE=1\000"'
 refuses "was cut off without a NUL" '/usr/bin/env -0; printf "TAIL=1"'
+
+# 4. Start-up variables a caller can write to GITHUB_ENV: the step blanks
+# them in env:, and the prefix drops them by name before /bin/bash starts,
+# so neither layer alone lets one act. Started from dash (or /bin/sh) and
+# bash --posix like a runner shell. bash --posix itself would honour
+# SHELLOPTS and PS4, so that caller gets the blanks for those two.
+printf '#!/bin/sh\necho fired >> "%s/canary"\n' "$work" > "$work/bashenv.sh"
+# Where /proc exists, the keep bash records its own environment first.
+probe="$snip"
+[[ ! -r /proc/self/environ ]] || probe="/usr/bin/tr '\\0' '\\n' < /proc/\$\$/environ > $work/keepenv; $snip"
+cmd="$prefix'$probe' ci-helpers-env 'HOME' /bin/bash --noprofile --norc -c 'true'"
+sh_bin=/bin/sh; command -v dash >/dev/null 2>&1 && sh_bin="$(command -v dash)"
+for caller in "$sh_bin" "/bin/bash --posix"; do
+  for blanks in yes no; do
+    rm -f "$work/canary"
+    if [[ "$blanks" == yes ]]; then
+      vals=(BASH_ENV= ENV= SHELLOPTS= PS4= LD_PRELOAD=)
+    elif [[ "$caller" == "$sh_bin" ]]; then
+      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS=xtrace "PS4=\$(echo fired >> $work/canary)" LD_PRELOAD=/nonexistent.so)
+    else
+      vals=(BASH_ENV="$work/bashenv.sh" ENV="$work/bashenv.sh" SHELLOPTS= PS4= LD_PRELOAD=/nonexistent.so)
+    fi
+    # shellcheck disable=SC2086 # caller is a command with its flags
+    /usr/bin/env "${vals[@]}" $caller -c "$cmd" > "$work/out" 2>&1 || { echo "FAIL [$caller, blanks=$blanks] the step failed:"; cat "$work/out"; fail=1; }
+    [[ ! -e "$work/canary" ]] || { echo "FAIL [$caller, blanks=$blanks] a start-up variable ran code"; fail=1; }
+    if [[ -r /proc/self/environ && "$blanks" == no ]]; then
+      ! grep -q -E '^(BASH_ENV|ENV|LD_PRELOAD)=.' "$work/keepenv" || { echo "FAIL [$caller, blanks=$blanks] a start-up variable reached the keep bash"; fail=1; }
+    fi
+  done
+done
 
 [[ "$fail" == 0 ]] && echo "keep_env_snippet_test: ok"
 exit "$fail"

@@ -154,6 +154,7 @@ expect "keep form without HOME" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME 
 expect "keep form keeping BASH_ENV" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME STEP_PATH/HOME BASH_ENV STEP_PATH}")"
 expect "keep form keeping a non-name" 1 "$(wf "$checkout" "$isolate" "${keep_use/HOME STEP_PATH/HOME A-B STEP_PATH}")"
 expect "keep form with an edited snippet" 1 "$(wf "$checkout" "$isolate" "${keep_use/-u \"\$n\"/-u x}")"
+expect "keep form without the start-up -u layer" 1 "$(wf "$checkout" "$isolate" "${keep_use/-u BASH_ENV /}")"
 expect "plain step: secret passed to env" 1 "$(wf_raw '      - env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: /usr/bin/env -i PATH=/usr/bin:/bin T="$NPM_TOKEN" npm publish')"
