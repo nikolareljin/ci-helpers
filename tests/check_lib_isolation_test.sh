@@ -609,27 +609,28 @@ grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
 
 # Caller code can rewrite the workspace .git before Verify runs. Each
 # planted redirect must fail the step and leave the target untouched.
-verify_planted() {  # verify_planted <label> <target file>
-  local before; before="$(cat "$2" 2>/dev/null || true)"
+verify_planted() {  # verify_planted <label>; the target file is in $planted_target
+  local before; before="$(cat "$planted_target" 2>/dev/null || true)"
   (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
     "$work/step-verify.sh") > "$work/verify.out" 2>&1 && { echo "FAIL the Verify step accepted $1"; fail=1; }
-  [[ "$(cat "$2" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+  [[ "$(cat "$planted_target" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+  grep -q '^::error::.*refusing' "$work/verify.out" || { echo "FAIL the Verify step did not refuse $1 by name:"; cat "$work/verify.out"; fail=1; }
 }
 reset_ws_git() { rm -rf "$work/ws/.git" "$work/elsewhere" "$work/victim"; git -C "$work/ws" -c init.defaultBranch=main init -q; }
 reset_ws_git; git -c init.defaultBranch=main init -q --bare "$work/elsewhere"; : > "$work/elsewhere/info/exclude"
 printf '%s\n' "$work/elsewhere" > "$work/ws/.git/commondir"
-verify_planted "a planted .git/commondir" "$work/elsewhere/info/exclude"
+planted_target="$work/elsewhere/info/exclude"; verify_planted "a planted .git/commondir"
 reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
 ln -s "$work/victim" "$work/ws/.git/info/exclude"
-verify_planted "a symlinked .git/info/exclude" "$work/victim"
+planted_target="$work/victim"; verify_planted "a symlinked .git/info/exclude"
 reset_ws_git; printf 'keep\n' > "$work/victim"; rm -rf "$work/ws/.git/info"; mkdir -p "$work/elsewhere"
 ln -s "$work/elsewhere" "$work/ws/.git/info"; ln -s "$work/victim" "$work/elsewhere/exclude"
-verify_planted "a symlinked .git/info" "$work/victim"
+planted_target="$work/victim"; verify_planted "a symlinked .git/info"
 reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
 ln "$work/victim" "$work/ws/.git/info/exclude"
-verify_planted "a hard-linked .git/info/exclude" "$work/victim"
+planted_target="$work/victim"; verify_planted "a hard-linked .git/info/exclude"
 reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work/elsewhere" > "$work/ws/.git"
-verify_planted "a .git file" "$work/elsewhere/info/exclude"
+planted_target="$work/elsewhere/info/exclude"; verify_planted "a .git file"
 reset_ws_git; rm -f "$work/ws/.git/info/exclude"
 (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
   "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step with no exclude file:"; cat "$work/verify.out"; fail=1; }
