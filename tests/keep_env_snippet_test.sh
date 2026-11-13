@@ -46,7 +46,12 @@ if SECRET_TOKEN="$tok" KEEPME=kept run "$rec_snip"; then
   grep -qx 'PATH=/usr/bin:/bin' "$work/inner" || { echo "FAIL PATH is not /usr/bin:/bin in the body"; fail=1; }
   grep -qx 'SECRET_TOKEN' "$work/argv" || { echo "FAIL SECRET_TOKEN was not unset by name"; fail=1; }
   ! grep -qF -- "$tok" "$work/argv" || { echo "FAIL the secret's value is an argument of env"; fail=1; }
-  extra="$(grep -v -E '^(HOME|KEEPME|PATH|LANG|PWD|SHLVL|_)=' "$work/inner" | sed 's/=.*//' | tr '\n' ' ')"
+  # Bash adds PWD, SHLVL and _. On Windows the MSYS runtime re-adds
+  # SYSTEMROOT and WINDIR to every process and Git Bash sets MSYSTEM; none
+  # comes from the step, and SECRET_TOKEN is still checked above.
+  allow='HOME|KEEPME|PATH|LANG|PWD|SHLVL|_'
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) allow="$allow|MSYSTEM|SYSTEMROOT|WINDIR" ;; esac
+  extra="$(grep -v -E "^($allow)=" "$work/inner" | sed 's/=.*//' | tr '\n' ' ')"
   [[ -z "$extra" ]] || { echo "FAIL names besides the kept ones reached the body: $extra"; fail=1; }
 else
   echo "FAIL the keep form refused this job's environment:"; cat "$work/out"; fail=1
