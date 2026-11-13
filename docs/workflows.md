@@ -365,8 +365,9 @@ Jobs:
   (`scripts/zip_strip_signature.py`), signs it with `jarsigner` and the
   upload key, verifies it, and uploads `android_artifact_name` (when
   `upload_artifacts`). Without the four keystore secrets the bundle is passed
-  on as built, with a warning; with `deploy_google_play` that fails. An
-  `.apk` is not signed here (it needs `apksigner`): build an app bundle.
+  on as built, with a warning; with `deploy_google_play` that fails. With
+  the four secrets set, an `.apk` fails the job (it needs `apksigner`):
+  build an app bundle.
 - With `deploy_google_play`, `sign-android` runs `fastlane supply` with the
   one signed `.aab`, `android_package_name`, `google_play_track` and
   `google_play_release_status`; metadata, images and changelogs are not
