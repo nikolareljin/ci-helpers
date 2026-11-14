@@ -50,10 +50,8 @@ jobs:
           umask 077
           log=$(mktemp "$RUNNER_TEMP/publication-tests.XXXXXX")
           check_rc=0
-          npm ci --prefix .github/actions/publication-check --ignore-scripts --no-audit --no-fund > "$log" 2>&1 || check_rc=$?
-          if [[ "$check_rc" -eq 0 ]]; then
-            node --test tests/publication_files_test.cjs >> "$log" 2>&1 || check_rc=$?
-          fi
+          # The test installs the action's dependencies itself, as on a fresh clone.
+          node --test tests/publication_files_test.cjs > "$log" 2>&1 || check_rc=$?
           rm -f "$log"
           if [[ "$check_rc" -ne 0 ]]; then
             source vendor/script-helpers/scripts/security_notice.sh
