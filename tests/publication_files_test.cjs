@@ -4,8 +4,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const {snapshot, checkerEnv} = require('../.github/actions/publication-check/index.cjs');
-const guard = path.resolve(__dirname, '../vendor/script-helpers/scripts/check_publication.sh');
+const repo = path.resolve(__dirname, '..');
+const guard = path.join(repo, 'vendor/script-helpers/scripts/check_publication.sh');
+
+// Install the action's dependencies once, before any test, into a private
+// copy of the action. Test order and concurrent runs then cannot see a missing
+// or half-replaced node_modules (index.cjs reinstalls into its own folder).
+const deps = fs.mkdtempSync(path.join(os.tmpdir(), 'publication-deps-'));
+const action = path.join(deps, '.github/actions/publication-check');
+fs.mkdirSync(action, {recursive: true});
+for (const name of ['index.cjs', 'cleanup.cjs', 'package.json', 'package-lock.json']) {
+  fs.copyFileSync(path.join(repo, '.github/actions/publication-check', name), path.join(action, name));
+}
+fs.mkdirSync(path.join(deps, 'vendor'));
+fs.symlinkSync(path.join(repo, 'vendor/script-helpers'), path.join(deps, 'vendor/script-helpers'));
+const install = cp.spawnSync('npm', ['ci', '--prefix', action, '--ignore-scripts', '--no-audit', '--no-fund'],
+  {cwd: action, encoding: 'utf8', timeout: 300000});
+if (install.status !== 0) {
+  fs.rmSync(deps, {recursive: true, force: true});
+  throw new Error(`npm ci failed for the publication action: ${install.error || install.stderr}`);
+}
+const {snapshot, checkerEnv, refusalCategory, commandText, FIXED_REASONS} = require(path.join(action, 'index.cjs'));
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publication-test-'));
 process.env.GITHUB_WORKSPACE = root;
@@ -26,8 +45,13 @@ function check(file, text, relative, cwd) {
   });
   if (result.status !== 0) throw new Error('refused');
 }
+// Each refusal names its reason, so a rejection for any other cause (a missing
+// dependency, a typo) cannot pass as a refusal.
+const REFUSED = {message: 'refused'};
+const UNMATCHED = {message: 'unmatched publication pattern'};
+const UNINSPECTABLE = {message: 'uninspectable publication file'};
 const input = (mode, paths, extra = {}) => ({mode, paths, includeHidden: false, ...extra});
-test.after(() => fs.rmSync(root, {recursive: true, force: true}));
+test.after(() => { fs.rmSync(root, {recursive: true, force: true}); fs.rmSync(deps, {recursive: true, force: true}); });
 
 test('artifact snapshot preserves layout, excludes and hidden-file policy', async () => {
   const {dir, stage} = fixture();
@@ -48,7 +72,7 @@ test('renamed scanner JSON never reaches the publisher', async () => {
   const file = path.join(dir, 'data.json');
   fs.writeFileSync(file, JSON.stringify([{['Rule'+'ID']: 'fixture', ['Sec'+'ret']: 'synthetic', ['Fi'+'le']: 'fixture.txt', ['Start'+'Line']: 1}]));
   let published = false;
-  await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; });
+  await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; }, REFUSED);
   assert.equal(published, false);
 });
 
@@ -59,7 +83,7 @@ test('known empty report names and symlink aliases are refused', async () => {
     fs.writeFileSync(file, '[]');
     const selected = alias ? path.join(dir, 'ordinary.json') : file;
     if (alias) fs.symlinkSync(file, selected);
-    await assert.rejects(snapshot(input('artifact', selected), stage, check));
+    await assert.rejects(snapshot(input('artifact', selected), stage, check), REFUSED);
   }
 });
 
@@ -71,7 +95,7 @@ test('PII filenames and nested archive members are refused', async () => {
       const result = cp.spawnSync('python3', ['-c', 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],"w"); z.writestr("person"+"@customer.tld.txt", "ordinary"); z.close()', file]);
       assert.equal(result.status, 0);
     } else fs.writeFileSync(file, '');
-    await assert.rejects(snapshot(input('artifact', file), stage, check));
+    await assert.rejects(snapshot(input('artifact', file), stage, check), REFUSED);
   }
 });
 
@@ -97,14 +121,14 @@ test('release brace and CSV patterns keep exact asset names and order', async ()
 
 test('unmatched release patterns fail closed when requested', async () => {
   const {dir, stage} = fixture();
-  await assert.rejects(snapshot(input('release', 'missing/*', {workingDirectory: dir, failUnmatched: true}), stage, check));
+  await assert.rejects(snapshot(input('release', 'missing/*', {workingDirectory: dir, failUnmatched: true}), stage, check), UNMATCHED);
 });
 
 test('ordinary artifact uploads cannot publish SARIF', async () => {
   const {dir, stage} = fixture();
   const file = path.join(dir, 'data.json');
   fs.writeFileSync(file, JSON.stringify({version: '2.1.0', runs: []}));
-  await assert.rejects(snapshot(input('artifact', file), stage, check));
+  await assert.rejects(snapshot(input('artifact', file), stage, check), REFUSED);
 });
 
 test('release notes and artifact metadata are checked without asset files', async () => {
@@ -113,7 +137,7 @@ test('release notes and artifact metadata are checked without asset files', asyn
     const body = path.join(dir, 'notes.md');
     fs.writeFileSync(body, JSON.stringify({['to'+'ol']: 'fox'+'guard', ['find'+'ings']: [], ['finding_'+'counts']: {total: 0}}));
     const extra = metadata ? {metadata: 'person'+'@customer.tld'} : {bodyPath: body};
-    await assert.rejects(snapshot(input('release', '', extra), stage, check));
+    await assert.rejects(snapshot(input('release', '', extra), stage, check), REFUSED);
   }
 });
 
@@ -124,7 +148,7 @@ test('Git metadata and inspection limits refuse publication', async () => {
     fs.mkdirSync(path.dirname(file), {recursive: true});
     fs.writeFileSync(file, '');
     if (large) fs.truncateSync(file, 2048 * 1024 * 1024 + 1);
-    await assert.rejects(snapshot(input('artifact', file, {includeHidden: true}), stage, check));
+    await assert.rejects(snapshot(input('artifact', file, {includeHidden: true}), stage, check), UNINSPECTABLE);
   }
 });
 
@@ -158,7 +182,7 @@ test('a file the checker cannot fully inspect is refused, in CI too', async () =
   fs.writeSync(fd, Buffer.from('PK\x03\x04 not an archive'));
   fs.ftruncateSync(fd, 70 * 1024 * 1024);
   fs.closeSync(fd);
-  await assert.rejects(snapshot(input('artifact', file), stage, check));
+  await assert.rejects(snapshot(input('artifact', file), stage, check), REFUSED);
 });
 
 test('temporary storage stays private when caller TMPDIR is unusable', () => {
@@ -169,7 +193,6 @@ test('temporary storage stays private when caller TMPDIR is unusable', () => {
   fs.writeFileSync(file, 'ordinary package');
   const state = path.join(dir, 'state'), output = path.join(dir, 'output');
   fs.writeFileSync(state, ''); fs.writeFileSync(output, '');
-  const action = path.resolve(__dirname, '../.github/actions/publication-check');
   const env = {...process.env, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_WORKSPACE: workspace,
     RUNNER_TEMP: runner, GITHUB_STATE: state, GITHUB_OUTPUT: output, GITLEAKS_BIN: fake,
     INPUT_MODE: 'artifact', INPUT_PATHS: file, INPUT_METADATA: '', INPUT_BODY_PATH: '',
@@ -180,8 +203,10 @@ test('temporary storage stays private when caller TMPDIR is unusable', () => {
     assert.equal(result.stdout + result.stderr, '');
     assert.deepEqual(fs.readdirSync(workspace), ['ordinary.txt']);
   } finally {
-    const stage = fs.readFileSync(state, 'utf8').trim().split('=')[1];
+    const line = fs.readFileSync(state, 'utf8').trim();
+    const stage = line.slice(line.indexOf('=') + 1);
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
+    assert.ok(stage); assert.equal(fs.existsSync(stage), false);
   }
 });
 
@@ -191,7 +216,7 @@ test('renamed private diagnostic logs cannot reach the uploader', async () => {
   const file = path.join(dir, 'ordinary.log');
   fs.writeFileSync(file, 'SCRIPT_HELPERS_PRIVATE_'+'SECURITY_REPORT_V1\nordinary diagnostics');
   let published = false;
-  await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; });
+  await assert.rejects(async () => { await snapshot(input('artifact', file), stage, check); published = true; }, REFUSED);
   assert.equal(published, false);
 });
 
@@ -202,7 +227,6 @@ test('ambiguous runner storage cannot change uploader selection', () => {
   const file = path.join(workspace, 'ordinary.txt'); fs.writeFileSync(file, 'ordinary package');
   const state = path.join(dir, 'state'), output = path.join(dir, 'output');
   fs.writeFileSync(state, ''); fs.writeFileSync(output, '');
-  const action = path.resolve(__dirname, '../.github/actions/publication-check');
   const env = {...process.env, CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_WORKSPACE: workspace,
     RUNNER_TEMP: runner, GITHUB_STATE: state, GITHUB_OUTPUT: output, GITLEAKS_BIN: fake,
     INPUT_MODE: 'release', INPUT_PATHS: file, INPUT_METADATA: '', INPUT_BODY_PATH: ''};
@@ -211,7 +235,52 @@ test('ambiguous runner storage cannot change uploader selection', () => {
     assert.equal(result.status, 1);
     assert.equal(fs.readFileSync(output, 'utf8'), '');
   } finally {
-    const stage = fs.readFileSync(state, 'utf8').trim().split('=')[1];
+    const line = fs.readFileSync(state, 'utf8').trim();
+    const stage = line.slice(line.indexOf('=') + 1);
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
+    if (stage) assert.equal(fs.existsSync(stage), false); else assert.deepEqual(fs.readdirSync(runner), []);
   }
+});
+
+test('a refusal is named by file and fixed category, never by matched value', () => {
+  const block = what => `[sensitive] BLOCK app.bin:12: ${what} (ab***cd)\n`;
+  assert.equal(refusalCategory(block('an email address'), 1), 'email-like string');
+  assert.equal(refusalCategory(block('a phone number'), 1), 'phone-number-like string');
+  assert.equal(refusalCategory(block('a payment card number'), 1), 'personal identifier');
+  assert.equal(refusalCategory(block("this machine's home directory"), 1), "this runner's home directory path");
+  assert.equal(refusalCategory(block("this machine's hostname"), 1), "this runner's host or network identifier");
+  assert.equal(refusalCategory('[sensitive] BLOCK gitleaks found 1 credential(s) in a.txt\n', 1), 'credential (Gitleaks)');
+  assert.equal(refusalCategory('Traceback (most recent call last):\nTypeError: x\n', 1), 'the checker failed with an internal error');
+  assert.equal(refusalCategory('WARNING: security check incomplete: a: could not fully check: no zstd decoder\n', 3), 'file not fully inspected');
+  assert.equal(refusalCategory('Security check failed.\nPublication refused: scanner results must stay local. Remove them\n', 1),
+    'scanner output, or a credential or personal data inside an archive member');
+  assert.equal(refusalCategory('Security check failed.\n', 2), 'file could not be inspected');
+  assert.equal(refusalCategory('', 1), 'unclassified refusal');
+  for (const category of ['email-like string', 'file not fully inspected']) {
+    assert.doesNotMatch(category, /ab\*\*\*cd|\d/);
+  }
+  assert.equal(commandText('a%b\r\n::error::x'), 'a%25b%0D%0A::error::x');
+});
+
+test('the name is checked before the content, and each check carries its label', async () => {
+  const {dir, stage} = fixture();
+  fs.mkdirSync(path.join(dir, 'out/sub'), {recursive: true});
+  fs.writeFileSync(path.join(dir, 'out/sub/app.deb'), 'package');
+  const calls = [];
+  await snapshot(input('artifact', `${dir}/out/`), stage, (file, text, relative, cwd, label) => calls.push([file ? 'file' : 'text', label]));
+  assert.deepEqual(calls, [['text', 'a file name'], ['file', path.join('sub', 'app.deb')], ['file', path.join('sub', 'app.deb')]]);
+  const refused = [];
+  await assert.rejects(snapshot(input('artifact', `${dir}/out/`), fixture().stage, (file, text, relative, cwd, label) => {
+    refused.push(label);
+    if (file) throw new Error('refused');
+  }));
+  assert.deepEqual(refused, ['a file name', path.join('sub', 'app.deb')]);
+});
+
+test('every refusal reason the action throws may be shown, and nothing else', () => {
+  const source = fs.readFileSync(path.join(action, 'index.cjs'), 'utf8');
+  const thrown = new Set([...source.matchAll(/new Error\('([^']*)'\)/g)].map(match => match[1]));
+  thrown.delete('publication refused');
+  assert.deepEqual([...FIXED_REASONS].sort(), [...thrown].sort());
+  for (const reason of FIXED_REASONS) assert.match(reason, /^[A-Za-z ]+$/);
 });
