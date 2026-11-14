@@ -1132,11 +1132,15 @@ jobs:
           bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re"
           got="$(sha256sum "$RUNNER_TEMP/tauri-windows-out/My App_1.0.0_x64-setup.exe" | cut -d' ' -f1)"
           [[ "$got" == "$(cat "$RUNNER_TEMP/big.sum")" ]] || { echo "::error::the joined installer differs from the original"; exit 1; }
+          # Split again so the tree matches the manifest's list; only the
+          # checksum can refuse the tampered file.
+          bash scripts/artifact_parts.sh split "$RUNNER_TEMP/tauri-windows-out"
           printf 'evil' > "$RUNNER_TEMP/tauri-windows-out/My App_1.0.0_x64_en-US.msi"
           printf '%s\n' "$MANIFEST" > "$list"
-          if bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re" 2>/dev/null; then
+          if bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re" 2> "$RUNNER_TEMP/tamper.log"; then
             echo "::error::verify accepted a tampered installer"; exit 1
           fi
+          grep -q "sha256 differs" "$RUNNER_TEMP/tamper.log" || { echo "::error::verify refused the tampered installer for another reason"; cat "$RUNNER_TEMP/tamper.log"; exit 1; }
 
   # windows-sign pfx mode, end to end, with a throwaway self-signed PFX made
   # here: it signs and timestamps a real exe (also one in a nested folder
