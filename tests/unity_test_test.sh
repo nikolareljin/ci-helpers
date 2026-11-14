@@ -467,6 +467,9 @@ printf '#!/usr/bin/env bash\ntouch "%s"\necho "[]"\n' "$canary" > "$work/fsmonit
 checkout() {
   rm -rf "$wsf/.ci-helpers-scripts"
   git clone -q "$root" "$wsf/.ci-helpers-scripts"
+  # actions/checkout with ref: job.workflow_sha leaves HEAD detached at that SHA;
+  # a plain clone of a branch would not, and lib_isolate.sh refuses a symbolic ref.
+  git -C "$wsf/.ci-helpers-scripts" checkout -q --detach
   git -C "$wsf/.ci-helpers-scripts" config core.fsmonitor "$work/fsmonitor.sh"
   git -C "$wsf/.ci-helpers-scripts" config core.hooksPath "$work/hooks"
 }
