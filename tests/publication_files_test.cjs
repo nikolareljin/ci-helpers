@@ -206,7 +206,7 @@ test('temporary storage stays private when caller TMPDIR is unusable', () => {
     const line = fs.readFileSync(state, 'utf8').trim();
     const stage = line.slice(line.indexOf('=') + 1);
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
-    if (stage) assert.equal(fs.existsSync(stage), false);
+    assert.ok(stage); assert.equal(fs.existsSync(stage), false);
   }
 });
 
@@ -238,7 +238,7 @@ test('ambiguous runner storage cannot change uploader selection', () => {
     const line = fs.readFileSync(state, 'utf8').trim();
     const stage = line.slice(line.indexOf('=') + 1);
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
-    if (stage) assert.equal(fs.existsSync(stage), false);
+    if (stage) assert.equal(fs.existsSync(stage), false); else assert.deepEqual(fs.readdirSync(runner), []);
   }
 });
 
