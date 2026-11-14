@@ -5,8 +5,8 @@
 #              `/usr/bin/env -i PATH=/usr/bin:/bin ... /bin/bash --noprofile
 #              --norc`, so nothing a caller left in GITHUB_ENV or GITHUB_PATH
 #              reaches it, and every tool here is called by absolute path.
-#              Checks the checkout is at job.workflow_sha (the one git call,
-#              with no hooks, no fsmonitor and no user or system config),
+#              Checks the checkout is at job.workflow_sha by reading its
+#              .git/HEAD (no git binary runs, so no hook, fsmonitor or config),
 #              copies scripts/ and the pins files to a fresh directory under
 #              RUNNER_TEMP, refuses anything that is not a regular file or a
 #              directory, records a sha256 over the listing and the content,
@@ -31,7 +31,7 @@
 # ----------------------------------------------------
 set -euo pipefail
 
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null LC_ALL=C
+export LC_ALL=C
 
 fail() { echo "::error::$*"; exit 1; }
 
@@ -50,13 +50,17 @@ done
 [[ -n "${RUNNER_TEMP:-}" ]] || fail "RUNNER_TEMP is not set."
 [[ -d "$src" && ! -L "$src" ]] || fail "$src is missing or a symlink."
 
-git=""
-for g in /usr/bin/git /mingw64/bin/git; do
-  if [[ -x "$g" ]]; then git="$g"; break; fi
-done
-[[ -n "$git" ]] || fail "no git at /usr/bin/git or /mingw64/bin/git."
-got="$("$git" -c core.fsmonitor= -c core.hooksPath=/dev/null -C "$src" rev-parse HEAD)"
-[[ "$got" == "$WF_SHA" ]] || fail "checked out $got, expected $WF_SHA."
+# The commit comes from .git/HEAD, not from git: the checkout is detached
+# at a SHA, so HEAD holds exactly that SHA, which is what `git rev-parse
+# HEAD` returns. No git binary is located or run, so this works the same
+# under `env -i` on Linux, macOS and Git Bash, where git.exe lives outside
+# /usr/bin and does not start without the Windows environment. Nothing but
+# the SHA is accepted: a symbolic ref, a gitdir file or a symlink fails.
+head="$src/.git/HEAD"
+[[ -d "$src/.git" && ! -L "$src/.git" && -f "$head" && ! -L "$head" ]] \
+  || fail "$src/.git/HEAD is missing or not a regular file."
+got="$(/bin/cat -- "$head")"
+[[ "$got" == "$WF_SHA" ]] || fail "checked out '$got', expected $WF_SHA."
 
 tmp_root="$RUNNER_TEMP"
 if [[ -x /usr/bin/cygpath ]]; then

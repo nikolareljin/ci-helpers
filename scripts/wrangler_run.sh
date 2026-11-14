@@ -37,7 +37,9 @@ home="$(mktemp -d "${RUNNER_TEMP:-/tmp}/wrangler-home.XXXXXX")"
 chmod 700 "$home"
 trap 'rm -rf -- "$home"' EXIT
 CF_MODE="$mode" "$py" -I "$here/cloudflare_wrangler.py" argv > "$home/argv" || exit 1
-mapfile -d '' argv < "$home/argv"
+# A read loop rather than mapfile, which bash 3.2 (macOS) does not have.
+argv=()
+while IFS= read -r -d '' a; do argv+=("$a"); done < "$home/argv"
 [[ "${#argv[@]}" -gt 0 ]] || fail "no wrangler arguments."
 
 if [[ "$mode" == deploy ]]; then

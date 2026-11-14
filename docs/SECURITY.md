@@ -106,7 +106,7 @@ checkout it already has), and the step right after it runs
 
 | What | How |
 |---|---|
-| commit | `git rev-parse HEAD` must equal `job.workflow_sha`, run once by absolute path with `-c core.fsmonitor= -c core.hooksPath=/dev/null` and no user or system config |
+| commit | the checkout's `.git/HEAD` must be a regular file holding exactly `job.workflow_sha` (a detached checkout); no git binary runs, so no hook, fsmonitor or config can act, and the step works under `env -i` on Windows too |
 | copy | `scripts/`, `toolchain-pins.env` and `scanner-pins.env` go to a fresh `mktemp -d` under `RUNNER_TEMP`; anything other than a regular file or a directory is refused |
 | hash | sha256 over every directory path and every file's content and path, recorded as the step output `hash`, with `lib` (the copy) and `pins` (sha256 of `toolchain-pins.env`, for cache keys) |
 | mode | files and directories read-only; the job's last step, `if: always()`, makes them writable again so a self-hosted runner can clear its `_temp` |
@@ -258,7 +258,7 @@ run in a separate job that:
   anything but regular files, and runs `sha256sum --check --strict` before
   it uses a file;
 - joins a file the build job stored as `<name>.split-NNN` parts (over
-  60 MiB, the publication check's per-file limit is 64 MiB) only after that
+  60 MiB, so the publication check reads each part in full) only after that
   check; `scripts/artifact_parts.sh` does both ends;
 - runs only steps from this workflow, at the workflow's commit.
 

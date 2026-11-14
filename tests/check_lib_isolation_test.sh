@@ -136,6 +136,19 @@ wf() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%
 wf_raw() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%s\n' "$@"; }
 
 expect "isolated, then used after the caller's build" 0 "$(wf "$checkout" "$isolate" "$build" "$use")"
+# A job whose default working-directory is a caller's subdirectory: the
+# isolate step's relative path then exits 127 unless the step runs from the
+# workspace root.
+wf_wd() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: %s\n    steps:\n' "$1"; shift; printf '%s\n' "$@" "$release"; }
+isolate_ws="${isolate/        id: ci_lib/        id: ci_lib
+        working-directory: \$\{\{ github.workspace \}\}}"
+[[ "$isolate_ws" != "$isolate" ]] || { echo "FAIL premise: isolate_ws did not change"; fail=1; }
+expect "isolate in a subdirectory job" 1 "$(wf_wd 'app' "$checkout" "$isolate" "$use")"
+expect "isolate in an input subdirectory job" 1 "$(wf_wd '${{ inputs.working_directory }}' "$checkout" "$isolate" "$use")"
+expect "isolate at the workspace root of a subdirectory job" 0 "$(wf_wd 'app' "$checkout" "$isolate_ws" "$use")"
+expect "isolate in a workspace-default job" 0 "$(wf_wd '${{ github.workspace }}' "$checkout" "$isolate" "$use")"
+expect "workflow-level subdirectory default" 1 "$(printf 'defaults:\n  run:\n    working-directory: app\n'; wf "$checkout" "$isolate" "$use")"
+
 # Issue 375: a secret never becomes an argument of env. The keep form
 # passes names; the env -i form may still carry the step's other variables.
 keep_line="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import check_lib_isolation as c; print(c.KEEP_PREFIX, end="")' "$root/scripts")"
@@ -365,6 +378,8 @@ mk_checkout() {
   git -C "$work/ws/.ci-helpers-scripts" -c init.defaultBranch=main init -q
   git -C "$work/ws/.ci-helpers-scripts" add -A
   git -C "$work/ws/.ci-helpers-scripts" -c user.name=t -c user.email=t@example.com commit -qm t
+  # actions/checkout with a SHA ref leaves HEAD detached at that SHA.
+  git -C "$work/ws/.ci-helpers-scripts" checkout -q --detach
   git -C "$work/ws/.ci-helpers-scripts" rev-parse HEAD
 }
 run_iso() {  # run_iso <sha> -> rc
@@ -400,6 +415,30 @@ printf '#!/bin/sh\ntouch "%s/planted"\n' "$work" > "$work/fsm.sh"; chmod +x "$wo
 git -C "$work/ws/.ci-helpers-scripts" config core.fsmonitor "$work/fsm.sh"
 run_iso "$sha" || { echo "FAIL isolate with a planted fsmonitor:"; cat "$work/iso.out"; fail=1; }
 [[ ! -e "$work/planted" ]] || { echo "FAIL isolate ran a planted core.fsmonitor"; fail=1; }
+
+# HEAD on a branch is not a commit pin: refused, though rev-parse would
+# resolve it to the same SHA.
+sha="$(mk_checkout)"
+git -C "$work/ws/.ci-helpers-scripts" checkout -q main
+run_iso "$sha" && { echo "FAIL isolate accepted a symbolic HEAD"; fail=1; }
+
+# A .git file (gitdir: ...) or a symlinked HEAD points somewhere a caller
+# chose: refused.
+sha="$(mk_checkout)"
+mv "$work/ws/.ci-helpers-scripts/.git" "$work/realgit"
+printf 'gitdir: %s\n' "$work/realgit" > "$work/ws/.ci-helpers-scripts/.git"
+run_iso "$sha" && { echo "FAIL isolate accepted a .git file"; fail=1; }
+rm -rf "$work/realgit"
+sha="$(mk_checkout)"
+printf '%s\n' "$sha" > "$work/head"
+rm "$work/ws/.ci-helpers-scripts/.git/HEAD"; ln -s "$work/head" "$work/ws/.ci-helpers-scripts/.git/HEAD"
+run_iso "$sha" && { echo "FAIL isolate accepted a symlinked HEAD"; fail=1; }
+
+# No git binary runs: on a Windows runner git.exe is not under /usr/bin and
+# does not start under env -i, so a git call there fails every job.
+if grep -vE '^[[:space:]]*#' "$iso" | grep -qE '(^|[[:space:];&|(/"])git([[:space:]"]|$)|\$\{?git\}?'; then
+  echo "FAIL lib_isolate.sh runs git"; fail=1
+fi
 
 sha="$(mk_checkout)"
 ln -s /etc/passwd "$work/ws/.ci-helpers-scripts/scripts/link.sh"

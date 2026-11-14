@@ -87,6 +87,13 @@ jobs:
             exit "$check_rc"
           fi
 
+      # macOS runners start /bin/bash 3.2; a bash 4 feature fails only there.
+      - name: Shell code runs under bash 3.2
+        shell: bash
+        run: |
+          python3 scripts/check_bash32.py
+          bash tests/bash32_compat_test.sh
+
       # Parsing proves a file is YAML; it says nothing about an input going
       # missing one hop down. See the script's header for what drifted.
       - name: Engine inputs are threaded through every caller
@@ -475,3 +482,17 @@ jobs:
             -e SHELLCHECK_OPTS="-S warning" \
             rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 \
             -color=false
+
+  # The same scripts under the bash a macOS runner really starts.
+  bash32:
+    name: scripts under macOS /bin/bash 3.2
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: artifact_parts.sh and every script under /bin/bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        run: BASH32=/bin/bash BASH32_REQUIRE=1 /bin/bash tests/bash32_compat_test.sh --scripts-only
