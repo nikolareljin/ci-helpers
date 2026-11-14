@@ -1087,6 +1087,65 @@ jobs:
           [[ "$OUTCOME" == failure ]] || { echo "::error::data-safety-scan outcome '$OUTCOME', expected failure on a sensitive key"; exit 1; }
           [[ ! -e .ci-helpers-actions ]] || { echo "::error::.ci-helpers-actions still exists"; exit 1; }
 
+  # tauri-release.yml hands the Windows installers from build-windows to
+  # sign-windows with a sha256 manifest in a job output. This makes the
+  # manifest the way build-windows does, in Git Bash on a Windows runner,
+  # passes it through a real step output and verifies it the way
+  # sign-windows does.
+  artifact-parts-hand-off-on-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
+        with:
+          persist-credentials: false
+
+      - name: Split and list the installers as build-windows does
+        id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -x /usr/bin/sha256sum ]]; then h=(/usr/bin/sha256sum); else h=(/usr/bin/shasum -a 256); fi
+          out="$RUNNER_TEMP/tauri-windows-out"
+          mkdir "$out"
+          printf 'msi' > "$out/My App_1.0.0_x64_en-US.msi"
+          head -c $((61 * 1024 * 1024)) /dev/urandom > "$out/My App_1.0.0_x64-setup.exe"
+          "${h[@]}" "$out/My App_1.0.0_x64-setup.exe" | cut -d' ' -f1 > "$RUNNER_TEMP/big.sum"
+          bash scripts/artifact_parts.sh split "$out"
+          delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "manifest<<$delim"
+            (cd "$out" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do "${h[@]}" "$f"; done)
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify the output as sign-windows does
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.list.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          list="$RUNNER_TEMP/tauri-windows-manifest.sha256"
+          printf '%s\n' "$MANIFEST" > "$list"
+          # Which of the two Windows forms this runner produced, for the log.
+          marked="$(grep -c ' [*][.]/' "$list" || true)"
+          returns="$(tr -cd '\r' < "$list" | wc -c | tr -d ' ')"
+          echo "manifest lines with a binary marker: $marked; carriage returns: $returns"
+          re="$(sed -nE "s/.*artifact_parts\.sh\" verify \"\\\$RUNNER_TEMP\/tauri-windows-in\" \"\\\$list\" '([^']+)'\$/\1/p" .github/workflows/tauri-release.yml)"
+          [[ -n "$re" ]] || { echo "::error::no Windows PATH_RE found in tauri-release.yml"; exit 1; }
+          bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re"
+          got="$(sha256sum "$RUNNER_TEMP/tauri-windows-out/My App_1.0.0_x64-setup.exe" | cut -d' ' -f1)"
+          [[ "$got" == "$(cat "$RUNNER_TEMP/big.sum")" ]] || { echo "::error::the joined installer differs from the original"; exit 1; }
+          # Split again so the tree matches the manifest's list; only the
+          # checksum can refuse the tampered file.
+          bash scripts/artifact_parts.sh split "$RUNNER_TEMP/tauri-windows-out"
+          printf 'evil' > "$RUNNER_TEMP/tauri-windows-out/My App_1.0.0_x64_en-US.msi"
+          printf '%s\n' "$MANIFEST" > "$list"
+          if bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re" 2> "$RUNNER_TEMP/tamper.log"; then
+            echo "::error::verify accepted a tampered installer"; exit 1
+          fi
+          grep -q "sha256 differs" "$RUNNER_TEMP/tamper.log" || { echo "::error::verify refused the tampered installer for another reason"; cat "$RUNNER_TEMP/tamper.log"; exit 1; }
+
   # windows-sign pfx mode, end to end, with a throwaway self-signed PFX made
   # here: it signs and timestamps a real exe (also one in a nested folder
   # with spaces), refuses a folder with nothing to sign, a wrong password, a
@@ -2627,6 +2686,7 @@ jobs:
       - codeql-scan-analyses-what-it-is-given
       - codeql-found-what-was-planted
       - codeql-refuses-what-it-must
+      - artifact-parts-hand-off-on-windows
       - windows-sign-pfx-signs-a-real-exe
     if: ${{ always() }}
     runs-on: ubuntu-latest
