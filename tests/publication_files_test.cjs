@@ -251,3 +251,12 @@ test('the name is checked before the content, and each check carries its label',
   }));
   assert.deepEqual(refused, ['a file name', path.join('sub', 'app.deb')]);
 });
+
+test('every refusal reason the action throws may be shown, and nothing else', () => {
+  const {FIXED_REASONS} = require('../.github/actions/publication-check/index.cjs');
+  const source = fs.readFileSync(path.resolve(__dirname, '../.github/actions/publication-check/index.cjs'), 'utf8');
+  const thrown = new Set([...source.matchAll(/new Error\('([^']*)'\)/g)].map(match => match[1]));
+  thrown.delete('publication refused');
+  assert.deepEqual([...FIXED_REASONS].sort(), [...thrown].sort());
+  for (const reason of FIXED_REASONS) assert.match(reason, /^[A-Za-z ]+$/);
+});

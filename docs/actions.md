@@ -695,8 +695,10 @@ https://nikolareljin.github.io/leak-lock/, then one `::error` line naming the
 refused file (its path in the artifact, or "a file name", "release notes",
 "artifact or release metadata") and a fixed category, for example
 `email-like string`, `file not fully inspected` or `the checker failed with an
-internal error`. No matched value, count or snippet is printed. Inspect
-findings locally. This action
+internal error`. A refusal before any file check (an unmatched release
+pattern, a name collision, a file above 2 GiB) prints its fixed reason
+instead. No matched value, count or snippet is printed. Inspect findings
+locally. This action
 checks the workflows' standard upload steps. An exclusive publication writer is
 still required to prevent deliberate client or credential bypasses.
 

@@ -176,6 +176,14 @@ function diagnose(bash, target, options) {
   return refusalCategory(`${sensitive.stdout || ''}${sensitive.stderr || ''}`, sensitive.status);
 }
 
+// This file's own refusal reasons. Each is a fixed string, so the job log may
+// show it when no file check is to blame (a system error is never shown).
+const FIXED_REASONS = new Set(['ambiguous runner storage', 'credential scanner unavailable',
+  'dependency installation failed', 'Git Bash unavailable', 'Git storage refused', 'inspection budget exceeded',
+  'npm unavailable', 'output storage unavailable', 'publication name collision', 'runner storage unavailable',
+  'search root unavailable', 'state storage unavailable', 'uninspectable publication file', 'uninspectable release notes',
+  'unknown publication mode', 'unmatched publication pattern', 'unsafe publication name', 'unsafe runner storage']);
+
 // A label safe for a workflow command: no newline, no command escape.
 function commandText(value) {
   return String(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
@@ -282,17 +290,18 @@ fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['i
     restore(); fs.closeSync(log); log = undefined;
     fs.unlinkSync(path.join(stage, 'private.log'));
     fs.unlinkSync(binaryFile);
-  } catch {
+  } catch (error) {
     restore();
     if (log !== undefined) { try { fs.closeSync(log); } catch {} }
     if (bash) cp.spawnSync(bash, ['-c', 'source "$1/security_notice.sh"; security_notice "$(security_notice_tool "$2")"', '_',
       bashPath(path.join(helpers, 'scripts')), stage ? bashPath(path.join(stage, 'private.log')) : ''], {env: {...privateEnv, GITLEAKS_BIN: gl}, stdio: 'inherit'});
     else process.stderr.write('Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/\n');
     if (refusal) process.stdout.write(`::error title=Publication check refused::${commandText(refusal.label)}: ${commandText(refusal.category)}\n`);
+    else if (FIXED_REASONS.has(error?.message)) process.stdout.write(`::error title=Publication check refused::${error.message}\n`);
     if (stage) { try { fs.rmSync(stage, {recursive: true, force: true}); } catch {} }
     process.exitCode = 1;
   }
 }
 
-module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata, checkerEnv, refusalCategory, commandText};
+module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata, checkerEnv, refusalCategory, commandText, FIXED_REASONS};
 if (require.main === module) main();
