@@ -167,8 +167,8 @@ function refusalCategory(text, status) {
 
 // check_publication.sh keeps its checkers' output to itself, so a refusal is
 // classified by running the two checkers again. Their output stays in memory.
-function diagnose(bash, target, options) {
-  const run = (script, extra = []) => cp.spawnSync(bash, [bashPath(path.join(helpers, 'scripts', script)), ...extra, ...target],
+function diagnose(runChecker, target, options) {
+  const run = (script, extra = []) => runChecker(script, [...extra, ...target],
     {...options, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']});
   const scan = run('check_scan_output.sh');
   if (scan.status !== 0) return refusalCategory(`${scan.stdout || ''}${scan.stderr || ''}`, scan.status);
@@ -272,13 +272,14 @@ else
 fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['ignore', log, log]});
     if (bootstrap.status !== 0) throw new Error('credential scanner unavailable');
     gl = fs.readFileSync(binaryFile, 'utf8').trim();
+    const runChecker = (script, args, options) => cp.spawnSync(bash, [bashPath(path.join(helpers, 'scripts', script)), ...args], options);
     const check = (file, text, relative, cwd, label) => {
       const target = file ? ['--file', bashPath(relative || file)] : ['--stdin'];
       const options = {cwd: cwd || process.cwd(), input: text || undefined, env: checkerEnv(privateEnv, gl)};
-      const result = cp.spawnSync(bash, [bashPath(path.join(helpers, 'scripts/check_publication.sh')), ...target],
+      const result = runChecker('check_publication.sh', target,
         {...options, stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
       if (result.status !== 0) {
-        refusal = {label: label || 'a publication file', category: diagnose(bash, target, options)};
+        refusal = {label: label || 'a publication file', category: diagnose(runChecker, target, options)};
         throw new Error('publication refused');
       }
     };
