@@ -140,10 +140,14 @@ cp -r "$TMP_DIR/script-helpers" "$STAGE_DIR"
 #     it is what proves publish_homebrew keeps a token out of argv -- but a
 #     repository that never runs those tests has no reason to carry them.
 #
+#   scripts/check_workflow_actions.sh  upstream's gate for its own workflow
+#     files. It names this repository's @production refs as the allowed form,
+#     which the circular-reference check refuses, and nothing here runs it.
+#
 # The alternative was an allowlist entry per fixture, maintained forever, each
 # one a standing exemption in a secret scanner. Not copying the file is smaller
 # and cannot rot.
-VENDOR_EXCLUDES=(".git" ".github" "docs" "CHANGELOG.md" "tests")
+VENDOR_EXCLUDES=(".git" ".github" "docs" "CHANGELOG.md" "tests" "scripts/check_workflow_actions.sh")
 for excluded in "${VENDOR_EXCLUDES[@]}"; do
   rm -rf "${STAGE_DIR:?}/${excluded}"
 done
@@ -196,6 +200,11 @@ notes_src="$TMP_DIR/script-helpers/CHANGELOG.md"
     # Commit pins have no release heading. Copy only their changelog delta.
     echo "## Changelog changes in this pin"
     echo
+    # A tag is cloned with --depth 1, so the previous commit is not in the
+    # clone. Fetch it by SHA (GitHub serves reachable commits) before diffing.
+    if ! git -C "$TMP_DIR/script-helpers" cat-file -e "${current_sha}^{commit}" 2>/dev/null; then
+      git -C "$TMP_DIR/script-helpers" fetch --quiet origin "$current_sha" >/dev/null 2>&1 || true
+    fi
     if git -C "$TMP_DIR/script-helpers" cat-file -e "${current_sha}^{commit}" 2>/dev/null; then
       git -C "$TMP_DIR/script-helpers" diff --no-ext-diff --unified=0 "$current_sha" "$COMMIT_HASH" -- CHANGELOG.md \
         | sed -n '/^+++/d; s/^+//p'
@@ -285,11 +294,10 @@ echo "$COMMIT_HASH" > "$ROOT_DIR/vendor/.script-helpers-sha"
 echo "$REF_LABEL"   > "$ROOT_DIR/vendor/.script-helpers-ref"
 
 
-# vendor/ is gitignored (only the two lockfiles are re-included), yet the
-# vendored tree is committed. A plain `git add` therefore updates files that are
-# already tracked but silently skips any file a new upstream release *adds* --
-# which is how 0.28.0's release_notes.sh and check_changelog_section.sh were
-# left out of a commit that claimed to bring them in. Force-stage the whole tree
+# A plain `git add` skips any new file an ignore rule names, and the vendored
+# tree carries upstream's own .gitignore. 0.28.0's release_notes.sh and
+# check_changelog_section.sh were once left out of a commit that claimed to
+# bring them in that way. Force-stage the whole tree
 # here, in the tool that owns it, so an addition can never be dropped again.
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git -C "$ROOT_DIR" add --force --all -- \

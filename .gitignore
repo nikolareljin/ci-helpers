@@ -1,8 +1,13 @@
-# Vendor dependencies
-vendor/
-!vendor/.script-helpers-sha
-!vendor/.script-helpers-ref
-!vendor/.script-helpers-notes.md
+# Vendor dependencies. Only the vendored script-helpers copy and its locks are
+# tracked. Ignoring vendor/ as a whole made every tracked file under it an
+# ignored path, which foxguard-diff refuses in a review that changes one.
+/vendor/*
+!/vendor/script-helpers/
+!/vendor/.script-helpers-sha
+!/vendor/.script-helpers-ref
+!/vendor/.script-helpers-notes.md
+# Any other vendor/ directory (composer installs in fixtures) stays ignored.
+/*/**/vendor/
 
 # IDE files
 .vscode/

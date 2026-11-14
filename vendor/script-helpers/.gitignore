@@ -35,3 +35,6 @@ __pycache__/
 *.sarif
 /gitleaks*.json
 /foxguard*.json
+# Accepted findings are local, in .git/gitleaksignore; check_sensitive.sh does
+# not read a committed list.
+/.gitleaksignore

@@ -5,7 +5,8 @@
 # PARAMETERS:
 #   --owner <name>  Limit to this user or organization; repeatable. Default: every
 #                   account this token can see (you, plus your organizations).
-#   --out <path>    Where to write. Default: ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
+#   --out <path>    Where to write. Default: $PRIVATE_NAMES_FILE, else
+#                   ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv
 #   --stdout        Print the list instead of writing it.
 #   --check         Compare the written list with GitHub; the list is not written.
 #                   Always refetches, so it is the slow path and it does
@@ -25,6 +26,8 @@
 #                   ~/.config/script-helpers/private-names-codes.tsv
 #   -h, --help      Show this help message.
 # ENVIRONMENT:
+#   PRIVATE_NAMES_FILE                  The list to write when --out is not given, the
+#                                       same file check_private_names.sh reads.
 #   PRIVATE_NAMES_NEVER_AMBIGUOUS       Names to match bare even though they are dictionary
 #                                       words. Comma or newline separated.
 #   PRIVATE_NAMES_NEVER_AMBIGUOUS_FILE  A file of the same, one per line, comments allowed.
@@ -47,8 +50,9 @@
 # thing the gate exists to keep out of public trees.
 #
 # So it lives outside every working tree, at
-# ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv, one file per
-# machine serving every repository on it.
+# ${XDG_CONFIG_HOME:-~/.config}/script-helpers/private-names.tsv (or
+# PRIVATE_NAMES_FILE, which the checks read too), one file per machine serving
+# every repository on it.
 #
 # WHY THE NETWORK IS HERE AND NOWHERE ELSE. This script talks to GitHub; the
 # gate never does. A check that made a network call would add a round trip to
@@ -80,7 +84,8 @@ type log_warn >/dev/null 2>&1 || log_warn() { printf '[WARN] %s\n' "$*" >&2; }
 type log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; }
 
 OWNERS=""
-OUT="${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv"
+# The file the checks read, so a custom list is the one refreshed.
+OUT="${PRIVATE_NAMES_FILE:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/private-names.tsv}"
 TO_STDOUT=false
 CHECK=false
 FORCE=false
@@ -710,7 +715,7 @@ if [[ -f "$OUT" && "$FORCE" != true ]]; then
   ' new="$tmp.newrows" "$tmp.newrows" "$tmp.oldrows")"
   old_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.oldrows")"
   new_w="$(awk -F'\t' '$3=="*"{n++} END{print n+0}' "$tmp.newrows")"
-  rm -f "$tmp.oldrows" "$tmp.newrows"
+  rm -f -- "$tmp.oldrows" "$tmp.newrows"
   if [[ "$new_n" -lt "$old_n" || "$new_c" -lt "$old_c" || -n "$shrunk_ns" || "$new_w" -lt "$old_w" || -n "$lost_alias" ]]; then
     log_error "This write would lose data, so nothing was written:"
     [[ "$new_n" -lt "$old_n" ]] && log_error "  names: ${old_n} -> ${new_n}"

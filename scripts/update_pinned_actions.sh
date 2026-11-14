@@ -142,12 +142,27 @@ if [[ ! -d "$dir" ]]; then
   exit 1
 fi
 
-# Cache: "owner/repo@ref" -> "sha"
-declare -A sha_cache=()
-# Cache: "owner/repo" -> "<tag> <commit sha>" lines
-declare -A tags_cache=()
-# Repositories whose tag listing failed; asked once per run.
-declare -A tags_failed=()
+# Caches as files, not associative arrays, which bash 3.2 (macOS) does not
+# have: sha ("owner/repo@ref" -> sha), tags ("owner/repo" -> "<tag> <commit
+# sha>" lines) and tags_failed (repositories whose tag listing failed; asked
+# once per run). A key is stored under its hex encoding.
+cache_dir="$(mktemp -d)"
+trap 'rm -rf -- "$cache_dir"' EXIT
+mkdir "$cache_dir/sha" "$cache_dir/tags" "$cache_dir/tags_failed"
+cache_file() {  # cache_file <cache> <key>
+  printf '%s/%s/%s' "$cache_dir" "$1" "$(printf '%s' "$2" | od -An -tx1 | tr -d ' \n')"
+}
+cache_val=""
+cache_get() {  # cache_get <cache> <key>: 0 and cache_val set on a hit
+  local f
+  f="$(cache_file "$1" "$2")"
+  [[ -f "$f" ]] || return 1
+  cache_val=""
+  IFS= read -r -d '' cache_val < "$f" || true
+}
+cache_set() {  # cache_set <cache> <key> <value>
+  printf '%s' "$3" > "$(cache_file "$1" "$2")"
+}
 
 stale_count=0
 ok_count=0
@@ -167,8 +182,8 @@ fetch_sha() {
   local cache_key="${repo}@${ref}"
   fetched_sha=""
 
-  if [[ "${sha_cache["$cache_key"]+_}" ]]; then
-    fetched_sha="${sha_cache["$cache_key"]}"
+  if cache_get sha "$cache_key"; then
+    fetched_sha="$cache_val"
     return
   fi
 
@@ -178,7 +193,7 @@ fetch_sha() {
   if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
     return 1
   fi
-  sha_cache["$cache_key"]="$sha"
+  cache_set sha "$cache_key" "$sha"
   fetched_sha="$sha"
 }
 
@@ -236,17 +251,17 @@ find_newer_tag() {
   found_tag=""
   found_other_tag=""
   is_release_version "$ref" || return 0
-  [[ -z "${tags_failed["$repo"]+_}" ]] || return 1
+  ! cache_get tags_failed "$repo" || return 1
 
   local listing
-  if [[ "${tags_cache["$repo"]+_}" ]]; then
-    listing="${tags_cache["$repo"]}"
+  if cache_get tags "$repo"; then
+    listing="$cache_val"
   else
     if ! listing="$(gh api --paginate "repos/${repo}/tags?per_page=100" --jq '.[] | "\(.name) \(.commit.sha)"' 2>/dev/null)"; then
-      tags_failed["$repo"]=1
+      cache_set tags_failed "$repo" 1
       return 1
     fi
-    tags_cache["$repo"]="$listing"
+    cache_set tags "$repo" "$listing"
   fi
 
   local name tag_sha best="" other="" shape
@@ -287,15 +302,22 @@ rewrite_pin_comment() {
   local line="$1" sha="$2" tag="$3"
   local head="${line%%@"${sha}"*}@${sha}" tail="${line#*@"${sha}"}"
   rewritten=""
-  if [[ "$tail" =~ ^([[:space:]]+#[[:space:]]+)[^[:space:]@]+([[:space:]]+@[[:space:]]+)[0-9]{4}-[0-9]{2}-[0-9]{2}(.*)$ ]]; then
+  local re_comment='^([[:space:]]+#[[:space:]]+)[^[:space:]@]+([[:space:]]+@[[:space:]]+)[0-9]{4}-[0-9]{2}-[0-9]{2}(.*)$'
+  if [[ "$tail" =~ $re_comment ]]; then
     rewritten="${head}${BASH_REMATCH[1]}${tag}${BASH_REMATCH[2]}${today}${BASH_REMATCH[3]}"
     return 0
   fi
   return 1
 }
 
+# Regexes in variables: a pattern written inline in [[ =~ ]] with quotes or
+# braces is one foxguard's bash parser cannot read, so the file went unscanned.
+re_pin_any='^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*["'"'"']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40}'
+re_pin_flow='(^[[:space:]]*(-[[:space:]]*)?|[:[,][[:space:]]*)\{[^}]*uses:[[:space:]]*["'"'"']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40}'
+
 # Find all YAML files under dir
-mapfile -t files < <(find "$dir" -type f \( -name "*.yml" -o -name "*.yaml" \) | sort)
+files=()
+while IFS= read -r yml_file; do files+=("$yml_file"); done < <(find "$dir" -type f \( -name "*.yml" -o -name "*.yaml" \) | sort)
 
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "No YAML files found under: $dir"
@@ -425,8 +447,7 @@ for file in "${files[@]}"; do
           replacements_new+=("${updated_fragment}")
         fi
       fi
-    elif [[ "$line" =~ ^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]] ||
-         [[ "$line" =~ (^[[:space:]]*(-[[:space:]]*)?|[:[,][[:space:]]*)\{[^}]*uses:[[:space:]]*[\"\']?[a-zA-Z0-9_./-]+@[0-9a-fA-F]{40} ]]; then
+    elif [[ "$line" =~ $re_pin_any ]] || [[ "$line" =~ $re_pin_flow ]]; then
       # A pinned action this audit could not parse. Silently skipping one is how
       # the gap above went unnoticed for as long as it did: the summary counted
       # only what matched, so a pin the pattern could not see was indistinguishable

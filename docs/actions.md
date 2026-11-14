@@ -682,7 +682,9 @@ including steps with `always()` or `failure()`.
 | `fail_on_unmatched_files` | `false` | Refuse unmatched release patterns |
 
 Outputs `paths` and `body_path` refer only to validated snapshots outside the
-workspace. Post-job cleanup removes them. Files above 64 MiB, more than 2,000
+workspace. Post-job cleanup removes them. A file above 64 MiB is checked as a
+stream, executables decoded; a file the checker cannot fully check is refused,
+in CI as well. Files above 2 GiB, more than 2,000
 selected files, Git metadata and colliding published names fail closed. Runner
 temporary paths containing uploader pattern characters are refused. Archives
 use the shared checker's size and nesting limits. Release notes are checked

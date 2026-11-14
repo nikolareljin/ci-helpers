@@ -16,7 +16,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$dir/security_notice.sh"
 hook="${1:-}"; shift
 tmp="$(mktemp -d)"
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf "$tmp"; fi' EXIT
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp"; fi' EXIT
 fail() { security_notice "$(security_notice_tool "$tmp/check")"; exit 1; }
 case "$hook" in
   pre-push)
@@ -38,4 +38,6 @@ case "$hook" in
   *) fail ;;
 esac
 if ! bash "$dir/check_scan_output.sh" "${args[@]}" >"$tmp/check" 2>&1; then fail; fi
+# CI: a file above 64 MiB that was not fully checked is a warning, not a stop.
+grep -E '^::warning title=Security check incomplete::' "$tmp/check" || true
 if ! bash "$dir/check_sensitive.sh" --no-inline-allow "${args[@]}" >"$tmp/check" 2>&1; then fail; fi

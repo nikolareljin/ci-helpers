@@ -5,7 +5,7 @@
 BASH_BIN := $(shell command -v bash 2>/dev/null)
 SHELL := $(if $(BASH_BIN),$(BASH_BIN),/bin/bash)
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs install-git-hooks test test-bash32 docs-deps docs-serve docs-build docs-preview docs-check docs-clean
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs lint-workflows install-git-hooks test test-bash32 docs-deps docs-serve docs-build docs-preview docs-check docs-clean
 
 help:
 	@echo "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  make examples RUN_NETWORK=1   # Include download example (network)"
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
+	@echo "  make lint-workflows           # Refuse disallowed actions, persisted checkout tokens, secrets: inherit"
 	@echo "  make test                     # Run tests under tests/"
 	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"
 	@echo "  make install-git-hooks        # Install pre-commit hook to run lint-docs"
@@ -98,6 +99,9 @@ lint-docs:
 	@# never written up still passed it, and the release body then fell back to
 	@# a commit list. Off a release branch this is a no-op.
 	@bash scripts/check_changelog_section.sh
+
+lint-workflows:
+	@bash scripts/check_workflow_actions.sh
 
 test-bash32:
 	@bash scripts/local_test_bash32.sh

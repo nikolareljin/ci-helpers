@@ -86,12 +86,74 @@ _shlib_docker_do_start=true
 _shlib_docker_add_group=true
 _shlib_docker_timeout=120
 
+# Fingerprints of Docker's repository signing keys. A downloaded key is used
+# only when it holds exactly one primary key with this fingerprint.
+# Source, rpm: https://docs.docker.com/engine/install/fedora/ and .../centos/
+#   ("verify that the fingerprint matches 060A 61C5 ... 621E 9F35").
+# Source, deb: the key served at https://download.docker.com/linux/{debian,ubuntu}/gpg,
+#   the fingerprint Docker's Debian/Ubuntu install docs printed for apt-key.
+SHLIB_DOCKER_APT_FPR="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+SHLIB_DOCKER_RPM_FPR="060A61C51B558A7F742B77AAC52FEB6B621E9F35"
+
+# Set by _shlib_docker_fetch_key: the temp dir holding the verified key at
+# "$_shlib_docker_key_dir/key.asc". The caller removes the dir.
+_shlib_docker_key_dir=""
+
 _shlib_docker_run() {
   if [[ "$_shlib_docker_dry_run" == true ]]; then
     echo "  [dry-run] $*" >&2
     return 0
   fi
   "$@"
+}
+
+# Usage: _shlib_docker_fetch_key <debian|ubuntu|centos|fedora> <fingerprint>
+# Downloads https://download.docker.com/linux/<distro>/gpg to a private temp
+# dir and checks it in a throwaway GNUPGHOME. Succeeds only when the file
+# holds exactly one primary key and its fingerprint equals <fingerprint>; on
+# any failure the temp dir is removed.
+# Returns: 0 verified (armored key at $_shlib_docker_key_dir/key.asc); 1 otherwise.
+_shlib_docker_fetch_key() {
+  local url want="$2" dir fprs count
+  _shlib_docker_key_dir=""
+  case "$1" in
+    debian) url="https://download.docker.com/linux/debian/gpg" ;;
+    ubuntu) url="https://download.docker.com/linux/ubuntu/gpg" ;;
+    centos) url="https://download.docker.com/linux/centos/gpg" ;;
+    fedora) url="https://download.docker.com/linux/fedora/gpg" ;;
+    *) log_error "No Docker signing key for distribution '$1'."; return 1 ;;
+  esac
+  if ! command -v gpg >/dev/null 2>&1; then
+    log_error "gpg is required to verify Docker's signing key."
+    return 1
+  fi
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-docker-key.XXXXXX")" || return 1
+  chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
+  mkdir -m 700 "$dir/gnupg" || { rm -rf -- "$dir"; return 1; }
+  if ! curl -fsSL "$url" -o "$dir/key" || [[ ! -s "$dir/key" ]]; then
+    log_error "Could not download Docker's signing key from $url."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  fprs="$(gpg --homedir "$dir/gnupg" --batch --quiet --import "$dir/key" >/dev/null 2>&1 \
+    && gpg --homedir "$dir/gnupg" --batch --with-colons --fingerprint 2>/dev/null \
+    | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')"
+  count="$(printf '%s\n' "$fprs" | grep -c '^[0-9A-F]\{40\}$' || true)"
+  if [[ "$count" -ne 1 || "$fprs" != "$want" ]]; then
+    log_error "Docker signing key from $url failed verification: expected one primary key $want, got ${count} ($(printf '%s' "$fprs" | tr '\n' ' '))."
+    log_error "Refusing to install. Nothing was written."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  # Use only what gpg accepted for that key, not the raw download: packets gpg
+  # dropped on import (bad signatures, junk after the key) never reach apt or rpm.
+  if ! gpg --homedir "$dir/gnupg" --batch --armor --export "$want" >"$dir/key.asc" 2>/dev/null \
+     || [[ ! -s "$dir/key.asc" ]]; then
+    log_error "Could not export the verified Docker signing key."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  _shlib_docker_key_dir="$dir"
 }
 
 _shlib_docker_sudo() {
@@ -191,9 +253,15 @@ _shlib_docker_install_apt() {
   if [[ "$_shlib_docker_dry_run" == true ]]; then
     echo "  [dry-run] curl -fsSL https://download.docker.com/linux/$id/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg" >&2
   else
-    curl -fsSL "https://download.docker.com/linux/$id/gpg" \
-      | _shlib_docker_sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg || return 1
-    _shlib_docker_sudo chmod a+r /etc/apt/keyrings/docker.gpg || return 1
+    _shlib_docker_fetch_key "$id" "$SHLIB_DOCKER_APT_FPR" || return 1
+    if ! _shlib_docker_sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg \
+           <"$_shlib_docker_key_dir/key.asc" \
+       || ! _shlib_docker_sudo chmod a+r /etc/apt/keyrings/docker.gpg; then
+      _shlib_docker_sudo rm -f -- /etc/apt/keyrings/docker.gpg
+      rm -rf -- "$_shlib_docker_key_dir"
+      return 1
+    fi
+    rm -rf -- "$_shlib_docker_key_dir"
   fi
 
   arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
@@ -227,6 +295,24 @@ _shlib_docker_install_dnf() {
 
   log_info "Installing Docker Engine from Docker's $mgr repository ($id)."
 
+  # Verify the key before any repository is added, then point the repo's
+  # gpgkey at the verified local copy instead of the download URL.
+  local keyfile=/etc/pki/rpm-gpg/docker-ce.gpg repofile=/etc/yum.repos.d/docker-ce.repo
+  if [[ "$_shlib_docker_dry_run" == true ]]; then
+    echo "  [dry-run] verify https://download.docker.com/linux/$id/gpg is $SHLIB_DOCKER_RPM_FPR, install to $keyfile, rpm --import" >&2
+  else
+    _shlib_docker_fetch_key "$id" "$SHLIB_DOCKER_RPM_FPR" || return 1
+    # install -d then -m, not install -D: BSD install has no -D.
+    if ! _shlib_docker_sudo install -d -m 0755 "${keyfile%/*}" \
+       || ! _shlib_docker_sudo install -m 0644 "$_shlib_docker_key_dir/key.asc" "$keyfile" \
+       || ! _shlib_docker_sudo rpm --import "$keyfile"; then
+      _shlib_docker_sudo rm -f -- "$keyfile"
+      rm -rf -- "$_shlib_docker_key_dir"
+      return 1
+    fi
+    rm -rf -- "$_shlib_docker_key_dir"
+  fi
+
   _shlib_docker_sudo "$mgr" -y install dnf-plugins-core 2>/dev/null \
     || _shlib_docker_sudo "$mgr" -y install yum-utils || true
 
@@ -238,6 +324,15 @@ _shlib_docker_install_dnf() {
   else
     _shlib_docker_sudo yum-config-manager --add-repo \
       "https://download.docker.com/linux/$id/docker-ce.repo" || return 1
+  fi
+  local repo
+  if [[ "$_shlib_docker_dry_run" == true ]]; then
+    echo "  [dry-run] set gpgkey=file://$keyfile in $repofile" >&2
+  elif ! repo="$(_shlib_docker_sudo sed "s|^gpgkey=.*|gpgkey=file://$keyfile|" "$repofile")" \
+       || ! printf '%s\n' "$repo" | _shlib_docker_sudo tee "$repofile" >/dev/null; then
+    log_error "Could not point $repofile at the verified key; removing it."
+    _shlib_docker_sudo rm -f -- "$repofile"
+    return 1
   fi
 
   _shlib_docker_sudo "$mgr" -y install \

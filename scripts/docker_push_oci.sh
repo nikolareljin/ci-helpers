@@ -31,7 +31,7 @@ fail() { echo "::error::$*" >&2; exit 1; }
 
 layout="${LAYOUT:-}"
 image="${IMAGE:-}"
-image="${image,,}"
+image="$(printf '%s' "$image" | tr '[:upper:]' '[:lower:]')"
 command -v skopeo >/dev/null 2>&1 || { echo "::error::skopeo is not on PATH; the push job needs it (preinstalled on GitHub's Ubuntu runners)." >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "::error::python3 is not on PATH." >&2; exit 2; }
 

@@ -46,7 +46,20 @@ sec_scan_output() {
     sec_unchecked security "publication checker missing; reinstall the hooks"
     return 1
   }
+  local out rc=0
+  out="$(
+  exec 2>&1
   bash "$gate" "$@"
+  )" || rc=$?
+  [[ -z "$out" ]] || printf '%s\n' "$out"
+  # sec_guard keeps output in a private report. Lines for a file above 64 MiB
+  # that was not fully checked (path and reason only) go to the terminal or the
+  # CI log instead: fd 8 is the caller's stdout, fd 9 its stderr.
+  if [[ "$rc" -eq 0 || "$rc" -eq 3 ]]; then
+    { true >&8; } 2>/dev/null && { grep -E '^::warning title=Security check incomplete::' <<<"$out" >&8 || true; }
+    { true >&9; } 2>/dev/null && { grep -E '^WARNING: security check incomplete' <<<"$out" >&9 || true; }
+  fi
+  return "$rc"
 }
 
 # sec_guard <check> [args]: diagnostics stay local; CI only receives a verdict.
@@ -60,13 +73,13 @@ sec_guard() (
       security_notice Security
       return 1
     }
-    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf "${report%/*}"; fi' EXIT
+    trap 'if [[ ${BASHPID-$$} == "$report_owner" && ${BASH_SUBSHELL:-0} == "$report_level" ]]; then rm -rf -- "${report%/*}"; fi' EXIT
     trap 'exit 1' HUP INT TERM
     if ! { printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report"; } 2>/dev/null; then
       security_notice Security
       return 1
     fi
-    { "$@" >>"$report" 2>&1; } 2>/dev/null || rc=$?
+    { "$@" >>"$report" 2>&1; } 8>&1 9>&2 2>/dev/null || rc=$?
     if [[ "$rc" -ne 0 ]]; then
       security_notice "$(security_notice_tool "$report")"
     fi
@@ -76,7 +89,7 @@ sec_guard() (
       return 1
     }
     printf 'SCRIPT_HELPERS_PRIVATE_SECURITY_REPORT_V1\n' >"$report" || return 1
-    "$@" >>"$report" 2>&1 || rc=$?
+    "$@" 8>&1 9>&2 >>"$report" 2>&1 || rc=$?
     if [[ "$rc" -eq 0 ]]; then
       printf 'Security checks passed. Local report: %s\n' "$report"
     else
@@ -135,6 +148,29 @@ sec_maybe_refresh_private_names() {
     return 0
   fi
 
+  # Hooks run at the top of the working tree, so a relative path would have the
+  # list (with its temporary file, log and lock) or the per-owner caches, which
+  # hold the same names, written into the repository being pushed. Those are
+  # what the gate keeps out of public trees: refresh only when they, and
+  # TMPDIR (its temporary files hold the names too), are absolute. The cache
+  # directory is derived as refresh_private_names.sh does. Drive-letter and UNC
+  # forms are absolute only on Windows; elsewhere they are relative names.
+  local cache_dir="${PRIVATE_NAMES_CACHE_DIR:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/script-helpers/owners}"
+  local p
+  for p in "$list" "$cache_dir" "${TMPDIR:-/tmp}"; do
+    case "$p" in
+      /*) continue ;;
+    esac
+    case "${OSTYPE:-}" in
+      msys*|cygwin*|win32*)
+        case "$p" in
+          [A-Za-z]:[\\/]*|\\\\*) continue ;;
+        esac ;;
+    esac
+    echo "[pre-push] private-name list is stale, but a path it uses is not absolute (PRIVATE_NAMES_FILE, PRIVATE_NAMES_CACHE_DIR, XDG_CONFIG_HOME, HOME or TMPDIR); not refreshing it here."
+    return 0
+  done
+
   # One at a time. mkdir is the atomic primitive available everywhere; a stale
   # lock older than a day is cleared, so a killed refresh cannot wedge it.
   local lock="${list}.refresh.lock"
@@ -146,7 +182,9 @@ sec_maybe_refresh_private_names() {
   # run_bounded_test refuses, and it buys nothing. A refresh that is killed
   # leaves the lock, which the day-old check above clears.
   (
-    bash "$refresher" >"${list}.refresh.log" 2>&1
+    # --out: the list whose age was just checked, not the default one. A
+    # refresher staged before it read PRIVATE_NAMES_FILE would write elsewhere.
+    bash "$refresher" --out "$list" >"${list}.refresh.log" 2>&1
     rmdir "$lock" 2>/dev/null
   ) </dev/null >/dev/null 2>&1 &
   return 0

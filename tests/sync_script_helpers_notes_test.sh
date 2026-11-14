@@ -27,8 +27,8 @@ with tempfile.TemporaryDirectory() as temporary:
         git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
         return git("rev-parse", "HEAD")
 
-    def sync(ref):
-        return subprocess.run(["bash", str(consumer / "scripts/sync_script_helpers.sh"), "--repo-url", str(upstream), "--ref", ref], env=env, capture_output=True)
+    def sync(ref, url=None):
+        return subprocess.run(["bash", str(consumer / "scripts/sync_script_helpers.sh"), "--repo-url", url or str(upstream), "--ref", ref], env=env, capture_output=True)
 
     git("init", "-q")
     (upstream / "scripts").mkdir()
@@ -47,6 +47,20 @@ with tempfile.TemporaryDirectory() as temporary:
     assert not notes.endswith("\n\n"), "generated notes contain trailing blank lines"
     assert "ARCHIVE_SENTINEL" not in notes, "SHA pin recopied old history"
     print("PASS commit pins copy only the changelog delta")
+
+    # A tag is cloned with --depth 1 (file:// makes git honour it locally), so
+    # the previous commit pin is not in the clone until the sync fetches it.
+    changelog.write_text("## Tagged\n\nTAG_ENTRY\n\n" + changelog.read_text())
+    commit()
+    git("tag", "9.9.9")
+    result = sync("9.9.9", url=upstream.as_uri())
+    assert result.returncode == 0, result.stderr.decode()
+    notes = (consumer / "vendor/.script-helpers-notes.md").read_text()
+    assert "TAG_ENTRY" in notes, notes
+    assert "NEW_ENTRY" not in notes, "tag pin recopied the previous pin's entries"
+    assert "Previous commit unavailable" not in notes, notes
+    print("PASS a tag after a commit pin fetches the previous commit for the delta")
+    new = git("rev-parse", "HEAD")
 
     (upstream / "scripts/check_publication.sh").write_text("#!/bin/sh\nexit 2\n")
     result = sync(commit())

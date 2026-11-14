@@ -71,6 +71,12 @@ with PyYAML. In every job, and in a composite action:
              every composite step sets OUTER_BLANKS, names its shell by
              absolute path, calls no bare `bash "..."`, and PowerShell there
              runs with -NoProfile;
+  workdir    in a job whose defaults.run.working-directory (its own or the
+             workflow's) is anything but `${{ github.workspace }}`, a run:
+             that names a library checkout (`.ci-helpers-*`) sets
+             `working-directory: ${{ github.workspace }}`: the checkout and
+             the isolate step's relative path are at the workspace root, so
+             from a caller's subdirectory the step exits 127;
   mount      a `docker`/`podman` run: that mounts (`-v`, `--volume`,
              `--mount`) `$LIB`, `ci-helpers-lib` or a library checkout
              fails, and so does a job `container.volumes` entry naming one.
@@ -511,6 +517,36 @@ def check_steps(where: str, steps: list, container: dict | None, windows: bool =
     return errors
 
 
+WORKSPACE = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}$")
+CHECKOUT_NAME = re.compile(r"\.ci-helpers-[a-z]+")
+
+
+def default_workdir(job: dict, doc: dict) -> str:
+    for d in (job, doc):
+        run = (d.get("defaults") or {}).get("run") if isinstance(d.get("defaults"), dict) else None
+        if isinstance(run, dict) and run.get("working-directory") is not None:
+            return str(run["working-directory"])
+    return ""
+
+
+def check_workdir(where: str, job: dict, doc: dict) -> list[str]:
+    """A run: naming a library checkout runs from the workspace root."""
+    wd = default_workdir(job, doc).strip()
+    if not wd or WORKSPACE.match(wd):
+        return []
+    errors = []
+    for n, st in enumerate(job.get("steps") or []):
+        if not isinstance(st, dict) or not isinstance(st.get("run"), str):
+            continue
+        if not CHECKOUT_NAME.search(st["run"]):
+            continue
+        if not WORKSPACE.match(str(st.get("working-directory") or "").strip()):
+            errors.append(f"{where}: step {n + 1} ({st.get('name') or 'run'}) names a library checkout but runs "
+                          f"in the job's default working-directory '{wd}'; set "
+                          f"`working-directory: ${{{{ github.workspace }}}}`")
+    return errors
+
+
 def check_file(path: Path) -> list[str]:
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -528,6 +564,7 @@ def check_file(path: Path) -> list[str]:
                          **(job.get("env") if isinstance(job.get("env"), dict) else {})}
                 errors += check_steps(f"{path}: job {jid}", job["steps"], job.get("container"),
                                       "windows" in ro.lower() and "${{" not in ro, "${{" in ro, outer)
+                errors += check_workdir(f"{path}: job {jid}", job, doc)
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)

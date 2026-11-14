@@ -12,10 +12,21 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import struct
 import sys
 import tarfile
+import tempfile
+import time
 import zipfile
 import zlib
+
+try:
+    from compression.zstd import ZstdDecompressor, ZstdError
+except ImportError:
+    ZstdDecompressor = None
+
+    class ZstdError(Exception):
+        pass
 
 
 class Refused(Exception):
@@ -26,6 +37,10 @@ class Refused(Exception):
 
 class Unchecked(Exception):
     pass
+
+
+class Anomaly(Exception):
+    """A large object that could not be fully checked; the argument is a reason class."""
 
 
 REPORT_NAME = re.compile(
@@ -46,7 +61,33 @@ NATIVE_RESULT = re.compile(
     r"(?i)^(?:\d{1,2}:\d{2}(?::\d{2})?(?:AM|PM)?\s+)?"
     r"(?:(?:INF|WRN|ERR)\s+)?(?:no leaks found\.?|leaks found\s*:\s*\d+|\d+\s+leaks? found)\s*$"
 )
-LIMIT = 64 * 1024 * 1024
+MIB = 1024 * 1024
+# Objects up to LIMIT are inspected whole (text, JSON, archives). Larger binary
+# executables up to MAX_BYTES are streamed in CHUNK pieces; see inspect_large.
+LIMIT = 64 * MIB
+MAX_MIB_CAP = 2048
+MAX_BYTES = MAX_MIB_CAP * MIB
+CHUNK = 8 * MIB
+# Every pattern this file matches is shorter than OVERLAP, so a match that
+# crosses a chunk boundary lies whole inside the next window.
+OVERLAP = 64 * 1024
+# A JSON report can be larger than one window, so its keys alone are an anomaly.
+STREAM_JSON_REPORT = re.compile(rb'(?i)"(?:ruleid|fingerprint|finding_counts)"\s*:')
+# Only executables are streamed: ELF, Mach-O (thin and fat) and PE.
+STREAM_FORMATS = (b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
+                  b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"MZ")
+# Embedded compressed or archived data. Each hit is decoded and scanned; a hit
+# that does not decode is stray bytes (Go binaries carry these magics as code).
+STREAM_PACKED = re.compile(b"|".join([re.escape(magic) for magic in (
+    b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"PK\x03\x04", b"7z\xbc\xaf\x27\x1c", b"\x28\xb5\x2f\xfd", b"ustar",
+)] + [b"BZh[1-9]"]))
+MEMBER_MAX = 64 * MIB      # decoded bytes per embedded member
+DECODED_MAX = 512 * MIB    # decoded bytes per large object
+SIGNATURES_MAX = 4096      # signature hits per large object
+DECODE_SECONDS = 300       # wall time per large object
+BUDGET_SPENT = ("decode limit reached", "time limit reached", "too many embedded signatures")
+ANOMALIES = []
+NON_BLOCKING = [False]
 BASH = shutil.which("bash") or "bash"
 
 
@@ -108,9 +149,342 @@ def structured(value):
     return False
 
 
-def inspect(name, raw, depth=0):
+def set_max_mib(value):
+    """Apply CHECK_SCAN_OUTPUT_MAX_MIB or --max-mib (1..2048, default 2048)."""
+    global LIMIT, MAX_BYTES
+    if value is None:
+        value = os.environ.get("CHECK_SCAN_OUTPUT_MAX_MIB", "")
+    if value == "":
+        value = str(MAX_MIB_CAP)
+    if not re.fullmatch(r"[0-9]{1,4}", value) or not 1 <= int(value) <= MAX_MIB_CAP:
+        raise Unchecked()
+    MAX_BYTES = int(value) * MIB
+    LIMIT = min(LIMIT, MAX_BYTES)
+
+
+class _Budget:
+    """Bounds the decoding work spent on one large object."""
+
+    def __init__(self, outer=""):
+        # The checked file's own path: a local path, not content it carries.
+        self.outer = outer + ":"
+        self.decoded = 0
+        self.hits = 0
+        # (start, end) of every embedded tar already read, so a header inside
+        # one is not read again as the start of another (2000 members cost n^2).
+        self.tars = []
+        self.pending = []
+        self.pending_bytes = 0
+        self.deadline = time.monotonic() + DECODE_SECONDS
+
+    def take(self, count):
+        self.decoded += count
+        if self.decoded > DECODED_MAX:
+            raise Anomaly("decode limit reached")
+
+    def sensitive(self, name, data):
+        """Queue decoded data for check_sensitive.sh: one process per batch, not per member."""
+        if name.startswith(self.outer):
+            name = name[len(self.outer):]
+        self.pending.append(os.fsencode(name) + b"\n" + data.replace(b"\0", b" ") + b"\n")
+        self.pending_bytes += len(self.pending[-1])
+        if self.pending_bytes > MEMBER_MAX:
+            self.flush()
+
+    def flush(self):
+        if not self.pending:
+            return
+        raw, self.pending, self.pending_bytes = b"".join(self.pending), [], 0
+        proc = subprocess.run(
+            [BASH, Path(__file__).with_name("check_sensitive.sh").as_posix(), "--stdin", "--no-inline-allow"],
+            input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if proc.returncode == 1:
+            raise Refused()
+        if proc.returncode:
+            raise Anomaly("embedded data could not be checked")
+
+    def tick(self):
+        if time.monotonic() > self.deadline:
+            raise Anomaly("time limit reached")
+
+
+def _decode(dec, f, offset, budget):
+    """Feed f from offset into a zlib, bz2, lzma or zstd decompressor; return (data, complete)."""
+    out = bytearray()
+    f.seek(offset)
+
+    def grow(data):
+        out.extend(data)
+        if len(out) > MEMBER_MAX:
+            raise Anomaly("embedded data above the decode limit")
+
     try:
-        _inspect(name, raw, depth)
+        while not dec.eof:
+            piece = f.read(65536)
+            if not piece:
+                break
+            if hasattr(dec, "unconsumed_tail"):
+                while piece and not dec.eof:
+                    grow(dec.decompress(piece, MIB))
+                    piece = dec.unconsumed_tail
+            else:
+                grow(dec.decompress(piece, MIB))
+                while not dec.eof and not dec.needs_input:
+                    grow(dec.decompress(b"", MIB))
+            budget.tick()
+    except (zlib.error, OSError, EOFError, lzma.LZMAError, ValueError, ZstdError):
+        return bytes(out), False
+    return bytes(out), dec.eof
+
+
+def _scan_decoded(name, data, complete, budget):
+    budget.take(len(data))
+    try:
+        if complete:
+            inspect(name, data, 1)
+            budget.sensitive(name, data)
+        elif data:
+            # Partial output of stray bytes: cheap result scan only.
+            inspect(name, data, 1)
+    except Unchecked:
+        raise Anomaly("embedded data could not be checked") from None
+
+
+def _zip_member(name, f, offset, budget):
+    f.seek(offset)
+    header = f.read(30)
+    if len(header) < 30:
+        return
+    _, version, flags, method, _, _, crc, csize, usize, nlen, xlen = struct.unpack("<4s5H3I2H", header)
+    raw_name = f.read(nlen)
+    try:
+        member = raw_name.decode("utf-8")
+    except UnicodeError:
+        return
+    # A real local header names its member in printable text.
+    if not 1 <= nlen <= 1024 or len(raw_name) != nlen or (version & 0xFF) > 63 or not member.isprintable() \
+            or method not in (0, 8, 12, 14, 93, 95, 98, 99):
+        return
+    label = name + ":" + member
+    if REPORT_NAME.search(member):
+        raise Refused()
+    if flags & 1:
+        raise Anomaly("encrypted archive member")
+    start = offset + 30 + nlen + xlen
+    if method == 8:
+        data, complete = _decode(zlib.decompressobj(-15), f, start, budget)
+    elif method == 0 and not flags & 8:
+        if csize > MEMBER_MAX:
+            raise Anomaly("embedded data above the decode limit")
+        f.seek(start)
+        data = f.read(csize)
+        complete = len(data) == csize
+    else:
+        raise Anomaly("unsupported archive member format")
+    if complete and not flags & 8:
+        complete = zlib.crc32(data) & 0xFFFFFFFF == crc and len(data) == usize
+    _scan_decoded(label, data, complete, budget)
+
+
+def _tar_members(name, f, offset, budget):
+    if offset < 257 or any(start <= offset < end for start, end in budget.tars):
+        return
+    f.seek(offset - 257)
+    header = f.read(512)
+    if len(header) < 512:
+        return
+    try:
+        stored = int(header[148:156].replace(b"\0", b" ").strip() or b"x", 8)
+    except ValueError:
+        return
+    if stored != sum(header[:148]) + 256 + sum(header[156:]):
+        return
+    f.seek(offset - 257)
+    archive = None
+    try:
+        with tarfile.open(fileobj=f, mode="r|") as archive:
+            for index, member in enumerate(archive):
+                budget.tick()
+                if index >= 2000:
+                    raise Anomaly("archive has too many members")
+                if REPORT_NAME.search(member.name):
+                    raise Refused()
+                if not member.isfile():
+                    budget.sensitive(member.name, os.fsencode(member.linkname))
+                    continue
+                if member.size > MEMBER_MAX:
+                    raise Anomaly("embedded data above the decode limit")
+                stream = archive.extractfile(member)
+                data = stream.read() if stream is not None else b""
+                _scan_decoded(name + ":" + member.name, data, len(data) == member.size, budget)
+    except (OSError, ValueError, tarfile.TarError):
+        pass
+    except Unchecked:
+        raise Anomaly("embedded data could not be checked") from None
+    finally:
+        if archive is not None:
+            budget.tars.append((offset - 257, offset - 257 + max(archive.offset, 512)))
+
+
+def _zstd_blocks_end(f, offset, descriptor):
+    """Walk a zstd frame's block headers; True when they reach a last block.
+
+    Without a decoder this tells a frame from the stray magic bytes Go binaries
+    carry: those are followed by code, or by zero bytes (empty raw blocks).
+    """
+    single = descriptor & 0x20
+    pos = offset + 5 + (0 if single else 1) + (0, 1, 2, 4)[descriptor & 3]
+    pos += ((1 if single else 0), 2, 4, 8)[descriptor >> 6]
+    for _ in range(SIGNATURES_MAX):
+        f.seek(pos)
+        raw = f.read(3)
+        if len(raw) != 3:
+            return False
+        header = int.from_bytes(raw, "little")
+        kind, length = (header >> 1) & 3, header >> 3
+        if kind == 3 or length > 128 * 1024 or (kind == 0 and length == 0 and not header & 1):
+            return False
+        pos += 3 + (1 if kind == 1 else length)
+        if header & 1:
+            return True
+    return False
+
+
+def _zstd_frame(name, f, offset, budget):
+    f.seek(offset + 4)
+    descriptor = f.read(1)
+    if len(descriptor) != 1 or descriptor[0] & 0x08:
+        return
+    # Python 3.14+ only; no external decoder is run.
+    if ZstdDecompressor is None:
+        if _zstd_blocks_end(f, offset, descriptor[0]):
+            raise Anomaly("no zstd decoder")
+        return
+    data, complete = _decode(ZstdDecompressor(), f, offset, budget)
+    _scan_decoded(name + ":zstd", data, complete, budget)
+
+
+def _embedded(name, f, offset, magic, budget):
+    """Decode the data a signature starts; bytes that do not decode are not a finding."""
+    budget.hits += 1
+    if budget.hits > SIGNATURES_MAX:
+        raise Anomaly("too many embedded signatures")
+    budget.tick()
+    if magic.startswith(b"\x1f\x8b"):
+        data, complete = _decode(zlib.decompressobj(16 + zlib.MAX_WBITS), f, offset, budget)
+        _scan_decoded(name + ":gzip", data, complete, budget)
+    elif magic.startswith(b"BZh"):
+        f.seek(offset + 4)
+        if f.read(6) in (b"1AY&SY", b"\x17rE8P\x90"):
+            data, complete = _decode(bz2.BZ2Decompressor(), f, offset, budget)
+            _scan_decoded(name + ":bzip2", data, complete, budget)
+    elif magic.startswith(b"\xfd7zXZ"):
+        f.seek(offset + 6)
+        flags = f.read(6)
+        if len(flags) == 6 and zlib.crc32(flags[:2]) & 0xFFFFFFFF == struct.unpack("<I", flags[2:])[0]:
+            data, complete = _decode(lzma.LZMADecompressor(lzma.FORMAT_XZ), f, offset, budget)
+            _scan_decoded(name + ":xz", data, complete, budget)
+    elif magic.startswith(b"PK"):
+        _zip_member(name, f, offset, budget)
+    elif magic.startswith(b"7z"):
+        f.seek(offset + 8)
+        start = f.read(24)
+        if len(start) == 24 and zlib.crc32(start[4:]) & 0xFFFFFFFF == struct.unpack("<I", start[:4])[0]:
+            raise Anomaly("no 7z decoder")
+    elif magic == b"ustar":
+        _tar_members(name, f, offset, budget)
+    else:
+        _zstd_frame(name, f, offset, budget)
+
+
+def inspect_large(name, f):
+    """Inspect a seekable object above LIMIT without holding more than CHUNK + OVERLAP bytes.
+
+    Every object is scanned as text to the end, so a scanner result blocks
+    even when something earlier could not be checked. Only executables
+    (STREAM_FORMATS) also have embedded compressed data and archives decoded,
+    within bounds. A scanner result raises Refused; otherwise anything not fully
+    checked raises Anomaly once the whole object has been read.
+    """
+    normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
+    if REPORT_NAME.search(normalized):
+        raise Refused()
+    size = os.fstat(f.fileno()).st_size
+    if size > MAX_BYTES:
+        raise Anomaly("larger than the size limit")
+    f.seek(0)
+    chunk = f.read(CHUNK)
+    reasons = []
+    decoding = (chunk.startswith(STREAM_FORMATS)
+                and not name.lower().endswith((".zip", ".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")))
+    if not decoding:
+        reasons.append("not an executable")
+    budget = _Budget(name)
+    done = set()
+    pos = 0
+    carry = b""
+    while chunk:
+        pos += len(chunk)
+        window = carry + chunk
+        base = pos - len(window)
+        # The carry holds the start of any signature or line cut at the chunk boundary.
+        if STREAM_JSON_REPORT.search(window) and "possible report data" not in reasons:
+            reasons.append("possible report data")
+        for match in STREAM_PACKED.finditer(window) if decoding else ():
+            offset = base + match.start()
+            if offset not in done:
+                done.add(offset)
+                try:
+                    _embedded(name, f, offset, match.group(), budget)
+                except Anomaly as exc:
+                    reasons.append(exc.args[0])
+                    # The object's budget is spent: stop decoding, keep scanning text.
+                    decoding = exc.args[0] not in BUDGET_SPENT
+                    if not decoding:
+                        break
+        # Carry the unfinished last line, or the last OVERLAP bytes of a longer one.
+        cut = window.rfind(b"\n", max(0, len(window) - OVERLAP)) + 1
+        if cut:
+            inspect(name, window[:cut], text_only=True)
+            carry = window[cut:]
+        else:
+            inspect(name, window, text_only=True)
+            carry = window[-OVERLAP:]
+        f.seek(pos)
+        chunk = f.read(CHUNK)
+    if carry:
+        inspect(name, carry, text_only=True)
+    try:
+        budget.flush()
+    except Anomaly as exc:
+        reasons.append(exc.args[0])
+    if reasons:
+        raise Anomaly(reasons[0])
+
+
+def report_anomalies():
+    """Print each anomaly (path and reason class only). Return the exit status."""
+    if not ANOMALIES:
+        return 0
+    ci = os.environ.get("GITHUB_ACTIONS") == "true" or NON_BLOCKING[0]
+    for path, reason in ANOMALIES:
+        clean = re.sub(r"[\x00-\x1f\x7f]", "?", path)
+        if ci:
+            clean = clean.replace("%", "%25")
+            # Workflow commands are read from stdout.
+            print("::warning title=Security check incomplete::" + clean + " could not be fully checked: " + reason)
+        else:
+            print("WARNING: security check incomplete: " + clean + ": could not fully check: " + reason, file=sys.stderr)
+    if ci:
+        return 0
+    print("WARNING: security check incomplete: inspect the files above locally before publishing them.", file=sys.stderr)
+    return 3
+
+
+def inspect(name, raw, depth=0, text_only=False):
+    try:
+        _inspect(name, raw, depth, text_only)
     except Refused as exc:
         if exc.tool == "Security":
             text = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8", errors="replace")
@@ -124,14 +498,16 @@ def inspect(name, raw, depth=0):
         raise
 
 
-def _inspect(name, raw, depth=0):
+def _inspect(name, raw, depth=0, text_only=False):
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
     if len(raw) > LIMIT or depth > 3:
         raise Unchecked()
     # Inspect archives in memory. Never extract paths supplied by the archive.
-    if raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
+    if text_only:
+        pass
+    elif raw.startswith((b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00")):
         opener = gzip.GzipFile if raw.startswith(b"\x1f\x8b") else bz2.BZ2File if raw.startswith(b"BZh") else lzma.LZMAFile
         try:
             with opener(io.BytesIO(raw)) as stream:
@@ -140,7 +516,7 @@ def _inspect(name, raw, depth=0):
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
         return
-    if raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
+    elif raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 total = 0
@@ -155,7 +531,7 @@ def _inspect(name, raw, depth=0):
         except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, zlib.error):
             raise Unchecked() from None
         return
-    if raw[257:262] == b"ustar" or name.lower().endswith((".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")):
+    elif raw[257:262] == b"ustar" or name.lower().endswith((".tar", ".tgz", ".tar.gz", ".tar.xz", ".tar.bz2")):
         try:
             with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
                 total = 0
@@ -247,10 +623,20 @@ def check_blob(repo, oid, path, seen):
     key = (oid, Path(path).suffix)
     if key not in seen:
         size = int(git(repo, "cat-file", "-s", oid))
-        if size > LIMIT:
-            raise Unchecked()
         try:
-            inspect(path, git(repo, "cat-file", "blob", oid))
+            if size > MAX_BYTES:
+                ANOMALIES.append((path, "larger than the size limit"))
+            elif size > LIMIT:
+                # Decoding embedded data needs a seekable copy; it is deleted on close.
+                with tempfile.TemporaryFile() as spool:
+                    if subprocess.run(["git", "-C", repo, "cat-file", "blob", oid], stdout=spool, stderr=subprocess.DEVNULL).returncode:
+                        raise Unchecked()
+                    try:
+                        inspect_large(path, spool)
+                    except Anomaly as exc:
+                        ANOMALIES.append((path, exc.args[0]))
+            else:
+                inspect(path, git(repo, "cat-file", "blob", oid))
         except Refused as exc:
             raise Refused(path, exc.tool) from None
         seen.add(key)
@@ -329,19 +715,31 @@ def main():
     modes.add_argument("--stdin", action="store_true")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--remote", default="")
+    parser.add_argument("--max-mib")
+    parser.add_argument("--non-blocking", action="store_true")
     args = parser.parse_args()
     seen = set()
     try:
+        NON_BLOCKING[0] = args.non_blocking
+        set_max_mib(args.max_mib)
         if args.file:
             for name in args.file:
                 with open(name, "rb") as stream:
                     resolved = str(Path(name).resolve())
                     if REPORT_NAME.search(name.replace("\\", "/")):
                         raise Refused(name)
-                    raw = stream.read(LIMIT + 1)
-                    inspect(name, raw)
-                    if name != resolved:
-                        inspect(resolved, raw)
+                    if os.fstat(stream.fileno()).st_size > LIMIT:
+                        if REPORT_NAME.search(resolved.replace("\\", "/")):
+                            raise Refused(name)
+                        try:
+                            inspect_large(name, stream)
+                        except Anomaly as exc:
+                            ANOMALIES.append((name, exc.args[0]))
+                    else:
+                        raw = stream.read(LIMIT + 1)
+                        inspect(name, raw)
+                        if name != resolved:
+                            inspect(resolved, raw)
                     probe = subprocess.run(["git", "-C", str(Path(resolved).parent), "rev-parse", "--show-toplevel"], capture_output=True, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
                     if probe.returncode == 0:
                         root = Path(os.fsdecode(probe.stdout).strip())
@@ -383,7 +781,7 @@ def main():
     except (Unchecked, OSError, ValueError, RecursionError, IndexError, zlib.error):
         subprocess.run([BASH, Path(__file__).with_name("security_notice.sh").as_posix(), "Security"], check=False)
         return 2
-    return 0
+    return report_anomalies()
 
 
 if __name__ == "__main__":

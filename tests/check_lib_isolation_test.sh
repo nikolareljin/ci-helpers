@@ -136,6 +136,19 @@ wf() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%
 wf_raw() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n'; printf '%s\n' "$@"; }
 
 expect "isolated, then used after the caller's build" 0 "$(wf "$checkout" "$isolate" "$build" "$use")"
+# A job whose default working-directory is a caller's subdirectory: the
+# isolate step's relative path then exits 127 unless the step runs from the
+# workspace root.
+wf_wd() { printf 'jobs:\n  j:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: %s\n    steps:\n' "$1"; shift; printf '%s\n' "$@" "$release"; }
+isolate_ws="${isolate/        id: ci_lib/        id: ci_lib
+        working-directory: \$\{\{ github.workspace \}\}}"
+[[ "$isolate_ws" != "$isolate" ]] || { echo "FAIL premise: isolate_ws did not change"; fail=1; }
+expect "isolate in a subdirectory job" 1 "$(wf_wd 'app' "$checkout" "$isolate" "$use")"
+expect "isolate in an input subdirectory job" 1 "$(wf_wd '${{ inputs.working_directory }}' "$checkout" "$isolate" "$use")"
+expect "isolate at the workspace root of a subdirectory job" 0 "$(wf_wd 'app' "$checkout" "$isolate_ws" "$use")"
+expect "isolate in a workspace-default job" 0 "$(wf_wd '${{ github.workspace }}' "$checkout" "$isolate" "$use")"
+expect "workflow-level subdirectory default" 1 "$(printf 'defaults:\n  run:\n    working-directory: app\n'; wf "$checkout" "$isolate" "$use")"
+
 # Issue 375: a secret never becomes an argument of env. The keep form
 # passes names; the env -i form may still carry the step's other variables.
 keep_line="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import check_lib_isolation as c; print(c.KEEP_PREFIX, end="")' "$root/scripts")"
@@ -365,6 +378,8 @@ mk_checkout() {
   git -C "$work/ws/.ci-helpers-scripts" -c init.defaultBranch=main init -q
   git -C "$work/ws/.ci-helpers-scripts" add -A
   git -C "$work/ws/.ci-helpers-scripts" -c user.name=t -c user.email=t@example.com commit -qm t
+  # actions/checkout with a SHA ref leaves HEAD detached at that SHA.
+  git -C "$work/ws/.ci-helpers-scripts" checkout -q --detach
   git -C "$work/ws/.ci-helpers-scripts" rev-parse HEAD
 }
 run_iso() {  # run_iso <sha> -> rc
@@ -400,6 +415,30 @@ printf '#!/bin/sh\ntouch "%s/planted"\n' "$work" > "$work/fsm.sh"; chmod +x "$wo
 git -C "$work/ws/.ci-helpers-scripts" config core.fsmonitor "$work/fsm.sh"
 run_iso "$sha" || { echo "FAIL isolate with a planted fsmonitor:"; cat "$work/iso.out"; fail=1; }
 [[ ! -e "$work/planted" ]] || { echo "FAIL isolate ran a planted core.fsmonitor"; fail=1; }
+
+# HEAD on a branch is not a commit pin: refused, though rev-parse would
+# resolve it to the same SHA.
+sha="$(mk_checkout)"
+git -C "$work/ws/.ci-helpers-scripts" checkout -q main
+run_iso "$sha" && { echo "FAIL isolate accepted a symbolic HEAD"; fail=1; }
+
+# A .git file (gitdir: ...) or a symlinked HEAD points somewhere a caller
+# chose: refused.
+sha="$(mk_checkout)"
+mv "$work/ws/.ci-helpers-scripts/.git" "$work/realgit"
+printf 'gitdir: %s\n' "$work/realgit" > "$work/ws/.ci-helpers-scripts/.git"
+run_iso "$sha" && { echo "FAIL isolate accepted a .git file"; fail=1; }
+rm -rf "$work/realgit"
+sha="$(mk_checkout)"
+printf '%s\n' "$sha" > "$work/head"
+rm "$work/ws/.ci-helpers-scripts/.git/HEAD"; ln -s "$work/head" "$work/ws/.ci-helpers-scripts/.git/HEAD"
+run_iso "$sha" && { echo "FAIL isolate accepted a symlinked HEAD"; fail=1; }
+
+# No git binary runs: on a Windows runner git.exe is not under /usr/bin and
+# does not start under env -i, so a git call there fails every job.
+if grep -vE '^[[:space:]]*#' "$iso" | grep -qE '(^|[[:space:];&|(/"])git([[:space:]"]|$)|\$\{?git\}?'; then
+  echo "FAIL lib_isolate.sh runs git"; fail=1
+fi
 
 sha="$(mk_checkout)"
 ln -s /etc/passwd "$work/ws/.ci-helpers-scripts/scripts/link.sh"
@@ -606,6 +645,61 @@ done
   "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step on a clean runner:"; cat "$work/verify.out"; fail=1; }
 grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
   || { echo "FAIL the Verify step no longer keeps the checkout out of the caller's git status"; fail=1; }
+
+# Caller code can rewrite the workspace .git before Verify runs. Each
+# planted redirect inside a real .git dir must fail the step and leave
+# the target untouched.
+verify_planted() {  # verify_planted <label>; the target file is in $planted_target
+  local before; before="$(cat "$planted_target" 2>/dev/null || true)"
+  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" CDPATH="$work/cdp" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+    "$work/step-verify.sh") > "$work/verify.out" 2>&1 && { echo "FAIL the Verify step accepted $1"; fail=1; }
+  [[ "$(cat "$planted_target" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+  grep -q '^::error::.*refusing' "$work/verify.out" || { echo "FAIL the Verify step did not refuse $1 by name:"; cat "$work/verify.out"; fail=1; }
+}
+reset_ws_git() { rm -rf "$work/ws/.git" "$work/elsewhere" "$work/victim"; git -C "$work/ws" -c init.defaultBranch=main init -q; }
+reset_ws_git; git -c init.defaultBranch=main init -q --bare "$work/elsewhere"; : > "$work/elsewhere/info/exclude"
+printf '%s\n' "$work/elsewhere" > "$work/ws/.git/commondir"
+planted_target="$work/elsewhere/info/exclude"; verify_planted "a planted .git/commondir"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
+ln -s "$work/victim" "$work/ws/.git/info/exclude"
+planted_target="$work/victim"; verify_planted "a symlinked .git/info/exclude"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -rf "$work/ws/.git/info"; mkdir -p "$work/elsewhere"
+ln -s "$work/elsewhere" "$work/ws/.git/info"; ln -s "$work/victim" "$work/elsewhere/exclude"
+planted_target="$work/victim"; verify_planted "a symlinked .git/info"
+reset_ws_git; printf 'keep\n' > "$work/victim"; rm -f "$work/ws/.git/info/exclude"
+ln "$work/victim" "$work/ws/.git/info/exclude"
+planted_target="$work/victim"; verify_planted "a hard-linked .git/info/exclude"
+# A .git that is a gitdir: file (worktree, submodule) or a symlink is not
+# an attack sign: the step warns, writes nothing and still passes.
+verify_skipped() {  # verify_skipped <label>; the target file is in $planted_target
+  local before; before="$(cat "$planted_target" 2>/dev/null || true)"
+  (cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+    "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step failed on $1:"; cat "$work/verify.out"; fail=1; }
+  [[ "$(cat "$planted_target" 2>/dev/null || true)" == "$before" ]] || { echo "FAIL the Verify step wrote through $1"; fail=1; }
+  grep -q '^::warning::.git is not a plain directory' "$work/verify.out" || { echo "FAIL the Verify step did not warn on $1:"; cat "$work/verify.out"; fail=1; }
+  ! grep -rqs '/.ci-helpers-publication/' "$work/ws/.git" "$work/elsewhere" || { echo "FAIL the Verify step wrote an exclude entry for $1"; fail=1; }
+}
+reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; printf 'gitdir: %s\n' "$work/elsewhere" > "$work/ws/.git"
+planted_target="$work/elsewhere/info/exclude"; verify_skipped "a .git file"
+reset_ws_git; mv "$work/ws/.git" "$work/elsewhere"; ln -s "$work/elsewhere" "$work/ws/.git"
+planted_target="$work/elsewhere/info/exclude"; verify_skipped "a symlinked .git"
+# A caller can export CDPATH; a planted commondir that CDPATH matches must still be refused.
+reset_ws_git; rm -rf "$work/cdp"; git -c init.defaultBranch=main init -q --bare "$work/cdp/.git"; : > "$work/cdp/.git/info/exclude"
+printf '%s\n' "$work/cdp/.git" > "$work/ws/.git/commondir"
+planted_target="$work/cdp/.git/info/exclude"; verify_planted "a commondir matched by CDPATH"
+reset_ws_git; rm -f "$work/ws/.git/info/exclude"
+(cd "$work/ws" && env TRUSTED_SHA="$sha" HOME="$work" "${verify_blanks[@]}" "$verify_sh" "${verify_args[@]}" \
+  "$work/step-verify.sh") > "$work/verify.out" 2>&1 || { echo "FAIL the Verify step with no exclude file:"; cat "$work/verify.out"; fail=1; }
+grep -qx '/.ci-helpers-publication/' "$work/ws/.git/info/exclude" \
+  || { echo "FAIL the Verify step did not create a missing exclude file"; fail=1; }
+# A .git dir git cannot read fails the step by name, not with a bare git error.
+reset_ws_git; rm -rf "$work/ws/.git"; mkdir "$work/ws/.git"; planted_target="$work/ws/.git/info/exclude"; verify_planted "a .git dir git cannot read"
+reset_ws_git; rm -rf "$work/ws/.git/info"; : > "$work/ws/.git/info"; planted_target="$work/ws/.git/info"; verify_planted "a .git/info that is a file"
+reset_ws_git
+# Every copy of the step resolves the exclude path with the hardened git.
+if grep -rn '"\$git" rev-parse --git-' "$root/.github/workflows"; then
+  echo "FAIL a workflow resolves the caller's .git with unhardened git (above)"; fail=1
+fi
 
 # The scripts that hold a token, password or licence run with
 # `lib_path.sh secret`: every tool they call by name must resolve to the
