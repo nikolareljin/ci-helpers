@@ -6,9 +6,20 @@ const crypto = require('node:crypto');
 
 const MAX_FILES = 2000;
 // The shared checker's own ceiling (check_scan_output.sh --max-mib 2048) and
-// GitHub's release asset limit. Above 64 MiB the checker streams the file,
-// so a Linux AppImage or a large installer is still checked.
+// GitHub's release asset limit. Above 64 MiB the checker streams the file and
+// decodes executables; a file it cannot fully check is refused (checkerEnv).
 const MAX_BYTES = 2048 * 1024 * 1024;
+
+// The checker runs blocking: with CI or GITHUB_ACTIONS set it turns "could
+// not fully check" into a warning and exit 0. Without them it exits 3, and
+// any nonzero exit refuses the publication. Its output goes to the private
+// log only, so nothing local-only reaches the job log.
+function checkerEnv(base, gitleaks) {
+  const env = {...base, GITLEAKS_BIN: gitleaks};
+  delete env.CI;
+  delete env.GITHUB_ACTIONS;
+  return env;
+}
 const helpers = path.resolve(__dirname, '../../../vendor/script-helpers');
 const bashPath = value => process.platform === 'win32' ? value.replaceAll('\\', '/') : value;
 
@@ -219,7 +230,7 @@ fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['i
     const check = (file, text, relative, cwd) => {
       const args = [bashPath(path.join(helpers, 'scripts/check_publication.sh')), ...(file ? ['--file', bashPath(relative || file)] : ['--stdin'])];
       const result = cp.spawnSync(bash, args, {cwd: cwd || process.cwd(), input: text || undefined,
-        env: {...privateEnv, GITLEAKS_BIN: gl}, stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
+        env: checkerEnv(privateEnv, gl), stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
       if (result.status !== 0) throw new Error('publication refused');
     };
     const result = await snapshot({mode: process.env.INPUT_MODE, paths: process.env.INPUT_PATHS || '',
@@ -241,5 +252,5 @@ fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['i
   }
 }
 
-module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata};
+module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata, checkerEnv};
 if (require.main === module) main();

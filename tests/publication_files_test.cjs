@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const {snapshot} = require('../.github/actions/publication-check/index.cjs');
+const {snapshot, checkerEnv} = require('../.github/actions/publication-check/index.cjs');
 const guard = path.resolve(__dirname, '../vendor/script-helpers/scripts/check_publication.sh');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publication-test-'));
@@ -21,7 +21,8 @@ function fixture() {
 function check(file, text, relative, cwd) {
   const result = cp.spawnSync('bash', [guard, ...(file ? ['--file', relative || file] : ['--stdin'])], {
     cwd: cwd || root, input: text || undefined, encoding: 'utf8',
-    env: {...process.env, CI: 'true', GITHUB_ACTIONS: 'true', GITLEAKS_BIN: fake},
+    // The action's own environment for the checker, built from a CI one.
+    env: checkerEnv({...process.env, CI: 'true', GITHUB_ACTIONS: 'true'}, fake),
   });
   if (result.status !== 0) throw new Error('refused');
 }
@@ -143,6 +144,21 @@ test('a Tauri Linux bundle with an AppImage above 64 MiB is publishable', async 
   assert.equal(fs.statSync(path.join(result.paths, 'App_1.0.0_amd64.AppImage')).size, 77 * 1024 * 1024);
   assert.ok(fs.existsSync(path.join(result.paths, 'App_1.0.0_amd64.deb')));
   assert.ok(fs.existsSync(path.join(result.paths, 'App-1.0.0-1.x86_64.rpm')));
+});
+
+test('a file the checker cannot fully inspect is refused, in CI too', async () => {
+  const env = checkerEnv({CI: 'true', GITHUB_ACTIONS: 'true', PATH: '/bin'}, fake);
+  assert.equal(env.CI, undefined);
+  assert.equal(env.GITHUB_ACTIONS, undefined);
+  assert.equal(env.GITLEAKS_BIN, fake);
+  // 70 MiB that is not an executable: streamed, not decoded, so incomplete.
+  const {dir, stage} = fixture();
+  const file = path.join(dir, 'data.bin');
+  const fd = fs.openSync(file, 'w');
+  fs.writeSync(fd, Buffer.from('PK\x03\x04 not an archive'));
+  fs.ftruncateSync(fd, 70 * 1024 * 1024);
+  fs.closeSync(fd);
+  await assert.rejects(snapshot(input('artifact', file), stage, check));
 });
 
 test('temporary storage stays private when caller TMPDIR is unusable', () => {
