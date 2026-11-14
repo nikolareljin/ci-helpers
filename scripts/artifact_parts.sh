@@ -5,9 +5,11 @@
 #              <name>.split-NNN parts of 60 MiB (publication-check reads a
 #              file over 64 MiB only in part). `verify` checks a downloaded artifact
 #              against the sha256 manifest the build job wrote: every line
-#              matches `<64 hex>  ./<path>` with <path> matching PATH_RE, the
-#              tree holds only regular files and directories, the file list
-#              equals the manifest's, `sha256sum --check --strict` passes,
+#              matches `<64 hex>  ./<path>` (or `<64 hex> *./<path>`, as Git
+#              Bash writes it, with LF or CRLF line ends) with <path>
+#              matching PATH_RE, the tree holds only regular files and
+#              directories, the file list equals the manifest's,
+#              `sha256sum --check --strict` passes,
 #              and then the parts are joined back into their files.
 #              Runs on Linux, macOS (BSD tools) and Git Bash.
 # USAGE: bash scripts/artifact_parts.sh split DIR
@@ -72,6 +74,14 @@ verify_tree() {
   [[ -d "$dir" && ! -L "$dir" ]] || fail "$dir is not a directory."
   [[ -f "$list" && ! -L "$list" ]] || fail "the manifest $list is not a regular file."
   [[ -s "$list" ]] || fail "the manifest is empty."
+  # Git Bash sha256sum writes binary-mode lines (`<hash> *./path`), and a job
+  # output written on Windows comes back with CRLF line ends. Both are
+  # rewritten to `<hash>  ./path` in a private copy before any check.
+  # norm is global: the EXIT trap runs after this function returns.
+  norm="$(mktemp "${TMPDIR:-/tmp}/artifact-manifest.XXXXXX")"
+  trap 'rm -f -- "$norm"' EXIT
+  sed -E -e $'s/\r$//' -e 's/^([0-9a-f]{64}) \*/\1  /' "$list" > "$norm"
+  list="$norm"
   # A malformed PATH_RE makes grep exit 2, which must refuse, not pass.
   grep_rc -qE -- "^(${re})\$" </dev/null || true
   if grep_rc -qvE "^[0-9a-f]{64}  \\./(${re})(\\.split-[0-9]{3})?\$" "$list"; then

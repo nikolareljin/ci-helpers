@@ -215,3 +215,39 @@ test('ambiguous runner storage cannot change uploader selection', () => {
     if (stage) cp.spawnSync(process.execPath, [path.join(action, 'cleanup.cjs')], {env: {...env, STATE_publication_stage: stage}});
   }
 });
+
+test('a refusal is named by file and fixed category, never by matched value', () => {
+  const {refusalCategory, commandText} = require('../.github/actions/publication-check/index.cjs');
+  const block = what => `[sensitive] BLOCK app.bin:12: ${what} (ab***cd)\n`;
+  assert.equal(refusalCategory(block('an email address'), 1), 'email-like string');
+  assert.equal(refusalCategory(block('a phone number'), 1), 'phone-number-like string');
+  assert.equal(refusalCategory(block('a payment card number'), 1), 'personal identifier');
+  assert.equal(refusalCategory(block("this machine's home directory"), 1), "this runner's home directory path");
+  assert.equal(refusalCategory(block("this machine's hostname"), 1), "this runner's host or network identifier");
+  assert.equal(refusalCategory('[sensitive] BLOCK gitleaks found 1 credential(s) in a.txt\n', 1), 'credential (Gitleaks)');
+  assert.equal(refusalCategory('Traceback (most recent call last):\nTypeError: x\n', 1), 'the checker failed with an internal error');
+  assert.equal(refusalCategory('WARNING: security check incomplete: a: could not fully check: no zstd decoder\n', 3), 'file not fully inspected');
+  assert.equal(refusalCategory('Security check failed.\nPublication refused: scanner results must stay local. Remove them\n', 1),
+    'scanner output, or a credential or personal data inside an archive member');
+  assert.equal(refusalCategory('Security check failed.\n', 2), 'file could not be inspected');
+  assert.equal(refusalCategory('', 1), 'unclassified refusal');
+  for (const category of ['email-like string', 'file not fully inspected']) {
+    assert.doesNotMatch(category, /ab\*\*\*cd|\d/);
+  }
+  assert.equal(commandText('a%b\r\n::error::x'), 'a%25b%0D%0A::error::x');
+});
+
+test('the name is checked before the content, and each check carries its label', async () => {
+  const {dir, stage} = fixture();
+  fs.mkdirSync(path.join(dir, 'out/sub'), {recursive: true});
+  fs.writeFileSync(path.join(dir, 'out/sub/app.deb'), 'package');
+  const calls = [];
+  await snapshot(input('artifact', `${dir}/out/`), stage, (file, text, relative, cwd, label) => calls.push([file ? 'file' : 'text', label]));
+  assert.deepEqual(calls, [['text', 'a file name'], ['file', path.join('sub', 'app.deb')], ['file', path.join('sub', 'app.deb')]]);
+  const refused = [];
+  await assert.rejects(snapshot(input('artifact', `${dir}/out/`), fixture().stage, (file, text, relative, cwd, label) => {
+    refused.push(label);
+    if (file) throw new Error('refused');
+  }));
+  assert.deepEqual(refused, ['a file name', path.join('sub', 'app.deb')]);
+});
