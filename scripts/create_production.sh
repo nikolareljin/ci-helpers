@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SCRIPT: create_production.sh
-# DESCRIPTION: Point the production tag AND branch at a specific version tag and push both.
+# DESCRIPTION: Point the production tag, and the production branch when the remote has one, at a version tag.
 # USAGE: ./create_production.sh -t <tag> [--name <name>] [--remote <name>] [--repo <path>] [--fetch-tags] [--no-branch] [--base-branch <name>] [--allow-prerelease] [--allow-rollback] [--dry-run]
 # PARAMETERS:
 #   -t, --tag <tag>         Required. Tag to point the production tag at. It must exist on the remote at the same commit as locally.
-#   --name <name>           Name for both the tag and branch to update (default: production). Both refs/tags/<name> and refs/heads/<name> are updated unless --no-branch is set. main, master and HEAD are refused.
+#   --name <name>           Name for both the tag and branch to update (default: production). refs/tags/<name> is updated; refs/heads/<name> too if it already exists on the remote (it is never created) and --no-branch is not set. main, master and HEAD are refused.
 #   --remote <name>         Remote name to push to (default: origin).
 #   --repo <path>           Repository path (default: GITHUB_WORKSPACE or cwd).
 #   --fetch-tags            Fetch tags from the remote before updating; exits 1 if the fetch fails.
@@ -245,23 +245,27 @@ if [[ -n "$current_sha" && "$current_sha" != "$target_sha" ]] && ! $allow_rollba
   fi
 fi
 
-if $dry_run; then
-  log_info_safe "Dry run: ${prod_tag} would move from ${current_sha:0:8} to ${tag} (${target_sha:0:8}); nothing pushed"
-  exit 0
-fi
-
 # Record where the production branch is on the remote BEFORE pushing anything,
 # and lease the branch push on exactly that value. A bare --force-with-lease
 # compares against the remote-tracking ref, and fetching that ref immediately
 # before the push made the lease agree with whatever was there -- including a
-# concurrent move it exists to catch. An empty value means the branch does not
-# exist yet, and the lease then requires that it still does not.
+# concurrent move it exists to catch. The branch is only moved, never created:
+# when the remote has no such branch, only the tag moves.
 if $update_branch; then
   if ! observed_branch_out=$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/${prod_tag}"); then
     log_error_safe "Failed to query remote ${remote} for branch ${prod_tag}"
     exit 1
   fi
   observed_branch_sha=$(printf '%s\n' "$observed_branch_out" | awk -v r="refs/heads/${prod_tag}" '$2 == r {print $1; exit}')
+  if [[ -z "$observed_branch_sha" ]]; then
+    log_info_safe "${prod_tag} branch does not exist on ${remote}; moving the tag only"
+    update_branch=false
+  fi
+fi
+
+if $dry_run; then
+  log_info_safe "Dry run: ${prod_tag} would move from ${current_sha:0:8} to ${tag} (${target_sha:0:8}); nothing pushed"
+  exit 0
 fi
 
 log_info_safe "Updating ${prod_tag} tag to ${tag}"

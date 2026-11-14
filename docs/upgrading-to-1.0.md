@@ -203,10 +203,13 @@ Affected: repositories with their own `scripts/create_production.sh`, when
 If nothing changes: the library's `scripts/create_production.sh` moves the
 `production` ref; the repository's copy is not run, so local changes to it
 have no effect. `update-production.yml` always passes
-`--allow-prerelease --allow-rollback`.
+`--allow-prerelease --allow-rollback`. The `production` branch moves only if
+it already exists on the remote; a repository without one gets the tag only,
+and the log says so.
 
 Change: none in the workflow call. Move any behaviour the local script added
-into a separate step or job.
+into a separate step or job. To keep a `production` branch, create it once
+(`git push origin <tag>:refs/heads/production`); nothing needs deleting.
 
 ## pnpm.yml, pnpm-cypress.yml and pnpm-playwright.yml
 

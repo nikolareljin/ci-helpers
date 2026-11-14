@@ -1903,7 +1903,7 @@ Inputs:
 - `runner` (string, default `ubuntu-latest`)
 - `fetch_depth` (number, default `0`)
 - `default_branch` (string, default `""`, uses repo default)
-- `update_production_tag` (boolean, default `false`): when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref. The job runs this library's `scripts/create_production.sh` from a verified copy; a copy in the calling repository is not run.
+- `update_production_tag` (boolean, default `false`): when `true`, a separate `production` job runs `create_production.sh` after a final version is tagged (concurrency group `ci-helpers-production-move-<owner>/<repo>`, shared with every workflow that moves `production`). Moving a floating `production` ref is opt-in: calling this workflow buys you tagging, and nothing else happens unless you ask. Set it to `true` only in a repository that carries a `production` ref. It moves the `production` tag, and the `production` branch only if the remote already has one (never created). The job runs this library's `scripts/create_production.sh` from a verified copy; a copy in the calling repository is not run.
 - `release_workflow` (string, default `""`) — filename of a local `workflow_dispatch` workflow to trigger after the version tag is pushed (e.g. `"create-github-release.yml"`). The workflow is dispatched with `release_tag` set to the detected version, using `gh workflow run --ref <tag>`. Requires `actions: write` on the caller. Leave empty to skip auto-dispatch.
 
 Outputs:
@@ -1975,7 +1975,7 @@ Inputs:
 
 - `tag` (string, **required**) — tag to point the ref at, e.g. `1.2.3` or `1.2.3-rc1`. Must already exist on the remote, on the default branch.
 - `ref_name` (string, default `production`) — the floating tag and branch to move. `main`, `master` and `HEAD` are refused.
-- `update_branch` (boolean, default `true`) — also move `refs/heads/<ref_name>`, not just the tag.
+- `update_branch` (boolean, default `true`): also move `refs/heads/<ref_name>`, not just the tag, if that branch already exists on the remote. The branch is never created: without it only the tag moves and the log says `<ref_name> branch does not exist on <remote>; moving the tag only`.
 - `dry_run` (boolean, default `false`) — run every check `create_production.sh` makes (`--dry-run`) and report what would move, push nothing. A tag the real run would refuse fails the dry run too. Worth a first run whenever the target is a candidate or a rollback.
 - `runner` (string, default `ubuntu-latest`)
 
