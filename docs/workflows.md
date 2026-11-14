@@ -1569,8 +1569,8 @@ Inputs:
   artifact with a sha256 manifest. The command gets the data in `DC_DATA_DIR`,
   and `MAVEN_ARGS` carries `-DdataDirectory=$DC_DATA_DIR -DautoUpdate=false`.
   Use plugin 13.x so the data format matches the CLI.
-  A data file over 60 MiB travels as `<name>.split-NNN` parts, under the
-  64 MiB per-file limit of the artifact check, and is joined again before
+  A data file over 60 MiB travels as `<name>.split-NNN` parts, each of which
+  the artifact check reads in full, and is joined again before
   the command runs.
 - `nvd_runner` (string, default `ubuntu-latest`): runner for the `nvd` job.
 

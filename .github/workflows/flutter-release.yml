@@ -224,6 +224,7 @@ jobs:
 
       - name: Isolate ci-helpers scripts
         id: ci_lib
+        working-directory: ${{ github.workspace }}
         shell: sh
         env:
           WF_SHA: ${{ job.workflow_sha }}

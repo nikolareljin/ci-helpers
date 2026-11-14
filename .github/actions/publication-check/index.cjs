@@ -5,7 +5,10 @@ const cp = require('node:child_process');
 const crypto = require('node:crypto');
 
 const MAX_FILES = 2000;
-const MAX_BYTES = 64 * 1024 * 1024;
+// The shared checker's own ceiling (check_scan_output.sh --max-mib 2048) and
+// GitHub's release asset limit. Above 64 MiB the checker streams the file,
+// so a Linux AppImage or a large installer is still checked.
+const MAX_BYTES = 2048 * 1024 * 1024;
 const helpers = path.resolve(__dirname, '../../../vendor/script-helpers');
 const bashPath = value => process.platform === 'win32' ? value.replaceAll('\\', '/') : value;
 

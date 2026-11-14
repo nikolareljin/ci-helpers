@@ -122,9 +122,27 @@ test('Git metadata and inspection limits refuse publication', async () => {
     const file = path.join(dir, large ? 'large.bin' : '.git/config');
     fs.mkdirSync(path.dirname(file), {recursive: true});
     fs.writeFileSync(file, '');
-    if (large) fs.truncateSync(file, 64 * 1024 * 1024 + 1);
+    if (large) fs.truncateSync(file, 2048 * 1024 * 1024 + 1);
     await assert.rejects(snapshot(input('artifact', file, {includeHidden: true}), stage, check));
   }
+});
+
+test('a Tauri Linux bundle with an AppImage above 64 MiB is publishable', async () => {
+  const {dir, stage} = fixture();
+  const out = path.join(dir, 'out');
+  fs.mkdirSync(out);
+  // An ELF header, then 77 MiB of zeros: the size of a real Tauri AppImage.
+  const appimage = path.join(out, 'App_1.0.0_amd64.AppImage');
+  const fd = fs.openSync(appimage, 'w');
+  fs.writeSync(fd, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]));
+  fs.ftruncateSync(fd, 77 * 1024 * 1024);
+  fs.closeSync(fd);
+  fs.writeFileSync(path.join(out, 'App_1.0.0_amd64.deb'), '!<arch>\ndebian-binary   0           0     0     100644  4         `\n2.0\n');
+  fs.writeFileSync(path.join(out, 'App-1.0.0-1.x86_64.rpm'), Buffer.from([0xed, 0xab, 0xee, 0xdb, 3, 0, 0, 0]));
+  const result = await snapshot(input('artifact', `${out}/`), stage, check);
+  assert.equal(fs.statSync(path.join(result.paths, 'App_1.0.0_amd64.AppImage')).size, 77 * 1024 * 1024);
+  assert.ok(fs.existsSync(path.join(result.paths, 'App_1.0.0_amd64.deb')));
+  assert.ok(fs.existsSync(path.join(result.paths, 'App-1.0.0-1.x86_64.rpm')));
 });
 
 test('temporary storage stays private when caller TMPDIR is unusable', () => {

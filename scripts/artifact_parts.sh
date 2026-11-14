@@ -2,8 +2,8 @@
 # SCRIPT: artifact_parts.sh
 # DESCRIPTION: The two ends of a build-to-publish artifact hand-off.
 #              `split` stores every file over 60 MiB under DIR as
-#              <name>.split-NNN parts of 60 MiB (publication-check refuses a
-#              file over 64 MiB). `verify` checks a downloaded artifact
+#              <name>.split-NNN parts of 60 MiB (publication-check reads a
+#              file over 64 MiB only in part). `verify` checks a downloaded artifact
 #              against the sha256 manifest the build job wrote: every line
 #              matches `<64 hex>  ./<path>` with <path> matching PATH_RE, the
 #              tree holds only regular files and directories, the file list
@@ -42,8 +42,11 @@ part_bytes=62914560  # 60 MiB
 split_tree() {
   local dir="$1" big size n
   [[ -d "$dir" && ! -L "$dir" ]] || { echo "::error::$dir is not a directory." >&2; exit 2; }
-  shopt -s globstar nullglob dotglob
-  for big in "$dir"/**/*; do
+  # find, not globstar: bash 3.2 (macOS /bin/bash) has no globstar. The
+  # list is read in full first, so the parts written below are not walked.
+  local files=()
+  while IFS= read -r -d '' big; do files+=("$big"); done < <(find "$dir" -mindepth 1 -type f -print0)
+  for big in ${files[@]+"${files[@]}"}; do
     [[ -f "$big" && ! -L "$big" ]] || continue
     size="$(wc -c < "$big" | tr -d ' ')"
     (( size > part_bytes )) || continue
@@ -57,7 +60,6 @@ split_tree() {
     done
     rm -f -- "$big"
   done
-  shopt -u globstar nullglob dotglob
 }
 
 verify_tree() {
@@ -86,9 +88,11 @@ verify_tree() {
     printf '%s\n' "$out" | grep -v ': OK$' >&2 || true
     fail "a file's sha256 differs from the manifest."
   fi
-  # Every symlink was refused above, so globstar walks only the tree.
-  shopt -s globstar nullglob dotglob
-  for first in "$dir"/**/*.split-000; do
+  # Every symlink was refused above, so find walks only the tree.
+  local firsts=()
+  while IFS= read -r -d '' first; do firsts+=("$first"); done < <(find "$dir" -mindepth 1 -type f -name '*.split-000' -print0)
+  shopt -s nullglob
+  for first in ${firsts[@]+"${firsts[@]}"}; do
     [[ -f "$first" && ! -L "$first" ]] || continue
     whole="${first%.split-000}"
     [[ ! -e "$whole" && ! -L "$whole" ]] || fail "the artifact holds both a file and its parts."
@@ -100,7 +104,7 @@ verify_tree() {
     cat -- "${parts[@]}" > "$whole"
     rm -f -- "${parts[@]}"
   done
-  shopt -u globstar nullglob dotglob
+  shopt -u nullglob
 }
 
 case "${1:-}" in
