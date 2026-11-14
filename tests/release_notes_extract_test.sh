@@ -3,9 +3,9 @@
 # DESCRIPTION: The "Extract CHANGELOG notes" step of create-github-release.yml,
 #              run as written under gawk and mawk: it prints nothing on
 #              stderr, returns each section of tests/fixtures/release-notes
-#              byte for byte, matches the version dots literally (v1.2.1 skips a
-#              v1a2b1 heading), and finds a
-#              section for every release heading in this repo's CHANGELOG.md.
+#              byte for byte, matches the version dots literally (v1.2.1
+#              skips a v1a2b1 heading), and finds a section for every release
+#              heading in this repo's CHANGELOG.md. In CI gawk is required.
 # USAGE: bash tests/release_notes_extract_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -37,6 +37,14 @@ extract() {
 awks=()
 for a in gawk mawk; do command -v "$a" > /dev/null && awks+=("$a"); done
 [ "${#awks[@]}" -gt 0 ] || { echo "FAIL neither gawk nor mawk is installed"; exit 1; }
+# gawk is the awk that warned; a CI run without it would check nothing.
+if [ -n "${CI:-}" ] && ! command -v gawk > /dev/null; then
+  echo "FAIL gawk is not installed"; exit 1
+fi
+
+sed -n 's/^## [0-9]\{4\}-[0-9][0-9]-[0-9][0-9] — \(v\{0,1\}[0-9][0-9.]*\).*/\1/p' \
+  "$root/CHANGELOG.md" > "$work/tags"
+[ -s "$work/tags" ] || { echo "FAIL no release heading found in CHANGELOG.md"; exit 1; }
 
 for a in "${awks[@]}"; do
   for tag in v1.2.10 v1.2.1 1.2.0; do
@@ -61,7 +69,7 @@ for a in "${awks[@]}"; do
     if [ -s "$work/err" ] || [ -z "$(tr -d '[:space:]' < "$work/out")" ]; then
       echo "FAIL $a $tag: empty body or stderr:"; cat "$work/err"; fail=1
     fi
-  done < <(sed -n 's/^## [0-9]\{4\}-[0-9][0-9]-[0-9][0-9] — \(v\{0,1\}[0-9][0-9.]*\).*/\1/p' "$root/CHANGELOG.md")
+  done < "$work/tags"
 done
 
 [ "$fail" -eq 0 ] && echo "OK release notes extractor (${awks[*]})"
