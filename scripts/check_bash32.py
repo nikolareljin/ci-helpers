@@ -63,22 +63,37 @@ def scan(text: str) -> list[tuple[int, str]]:
     return out
 
 
+NOT_SH = re.compile(r"pwsh|powershell|python|cmd", re.I)
+
+
+def default_shell(*levels: object) -> str:
+    for d in levels:
+        if isinstance(d, dict) and isinstance(d.get("defaults"), dict):
+            run = d["defaults"].get("run")
+            if isinstance(run, dict) and run.get("shell"):
+                return str(run["shell"])
+    return ""
+
+
 def run_blocks(doc: object):
-    """Yield (label, run text) for every step with a run: in a workflow or action."""
+    """Yield (label, run text) for every shell step with a run: (not pwsh, python or cmd)."""
     if not isinstance(doc, dict):
         return
+    steps = []
     jobs = doc.get("jobs")
     if isinstance(jobs, dict):
         for jid, job in jobs.items():
             if isinstance(job, dict):
-                for i, st in enumerate(job.get("steps") or []):
-                    if isinstance(st, dict) and isinstance(st.get("run"), str):
-                        yield f"job {jid} step {i + 1} ({st.get('name') or 'run'})", st["run"]
+                sh = default_shell(job, doc)
+                steps += [(f"job {jid} step {i + 1}", st, sh) for i, st in enumerate(job.get("steps") or [])]
     runs = doc.get("runs")
     if isinstance(runs, dict):
-        for i, st in enumerate(runs.get("steps") or []):
-            if isinstance(st, dict) and isinstance(st.get("run"), str):
-                yield f"composite step {i + 1} ({st.get('name') or 'run'})", st["run"]
+        steps += [(f"composite step {i + 1}", st, "") for i, st in enumerate(runs.get("steps") or [])]
+    for label, st, sh in steps:
+        if isinstance(st, dict) and isinstance(st.get("run"), str):
+            if NOT_SH.search(str(st.get("shell") or sh)):
+                continue
+            yield f"{label} ({st.get('name') or 'run'})", st["run"]
 
 
 def main(argv: list[str]) -> int:

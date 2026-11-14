@@ -83,6 +83,23 @@ if [[ "$rc" != 1 ]] || ! grep -q 'w.yml: job b step 1 (run), run: line 2: case m
   echo "FAIL a workflow run: block with \${x,,}: exit $rc"; cat "$work/out"; fail=1
 fi
 
+# A pwsh or python step is not shell code.
+cat > "$work/r/.github/workflows/w.yml" <<'YML'
+on: push
+jobs:
+  b:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - run: |
+          $x = "${NAME,,}"
+      - shell: python
+        run: print("|&")
+YML
+python3 "$gate" --root "$work/r" > "$work/out" 2>&1 || { echo "FAIL a pwsh or python step was read as shell:"; cat "$work/out"; fail=1; }
+
 python3 "$gate" --root "$root" > "$work/out" 2>&1 || { echo "FAIL the repository:"; cat "$work/out"; fail=1; }
 fi
 
