@@ -42,24 +42,29 @@ part_bytes=62914560  # 60 MiB
 split_tree() {
   local dir="$1" big size n
   [[ -d "$dir" && ! -L "$dir" ]] || { echo "::error::$dir is not a directory." >&2; exit 2; }
-  # find, not globstar: bash 3.2 (macOS /bin/bash) has no globstar. The
-  # list is read in full first, so the parts written below are not walked.
-  local files=()
-  while IFS= read -r -d '' big; do files+=("$big"); done < <(find "$dir" -mindepth 1 -type f -print0)
-  for big in ${files[@]+"${files[@]}"}; do
-    [[ -f "$big" && ! -L "$big" ]] || continue
-    size="$(wc -c < "$big" | tr -d ' ')"
-    (( size > part_bytes )) || continue
-    [[ ! -e "${big}.split-000" && ! -L "${big}.split-000" ]] || fail "${big}.split-000 already exists."
-    # dd, not split: BSD split has no numeric suffixes on every macOS.
-    n=0
-    while (( n * part_bytes < size )); do
-      dd if="$big" of="$(printf '%s.split-%03d' "$big" "$n")" bs=1048576 \
-        skip=$(( n * part_bytes / 1048576 )) count=$(( part_bytes / 1048576 )) 2>/dev/null
-      n=$((n + 1))
+  # find lists the directories, a glob each one's files: bash 3.2 (macOS
+  # /bin/bash) has no globstar. The directory list is read in full first; a
+  # part written below is at most part_bytes, so the glob skips it.
+  local dirs=() d
+  while IFS= read -r -d '' d; do dirs+=("$d"); done < <(find "$dir" -type d -print0)
+  shopt -s nullglob dotglob
+  for d in "${dirs[@]}"; do
+    for big in "$d"/*; do
+      [[ -f "$big" && ! -L "$big" ]] || continue
+      size="$(wc -c < "$big" | tr -d ' ')"
+      (( size > part_bytes )) || continue
+      [[ ! -e "${big}.split-000" && ! -L "${big}.split-000" ]] || fail "${big}.split-000 already exists."
+      # dd, not split: BSD split has no numeric suffixes on every macOS.
+      n=0
+      while (( n * part_bytes < size )); do
+        dd if="$big" of="$(printf '%s.split-%03d' "$big" "$n")" bs=1048576 \
+          skip=$(( n * part_bytes / 1048576 )) count=$(( part_bytes / 1048576 )) 2>/dev/null
+        n=$((n + 1))
+      done
+      rm -f -- "$big"
     done
-    rm -f -- "$big"
   done
+  shopt -u nullglob dotglob
 }
 
 verify_tree() {
