@@ -157,7 +157,8 @@ cache_get() {  # cache_get <cache> <key>: 0 and cache_val set on a hit
   local f
   f="$(cache_file "$1" "$2")"
   [[ -f "$f" ]] || return 1
-  cache_val="$(cat "$f")"
+  cache_val=""
+  IFS= read -r -d '' cache_val < "$f" || true
 }
 cache_set() {  # cache_set <cache> <key> <value>
   printf '%s' "$3" > "$(cache_file "$1" "$2")"
