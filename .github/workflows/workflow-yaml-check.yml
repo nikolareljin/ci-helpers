@@ -287,6 +287,9 @@ jobs:
       - name: github_release.sh creates, updates and uploads as the action did
         shell: bash
         run: bash tests/github_release_test.sh
+      - name: create-github-release reads CHANGELOG notes without awk warnings
+        shell: bash
+        run: bash tests/release_notes_extract_test.sh
 
       - name: junit_summary.py counts, lists failures and refuses a DOCTYPE
         shell: bash
