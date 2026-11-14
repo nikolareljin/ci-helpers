@@ -24,7 +24,7 @@ if (install.status !== 0) {
   fs.rmSync(deps, {recursive: true, force: true});
   throw new Error(`npm ci failed for the publication action: ${install.error || install.stderr}`);
 }
-const {snapshot, checkerEnv} = require(path.join(action, 'index.cjs'));
+const {snapshot, checkerEnv, refusalCategory, commandText, FIXED_REASONS} = require(path.join(action, 'index.cjs'));
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publication-test-'));
 process.env.GITHUB_WORKSPACE = root;
@@ -243,7 +243,6 @@ test('ambiguous runner storage cannot change uploader selection', () => {
 });
 
 test('a refusal is named by file and fixed category, never by matched value', () => {
-  const {refusalCategory, commandText} = require('../.github/actions/publication-check/index.cjs');
   const block = what => `[sensitive] BLOCK app.bin:12: ${what} (ab***cd)\n`;
   assert.equal(refusalCategory(block('an email address'), 1), 'email-like string');
   assert.equal(refusalCategory(block('a phone number'), 1), 'phone-number-like string');
@@ -279,8 +278,7 @@ test('the name is checked before the content, and each check carries its label',
 });
 
 test('every refusal reason the action throws may be shown, and nothing else', () => {
-  const {FIXED_REASONS} = require('../.github/actions/publication-check/index.cjs');
-  const source = fs.readFileSync(path.resolve(__dirname, '../.github/actions/publication-check/index.cjs'), 'utf8');
+  const source = fs.readFileSync(path.join(action, 'index.cjs'), 'utf8');
   const thrown = new Set([...source.matchAll(/new Error\('([^']*)'\)/g)].map(match => match[1]));
   thrown.delete('publication refused');
   assert.deepEqual([...FIXED_REASONS].sort(), [...thrown].sort());
