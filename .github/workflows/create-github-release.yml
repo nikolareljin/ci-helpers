@@ -138,8 +138,9 @@ jobs:
           set -euo pipefail
           body=""
           if [[ -f CHANGELOG.md ]]; then
-            # Escape dots for awk regex so "0.12.1" matches literally, not "0X12Y1"
-            escaped=$(printf '%s' "$RELEASE_TAG" | sed 's/[.]/\\./g')
+            # Bracket dots so "0.12.1" matches literally, not "0X12Y1". Not "\.":
+            # awk -v reads escapes, so gawk warns and drops the backslash.
+            escaped=$(printf '%s' "$RELEASE_TAG" | sed 's/[.]/[.]/g')
             body=$(awk -v ver="$escaped" '
               /^## / {
                 if (found) exit

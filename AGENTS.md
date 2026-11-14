@@ -41,9 +41,9 @@ There is no `Makefile` and no `lib/` in this repository; every entry point is
 
 ## Testing Guidelines
 
-- Run the shell and Python regression tests in `tests/`. Install the locked
-  dependencies in `.github/actions/publication-check` and run
-  `node --test tests/publication_files_test.cjs` with Node 24.
+- Run the shell and Python regression tests in `tests/`, and
+  `node --test tests/publication_files_test.cjs` with Node 24 (it installs the
+  action's locked dependencies into a temporary copy of the action itself).
 - Run actionlint, the YAML parse check, the floating-ref scan and the SHA-pin
   audit before opening a PR.
 
