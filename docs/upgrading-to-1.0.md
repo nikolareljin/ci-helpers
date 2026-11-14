@@ -209,7 +209,7 @@ and the log says so.
 
 Change: none in the workflow call. Move any behaviour the local script added
 into a separate step or job. To keep a `production` branch, create it once
-(`git push origin <tag>:refs/heads/production`); nothing needs deleting.
+(`git push origin "<tag>^{commit}:refs/heads/production"`); nothing needs deleting.
 
 ## pnpm.yml, pnpm-cypress.yml and pnpm-playwright.yml
 

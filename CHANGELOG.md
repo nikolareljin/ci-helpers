@@ -13,7 +13,7 @@ Each line says what a caller must change; the notes below give the detail, and [
 - `tauri-release.yml`: add the required check `<caller job> / sign-macos` (`sign-windows` now runs in every mode); signing settings in `tauri.conf.json` (`signingIdentity`, `entitlements`, `signCommand`, `certificateThumbprint`) have no effect, use `macos_entitlements`.
 - `auto-tag.yml` (`update_production_tag: true`), `auto-tag-release.yml`, `update-production.yml`: the repository's own `scripts/create_production.sh` is not run; move any behaviour a local copy added into a step of its own.
 - `pnpm.yml`, `pnpm-cypress.yml`, `pnpm-playwright.yml` with `upload_test_results: true`: drop the required check run `Tests<suffix>`; results are on the job summary.
-- `auto-tag.yml` (`update_production_tag: true`), `update-production.yml`, `create_production.sh`: the production branch is moved only if it already exists on the remote, never created; create it once (`git push origin <tag>:refs/heads/production`) if you want one.
+- `auto-tag.yml` (`update_production_tag: true`), `update-production.yml`, `create_production.sh`: the production branch is moved only if it already exists on the remote, never created; create it once (`git push origin "<tag>^{commit}:refs/heads/production"`) if you want one.
 - PHP workflows: `php_version` must be `X.Y`; `latest`, `nightly` and `X.Y.Z` fail.
 - `godot.yml`, `ci.yml` / `pr-gate.yml` with `godot_version`: only `4.3.0` and `4.7.2` install.
 - Flutter workflows: `flutter_channel: master` or `main` fails; an empty `flutter_version` on `stable` installs the pinned 3.47.9.
