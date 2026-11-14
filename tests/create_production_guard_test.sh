@@ -182,5 +182,42 @@ else
   fail=$((fail + 1)); echo "FAIL refuse: shallow clone (rc=$rc)"; sed 's/^/     /' "$work/log"
 fi
 
+# branch_case <description> <has-branch yes|no> <want-branch moved|absent|kept>
+#   <want-notice yes|no> [args...]: the tag must move to 1.2.0 every time; the
+# production branch is moved only when the remote already has it.
+branch_case() {
+  local desc="$1" has="$2" want="$3" notice="$4"; shift 4
+  setup
+  [[ "$has" == yes ]] || git -C "$work/remote.git" update-ref -d refs/heads/production
+  local rc=0
+  "$SCRIPT" --repo "$work/clone" -t 1.2.0 --fetch-tags "$@" >"$work/log" 2>&1 || rc=$?
+  local target prod branch ok=1
+  target="$(git -C "$work/remote.git" rev-parse '1.2.0^{commit}')"
+  prod="$(git -C "$work/remote.git" rev-parse refs/tags/production)"
+  branch="$(git -C "$work/remote.git" rev-parse -q --verify refs/heads/production || true)"
+  (( rc == 0 )) && [[ "$prod" == "$target" ]] || ok=0
+  case "$want" in
+    moved)  [[ "$branch" == "$target" ]] || ok=0 ;;
+    absent) [[ -z "$branch" ]] || ok=0 ;;
+    kept)   [[ "$branch" == "$(git -C "$work/remote.git" rev-parse '1.0.0^{commit}')" ]] || ok=0 ;;
+  esac
+  if [[ "$notice" == yes ]]; then
+    grep -q 'production branch does not exist on origin; moving the tag only' "$work/log" || ok=0
+  else
+    ! grep -q 'branch does not exist' "$work/log" || ok=0
+  fi
+  if (( ok )); then
+    pass=$((pass + 1)); echo "ok   branch: $desc"
+  else
+    fail=$((fail + 1)); echo "FAIL branch: $desc (rc=$rc, branch=${branch:-<none>})"
+    sed 's/^/     /' "$work/log"
+  fi
+}
+
+branch_case "no branch on remote: tag only, branch not created" no absent yes
+branch_case "branch on remote: tag and branch move"            yes moved no
+branch_case "--no-branch: tag only, branch left alone"         yes kept no --no-branch
+branch_case "--no-branch without a branch: no notice"          no absent no --no-branch
+
 echo "passed: $pass, failed: $fail"
 (( fail == 0 ))
