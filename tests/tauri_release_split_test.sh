@@ -164,8 +164,8 @@ setup_win; printf 'x' > "$work/win/-x.msi"; echo "$(sha256sum < "$work/win/-x.ms
 setup_win; printf 'app' > "$work/win/app.tar.gz"; echo "$(sha256sum < "$work/win/app.tar.gz" | cut -d' ' -f1)  ./app.tar.gz" >> "$work/win.sha256"; vrefuse "app.tar.gz against the Windows pattern" win
 setup_win; vrefuse "Windows installers against the macOS pattern" mac
 # build-windows runs in Git Bash: its sha256sum writes binary-mode lines
-# (`<hash> *./name`), and the job output comes back to sign-windows with CRLF
-# line ends. The same split, manifest and verify must pass there.
+# (`<hash> *./name`). Those, with CRLF line ends added as a Windows tool
+# would save them, must pass the same split, manifest and verify.
 win_manifest() {  # win_manifest DIR > MANIFEST: Git Bash format, CRLF
   (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -b "$f"; done) | sed $'s/$/\r/'
 }

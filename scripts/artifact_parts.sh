@@ -6,7 +6,7 @@
 #              file over 64 MiB only in part). `verify` checks a downloaded artifact
 #              against the sha256 manifest the build job wrote: every line
 #              matches `<64 hex>  ./<path>` (or `<64 hex> *./<path>`, as Git
-#              Bash writes it, with LF or CRLF line ends) with <path>
+#              Bash writes it; LF or CRLF line ends) with <path>
 #              matching PATH_RE, the tree holds only regular files and
 #              directories, the file list equals the manifest's,
 #              `sha256sum --check --strict` passes,
@@ -74,9 +74,9 @@ verify_tree() {
   [[ -d "$dir" && ! -L "$dir" ]] || fail "$dir is not a directory."
   [[ -f "$list" && ! -L "$list" ]] || fail "the manifest $list is not a regular file."
   [[ -s "$list" ]] || fail "the manifest is empty."
-  # Git Bash sha256sum writes binary-mode lines (`<hash> *./path`), and a job
-  # output written on Windows comes back with CRLF line ends. Both are
-  # rewritten to `<hash>  ./path` in a private copy before any check.
+  # Git Bash sha256sum writes binary-mode lines (`<hash> *./path`). Those and
+  # CRLF line ends (a manifest saved by a Windows tool) are rewritten to
+  # `<hash>  ./path` in a private copy before any check.
   # norm is global: the EXIT trap runs after this function returns.
   norm="$(mktemp "${TMPDIR:-/tmp}/artifact-manifest.XXXXXX")"
   trap 'rm -f -- "$norm"' EXIT
