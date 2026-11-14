@@ -145,8 +145,51 @@ async function selectFiles(input) {
   return {files, root: ''};
 }
 
+// Refusal categories for the job log. Each is a fixed string chosen from the
+// checker's private output; no matched value, count or snippet is shown.
+const CATEGORIES = [
+  [/Traceback \(most recent call last\)/, 'the checker failed with an internal error'],
+  [/^\[sensitive\] BLOCK gitleaks found/m, 'credential (Gitleaks)'],
+  [/^\[sensitive\] BLOCK .*: an email address/m, 'email-like string'],
+  [/^\[sensitive\] BLOCK .*: a phone number/m, 'phone-number-like string'],
+  [/^\[sensitive\] BLOCK .*: a (?:US social security|payment card) number/m, 'personal identifier'],
+  [/^\[sensitive\] BLOCK .*: this machine's home directory/m, "this runner's home directory path"],
+  [/^\[sensitive\] BLOCK .*: this machine's /m, "this runner's host or network identifier"],
+  [/^\[sensitive\] BLOCK /m, 'personal term or identifier'],
+  [/could not fully check: /, 'file not fully inspected'],
+  [/^Publication refused: scanner results must stay local/m, 'scanner output, or a credential or personal data inside an archive member'],
+];
+
+function refusalCategory(text, status) {
+  for (const [pattern, category] of CATEGORIES) if (pattern.test(text)) return category;
+  return status === 2 ? 'file could not be inspected' : 'unclassified refusal';
+}
+
+// check_publication.sh keeps its checkers' output to itself, so a refusal is
+// classified by running the two checkers again. Their output stays in memory.
+function diagnose(runChecker) {
+  const run = (script, extra = []) => runChecker(script, extra, {encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
+  const scan = run('check_scan_output.sh');
+  if (scan.status !== 0) return refusalCategory(`${scan.stdout || ''}${scan.stderr || ''}`, scan.status);
+  const sensitive = run('check_sensitive.sh', ['--no-inline-allow']);
+  return refusalCategory(`${sensitive.stdout || ''}${sensitive.stderr || ''}`, sensitive.status);
+}
+
+// This file's own refusal reasons. Each is a fixed string, so the job log may
+// show it when no file check is to blame (a system error is never shown).
+const FIXED_REASONS = new Set(['ambiguous runner storage', 'credential scanner unavailable',
+  'dependency installation failed', 'Git Bash unavailable', 'Git storage refused', 'inspection budget exceeded',
+  'npm unavailable', 'output storage unavailable', 'publication name collision', 'runner storage unavailable',
+  'search root unavailable', 'state storage unavailable', 'uninspectable publication file', 'uninspectable release notes',
+  'unknown publication mode', 'unmatched publication pattern', 'unsafe publication name', 'unsafe runner storage']);
+
+// A label safe for a workflow command: no newline, no command escape.
+function commandText(value) {
+  return String(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+}
+
 async function snapshot(input, stage, check) {
-  if (input.metadata) check(null, input.metadata);
+  if (input.metadata) check(null, input.metadata, undefined, undefined, 'artifact or release metadata');
   const selected = await selectFiles(input);
   const payload = path.join(stage, 'payload');
   fs.mkdirSync(payload, {mode: 0o700});
@@ -158,24 +201,25 @@ async function snapshot(input, stage, check) {
     const nameKey = relative.toLowerCase();
     if (names.has(nameKey)) throw new Error('publication name collision');
     names.add(nameKey);
-    check(source);
-    check(null, relative);
+    // The name first: once it is clear, a content refusal can name the file.
+    check(null, relative, undefined, undefined, 'a file name');
+    check(source, null, undefined, undefined, relative);
     const parent = input.mode === 'release' ? path.join(payload, String(index).padStart(6, '0')) : payload;
     const destination = path.join(parent, relative);
     fs.mkdirSync(path.dirname(destination), {recursive: true, mode: 0o700});
     fs.copyFileSync(source, destination);
     fs.chmodSync(destination, 0o600);
-    check(destination, null, path.relative(parent, destination), parent);
+    check(destination, null, path.relative(parent, destination), parent, relative);
     if (input.mode === 'release') outputs.push(path.join(parent, '*').replaceAll('\\', '/'));
   }
   let bodyPath = '';
   if (input.bodyPath) {
     if (isGitMetadata(fs.realpathSync(input.bodyPath)) || !fs.statSync(input.bodyPath).isFile() || fs.statSync(input.bodyPath).size > MAX_BYTES) throw new Error('uninspectable release notes');
-    check(path.resolve(input.bodyPath));
+    check(path.resolve(input.bodyPath), null, undefined, undefined, 'release notes');
     bodyPath = path.join(stage, 'notes.md');
     fs.copyFileSync(input.bodyPath, bodyPath);
     fs.chmodSync(bodyPath, 0o600);
-    check(bodyPath);
+    check(bodyPath, null, undefined, undefined, 'release notes');
   }
   return {paths: input.mode === 'artifact' ? payload : outputs.join('\n'), bodyPath};
 }
@@ -188,7 +232,7 @@ function writeOutput(name, value) {
 
 async function main() {
   process.umask(0o077);
-  let stage, log, bash, gl = '';
+  let stage, log, bash, gl = '', refusal;
   let privateEnv = process.env;
   const originalOut = process.stdout.write, originalErr = process.stderr.write;
   const restore = () => { process.stdout.write = originalOut; process.stderr.write = originalErr; };
@@ -227,11 +271,23 @@ else
 fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['ignore', log, log]});
     if (bootstrap.status !== 0) throw new Error('credential scanner unavailable');
     gl = fs.readFileSync(binaryFile, 'utf8').trim();
-    const check = (file, text, relative, cwd) => {
-      const args = [bashPath(path.join(helpers, 'scripts/check_publication.sh')), ...(file ? ['--file', bashPath(relative || file)] : ['--stdin'])];
+    // One spawn for every checker run: the publication check and, on a
+    // refusal, the two checkers again for the category.
+    const runChecker = (script, target, cwd, text, output) => {
+      const args = [bashPath(path.join(helpers, 'scripts', script)), ...target];
       const result = cp.spawnSync(bash, args, {cwd: cwd || process.cwd(), input: text || undefined,
-        env: checkerEnv(privateEnv, gl), stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
-      if (result.status !== 0) throw new Error('publication refused');
+        env: checkerEnv(privateEnv, gl), ...output});
+      return result;
+    };
+    const check = (file, text, relative, cwd, label) => {
+      const target = file ? ['--file', bashPath(relative || file)] : ['--stdin'];
+      const result = runChecker('check_publication.sh', target, cwd, text,
+        {stdio: [text === null || text === undefined ? 'ignore' : 'pipe', log, log]});
+      if (result.status !== 0) {
+        refusal = {label: label || 'a publication file',
+          category: diagnose((script, extra, output) => runChecker(script, [...extra, ...target], cwd, text, output))};
+        throw new Error('publication refused');
+      }
     };
     const result = await snapshot({mode: process.env.INPUT_MODE, paths: process.env.INPUT_PATHS || '',
       metadata: process.env.INPUT_METADATA || '',
@@ -241,16 +297,18 @@ fi`, '_', bashPath(helpers), bashPath(binaryFile)], {env: privateEnv, stdio: ['i
     restore(); fs.closeSync(log); log = undefined;
     fs.unlinkSync(path.join(stage, 'private.log'));
     fs.unlinkSync(binaryFile);
-  } catch {
+  } catch (error) {
     restore();
     if (log !== undefined) { try { fs.closeSync(log); } catch {} }
     if (bash) cp.spawnSync(bash, ['-c', 'source "$1/security_notice.sh"; security_notice "$(security_notice_tool "$2")"', '_',
       bashPath(path.join(helpers, 'scripts')), stage ? bashPath(path.join(stage, 'private.log')) : ''], {env: {...privateEnv, GITLEAKS_BIN: gl}, stdio: 'inherit'});
     else process.stderr.write('Security checks failed. Run repository checks locally first. https://nikolareljin.github.io/leak-lock/\n');
+    if (refusal) process.stdout.write(`::error title=Publication check refused::${commandText(refusal.label)}: ${commandText(refusal.category)}\n`);
+    else if (FIXED_REASONS.has(error?.message)) process.stdout.write(`::error title=Publication check refused::${error.message}\n`);
     if (stage) { try { fs.rmSync(stage, {recursive: true, force: true}); } catch {} }
     process.exitCode = 1;
   }
 }
 
-module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata, checkerEnv};
+module.exports = {snapshot, selectFiles, releasePatterns, artifactRoot, isGitMetadata, checkerEnv, refusalCategory, commandText, FIXED_REASONS};
 if (require.main === module) main();

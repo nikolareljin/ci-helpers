@@ -163,6 +163,29 @@ setup_win; echo "$(printf '%064d' 0)  ./a;b.msi" >> "$work/win.sha256"; vrefuse 
 setup_win; printf 'x' > "$work/win/-x.msi"; echo "$(sha256sum < "$work/win/-x.msi" | cut -d' ' -f1)  ./-x.msi" >> "$work/win.sha256"; vrefuse "a leading hyphen" win
 setup_win; printf 'app' > "$work/win/app.tar.gz"; echo "$(sha256sum < "$work/win/app.tar.gz" | cut -d' ' -f1)  ./app.tar.gz" >> "$work/win.sha256"; vrefuse "app.tar.gz against the Windows pattern" win
 setup_win; vrefuse "Windows installers against the macOS pattern" mac
+# build-windows runs in Git Bash: its sha256sum writes binary-mode lines
+# (`<hash> *./name`). Those, with CRLF line ends added as a Windows tool
+# would save them, must pass the same split, manifest and verify.
+win_manifest() {  # win_manifest DIR > MANIFEST: Git Bash format, CRLF
+  (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum -b "$f"; done) | sed $'s/$/\r/'
+}
+rm -rf "$work/gb" && mkdir -p "$work/gb"
+printf 'msi' > "$work/gb/My App_1.0.0_x64_en-US.msi"
+head -c $((61 * 1024 * 1024)) /dev/urandom > "$work/gb/My App_1.0.0_x64-setup.exe"
+big_sum="$(sha256sum < "$work/gb/My App_1.0.0_x64-setup.exe" | cut -d' ' -f1)"
+bash "$root/scripts/artifact_parts.sh" split "$work/gb"
+win_manifest "$work/gb" > "$work/gb.sha256"
+if grep -q ' \*\./' "$work/gb.sha256" && grep -q $'\r$' "$work/gb.sha256" \
+    && bash "$root/scripts/artifact_parts.sh" verify "$work/gb" "$work/gb.sha256" "$WIN_RE" > "$work/gb.log" 2>&1 \
+    && [[ "$(sha256sum < "$work/gb/My App_1.0.0_x64-setup.exe" | cut -d' ' -f1)" == "$big_sum" ]] \
+    && [[ -z "$(find "$work/gb" -name '*.split-*' -print -quit)" ]]; then
+  ok "verify accepts a Git Bash manifest (binary marker, CRLF) and joins the parts"
+else
+  bad "verify refused a Git Bash manifest: $(cat "$work/gb.log")"
+fi
+setup_win; win_manifest "$work/win" > "$work/win.sha256"; printf 'evil' > "$work/win/My App_1.0.0_x64-setup.exe"; vrefuse "a tampered installer, Git Bash manifest" win
+setup_win; win_manifest "$work/win" > "$work/win.sha256"; printf '%s *./a;b.msi\r\n' "$(printf '%064d' 0)" >> "$work/win.sha256"; vrefuse "a ';' in a name, Git Bash manifest" win
+setup_win; printf '%s **./My App_1.0.0_x64_en-US.msi\n' "$(sha256sum < "$work/win/My App_1.0.0_x64_en-US.msi" | cut -d' ' -f1)" > "$work/win.sha256"; vrefuse "two binary markers" win
 
 # ---------------------------------------------------------------- tauri_macos_sign.sh
 stubs="$work/stubs"; mkdir -p "$stubs"

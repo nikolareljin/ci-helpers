@@ -690,8 +690,15 @@ temporary paths containing uploader pattern characters are refused. Archives
 use the shared checker's size and nesting limits. Release notes are checked
 before publication; server-generated notes are fetched and checked first.
 
-CI prints only the failing tool and safe branch instructions with
-https://nikolareljin.github.io/leak-lock/. Inspect findings locally. This action
+CI prints the failing tool and safe branch instructions with
+https://nikolareljin.github.io/leak-lock/, then one `::error` line naming the
+refused file (its path in the artifact, or "a file name", "release notes",
+"artifact or release metadata") and a fixed category, for example
+`email-like string`, `file not fully inspected` or `the checker failed with an
+internal error`. A refusal before any file check (an unmatched release
+pattern, a name collision, a file above 2 GiB) prints its fixed reason
+instead. No matched value, count or snippet is printed. Inspect findings
+locally. This action
 checks the workflows' standard upload steps. An exclusive publication writer is
 still required to prevent deliberate client or credential bypasses.
 
