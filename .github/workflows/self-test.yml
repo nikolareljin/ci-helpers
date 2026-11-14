@@ -1127,6 +1127,8 @@ jobs:
           set -euo pipefail
           list="$RUNNER_TEMP/tauri-windows-manifest.sha256"
           printf '%s\n' "$MANIFEST" > "$list"
+          # Which of the two Windows forms this runner produced, for the log.
+          echo "manifest lines with a binary marker: $(grep -c ' \*\./' "$list" || true), with CRLF: $(grep -c $'\r$' "$list" || true)"
           re="$(sed -nE "s/.*artifact_parts\.sh\" verify \"\\\$RUNNER_TEMP\/tauri-windows-in\" \"\\\$list\" '([^']+)'\$/\1/p" .github/workflows/tauri-release.yml)"
           [[ -n "$re" ]] || { echo "::error::no Windows PATH_RE found in tauri-release.yml"; exit 1; }
           bash scripts/artifact_parts.sh verify "$RUNNER_TEMP/tauri-windows-out" "$list" "$re"
