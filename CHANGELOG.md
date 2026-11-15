@@ -2,6 +2,8 @@
 
 ### Security
 
+- **`publication-check` checks each split file whole before its parts.** `scripts/artifact_parts.sh split` stores a file over 60 MiB as `<name>.split-NNN`, and the check read only the parts: a part of a compressed file cannot be decoded, and a secret across a part boundary is in neither part. The action now joins each set of parts in its private stage, checks the joined file under its original name, then checks each part as before. A set with a gap, no part `000`, or the whole file beside it is refused (`incomplete split file`), and a joined size above 2 GiB is refused. `tests/publication_files_test.cjs` splits an address across two parts that each pass alone (https://github.com/nikolareljin/ci-helpers/issues/386).
+
 - **The `Verify publication action revision` step no longer follows a caller-planted `.git` when it adds `/.ci-helpers-publication/` to `info/exclude`.** Caller code runs before it and can write the workspace `.git` (the Unity container mounts it as root). The step ran bare `git rev-parse --git-path info/exclude` and appended to whatever path came back, so a planted `.git/commondir` or a symlinked `info/exclude` sent the write to another file. All 48 copies in 26 workflows now resolve the path with the same clean-env git as the revision check, and fail the step when git cannot read `.git`, `.git/info` cannot be created, or the exclude file resolves outside `.git`, through a symlink, or is hard-linked. The check compares the relative `--git-path` output, so it needs no `--path-format` (git 2.31). When `.git` is a `gitdir:` file (worktree, submodule) or a symlink, the step prints a warning and skips the exclude write. `tests/check_lib_isolation_test.sh` plants each case.
 
 ### Changed

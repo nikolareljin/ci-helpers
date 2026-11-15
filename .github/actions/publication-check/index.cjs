@@ -178,7 +178,7 @@ function diagnose(runChecker) {
 // This file's own refusal reasons. Each is a fixed string, so the job log may
 // show it when no file check is to blame (a system error is never shown).
 const FIXED_REASONS = new Set(['ambiguous runner storage', 'credential scanner unavailable',
-  'dependency installation failed', 'Git Bash unavailable', 'Git storage refused', 'inspection budget exceeded',
+  'dependency installation failed', 'Git Bash unavailable', 'Git storage refused', 'incomplete split file', 'inspection budget exceeded',
   'npm unavailable', 'output storage unavailable', 'publication name collision', 'runner storage unavailable',
   'search root unavailable', 'state storage unavailable', 'uninspectable publication file', 'uninspectable release notes',
   'unknown publication mode', 'unmatched publication pattern', 'unsafe publication name', 'unsafe runner storage']);
@@ -188,9 +188,51 @@ function commandText(value) {
   return String(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
 }
 
+// scripts/artifact_parts.sh split stores a file over 60 MiB as <name>.split-NNN.
+// A part of a compressed file cannot be decoded and a secret across a part
+// boundary is in neither part, so each set of parts is joined and checked as
+// the whole file first. The per-part check below stays as a second pass.
+const PART = /^(.*)\.split-(\d{3})$/;
+
+function splitGroups(files) {
+  const groups = new Map();
+  for (const file of files) {
+    const match = PART.exec(file);
+    if (!match) continue;
+    if (!groups.has(match[1])) groups.set(match[1], []);
+    groups.get(match[1]).push({file, index: Number(match[2])});
+  }
+  for (const [whole, parts] of groups) {
+    parts.sort((left, right) => left.index - right.index);
+    // A gap, a missing part 000, or the whole file beside its parts means the
+    // join would not be the file that was split.
+    if (parts.some((part, index) => part.index !== index) || files.includes(whole)) throw new Error('incomplete split file');
+  }
+  return groups;
+}
+
+function checkWholeFiles(groups, input, root, stage, check) {
+  for (const [whole, parts] of groups) {
+    const relative = input.mode === 'artifact' ? path.relative(root, whole) : path.basename(whole);
+    if (parts.reduce((total, part) => total + fs.statSync(part.file).size, 0) > MAX_BYTES) throw new Error('uninspectable publication file');
+    check(null, relative, undefined, undefined, 'a file name');
+    const folder = fs.mkdtempSync(path.join(stage, 'whole-'));
+    const joined = path.join(folder, path.basename(whole));
+    try {
+      const out = fs.openSync(joined, 'wx', 0o600);
+      try {
+        for (const part of parts) fs.writeSync(out, fs.readFileSync(part.file));
+      } finally { fs.closeSync(out); }
+      // The checker sees the original file name, so it decodes by type.
+      check(joined, null, path.basename(whole), folder, relative);
+    } finally { fs.rmSync(folder, {recursive: true, force: true}); }
+  }
+}
+
 async function snapshot(input, stage, check) {
   if (input.metadata) check(null, input.metadata, undefined, undefined, 'artifact or release metadata');
   const selected = await selectFiles(input);
+  checkWholeFiles(splitGroups(selected.files), input, selected.root, stage, check);
   const payload = path.join(stage, 'payload');
   fs.mkdirSync(payload, {mode: 0o700});
   const outputs = [], names = new Set();

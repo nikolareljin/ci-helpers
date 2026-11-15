@@ -284,3 +284,30 @@ test('every refusal reason the action throws may be shown, and nothing else', ()
   assert.deepEqual([...FIXED_REASONS].sort(), [...thrown].sort());
   for (const reason of FIXED_REASONS) assert.match(reason, /^[A-Za-z ]+$/);
 });
+
+test('split parts are joined and checked as the whole file before each part', async () => {
+  const {dir, stage} = fixture();
+  fs.mkdirSync(path.join(dir, 'out'), {recursive: true});
+  // Neither half is an address; the joined file is.
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-000'), 'contact someone@corp');
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-001'), 'mail.net today\n');
+  for (const name of ['notes.txt.split-000', 'notes.txt.split-001']) check(path.join(dir, 'out', name));
+  await assert.rejects(snapshot(input('artifact', `${dir}/out/`), stage, check), REFUSED);
+  const calls = [];
+  await snapshot(input('artifact', `${dir}/out/`), fixture().stage, (file, text, relative, cwd, label) => {
+    calls.push([file ? 'file' : 'text', label]);
+    if (file && path.basename(file) === 'notes.txt') assert.equal(fs.readFileSync(file, 'utf8'), 'contact someone@corpmail.net today\n');
+  });
+  assert.deepEqual(calls.slice(0, 2), [['text', 'a file name'], ['file', 'notes.txt']]);
+  assert.equal(calls.length, 2 + 2 * 3);
+});
+
+test('a split file with a missing part, or beside its whole file, is refused', async () => {
+  const INCOMPLETE = {message: 'incomplete split file'};
+  for (const names of [['a.bin.split-001'], ['a.bin.split-000', 'a.bin.split-002'], ['a.bin', 'a.bin.split-000']]) {
+    const {dir, stage} = fixture();
+    fs.mkdirSync(path.join(dir, 'out'));
+    for (const name of names) fs.writeFileSync(path.join(dir, 'out', name), 'ordinary');
+    await assert.rejects(snapshot(input('artifact', `${dir}/out/`), stage, () => {}), INCOMPLETE);
+  }
+});
