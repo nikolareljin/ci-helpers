@@ -686,7 +686,10 @@ workspace. Post-job cleanup removes them. A file above 64 MiB is checked as a
 stream, executables decoded; a file the checker cannot fully check is refused,
 in CI as well. Files above 2 GiB, more than 2,000
 selected files, Git metadata and colliding published names fail closed. Runner
-temporary paths containing uploader pattern characters are refused. Archives
+temporary paths containing uploader pattern characters are refused. Parts
+written by `scripts/artifact_parts.sh split` (`<name>.split-NNN`) are joined
+and the whole file is checked first, then each part; a set with a missing part,
+or with the whole file beside it, is refused. Archives
 use the shared checker's size and nesting limits. Release notes are checked
 before publication; server-generated notes are fetched and checked first.
 
