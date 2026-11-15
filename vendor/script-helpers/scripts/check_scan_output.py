@@ -221,6 +221,7 @@ TEXT_SUFFIXES = (".txt", ".json", ".xml", ".properties", ".yaml", ".yml", ".md",
 DEB_CONTROL_FIELD = re.compile(rb"(?im)^(?:Maintainer|Uploaders|Original-Maintainer|XSBC-Original-Maintainer|Changed-By):.*(?:\n[ \t].*)*$")
 
 
+COMPRESSED_SUFFIX = re.compile(r"(?i)\.(?:gz|z|bz2|xz|zst)$")
 DOC_PREFIXES = ("usr/share/doc/", "usr/share/licenses/")
 LICENSE_NAME = re.compile(r"(?i)(?:license|licence|copying|notice|notices|copyright|thirdpartynotices?"
                           r"|third-party-notices|third_party_notices)(?:\.(?:txt|md|html|rst))?"
@@ -379,7 +380,7 @@ def inspect_archive_member(name, raw, depth, binary=False, member=None):
     package, gets the secrets-only profile; a text member keeps every check.
     """
     kind = classify(name, raw[:HEAD], raw[-512:] if len(raw) >= 512 else b"", size=len(raw))
-    decoded = inspect(name, raw, depth, binary=binary or kind is not None)
+    decoded = inspect(name, raw, depth, binary=binary or kind is not None, member=member)
     label = _label(name)
     # Binary diffs and archive scanners can omit member names and link targets.
     # A container's own bytes: each member gets its own check, so only secrets,
@@ -678,9 +679,12 @@ def set_max_mib(value):
 class _Budget:
     """Bounds the decoding work spent on one large object."""
 
-    def __init__(self, outer=""):
+    def __init__(self, outer="", package=False):
         # The checked file's own path: a local path, not content it carries.
         self.outer = outer + ":"
+        # Decoded data is a packaged file's bytes (an AppImage's squashfs blocks):
+        # the secrets-only profile, as for its undecoded raw bytes.
+        self.package = package
         self.decoded = 0
         self.hits = 0
         # (start, end) of every embedded tar already read, so a header inside
@@ -705,7 +709,7 @@ class _Budget:
         """
         if name.startswith(self.outer):
             name = name[len(self.outer):]
-        binary = not looks_text(name, data)
+        binary = self.package or not looks_text(name, data)
         body = strings_of(data) if binary else data.replace(b"\0", b" ")
         self.pending.append((binary, os.fsencode(name) + b"\n" + body + b"\n"))
         self.pending_bytes += len(self.pending[-1][1])
@@ -954,6 +958,23 @@ def _large_package(name, f, kind):
         raise Anomaly("package could not be decoded") from None
 
 
+def _zip_package_expands(name, f):
+    """True for an APK/AAB/JAR at most LIMIT long whose members total more than LIMIT.
+
+    Read in memory it would be refused as unchecked; _large_package streams
+    each member instead, as for a package above LIMIT.
+    """
+    try:
+        if classify_file(name, f) != "Android or Java package":
+            return False
+        with zipfile.ZipFile(f) as archive:
+            return sum(member.file_size for member in archive.infolist()) > LIMIT
+    except (OSError, ValueError, RuntimeError, zipfile.BadZipFile):
+        return False
+    finally:
+        f.seek(0)
+
+
 def inspect_large(name, f):
     """Inspect a seekable object above LIMIT without holding more than CHUNK + OVERLAP bytes.
 
@@ -982,7 +1003,7 @@ def inspect_large(name, f):
     # A known package is decoded by _large_package; anything else not decoded is incomplete.
     if not decoding and (kind is None or archive_name and kind not in ("disk image", "split part")):
         reasons.append("not an executable")
-    budget = _Budget(name)
+    budget = _Budget(name, package=kind == "AppImage")
     done = set()
     pos = 0
     carry = b""
@@ -1055,10 +1076,10 @@ def report_anomalies():
     return 3
 
 
-def inspect(name, raw, depth=0, text_only=False, binary=False):
+def inspect(name, raw, depth=0, text_only=False, binary=False, member=None):
     try:
         try:
-            return _inspect(name, raw, depth, text_only, binary)
+            return _inspect(name, raw, depth, text_only, binary, member)
         except Unchecked:
             # The first part of a split compressed file is a truncated stream.
             base = name.replace("\\", "/").rsplit("/", 1)[-1]
@@ -1079,7 +1100,12 @@ def inspect(name, raw, depth=0, text_only=False, binary=False):
         raise
 
 
-def _inspect(name, raw, depth=0, text_only=False, binary=False):
+def _decompressed_name(member):
+    """The member path a compressed member expands to: NOTICES.Z -> NOTICES, changelog.gz -> changelog."""
+    return COMPRESSED_SUFFIX.sub("", member)
+
+
+def _inspect(name, raw, depth=0, text_only=False, binary=False, member=None):
     normalized = "/".join(part for part in name.replace("\\", "/").split("/") if part not in ("", "."))
     if REPORT_NAME.search(normalized):
         raise Refused()
@@ -1114,7 +1140,10 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
         try:
             with opener(io.BytesIO(raw)) as stream:
                 expanded = stream.read(LIMIT + 1)
-            inspect_archive_member("compressed-content", expanded, depth + 1, binary)
+            # The expanded data keeps its member path, so a compressed license
+            # file (Flutter's NOTICES.Z, a deb's changelog.gz) is still one.
+            inspect_archive_member("compressed-content", expanded, depth + 1, binary,
+                                   member=_decompressed_name(name if member is None else member))
         except (OSError, EOFError, ValueError, lzma.LZMAError, zlib.error):
             raise Unchecked() from None
         return True
@@ -1131,7 +1160,8 @@ def _inspect(name, raw, depth=0, text_only=False, binary=False):
                 raise Unchecked()
         except ZstdError:
             raise Unchecked() from None
-        inspect_archive_member("compressed-content", expanded, depth + 1, binary)
+        inspect_archive_member("compressed-content", expanded, depth + 1, binary,
+                               member=_decompressed_name(name if member is None else member))
         return True
     elif raw.startswith(b"PK\x03\x04") or name.lower().endswith(".zip"):
         try:
@@ -1371,7 +1401,7 @@ def main():
                     resolved = str(Path(name).resolve())
                     if REPORT_NAME.search(name.replace("\\", "/")):
                         raise Refused(name)
-                    if os.fstat(stream.fileno()).st_size > LIMIT:
+                    if os.fstat(stream.fileno()).st_size > LIMIT or _zip_package_expands(name, stream):
                         if REPORT_NAME.search(resolved.replace("\\", "/")):
                             raise Refused(name)
                         try:

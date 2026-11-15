@@ -27,7 +27,9 @@
 #                       terms, machine identifiers and a local home path such as
 #                       /home/<name>/ block. Email, phone, SSN and card patterns, and
 #                       the home of a CI runner user (runner, runneradmin, github,
-#                       root), do not. File names are still checked in full.
+#                       root), a home in SVG authoring metadata (Inkscape
+#                       export-filename), and a generic-api-key match that spans
+#                       two printable runs, do not. File names are still checked in full.
 #   -h, --help          Show this help message.
 # EXIT_CODES:
 #   0  Nothing found (also -h/--help, --refresh-public-ip, --list-identifiers).
@@ -555,7 +557,7 @@ gitleaks_bin() {
 
 # run_gitleaks <kind> <target>: kind is revs, staged or file. Sets found/unchecked.
 run_gitleaks() {
-  local kind="$1" target="$2" report="$tmp/gl.$RANDOM.json" out rc=0 n
+  local kind="$1" target="$2" report="$tmp/gl.$RANDOM.json" out rc=0 n spanning=0
   local -a cfg=() cmd=()
   # Always our own config, so gitleaks does not pick up the repository's
   # .gitleaks.toml (it would by default) and committed content cannot allow itself.
@@ -595,6 +597,22 @@ run_gitleaks() {
           --report-format json --report-path "$report" 2>&1)" || rc=$?
   n=0
   [[ -f "$report" ]] && n="$(grep -c '"RuleID"' "$report" 2>/dev/null || true)"
+  if [[ "$BINARY" == true && "${n:-0}" -gt 0 ]]; then
+    # --binary: each line is one printable run. generic-api-key lets the gap after
+    # "key=" include a newline, so "RawKeyEvent.==" followed by the next symbol
+    # name matches across two runs. A real assignment sits in one run.
+    spanning="$(awk '
+      /"RuleID":/ { generic = ($0 ~ /"RuleID": *"generic-api-key"/) }
+      /"StartLine":/ { start = $0; gsub(/[^0-9]/, "", start) }
+      /"EndLine":/ { end = $0; gsub(/[^0-9]/, "", end); if (generic && end + 0 > start + 0) n++ }
+      END { print n + 0 }' "$report" 2>/dev/null)" || spanning=0
+    if [[ "${spanning:-0}" -gt 0 ]]; then
+      echo "$TAG notice: --binary: generic-api-key matches that span two printable runs do not block." >&2
+      n=$((n - spanning))
+      # gitleaks exits 1 for the dropped matches too; that is not a failure.
+      [[ "$n" -eq 0 && "$rc" -eq 1 ]] && rc=0
+    fi
+  fi
   if [[ "${n:-0}" -gt 0 ]]; then
     found=1
     printf '%s\n' "$out" | grep -E '^(Finding|RuleID|File|Line|Commit|Secret|Fingerprint):' | sed -e "s/$(printf '\033')\\[[0-9;]*m//g" -e "s/^/$TAG gitleaks: /" >&2
@@ -852,7 +870,9 @@ if [[ "$BINARY" == true && -s "$tmp/text" ]]; then
   sed -E 's#(https?|ftp)://[^[:space:]"<>]*# #g' "$tmp/text" > "$tmp/text.nourl" || rc=2
   # The match carries the path segment before it: /opt/home/build/ is a longer
   # path, not a home; -I/home/<name>/ and =/home/<name>/ are homes.
-  [[ "$rc" -eq 0 ]] && { grep -anoE '(/?[A-Za-z0-9._-]*)(/home/|/Users/|[A-Za-z]:[\\/]Users[\\/])[A-Za-z0-9._-]+[\\/]' "$tmp/text.nourl" > "$tmp/homes" 2>/dev/null || rc=$?; }
+  # An SVG authoring attribute (inkscape:export-filename=", sodipodi:docbase=")
+  # is kept in the match: it names the drawing's author, not the build machine.
+  [[ "$rc" -eq 0 ]] && { grep -anoE '((export-filename|docbase|absref)="|/?[A-Za-z0-9._-]*)(/home/|/Users/|[A-Za-z]:[\\/]Users[\\/])[A-Za-z0-9._-]+[\\/]' "$tmp/text.nourl" > "$tmp/homes" 2>/dev/null || rc=$?; }
   if [[ "$rc" -gt 1 ]]; then
     echo "$TAG the home path scan failed (grep exit $rc); NOT checked." >&2; unchecked=1
   elif [[ -s "$tmp/homes" ]]; then
@@ -864,13 +884,19 @@ if [[ "$BINARY" == true && -s "$tmp/text" ]]; then
         if (!match(v, /(\/home\/|\/Users\/|[A-Za-z]:[\\\/]Users[\\\/])/)) next
         pre = substr(v, 1, RSTART - 1); v = substr(v, RSTART)
         if (pre ~ /^\/[A-Za-z0-9._-]+$/ && pre != "/var" && pre !~ /^\/[A-Za-z]$/) next
+        # Inkscape metadata of a bundled SVG (GTK themes carry it). In raw compressed
+        # bytes the attribute name loses letters: export-file/home/, expofile/home/.
+        if (pre ~ /="$/ || tolower(pre) ~ /^expo[a-z-]*file[a-z]*$/) { svg++; next }
         u = substr(v, 1, length(v) - 1); sub(/^.*[\\\/]/, "", u); lu = tolower(u)
         if (lu ~ /^(runner|runneradmin|github|root|vsts|cloudtest|linuxbrew|user|username|yourname|you|me|name|example|foo|test|nobody|default|public|shared|guest)$/) {
           ci++; next
         }
         print lab[ln] "\ta local home directory path (" substr(v, 1, length(v) - length(u) - 1) substr(u, 1, 1) "***)"
       }
-      END { if (ci) print tag " notice: --binary: CI runner or placeholder home paths do not block." > "/dev/stderr" }' \
+      END {
+        if (ci) print tag " notice: --binary: CI runner or placeholder home paths do not block." > "/dev/stderr"
+        if (svg) print tag " notice: --binary: home paths in SVG authoring metadata (Inkscape export-filename, docbase) do not block." > "/dev/stderr"
+      }' \
       "$tmp/labels" "$tmp/homes" >> "$findings" || { echo "$TAG the home path scan failed; NOT checked." >&2; unchecked=1; }
   fi
 fi
