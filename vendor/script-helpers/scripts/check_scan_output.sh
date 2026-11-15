@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: check_scan_output.sh
 # DESCRIPTION: Refuse scanner results before a commit, push or text publication.
-# USAGE: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
+# USAGE: scripts/check_scan_output.sh [--staged|--push-refs <file>|--range <ref>|--tree <ref>|--file <path>|--stdin|--classify <path>|--strings <path>] [--remote <name>] [--repo <path>] [--max-mib <n>] [--non-blocking]
 # PARAMETERS:
 #   --staged          Check staged blobs, not working files.
 #   --push-refs FILE  Check every outgoing commit and annotated tag.
@@ -9,6 +9,9 @@
 #   --tree REF        Check all files at a revision.
 #   --file PATH       Check a publication file; repeatable.
 #   --stdin           Check publication text on stdin.
+#   --classify PATH   Print the built-binary type of a file (ELF, deb, ...), or
+#                     "text"; check_publication.sh uses it to pick the profile.
+#   --strings PATH    Print the printable runs (ASCII, UTF-16LE) of a file.
 #   --remote NAME     Target remote for new refs.
 #   --repo PATH       Repository, default current directory.
 #   --max-mib N       Largest file or blob checked, 1..2048 MiB (default 2048,
