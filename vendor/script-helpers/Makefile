@@ -94,6 +94,10 @@ lint-docs:
 	@# when the shape is wrong. This repository shipped the checker and never
 	@# ran it, so its own headers had drifted for twenty releases.
 	@bash -c 'source helpers.sh && shlib_import logging changelog && changelog_check_header CHANGELOG.md'
+	@# Release notes and vendored notes are cut from CHANGELOG.md and must pass
+	@# the publication check, so the changelog itself must pass it too. gitleaks
+	@# is skipped: this job does not install it; the release publication check runs it.
+	@bash scripts/check_sensitive.sh --no-gitleaks --file CHANGELOG.md >/dev/null
 	@# And that the version being released actually has a section. The header
 	@# check only looks at the newest one; a release branch whose version was
 	@# never written up still passed it, and the release body then fell back to

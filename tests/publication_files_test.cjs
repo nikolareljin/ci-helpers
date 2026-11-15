@@ -163,7 +163,18 @@ test('a Tauri Linux bundle with an AppImage above 64 MiB is publishable', async 
   fs.ftruncateSync(fd, 77 * 1024 * 1024);
   fs.closeSync(fd);
   fs.writeFileSync(path.join(out, 'App_1.0.0_amd64.deb'), '!<arch>\ndebian-binary   0           0     0     100644  4         `\n2.0\n');
-  fs.writeFileSync(path.join(out, 'App-1.0.0-1.x86_64.rpm'), Buffer.from([0xed, 0xab, 0xee, 0xdb, 3, 0, 0, 0]));
+  // script-helpers 0.65 decodes rpm packages, so the fixture is a whole one:
+  // lead, empty signature and main headers, gzip cpio payload with one file.
+  const cpio = members => Buffer.concat([...members, ['TRAILER!!!', Buffer.alloc(0)]].flatMap(([name, body], index) => {
+    const raw = Buffer.from(name + '\0');
+    const head = '070701' + [index, 0o100644, 0, 0, 1, 0, body.length, 0, 0, 0, 0, raw.length, 0]
+      .map(value => value.toString(16).toUpperCase().padStart(8, '0')).join('');
+    return [Buffer.from(head), raw, Buffer.alloc((4 - (110 + raw.length) % 4) % 4), body, Buffer.alloc((4 - body.length % 4) % 4)];
+  }));
+  const header = Buffer.concat([Buffer.from([0x8e, 0xad, 0xe8, 1]), Buffer.alloc(12)]);
+  fs.writeFileSync(path.join(out, 'App-1.0.0-1.x86_64.rpm'), Buffer.concat([
+    Buffer.from([0xed, 0xab, 0xee, 0xdb, 3, 0]), Buffer.alloc(90), header, header,
+    require('node:zlib').gzipSync(cpio([['./usr/share/doc/app/README', Buffer.from('ordinary package\n')]]))]));
   const result = await snapshot(input('artifact', `${out}/`), stage, check);
   assert.equal(fs.statSync(path.join(result.paths, 'App_1.0.0_amd64.AppImage')).size, 77 * 1024 * 1024);
   assert.ok(fs.existsSync(path.join(result.paths, 'App_1.0.0_amd64.deb')));
@@ -283,4 +294,31 @@ test('every refusal reason the action throws may be shown, and nothing else', ()
   thrown.delete('publication refused');
   assert.deepEqual([...FIXED_REASONS].sort(), [...thrown].sort());
   for (const reason of FIXED_REASONS) assert.match(reason, /^[A-Za-z ]+$/);
+});
+
+test('split parts are joined and checked as the whole file before each part', async () => {
+  const {dir, stage} = fixture();
+  fs.mkdirSync(path.join(dir, 'out'), {recursive: true});
+  // Neither half is an address; the joined file is.
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-000'), 'contact someone@corp');
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-001'), 'mail.net today\n');
+  for (const name of ['notes.txt.split-000', 'notes.txt.split-001']) check(path.join(dir, 'out', name));
+  await assert.rejects(snapshot(input('artifact', `${dir}/out/`), stage, check), REFUSED);
+  const calls = [];
+  await snapshot(input('artifact', `${dir}/out/`), fixture().stage, (file, text, relative, cwd, label) => {
+    calls.push([file ? 'file' : 'text', label]);
+    if (file && path.basename(file) === 'notes.txt') assert.equal(fs.readFileSync(file, 'utf8'), 'contact someone@corpmail.net today\n');
+  });
+  assert.deepEqual(calls.slice(0, 2), [['text', 'a file name'], ['file', 'notes.txt']]);
+  assert.equal(calls.length, 2 + 2 * 3);
+});
+
+test('a split file with a missing part, or beside its whole file, is refused', async () => {
+  const INCOMPLETE = {message: 'incomplete split file'};
+  for (const names of [['a.bin.split-001'], ['a.bin.split-000', 'a.bin.split-002'], ['a.bin', 'a.bin.split-000']]) {
+    const {dir, stage} = fixture();
+    fs.mkdirSync(path.join(dir, 'out'));
+    for (const name of names) fs.writeFileSync(path.join(dir, 'out', name), 'ordinary');
+    await assert.rejects(snapshot(input('artifact', `${dir}/out/`), stage, () => {}), INCOMPLETE);
+  }
 });
