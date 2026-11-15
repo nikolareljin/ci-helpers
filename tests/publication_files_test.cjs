@@ -163,7 +163,18 @@ test('a Tauri Linux bundle with an AppImage above 64 MiB is publishable', async 
   fs.ftruncateSync(fd, 77 * 1024 * 1024);
   fs.closeSync(fd);
   fs.writeFileSync(path.join(out, 'App_1.0.0_amd64.deb'), '!<arch>\ndebian-binary   0           0     0     100644  4         `\n2.0\n');
-  fs.writeFileSync(path.join(out, 'App-1.0.0-1.x86_64.rpm'), Buffer.from([0xed, 0xab, 0xee, 0xdb, 3, 0, 0, 0]));
+  // script-helpers 0.65 decodes rpm packages, so the fixture is a whole one:
+  // lead, empty signature and main headers, gzip cpio payload with one file.
+  const cpio = members => Buffer.concat([...members, ['TRAILER!!!', Buffer.alloc(0)]].flatMap(([name, body], index) => {
+    const raw = Buffer.from(name + '\0');
+    const head = '070701' + [index, 0o100644, 0, 0, 1, 0, body.length, 0, 0, 0, 0, raw.length, 0]
+      .map(value => value.toString(16).toUpperCase().padStart(8, '0')).join('');
+    return [Buffer.from(head), raw, Buffer.alloc((4 - (110 + raw.length) % 4) % 4), body, Buffer.alloc((4 - body.length % 4) % 4)];
+  }));
+  const header = Buffer.concat([Buffer.from([0x8e, 0xad, 0xe8, 1]), Buffer.alloc(12)]);
+  fs.writeFileSync(path.join(out, 'App-1.0.0-1.x86_64.rpm'), Buffer.concat([
+    Buffer.from([0xed, 0xab, 0xee, 0xdb, 3, 0]), Buffer.alloc(90), header, header,
+    require('node:zlib').gzipSync(cpio([['./usr/share/doc/app/README', Buffer.from('ordinary package\n')]]))]));
   const result = await snapshot(input('artifact', `${out}/`), stage, check);
   assert.equal(fs.statSync(path.join(result.paths, 'App_1.0.0_amd64.AppImage')).size, 77 * 1024 * 1024);
   assert.ok(fs.existsSync(path.join(result.paths, 'App_1.0.0_amd64.deb')));
