@@ -37,7 +37,9 @@ on:
       update_branch:
         description: >
           Move refs/heads/<ref_name> as well as refs/tags/<ref_name> (default
-          true). Set false for a tag-only move.
+          true), if that branch already exists on the remote. The branch is
+          never created: without it only the tag moves, with a notice in the
+          log. Set false for a tag-only move.
         type: boolean
         default: true
       dry_run:
@@ -63,7 +65,7 @@ on:
         type: string
         default: production
       update_branch:
-        description: "Also move the branch, not just the tag"
+        description: "Also move the branch, if it exists on the remote (never created)"
         type: boolean
         default: true
       dry_run:
@@ -309,7 +311,7 @@ jobs:
             echo "| target commit | \`${target}\` |"
             echo "| \`${REF_NAME}\` is now | \`${current_commit:-<unset>}\` |"
             echo "| pre-release | ${prerelease} |"
-            echo "| branch moved too | ${UPDATE_BRANCH} |"
+            echo "| branch moved too (if it exists) | ${UPDATE_BRANCH} |"
             echo "| dry run | ${DRY_RUN} |"
           } >> "$GITHUB_STEP_SUMMARY"
 

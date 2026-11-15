@@ -24,6 +24,7 @@ Consumers pin workflows via the floating `@production` tag; see the repository [
 
 Start here:
 
+- [Upgrading to 1.0](upgrading-to-1.0.md): what callers of the changed workflows must change, with before/after YAML.
 - [Reusable workflows](workflows.md) — CI, PR gate, deploy, scan, release, Tauri, WinGet, Docker multi-arch, manifest versioning, and release-rc-pr.
 - [Packaging and signing](packaging.md): DEB on a release, Launchpad PPA, macOS; one set of secret names.
 - [Windows signing](windows-signing.md): certificates for pfx and Azure Artifact Signing, making the PFX, timestamping, turning pfx on.

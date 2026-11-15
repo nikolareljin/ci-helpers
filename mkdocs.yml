@@ -147,6 +147,7 @@ nav:
   - Quick start:
       - Usage guide: usage.md
       - Examples: examples.md
+      - Upgrading to 1.0: upgrading-to-1.0.md
   - Reference:
       - Reusable workflows: workflows.md
       - Presets: presets.md

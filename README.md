@@ -35,6 +35,7 @@ Includes:
 
 See detailed usage, inputs, and examples in:
 - [Docs index](docs/README.md)
+- [Upgrading to 1.0](docs/upgrading-to-1.0.md)
 - [Reusable workflows](docs/workflows.md)
 - [Packaging and signing (DEB, PPA, macOS)](docs/packaging.md)
 - [Windows signing (certificates, PFX, Azure)](docs/windows-signing.md)
@@ -135,7 +136,7 @@ jobs:
 - `.github/workflows/rust-release-tarballs.yml`: reusable Rust macOS/Linux tarball release + Homebrew formula workflow
 - `.github/actions/semver-compare`: composite action for semver comparison
 - `.github/actions/check-release-tag`: composite action for release tag guard
-- `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag **and branch** to a released tag (`create_production.sh`, unless `--no-branch`)
+- `.github/workflows/production-branch.yml`: repo-local workflow that moves the `production` tag, and the `production` branch if the remote has one, to a released tag (`create_production.sh`; never creates the branch; `--no-branch` skips it)
 - `.github/actions/trivy-scan`: composite action for Trivy scanning
 - `.github/actions/gitleaks-scan`: composite action for Gitleaks scanning
 - `.github/actions/foxguard-scan`: composite action for Foxguard static analysis
