@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-16 — v1.0.1
+
 ### Fixed
 
 - **`vendor/script-helpers` 0.65.2 -> 0.65.4**, and the 16 workflow `ref:` pins with it. `check_sensitive.sh --push-refs` and `check_scan_output.sh` no longer re-check commits already on the remote, so moving `production` to a commit already on `main` passes. New vendored file `scripts/remote_excludes.sh`; the hook installers copy it. 0.65.4 also lets foxguard 0.14.1 parse every vendored shell file, so the foxguard diff gate no longer refuses a changed vendored file as unparsable, and checks arguments before they reach `curl`, `eval`, `rm` or `mv`.
