@@ -749,7 +749,7 @@ expect_lib() {  # expect_lib <name> <rc> <yaml>: with scripts/setup_rust.sh read
   local name="$1" want="$2" rc=0
   rm -rf "$work/r"; mkdir -p "$work/r/.github/workflows" "$work/r/scripts"
   printf '%s\n' "$3" > "$work/r/.github/workflows/w.yml"
-  printf '#!/bin/bash\nrepo="${GITHUB_REPOSITORY:-}"\nsource "$(dirname "$0")/../scripts/helper.sh"\n' > "$work/r/scripts/setup_rust.sh"
+  printf '#!/bin/bash\nrepo="${GITHUB_REPOSITORY:-}"\nd="$(dirname "$0")"\nsource "$d/helper.sh"\n' > "$work/r/scripts/setup_rust.sh"
   printf '#!/bin/bash\necho "$GITHUB_JOB"\nGITHUB_LOCAL=1; echo "$GITHUB_LOCAL $GITHUB_TOKEN"\n' > "$work/r/scripts/helper.sh"
   python3 "$gate" --root "$work/r" > "$work/out" 2>&1 || rc=$?
   [[ "$rc" == "$want" ]] || { echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; }

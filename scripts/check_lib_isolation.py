@@ -81,9 +81,10 @@ with PyYAML. In every job, and in a composite action:
              `--mount`) `$LIB`, `ci-helpers-lib` or a library checkout
              fails, and so does a job `container.volumes` entry naming one;
   runner     a GITHUB_* or RUNNER_* variable that a library step's script
-             reads (following the scripts/ files it names) is in the step's
-             keep list or env -i list: the clean environment drops every
-             other name, so `github_release.sh` saw no GITHUB_REPOSITORY.
+             reads, or a scripts/ file it runs or sources reads, is in the
+             step's keep list or env -i list: the clean environment drops
+             every other name, so `github_release.sh` saw no
+             GITHUB_REPOSITORY.
              GITHUB_TOKEN is exempt: only a fallback for GH_TOKEN.
 
 Exit 0 with nothing found, 1 with a finding, 2 on a usage or parse error.
@@ -554,19 +555,24 @@ def check_workdir(where: str, job: dict, doc: dict) -> list[str]:
 
 # Runner variables a library script reads. The runner sets them, but the
 # env -i envelope passes only the names a step lists.
-RUNNER_READ = re.compile(r"\$\{?((?:GITHUB|RUNNER)_[A-Z0-9_]+)|environ(?:\.get\(|\[)[\"']((?:GITHUB|RUNNER)_[A-Z0-9_]+)")
+RUNNER_READ = re.compile(r"\$\{?((?:GITHUB|RUNNER)_[A-Z0-9_]+)|(?:environ\.get\(|environ\[|getenv\()[\"']((?:GITHUB|RUNNER)_[A-Z0-9_]+)")
 RUNNER_SET = re.compile(r"(?:^|[\s;(])(?:export |local |declare -[a-zA-Z]+ |readonly )?((?:GITHUB|RUNNER)_[A-Z0-9_]+)\+?=", re.M)
-SCRIPT_REF = re.compile(r"scripts/([A-Za-z0-9_]+\.(?:sh|py))")
+# A file the script runs or sources by a path ending in its name
+# (`$run_lib/scripts/x.sh`, `"$LIB_SCRIPTS/x.sh"`), read from scripts/.
+# Vendored script-helpers files are a separate tree and are not followed.
+SCRIPT_REF = re.compile(r"([^\s\"'()=;|&]*/)([A-Za-z0-9_]+\.(?:sh|py))\b")
 RUNNER_EXEMPT = {"GITHUB_TOKEN"}
 ROOT = Path(".")
 
 
 def runner_reads(text: str, seen: set[str]) -> set[str]:
-    """Runner variables `text` reads, with the scripts/ files it names, less
-    the ones a script assigns itself."""
+    """Runner variables `text` reads, with the scripts/ files it runs or
+    sources, less the ones a script assigns itself."""
     read = {a or b for a, b in RUNNER_READ.findall(text)}
     read -= set(RUNNER_SET.findall(text))
-    for name in SCRIPT_REF.findall(text):
+    for where, name in SCRIPT_REF.findall(text):
+        if "script-helpers/" in where:
+            continue
         f = ROOT / "scripts" / name
         if name in seen or not f.is_file():
             continue
