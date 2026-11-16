@@ -79,7 +79,12 @@ with PyYAML. In every job, and in a composite action:
              from a caller's subdirectory the step exits 127;
   mount      a `docker`/`podman` run: that mounts (`-v`, `--volume`,
              `--mount`) `$LIB`, `ci-helpers-lib` or a library checkout
-             fails, and so does a job `container.volumes` entry naming one.
+             fails, and so does a job `container.volumes` entry naming one;
+  runner     a GITHUB_* or RUNNER_* variable that a library step's script
+             reads (following the scripts/ files it names) is in the step's
+             keep list or env -i list: the clean environment drops every
+             other name, so `github_release.sh` saw no GITHUB_REPOSITORY.
+             GITHUB_TOKEN is exempt: only a fallback for GH_TOKEN.
 
 Exit 0 with nothing found, 1 with a finding, 2 on a usage or parse error.
 """
@@ -547,6 +552,47 @@ def check_workdir(where: str, job: dict, doc: dict) -> list[str]:
     return errors
 
 
+# Runner variables a library script reads. The runner sets them, but the
+# env -i envelope passes only the names a step lists.
+RUNNER_READ = re.compile(r"\$\{?((?:GITHUB|RUNNER)_[A-Z0-9_]+)|environ(?:\.get\(|\[)[\"']((?:GITHUB|RUNNER)_[A-Z0-9_]+)")
+RUNNER_SET = re.compile(r"(?:^|[\s;(])(?:export |local |declare -[a-zA-Z]+ |readonly )?((?:GITHUB|RUNNER)_[A-Z0-9_]+)\+?=", re.M)
+SCRIPT_REF = re.compile(r"scripts/([A-Za-z0-9_]+\.(?:sh|py))")
+RUNNER_EXEMPT = {"GITHUB_TOKEN"}
+ROOT = Path(".")
+
+
+def runner_reads(text: str, seen: set[str]) -> set[str]:
+    """Runner variables `text` reads, with the scripts/ files it names, less
+    the ones a script assigns itself."""
+    read = {a or b for a, b in RUNNER_READ.findall(text)}
+    read -= set(RUNNER_SET.findall(text))
+    for name in SCRIPT_REF.findall(text):
+        f = ROOT / "scripts" / name
+        if name in seen or not f.is_file():
+            continue
+        seen.add(name)
+        read |= runner_reads(f.read_text(encoding="utf-8", errors="replace"), seen)
+    return read
+
+
+def check_runner_vars(where: str, steps: list) -> list[str]:
+    errs: list[str] = []
+    for n, st in enumerate(steps):
+        if not isinstance(st, dict) or not isinstance(st.get("run"), str):
+            continue
+        run = st["run"]
+        if not run.strip().startswith("set +xv") or "$run_lib/" not in run:
+            continue
+        names, _tail, body, bad = envelope(run)
+        if bad or body is None:
+            continue
+        missing = runner_reads(body, set()) - set(names) - RUNNER_EXEMPT
+        for v in sorted(missing):
+            errs.append(f"{where}: step {n + 1} ({st.get('name') or 'run'}) runs a script that reads {v}, "
+                        f"which the clean environment drops; keep it by name")
+    return errs
+
+
 def check_file(path: Path) -> list[str]:
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -565,9 +611,11 @@ def check_file(path: Path) -> list[str]:
                 errors += check_steps(f"{path}: job {jid}", job["steps"], job.get("container"),
                                       "windows" in ro.lower() and "${{" not in ro, "${{" in ro, outer)
                 errors += check_workdir(f"{path}: job {jid}", job, doc)
+                errors += check_runner_vars(f"{path}: job {jid}", job["steps"])
     runs = doc.get("runs")
     if isinstance(runs, dict) and isinstance(runs.get("steps"), list):
         errors += check_steps(f"{path}: composite", runs["steps"], None)
+        errors += check_runner_vars(f"{path}: composite", runs["steps"])
         # Every composite step: an absolute shell, since the runner looks a
         # bare name up on PATH, and the blanks, since the caller's GITHUB_ENV
         # reaches it otherwise.
@@ -596,7 +644,9 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", default=".", help="repository root (default: .)")
     args = ap.parse_args(argv)
-    gh = Path(args.root) / ".github"
+    global ROOT
+    ROOT = Path(args.root)
+    gh = ROOT / ".github"
     if not gh.is_dir():
         print(f"::error::no .github directory under {args.root}")
         return 2

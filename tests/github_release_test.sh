@@ -262,5 +262,50 @@ for p in problems:
 sys.exit(1 if problems else 0)
 PY
 
+# Each release step runs the script inside the keep form, which drops every
+# name it does not list. Run the script through each step's own wrapper, with
+# the variables the runner sets, against a stub gh: run 43970155173 failed
+# here because GITHUB_REPOSITORY was not kept.
+mkdir -p "$work/kbin"
+sed "s|\"\$CALLS\"|\"$work/kcalls\"|g; s|\$CALLS.created|$work/kcalls.created|g" "$work/bin/gh" > "$work/kbin/gh"
+grep -q "$work/kcalls.created" "$work/kbin/gh" || { echo "FAIL premise: stub gh not rewritten"; fail=1; }
+chmod +x "$work/kbin/gh"
+steps_list="$(python3 - "$root" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+import yaml
+import check_lib_isolation as c
+for f in sorted((Path(sys.argv[1]) / ".github" / "workflows").glob("*.yml")):
+    doc = yaml.safe_load(f.read_text())
+    for jid, job in (doc.get("jobs") or {}).items():
+        for st in job.get("steps") or []:
+            run = st.get("run") if isinstance(st, dict) else None
+            if not isinstance(run, str) or '"$run_lib/scripts/github_release.sh"' not in run:
+                continue
+            if c.KEEP_PREFIX not in run:
+                print(f"{f.name}|{st.get('name')}|ENV-I")
+                continue
+            names, _t, _b, _e = c.envelope(run)
+            print(f"{f.name}|{st.get('name')}|{' '.join(names)}")
+PY
+)"
+snippet="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import check_lib_isolation as c; print(c.KEEP_SNIPPET, end="")' "$root/scripts")"
+kept_steps=0
+while IFS='|' read -r wf_file step_name keep; do
+  [ -n "$wf_file" ] || continue
+  [ "$keep" != ENV-I ] || { echo "FAIL $wf_file ($step_name): not in the keep form this test drives"; fail=1; continue; }
+  kept_steps=$((kept_steps + 1))
+  rc=0; rm -f "$work/kcalls" "$work/kcalls.created"
+  /usr/bin/env -i PATH="$work/kbin:/usr/bin:/bin" HOME="$HOME" GH_TOKEN=x TAG_NAME=1.2.3 \
+    GITHUB_REPOSITORY=owner/name GITHUB_SERVER_URL=https://github.com GITHUB_API_URL=https://api.github.com \
+    GITHUB_OUTPUT="$work/kout" RUNNER_TEMP="$work" \
+    /bin/bash --noprofile --norc -c "$snippet" ci-helpers-env "$keep" \
+    /bin/bash --noprofile --norc -c 'export PATH="$STEP_PATH"; exec /bin/bash "$0"' "$script" \
+    > "$work/keep.out" 2>&1 || rc=$?
+  [ "$rc" = 0 ] || { echo "FAIL $wf_file ($step_name): github_release.sh fails behind the step's keep list (exit $rc):"; cat "$work/keep.out"; fail=1; }
+done <<< "$steps_list"
+[ "$kept_steps" -ge 10 ] || { echo "FAIL premise: only $kept_steps release steps found in the keep form"; fail=1; }
+
 [ "$fail" = 0 ] && echo "ok: github_release.sh creates, updates and uploads through gh as the action did, and every release workflow runs it behind the publication check"
 exit "$fail"

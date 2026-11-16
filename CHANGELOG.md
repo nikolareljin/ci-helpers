@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- Library steps keep the runner variables their scripts read. Every release step running `github_release.sh` now keeps `GITHUB_REPOSITORY`; without it the step failed with `GITHUB_REPOSITORY must be owner/name, got ''`, so no release page was created. `docker-multiarch.yml` keeps `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT` (the build provenance builder id was left out), and the `rust_cache_key.sh` steps in `tauri.yml` and `tauri-scan.yml` keep `GITHUB_JOB` (the cache key said `local`). `check_lib_isolation.py` now refuses a library step whose script reads a `GITHUB_*` or `RUNNER_*` variable the step does not keep, and `tests/github_release_test.sh` runs the script through each release step's own keep list.
+
 ## 2026-11-16 — v1.0.1
 
 ### Fixed

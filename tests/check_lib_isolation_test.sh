@@ -743,6 +743,27 @@ grep -q 'exported shell function' "$work/use.out" || { echo "FAIL no BASH_FUNC_ 
   || { echo "FAIL the step under dash with an exported function:"; cat "$work/use.out"; fail=1; }
 [[ ! -e "$work/func-ran" ]] || { echo "FAIL the exported function ran"; fail=1; }
 
+# A runner variable the step's script reads must survive the clean
+# environment: github_release.sh read GITHUB_REPOSITORY, no step kept it.
+expect_lib() {  # expect_lib <name> <rc> <yaml>: with scripts/setup_rust.sh reading GITHUB_REPOSITORY
+  local name="$1" want="$2" rc=0
+  rm -rf "$work/r"; mkdir -p "$work/r/.github/workflows" "$work/r/scripts"
+  printf '%s\n' "$3" > "$work/r/.github/workflows/w.yml"
+  printf '#!/bin/bash\nrepo="${GITHUB_REPOSITORY:-}"\nsource "$(dirname "$0")/../scripts/helper.sh"\n' > "$work/r/scripts/setup_rust.sh"
+  printf '#!/bin/bash\necho "$GITHUB_JOB"\nGITHUB_LOCAL=1; echo "$GITHUB_LOCAL $GITHUB_TOKEN"\n' > "$work/r/scripts/helper.sh"
+  python3 "$gate" --root "$work/r" > "$work/out" 2>&1 || rc=$?
+  [[ "$rc" == "$want" ]] || { echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; }
+}
+runner_use="${use/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" \\/RUST_TOOLCHAIN=\"\$RUST_TOOLCHAIN\" GITHUB_REPOSITORY=\"\$GITHUB_REPOSITORY\" GITHUB_JOB=\"\$GITHUB_JOB\" \\}"
+runner_keep="${keep_use/RUST_TOOLCHAIN GH_TOKEN/RUST_TOOLCHAIN GH_TOKEN GITHUB_REPOSITORY GITHUB_JOB}"
+[[ "$runner_use" != "$use" && "$runner_keep" != "$keep_use" ]] || { echo "FAIL premise: the runner fixtures did not change"; fail=1; }
+expect_lib "script reads GITHUB_REPOSITORY, env -i list drops it" 1 "$(wf "$checkout" "$isolate" "$use")"
+expect_lib "script reads GITHUB_REPOSITORY, keep list drops it" 1 "$(wf "$checkout" "$isolate" "$keep_use")"
+expect_lib "only the helper's GITHUB_JOB is dropped" 1 "$(wf "$checkout" "$isolate" "${runner_use/ GITHUB_JOB=\"\$GITHUB_JOB\"/}")"
+grep -q 'reads GITHUB_JOB' "$work/out" || { echo "FAIL the gate did not follow scripts/helper.sh"; fail=1; }
+expect_lib "env -i list passes both runner variables" 0 "$(wf "$checkout" "$isolate" "$runner_use")"
+expect_lib "keep list keeps both runner variables" 0 "$(wf "$checkout" "$isolate" "$runner_keep")"
+
 # Premise: bash does read BASH_ENV, so the sh envelope is what keeps it out.
 (cd "$work" && BASH_ENV="$work/bashenv.sh" /bin/bash --noprofile --norc -c true)
 [[ -e "$work/canary-bashenv" ]] || { echo "FAIL premise: bash did not read BASH_ENV, so the envelope is untested"; fail=1; }
