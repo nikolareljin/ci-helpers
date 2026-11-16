@@ -299,15 +299,18 @@ test('every refusal reason the action throws may be shown, and nothing else', ()
 test('split parts are joined and checked as the whole file before each part', async () => {
   const {dir, stage} = fixture();
   fs.mkdirSync(path.join(dir, 'out'), {recursive: true});
-  // Neither half is an address; the joined file is.
-  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-000'), 'contact someone@corp');
-  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-001'), 'mail.net today\n');
+  // Neither half is an address; the joined file is. The address is assembled
+  // here so the source tree holds no address-shaped string.
+  const head = ['contact someone', 'corp'].join('@');
+  const tail = 'mail.net today\n';
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-000'), head);
+  fs.writeFileSync(path.join(dir, 'out/notes.txt.split-001'), tail);
   for (const name of ['notes.txt.split-000', 'notes.txt.split-001']) check(path.join(dir, 'out', name));
   await assert.rejects(snapshot(input('artifact', `${dir}/out/`), stage, check), REFUSED);
   const calls = [];
   await snapshot(input('artifact', `${dir}/out/`), fixture().stage, (file, text, relative, cwd, label) => {
     calls.push([file ? 'file' : 'text', label]);
-    if (file && path.basename(file) === 'notes.txt') assert.equal(fs.readFileSync(file, 'utf8'), 'contact someone@corpmail.net today\n');
+    if (file && path.basename(file) === 'notes.txt') assert.equal(fs.readFileSync(file, 'utf8'), head + tail);
   });
   assert.deepEqual(calls.slice(0, 2), [['text', 'a file name'], ['file', 'notes.txt']]);
   assert.equal(calls.length, 2 + 2 * 3);

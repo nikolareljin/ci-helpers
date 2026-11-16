@@ -31,7 +31,7 @@ stage = pathlib.Path(tempfile.mkdtemp(prefix="publication-hooks-", dir=runner))
 shutil.copytree(root + "/lib", stage / "lib")
 shutil.copy2(root + "/helpers.sh", stage / "helpers.sh")
 (stage / "scripts").mkdir()
-for name in ("publication-hook.sh", "check_scan_output.sh", "check_scan_output.py", "check_sensitive.sh", "check_publication.sh", "guard_gh.py", "security_notice.sh"):
+for name in ("publication-hook.sh", "check_scan_output.sh", "check_scan_output.py", "check_sensitive.sh", "check_publication.sh", "guard_gh.py", "security_notice.sh", "remote_excludes.sh"):
     shutil.copy2(root + "/scripts/" + name, stage / "scripts" / name)
 (stage / "hooks").mkdir()
 for hook in ("pre-push", "pre-commit", "commit-msg"):

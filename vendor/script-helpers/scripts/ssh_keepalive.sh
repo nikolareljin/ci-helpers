@@ -43,7 +43,7 @@ ssh_host_of() {
     *) return 0 ;;
   esac
   if [[ "$rest" == \[* ]]; then
-    host="${rest#\[}"; host="${host%%]*}"
+    host="${rest#\[}"; host="${host%%']'*}"
   else
     host="${rest%%:*}"
   fi

@@ -90,7 +90,7 @@ scope_in_scope() {
     lu="$(printf '%s' "$u" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
     for o in $(printf '%s' "$owners" | LC_ALL=C tr ',' ' '); do
       [[ -n "$o" ]] || continue
-      case "/$lu/" in *[/:@.]"$o"/*) return 0 ;; esac
+      [[ "/$lu/" == *[/:@.]"$o"/* ]] && return 0
     done
   done
   return 1

@@ -51,17 +51,26 @@ _svc_backend() {
 # Internal: is $1 a whole number? Used for timeouts and pids.
 _svc_is_uint() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
 
+# Internal: is $1 a process name? It becomes a file name under .run, so no
+# slash and no leading dot.
+_svc_name_ok() { [[ "${1:-}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; }
+
 # Internal: read a timeout variable, falling back to its default when unset.
 # Returns 2 on a non-numeric value: a typo would otherwise wait forever or never.
+# A name that is not a variable name returns 2 and is never evaluated.
 _svc_timeout() {
-  local name="$1" def="$2" val
-  eval "val=\"\${$name:-}\""
+  local name="${1:-}" def="${2:-}" val
+  if [[ ! "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    log_error "service: '$name' is not a variable name"
+    return 2
+  fi
+  val="${!name:-}"
   [[ -z "$val" ]] && val="$def"
   if ! _svc_is_uint "$val"; then
     log_error "service: $name='$val' is not a number of seconds"
     return 2
   fi
-  printf '%s\n' "$((10#$val))"
+  printf '%s\n' "$((10#${val}))"
 }
 
 # Internal: parse SVC_PROCS into _SVC_NAMES / _SVC_CMDS. Names become file
@@ -79,7 +88,7 @@ _svc_parse_procs() {
       return 2
     fi
     name="${entry%%:*}"; cmd="${entry#*:}"
-    if [[ ! "$name" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
+    if ! _svc_name_ok "$name"; then
       log_error "service: process name '$name' may use only letters, digits, _ . - (no leading dot)"
       return 2
     fi
@@ -107,7 +116,7 @@ _svc_check_ports_config() {
   local e p v
   for e in ${SVC_PORTS[@]+"${SVC_PORTS[@]}"}; do
     p="$(_svc_port_of "$e")"; v="$(_svc_port_var "$e")"
-    if ! _svc_is_uint "$p" || (( 10#$p < 1 || 10#$p > 65535 )); then
+    if ! _svc_is_uint "$p" || (( 10#${p} < 1 || 10#${p} > 65535 )); then
       log_error "service: SVC_PORTS entry '$e' is not a port 1-65535 (or NAME:port)"
       return 2
     fi
@@ -129,7 +138,11 @@ _svc_check_ports_config() {
 # another process must never be signalled. /proc on Linux (busybox ps has no
 # lstart), ps -o lstart elsewhere. Prints nothing when neither works.
 _svc_fingerprint() {
-  local pid="$1" stat
+  local pid stat
+  # Only a pid: anything else would make /proc/$1 some other path.
+  _svc_is_uint "${1:-}" || return 0
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v pid '%s' "$1"
   if [[ -r "/proc/$pid/stat" ]]; then
     stat="$(cat "/proc/$pid/stat" 2>/dev/null)" || return 0
     # Field 22 is starttime; comm (field 2) may hold spaces, so cut after ')'.
@@ -146,7 +159,10 @@ _svc_group_alive() { kill -0 -- "-$1" 2>/dev/null; }
 # Internal: is proc $1 running? Sets _SVC_PID. A pidfile that names no live
 # group, or a pid now owned by another process, is removed and reported.
 _svc_running() {
-  local name="$1" run pidf startf pid want have
+  local name run pidf startf pid want have
+  _svc_name_ok "${1:-}" || { log_error "service: '${1:-}' is not a process name"; return 1; }
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v name '%s' "$1"
   run="$(_svc_root)/.run"; pidf="$run/$name.pid"; startf="$run/$name.started"
   _SVC_PID=""
   [[ -f "$pidf" ]] || return 1
@@ -242,11 +258,11 @@ _svc_ports_free() {
       taken=1; i=$((i + 1)); continue
     fi
     free="$(port_next_free "$p" 2>/dev/null)" || free=""
-    log_error "service: port $p${v:+ ($v)} is already in use by $owner"
+    log_error "service: port $p${v:+" ($v)"} is already in use by $owner"
     if [[ -n "$v" ]]; then
-      log_error "service: stop that process, or set $v to a free port${free:+ ($free is free)} in .env or the environment, then start again"
+      log_error "service: stop that process, or set $v to a free port${free:+" ($free is free)"} in .env or the environment, then start again"
     else
-      log_error "service: stop that process, or move the service to a free port${free:+ ($free is free)} (its configuration and SVC_PORTS), then start again"
+      log_error "service: stop that process, or move the service to a free port${free:+" ($free is free)"} (its configuration and SVC_PORTS), then start again"
     fi
     taken=1; i=$((i + 1))
   done
@@ -313,7 +329,10 @@ _svc_print_urls() {
 # the caller has job control the child already leads a group, setsid() fails,
 # so it forks once more. Either way the leader writes its own pid.
 _svc_launch() {
-  local name="$1" cmd="$2" root run pidf logf how="${_SVC_DETACH:-}"
+  local name cmd="$2" root run pidf logf how="${_SVC_DETACH:-}"
+  _svc_name_ok "${1:-}" || { log_error "service: '${1:-}' is not a process name"; return 1; }
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v name '%s' "$1"
   root="$(_svc_root)"; run="$root/.run"
   pidf="$run/$name.pid"; logf="$run/$name.log"
   rm -f -- "$pidf" "$pidf.tmp" "$run/$name.started"

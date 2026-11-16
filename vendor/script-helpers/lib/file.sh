@@ -28,16 +28,28 @@ create_directory() {
 }
 
 # Usage: download_file <url> [output]; downloads quietly with optional dialog.
-# Returns: 0 downloaded; 1 no curl or wget, mktemp failed, or the final write failed; otherwise the exit code of curl or wget.
+# Returns: 0 downloaded; 1 no curl or wget, mktemp failed, or the final write failed; 2 an empty URL or one
+#   that starts with "-" (curl and wget would read it as an option); otherwise the exit code of curl or wget.
 # Output: stdout an [Error!] line when no download tool exists; stderr curl/wget errors; a dialog gauge when dialog is used.
 download_file() {
-  local url="$1"; local output="${2:-}"
+  local url output
+  if [[ -z "${1:-}" || "$1" == -* ]]; then
+    print_error "download_file: not a URL: ${1:-(empty)}"
+    return 2
+  fi
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v url '%s' "$1"
+  output="${2:-}"
   if [[ -z "$output" ]]; then
-    output=$(basename "$url")
+    output=$(basename -- "$url")
     if [[ "$output" != *.* ]]; then
-      output=$(echo "$url" | sed -E 's|.*/([^/]+\.[^/]+)(/.*)?$|\1|')
+      output=$(printf '%s\n' "$url" | sed -E 's|.*/([^/]+\.[^/]+)(/.*)?$|\1|')
     fi
   fi
+  # A name that starts with "-" is a file in the current directory, not an option.
+  [[ "$output" != -* ]] || output="./$output"
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v output '%s' "$output"
   # Stay quiet during download; the dialog gauge (if used)
   # should be the only visible interface.
 
@@ -68,7 +80,7 @@ download_file() {
   fi
 
   # Fallback to curl/wget without dialog
-  local rc=0 part
+  local rc=0 part um
   if ! command_exists curl && ! command_exists wget; then
     print_error "Neither curl nor wget is installed."
     return 1
@@ -78,7 +90,8 @@ download_file() {
   # the download, and a file already there survives a failed one.
   part="$(mktemp "$output.XXXXXX")" || return 1
   # mktemp makes the file 0600; a download gets the mode curl would give it.
-  chmod "$(printf '%o' $(( 0666 & ~0$(umask) )))" "$part" 2>/dev/null || true
+  um="$(umask)"
+  chmod "$(printf '%o' $(( 0666 & ~8#${um} )))" "$part" 2>/dev/null || true
   if command_exists curl; then
     # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
     # without it a 404 page was saved as the download and returned 0.

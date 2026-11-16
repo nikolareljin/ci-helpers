@@ -10,8 +10,9 @@
 #   --file <path>       A file, all of it: a commit message, a PR or issue body. Repeatable.
 #   --stdin             Standard input, all of it.
 #   --remote <name>     With --push-refs: the remote pushed to (git's first pre-push
-#                       argument). A new branch is checked against that remote's refs
-#                       only; without it, or for a bare URL, its whole history.
+#                       argument). A pushed ref is checked only for commits that
+#                       remote's refs lack; without it, or for a bare URL, a new
+#                       branch is checked whole and an update from the old tip.
 #   --repo <path>       Repository (default: cwd).
 #   --no-gitleaks       Skip the credential scan. It then reports nothing about credentials.
 #   --no-machine        Skip this machine's live identifiers (addresses, hostname, home path).
@@ -90,6 +91,9 @@ LIST_IDS=false
 INLINE_ALLOW=true
 BINARY=false
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A copy without remote_excludes.sh excludes nothing: every pushed commit is checked.
+# shellcheck source=/dev/null
+source "$SELF_DIR/remote_excludes.sh" 2>/dev/null || remote_excludes() { return 1; }
 
 usage() { sed -n '2,/^# ------/p' "${BASH_SOURCE[0]}" | sed -e '/^# ---/d' -e 's/^# \{0,1\}//'; }
 
@@ -366,6 +370,15 @@ diff_to_units() {
     }'
 }
 
+# Prints "--not <id>..." for the commits PUSH_REMOTE's tracking refs hold, so a
+# push is checked only for what that remote lacks. Fails (no exclusion: the
+# caller checks the full range) on the conditions in remote_excludes.sh.
+push_excludes() {
+  local ids
+  ids="$(remote_excludes "$TOP" "$PUSH_REMOTE")" || return 1
+  printf -- '--not %s\n' "${ids//$'\n'/ }"
+}
+
 add_revs() {
   local revs="$1" log msgs
   log="$tmp/log.$RANDOM"; msgs="$tmp/msgs.$RANDOM"
@@ -423,12 +436,15 @@ case "$MODE" in
         # New branch, or a remote tip this clone has never seen: everything the
         # target remote's refs do not have. Only that remote counts: a commit
         # already on another remote (a private one) is still new to this one.
-        # Here-string, not a pipe: grep -q exits early and can SIGPIPE the writer (141 under pipefail).
-        if [[ -n "$PUSH_REMOTE" ]] && grep -qxF -- "$PUSH_REMOTE" <<< "$(git -C "$TOP" remote 2>/dev/null)"; then
-          add_revs "$lsha --not --remotes=$PUSH_REMOTE"
+        if excl="$(push_excludes)"; then
+          add_revs "$lsha $excl"
         else
           add_revs "$lsha"
         fi
+      elif excl="$(push_excludes)"; then
+        # Update: commits the target remote already has (moving a branch to a
+        # tip already on its main) cross no boundary and are not re-checked.
+        add_revs "$lsha ^$rsha $excl"
       else
         add_revs "${rsha}..${lsha}"
       fi
@@ -699,7 +715,7 @@ if [[ -s "$pii_text" ]]; then
   } > "$tmp/pii"
   [[ -f "$tmp/pii.failed" ]] && unchecked=1
   # Random bytes hold short email-shaped runs: 60 MB of /dev/urandom gives
-  # about one "x@ab.cd" that passes email_ok. Only such a short match (local
+  # about one short address that passes email_ok. Only such a short match (local
   # part <= 3 characters, every domain label <= 3) is skipped, and only when
   # every occurrence on its line has bytes on both sides that are not ASCII
   # text or valid UTF-8. The byte next to each end is not judged: it can be a

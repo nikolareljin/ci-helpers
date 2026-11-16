@@ -513,7 +513,7 @@ adb_wireless_valid_host() {
 # Returns: 0 1-65535; 1 not.
 # Output: nothing.
 adb_wireless_valid_port() {
-  [[ "${1:-}" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+  [[ "${1:-}" =~ ^[0-9]{1,5}$ ]] && (( 10#${1} >= 1 && 10#${1} <= 65535 ))
 }
 
 # Usage: adb_wireless_write_env <file> <host> [port=5555]

@@ -49,7 +49,7 @@ _PORTS_NETSTAT_DETAILS_AWK='$4 ~ port "$" {
 # listener on the machine -- which a kill-port caller would then kill.
 _ports__valid_port() {
   [[ "${1:-}" =~ ^0*[0-9]{1,5}$ ]] || return 1
-  (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+  (( 10#${1} >= 1 && 10#${1} <= 65535 ))
 }
 
 # Internal: is there an lsof that understands -i? BusyBox lsof (Alpine)
@@ -70,7 +70,7 @@ _ports__lsof_ok() {
 list_port_usage_details() {
   local port="${1:-}" line
   _ports__valid_port "$port" || return 1
-  port=$((10#$port))
+  port=$((10#${port}))
   local -a details=()
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
@@ -123,7 +123,7 @@ list_port_usage_details() {
 list_port_listener_pids() {
   local port="${1:-}"; local -a pids=()
   _ports__valid_port "$port" || return 1
-  port=$((10#$port))
+  port=$((10#${port}))
   local allow_sudo="$PORT_DETECTION_ALLOW_SUDO"
 
   if _ports__lsof_ok; then
@@ -234,7 +234,7 @@ check_required_ports_available() {
     fi
     # Normalise before subscripting: an array subscript is an arithmetic
     # context, where a leading zero would be read as octal.
-    port=$((10#$port))
+    port=$((10#${port}))
     if [[ -n "${port_to_vars[$port]:-}" ]]; then
       port_to_vars[$port]="${port_to_vars[$port]},$var"
     else
@@ -293,8 +293,8 @@ check_required_ports_available() {
 # Output: none.
 port_is_free() {
   _ports__valid_port "${1:-}" || return 2
-  if list_port_usage_details "$((10#$1))" >/dev/null 2>&1; then return 1; fi
-  ! { : <>"/dev/tcp/127.0.0.1/$((10#$1))"; } 2>/dev/null
+  if list_port_usage_details "$((10#${1}))" >/dev/null 2>&1; then return 1; fi
+  ! { : <>"/dev/tcp/127.0.0.1/$((10#${1}))"; } 2>/dev/null
 }
 
 # Usage: port_next_free <port> [tries]; prints the first free port after
@@ -304,7 +304,7 @@ port_is_free() {
 port_next_free() {
   local p tries="${2:-20}" n=0
   _ports__valid_port "${1:-}" || return 2
-  p=$((10#$1 + 1))
+  p=$((10#${1} + 1))
   while (( n < tries && p <= 65535 )); do
     if port_is_free "$p"; then printf '%s\n' "$p"; return 0; fi
     p=$((p + 1)); n=$((n + 1))
@@ -336,7 +336,7 @@ port_choose() {
     echo "port_choose: not a port: '${port}' (expected 1-65535)" >&2
     return 2
   fi
-  port=$((10#$port))
+  port=$((10#${port}))
   while ! port_is_free "$port"; do
     owner="$(port_in_use_by "$port" 2>/dev/null | sed -n 1p)" || true
     owner="${owner:-a process this user cannot see}"
@@ -356,7 +356,7 @@ port_choose() {
       [[ -n "$answer" ]] || return 1
       continue
     fi
-    port=$((10#$answer))
+    port=$((10#${answer}))
   done
   printf '%s\n' "$port"
 }

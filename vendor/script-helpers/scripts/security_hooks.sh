@@ -103,6 +103,9 @@ sec_guard() (
 _SEC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$_SEC_LIB_DIR/security_notice.sh"
+# A copy without remote_excludes.sh excludes nothing: every pushed commit is checked.
+# shellcheck source=/dev/null
+source "$_SEC_LIB_DIR/remote_excludes.sh" 2>/dev/null || remote_excludes() { return 1; }
 
 # sec_find <script>: path of a security script, or return 127.
 sec_find() {
@@ -191,12 +194,14 @@ sec_maybe_refresh_private_names() {
 }
 
 # sec_not_remote <remote-name>: git log arguments excluding what the push
-# target already has. Only that remote's refs count: a commit already on some
-# other remote (a private one, say) is still news to this one. A push to a bare
-# URL has no remote refs, so everything it sends is checked.
+# target already has. Only that remote's tracking refs count, and only when
+# remote_excludes.sh trusts them: a commit already on some other remote (a
+# private one, say) is still news to this one. A push to a bare URL has no
+# remote refs, so everything it sends is checked.
 sec_not_remote() {
-  if [[ -n "${1:-}" ]] && LC_ALL=C grep -qxF -- "$1" <<< "$(git remote 2>/dev/null)"; then
-    printf -- '--not --remotes=%s' "$1"
+  local ids
+  if ids="$(remote_excludes . "${1:-}")"; then
+    printf -- '--not %s' "${ids//$'\n'/ }"
   else
     printf -- '--not'
   fi
@@ -264,7 +269,8 @@ sec_changed_files() {
 sec_push_head_line() {
   local head ref out
   head="$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null)" || return 0
-  if out="$(git rev-list -n 1 "$head" --not --remotes="${1:-}" 2>/dev/null)"; then
+  # shellcheck disable=SC2046
+  if out="$(git rev-list -n 1 "$head" $(sec_not_remote "${1:-}") 2>/dev/null)"; then
     [[ -n "$out" ]] || return 0
   fi
   ref="$(git symbolic-ref -q HEAD 2>/dev/null || echo HEAD)"
