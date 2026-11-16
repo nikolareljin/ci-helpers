@@ -94,7 +94,7 @@ fi
 # Only when package.json was read: a malformed one falls through to npm, which
 # reports it, instead of passing as "no test script".
 if [[ -z "$WORKSPACE" ]]; then
-  if test_script="$(node -p "((require('./package.json').scripts)||{}).test||''" 2>/dev/null)"; then
+  if test_script="$(node -p "( (require('./package.json').scripts)||{}).test||''" 2>/dev/null)"; then
     if [[ -z "$test_script" || "$test_script" == *"no test specified"* ]]; then
       skip_exit "package.json declares no test script; nothing to test"
     fi

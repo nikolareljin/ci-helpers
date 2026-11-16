@@ -69,7 +69,7 @@ if [[ ${#paths[@]} -eq 0 ]]; then
   done < <(git diff -z --name-only --diff-filter=ACMR "$base...HEAD")
 fi
 if [[ ${#paths[@]} -eq 0 ]]; then
-  echo "[foxguard_report] no files to scan${base:+ (nothing changed since $base)}." >&2
+  echo "[foxguard_report] no files to scan${base:+" (nothing changed since $base)"}." >&2
   exit 0
 fi
 

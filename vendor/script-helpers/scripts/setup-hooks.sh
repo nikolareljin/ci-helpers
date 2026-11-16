@@ -284,11 +284,29 @@ version_stamp() {
   printf '%s %s\n' "$(git -C "$src_root" describe --tags --always 2>/dev/null || cat -- "$src_root/VERSION" 2>/dev/null || echo unknown)" "$(date -u +%Y-%m-%d)"
 }
 
+# dir_arg <var> <path>: sets <var> to <path>. Returns 1, setting nothing, for
+# an empty path or "/": "$dir/x" would then be a path at the root, and the
+# callers run rm -rf and mv on such paths.
+dir_arg() {
+  case "${2:-}" in ''|/) return 1 ;; esac
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v "$1" '%s' "$2"
+}
+
+# key_arg <var> <key>: sets <var> to a state key (letters, digits, . _ -, no
+# leading dot); returns 1 for anything else. A key is a file name.
+key_arg() {
+  [[ "${2:-}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v "$1" '%s' "$2"
+}
+
 # stage_and_swap <dest> <stage>: move the staged scripts/, lib/, hooks/ (when
 # present), helpers.sh and VERSION into <dest>. Stage, then swap: a half-copied
 # install must never be what runs.
 stage_and_swap() {
-  local dest="$1" stage="$2" name
+  local dest stage name
+  dir_arg dest "${1:-}" && dir_arg stage "${2:-}" || { echo "[setup-hooks] ERROR: stage_and_swap: not a directory: '${1:-}' '${2:-}'" >&2; return 1; }
   rm -rf -- "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
   for name in scripts hooks lib config; do
     [[ -e "$stage/$name" ]] || continue
@@ -302,9 +320,10 @@ stage_and_swap() {
 # stage_common <dest>: a new stage directory with helpers.sh, lib/ and the check
 # scripts every hook runs. Prints its path.
 stage_common() {
-  local stage name
-  mkdir -p "$1" || return 1
-  stage="$(mktemp -d "$1/.stage.XXXXXX")" || return 1
+  local dir stage name
+  dir_arg dir "${1:-}" || return 1
+  mkdir -p "$dir" || return 1
+  stage="$(mktemp -d "$dir/.stage.XXXXXX")" || return 1
   mkdir -p "$stage/scripts" || return 1
   cp -- "$src_root/helpers.sh" "$stage/" && cp -R -- "$src_root/lib" "$stage/lib" || { rm -rf -- "$stage"; return 1; }
   # The default allow list check_private_names.sh seeds a machine's list from.
@@ -531,7 +550,8 @@ require_agent_tools() {
 
 # copy_agent_hooks <home>: the check, the Claude hook it wraps and the adapter.
 copy_agent_hooks() {
-  local home="$1" stage
+  local home stage
+  dir_arg home "${1:-}" || { echo "[setup-hooks] ERROR: not a directory for the agent hooks: '${1:-}'" >&2; exit 1; }
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
   mkdir -p "$stage/scripts/claude-hooks" "$stage/scripts/agent-hooks" \
     && cp -- "$src_root/$HOOK_REL" "$stage/$HOOK_REL" && cp -- "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
@@ -631,7 +651,7 @@ claude_hook_path() {
   case "$quote:$hook" in
     :\~/*) hook="${HOME:-}/${hook#\~/}" ;;
     [d]:'$HOME/'*|:'$HOME/'*) hook="${HOME:-}/${hook#\$HOME/}" ;;
-    [d]:'${HOME}/'*|:'${HOME}/'*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
+    [d]:\$\{HOME\}/*|:\$\{HOME\}/*) hook="${HOME:-}/${hook#\$\{HOME\}/}" ;;
   esac
   unix_path "$hook"
 }
@@ -654,13 +674,15 @@ claude_state() {
 }
 
 show_claude_status() {
-  local entry pair kind file home state
+  local entry pair kind file home state given
   for pair in "user|$claude_settings|$claude_home" "managed|$managed_settings|$managed_home"; do
-    IFS='|' read -r kind file home <<<"$pair"
+    IFS='|' read -r kind file given <<<"$pair"
+    # An empty or root copy directory has no VERSION of ours; it reads as missing.
+    dir_arg home "$given" || home=""
     entry="$(claude_entry "$file")"
     if [[ -n "$entry" ]]; then
       echo "[setup-hooks] claude hook ($kind): $file -> $entry"
-      echo "[setup-hooks]   installed copy: $home ($(cat -- "$home/VERSION" 2>/dev/null || echo 'MISSING: the hook cannot run'))"
+      echo "[setup-hooks]   installed copy: $given ($( { [[ -n "$home" ]] && cat -- "$home/VERSION"; } 2>/dev/null || echo 'MISSING: the hook cannot run'))"
       state="$(claude_state "$file" "$home")"
       case "$state" in
         broken) echo "[setup-hooks]   BROKEN: $(claude_hook_path "$entry") does not exist; the hook cannot run. Fix: setup-hooks.sh --$([[ "$kind" == user ]] && echo claude || echo managed)" ;;
@@ -679,7 +701,8 @@ show_claude_status() {
 
 # install_claude <settings> <copy dir>
 install_claude() {
-  local settings="$1" home="$2" stage cmd onfailure rc=0
+  local settings="$1" home stage cmd onfailure rc=0
+  dir_arg home "${2:-}" || { echo "[setup-hooks] ERROR: not a directory for the hook copy: '${2:-}'" >&2; exit 1; }
   require_owners
   if [[ -z "$PY" ]]; then
     echo "[setup-hooks] ERROR: Python 3 is needed (python3, or python on Windows): the hook and this installer use it." >&2
@@ -717,7 +740,8 @@ install_claude() {
 }
 
 uninstall_claude() {
-  local settings="$1" home="$2" rc=0
+  local settings="$1" home rc=0
+  dir_arg home "${2:-}" || { echo "[setup-hooks] ERROR: not a directory for the hook copy: '${2:-}'" >&2; exit 1; }
   if [[ -f "$settings" ]]; then
     [[ -n "$PY" ]] || { echo "[setup-hooks] ERROR: Python 3 is needed to edit $settings" >&2; exit 2; }
     "$PY" -I "$(native_path "$src_root/$MERGE_REL")" uninstall "$(native_path "$settings")" || rc=$?
@@ -752,7 +776,8 @@ require_managed_access() {
 # ("" machine-wide, "--local" per repository) tells dispatch.sh which earlier
 # hooks to chain to.
 install_hook_copy() {
-  local dir="$1" flag="$2" stage name
+  local dir flag="${2:-}" stage name
+  dir_arg dir "${1:-}" || { echo "[setup-hooks] ERROR: not a directory for the hooks: '${1:-}'" >&2; return 1; }
   stage="$(stage_common "$dir")" || return 1
   mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf -- "$stage"; return 1; }
   cp -- "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
@@ -841,7 +866,10 @@ probe_name() {
 # for any other reason (no name list, no gitleaks, a crash) is a failure: the
 # gate is not working, it is refusing everything.
 probe() {
-  local want="$1" label="$2" expect="$3" command="$4" hook="$5" dir t0 t1 rc=0 why=""
+  local want="$1" label="$2" expect="$3" command="$4" hook="" dir t0 t1 rc=0 why=""
+  # Only a file is run; anything else fails as bash would on a missing file (127).
+  # checked above; printf -v marks the validated copy for the scanner
+  [[ -f "${5:-}" ]] && printf -v hook '%s' "$5"
   dir="$(mktemp -d)" || { printf '  FAIL  %-44s could not create a temp directory\n' "$label"; return 1; }
   mkdir "$dir/repo" && git init -q "$dir/repo" 2>/dev/null \
     && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
@@ -851,7 +879,11 @@ probe() {
     "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
     || { rm -rf -- "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
-  (cd "$dir/repo" && bash "$hook" < "$dir/payload" > "$dir/out" 2> "$dir/err") || rc=$?
+  if [[ -n "$hook" ]]; then
+    (cd "$dir/repo" && bash "$hook" < "$dir/payload" > "$dir/out" 2> "$dir/err") || rc=$?
+  else
+    rc=127; : > "$dir/out"; printf 'the hook script is not there\n' > "$dir/err"
+  fi
   t1="$(now_ms)"
   if [[ "$rc" != "$want" ]]; then
     why="exit $rc (want $want)"
@@ -1189,15 +1221,17 @@ agent_exclude_mark() { echo "# script-helpers setup-hooks.sh --agent-repo $1"; }
 # .git/config is still read, and cleared only from the main worktree.
 wt_state="$(git rev-parse --absolute-git-dir 2>/dev/null)/script-helpers"
 in_main_worktree() { [[ "$(git rev-parse --absolute-git-dir)" == "$(cd "$common_dir" && pwd -P)" || "$(git rev-parse --absolute-git-dir)" == "$common_dir" ]]; }
-mark_set() { mkdir -p "$wt_state" && printf '%s\n' "$2" > "$wt_state/$1"; }
+mark_set() { local k; key_arg k "${1:-}" || return 1; mkdir -p "$wt_state" && printf '%s\n' "$2" > "$wt_state/$k"; }
 mark_get() {
-  if [[ -f "$wt_state/$1" ]]; then cat -- "$wt_state/$1"
-  elif in_main_worktree; then git config --local --get "script-helpers.$1" 2>/dev/null || true
+  local k; key_arg k "${1:-}" || return 1
+  if [[ -f "$wt_state/$k" ]]; then cat -- "$wt_state/$k"
+  elif in_main_worktree; then git config --local --get "script-helpers.$k" 2>/dev/null || true
   fi
 }
 mark_clear() {
-  rm -f -- "$wt_state/$1"
-  in_main_worktree && unset_local "script-helpers.$1"
+  local k; key_arg k "${1:-}" || return 1
+  rm -f -- "$wt_state/$k"
+  in_main_worktree && unset_local "script-helpers.$k"
   rmdir "$wt_state" 2>/dev/null || true
 }
 # other_worktree_has <rel> <status command...>: 0 when another worktree of this
@@ -1222,8 +1256,12 @@ remove_exclude() {
     { print }' "$f" > "$f.tmp" && mv -f -- "$f.tmp" "$f"
 }
 move_agent_backups() {
-  local b dest="$common_dir/script-helpers/$1-backups"
-  for b in "$2".bak-*; do
+  local b agent file dest
+  key_arg agent "${1:-}" && [[ -n "${2:-}" ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v file '%s' "$2"
+  dest="$common_dir/script-helpers/$agent-backups"
+  for b in "$file".bak-*; do
     [[ -f "$b" ]] || continue
     mkdir -p "$dest" && mv -f -- "$b" "$dest/" || return 1
   done

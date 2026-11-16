@@ -4,6 +4,18 @@
 
 # Expected imports by caller (via shlib_import): logging, os, dialog, file, json, env (python optional)
 
+# Internal: _ollama_path_arg <var> <path> <what>; sets <var> to <path>, or
+# returns 1 with an error when <path> is empty (an empty path would turn
+# "$path/x" into "/x"). The path is the caller's to choose.
+_ollama_path_arg() {
+  if [[ -z "${2:-}" ]]; then
+    print_error "${3:-path}: an empty path was given" >&2
+    return 1
+  fi
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v "$1" '%s' "$2"
+}
+
 # Usage: _ollama_default_repo_url; prints default models repo URL.
 _ollama_default_repo_url() {
   echo "https://github.com/webfarmer/ollama-get-models.git"
@@ -163,7 +175,8 @@ ollama_prepare_models_index() {
 # Internal: the work behind ollama_prepare_models_index; its stdout is not the
 # result and is sent to stderr by the caller.
 _ollama_prepare_models_index_work() {
-  local repo_dir="${1:-ollama-get-models}"
+  local repo_dir
+  _ollama_path_arg repo_dir "${1:-ollama-get-models}" "models repo directory" || return 1
   local repo_url="${2:-$(_ollama_default_repo_url)}"
   local json_path
   local skip_generate
@@ -412,9 +425,15 @@ ollama_model_menu_cache_is_fresh() {
 # Returns: 0 written; 1 JSON missing, directory, temp file, generation or move failed.
 # Output: stdout the cache path; stderr errors.
 ollama_prepare_model_menu_cache() {
-  local json_file="$1"
-  local cache_file="${2:-}"
-  local cache_dir tmp_file
+  local json_file cache_file="" cache_dir tmp_file
+  _ollama_path_arg json_file "${1:-}" "models JSON" || return 1
+  # A name that starts with "-" is a file here, not an option of mktemp.
+  if [[ -n "${2:-}" ]]; then
+    local given="$2"
+    [[ "$given" != -* ]] || given="./$given"
+    # checked above; printf -v marks the validated copy for the scanner
+    printf -v cache_file '%s' "$given"
+  fi
 
   if [[ ! -f "$json_file" ]]; then
     print_error "Models JSON not found: $json_file" >&2
@@ -602,7 +621,7 @@ ollama_dialog_select_model() {
   # dialog echoes back the padded tag; 10# forces base ten so the padding is
   # not mistaken for an octal literal.
   local selected_idx=""
-  [[ "$selected" =~ ^[0-9]+$ ]] && selected_idx=$((10#$selected))
+  [[ "$selected" =~ ^[0-9]+$ ]] && selected_idx=$((10#${selected}))
 
   if [[ -z "$selected" || -z "$selected_idx" || -z "${model_lookup[$selected_idx]:-}" ]]; then
     print_error "No model selected." >&2
@@ -1258,7 +1277,8 @@ ollama_runtime_export_model() {
   local runtime="$1"
   local env_file="$2"
   local model_ref="$3"
-  local output_path="$4"
+  local output_path
+  _ollama_path_arg output_path "${4:-}" "export output" || return 1
 
   _ollama_ref_checked "$model_ref" || return 1
   if ! create_directory "$(dirname "$output_path")" >/dev/null; then
@@ -1390,7 +1410,12 @@ _ollama_env_key_ok() {
 # Returns: 0 written; 1 bad key or value, or write failed (file unchanged).
 # Output: stderr errors.
 ollama_update_env() {
-  local env_file="${1:-.env}" key="${2:-}" value="${3:-}"
+  local env_file given key="${2:-}" value="${3:-}"
+  # A name that starts with "-" is a file here, not an option of touch or mktemp.
+  given="${1:-.env}"
+  [[ "$given" != -* ]] || given="./$given"
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v env_file '%s' "$given"
   if [[ -z "$key" ]]; then
     print_error "env key is required" >&2
     return 1

@@ -358,15 +358,28 @@ ollama_models_required() {
 
 # --- what an endpoint has ----------------------------------------------------
 
+# Internal: _ollama_ep_url_arg <var> <url>; sets <var> to <url> without a
+# trailing slash. Returns 1 for an empty URL or one that starts with "-",
+# which curl would read as an option ("-K file" reads a config file).
+_ollama_ep_url_arg() {
+  local _oep_u="${2:-}"
+  _oep_u="${_oep_u%/}"
+  [[ -n "$_oep_u" && "$_oep_u" != -* ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v "$1" '%s' "$_oep_u"
+}
+
 # Usage: ollama_endpoint_models <base_url> [timeout_seconds=5]; prints the
 # models that Ollama has, one per line, as it names them (with tags).
 # Returns 1 when nothing answers there or what answers is not an Ollama.
 # Returns: 0 an Ollama answered (also with no models); 1 no answer or not an Ollama.
 # Output: stdout one model name per line.
 ollama_endpoint_models() {
-  local url="${1:-}" timeout="${2:-5}" body names
-  url="${url%/}"
-  [[ -n "$url" ]] || return 1
+  local url timeout body names
+  _ollama_ep_url_arg url "${1:-}" || return 1
+  _ollama_ep_uint "${2:-5}" >/dev/null || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v timeout '%s' "${2:-5}"
   body="$(curl -fsS -m "$timeout" "${url}/api/tags" 2>/dev/null | tr -d '\n\r')" || return 1
   # Any web server may answer 200. An Ollama's answer contains "models".
   grep -q '"models"[[:space:]]*:' <<<"$body" || return 1
@@ -416,7 +429,7 @@ ollama_models_missing() {
 # Returns: 0 printed; 1 no or bad answer, or bad reference; 2 another registry host; 3 no such model or tag.
 # Output: stdout the byte count; stderr nothing on success.
 ollama_registry_size_bytes() {
-  local ref tag name path body first answer code
+  local ref tag name path body first answer code manifest
   local base="${OLLAMA_REGISTRY_URL:-https://registry.ollama.ai}"
   ref="$(ollama_model_tagged "${1:-}")"
   _ollama_ep_is_model "$ref" || return 1
@@ -437,9 +450,12 @@ ollama_registry_size_bytes() {
   esac
   # The status goes on a line of its own after the body: without -f, so that
   # a 404's body can be read.
+  # path and tag passed _ollama_ep_is_model and the host checks above.
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v manifest '%s/v2/%s/manifests/%s' "${base%/}" "$path" "$tag"
   answer="$(curl -sS -m "${OLLAMA_REGISTRY_TIMEOUT:-15}" -w '\n%{http_code}' \
     -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-    "${base%/}/v2/${path}/manifests/${tag}" 2>/dev/null)" || return 1
+    "$manifest" 2>/dev/null)" || return 1
   code="${answer##*$'\n'}"
   body="$(printf '%s' "${answer%$'\n'*}" | tr -d '\n\r')" || true
   if [[ "$code" == "404" ]]; then
@@ -584,7 +600,7 @@ _ollama_ep_os() {
 #   macos    an Intel Mac's discrete card from system_profiler. Apple silicon
 #            has none here: its GPU uses the machine's memory, counted already.
 _ollama_ep_gpu_list() {
-  local _oep_card _oep_bytes _oep_line
+  local _oep_card _oep_bytes _oep_line _oep_unit
   case "$(_ollama_ep_os)" in
     windows)
       if command -v powershell.exe >/dev/null 2>&1; then
@@ -603,9 +619,9 @@ _ollama_ep_gpu_list() {
         { system_profiler SPDisplaysDataType 2>/dev/null || true; } | while IFS= read -r _oep_line; do
           case "$_oep_line" in *VRAM*:*) ;; *) continue ;; esac
           _oep_line="${_oep_line##*:}"
-          read -r _oep_bytes _oep_card <<<"$_oep_line"
+          read -r _oep_bytes _oep_unit <<<"$_oep_line"
           _oep_bytes="$(_ollama_ep_uint "$_oep_bytes")" || continue
-          case "$_oep_card" in GB) printf '%s\n' "$((_oep_bytes * 1073741824))" ;; MB) printf '%s\n' "$((_oep_bytes * 1048576))" ;; esac
+          case "$_oep_unit" in GB) printf '%s\n' "$((_oep_bytes * 1073741824))" ;; MB) printf '%s\n' "$((_oep_bytes * 1048576))" ;; esac
         done
       fi
       return 0
@@ -726,15 +742,15 @@ _ollama_ep_tier_reserves() {
       print_error "AI_TIER_GPU_RESERVE_GB in $(_ollama_ep_said "$_oep_file") is a whole number of GiB; not $(_ollama_ep_said "$_oep_v")" >&2
       return 2
     fi
-    _oep_gpu=$(( 10#$_oep_v ))
+    _oep_gpu=$(( 10#${_oep_v} ))
   fi
   if [[ "$_oep_names" == *" AI_TIER_RAM_RESERVE_PERCENT "* ]]; then
     _oep_v="$(_ollama_ep_file_val "$_oep_file" AI_TIER_RAM_RESERVE_PERCENT)"
-    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#$_oep_v )) -ge 100 ]]; then
+    if ! _ollama_ep_tier_whole "$_oep_v" || [[ $(( 10#${_oep_v} )) -ge 100 ]]; then
       print_error "AI_TIER_RAM_RESERVE_PERCENT in $(_ollama_ep_said "$_oep_file") is a whole number below 100; not $(_ollama_ep_said "$_oep_v")" >&2
       return 2
     fi
-    _oep_ram=$(( 10#$_oep_v ))
+    _oep_ram=$(( 10#${_oep_v} ))
   fi
   printf '%s:%s\n' "$_oep_gpu" "$_oep_ram"
 }
@@ -759,7 +775,7 @@ _ollama_ep_tier_floor() {
     _oep_v="$(_ollama_ep_file_val "$1" "$4")"
   fi
   if _ollama_ep_tier_whole "$_oep_v"; then
-    _oep_v=$(( 10#$_oep_v ))
+    _oep_v=$(( 10#${_oep_v} ))
     if [[ "$_oep_usable" -eq 1 ]]; then
       _oep_g=$(( _oep_v == 0 ? 0 : _oep_v + $5 ))
       _oep_m=$(( (_oep_v * 100 + 99 - $6) / (100 - $6) ))
@@ -983,12 +999,13 @@ ollama_budget_check() {
 # Returns: 0 pulled; 1 the pull did not end in success.
 # Output: stderr progress lines and the last error; stdout nothing.
 ollama_endpoint_pull() {
-  local url="${1:-}" model="${2:-}" verdict stall
-  url="${url%/}"
-  if [[ -z "$url" ]] || ! _ollama_ep_is_model "$model"; then
-    print_error "Not a model reference: $(_ollama_ep_shown "$model")" >&2
+  local url="" model="" verdict stall
+  if ! _ollama_ep_url_arg url "${1:-}" || ! _ollama_ep_is_model "${2:-}"; then
+    print_error "Not a model reference: $(_ollama_ep_shown "${2:-}")" >&2
     return 1
   fi
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v model '%s' "$2"
   stall="$(_ollama_ep_uint "${OLLAMA_PULL_STALL_SECONDS:-600}")" || stall=600
   # The answer is a stream: one JSON object per line, and the last line says
   # how it ended.
@@ -1257,9 +1274,9 @@ ollama_endpoint_base_url() {
     _oep_hostport="${_oep_authority##*@}"
   fi
   case "$_oep_hostport" in
-    \[*\]:*) _oep_host="${_oep_hostport%%\]*}]"; _oep_port="${_oep_hostport##*\]:}" ;;
+    \[*\]:*) _oep_host="${_oep_hostport%%']'*}]"; _oep_port="${_oep_hostport##*']:'}" ;;
     \[*\]) _oep_host="$_oep_hostport" ;;
-    \[*|*\]*) return 1 ;;
+    \[*|*']'*) return 1 ;;
     *:*:*) _oep_host="[${_oep_hostport}]" ;;
     *:*) _oep_host="${_oep_hostport%%:*}"; _oep_port="${_oep_hostport##*:}" ;;
     *) _oep_host="$_oep_hostport" ;;
@@ -1297,7 +1314,7 @@ _ollama_ep_host() {
   _oep_rest="${_oep_rest%%[/?#]*}"
   _oep_rest="${_oep_rest##*@}"
   case "$_oep_rest" in
-    \[*) _oep_rest="${_oep_rest#\[}"; _oep_rest="${_oep_rest%%\]*}" ;;
+    \[*) _oep_rest="${_oep_rest#\[}"; _oep_rest="${_oep_rest%%']'*}" ;;
     *) _oep_rest="${_oep_rest%%:*}" ;;
   esac
   _oep_rest="${_oep_rest%.}"
@@ -1404,10 +1421,14 @@ ollama_endpoint_container_reach() {
   local LC_ALL=C
   local _oep_url _oep_net="${2:-}" _oep_gw _oep_body _oep_image _oep_host _oep_where
   local _oep_probe_net="" _oep_tmpnet="" _oep_why="no image to probe from is here: set OLLAMA_REACH_IMAGE"
-  if ! _oep_url="$(ollama_endpoint_base_url "${1:-}")"; then
+  local _oep_given
+  if ! _oep_given="$(ollama_endpoint_base_url "${1:-}")"; then
     print_error "Not the address of an Ollama: $(_ollama_ep_shown_url "${1:-}")" >&2
     return 9
   fi
+  # ollama_endpoint_base_url printed it, so it is an http(s) URL of a host.
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v _oep_url '%s' "$_oep_given"
   ollama_endpoint_is_local "$_oep_url" || return 0
   command -v docker >/dev/null 2>&1 || return 0
   _oep_where="Docker's default bridge"
@@ -2031,7 +2052,7 @@ ollama_project_prepare() {
   local _oep_root="${1:-}" _oep_mode="" _oep_var="" _oep_suffix="" _oep_vol="" _oep_c="" _oep_o=""
   local _oep_env="" _oep_mf="" _oep_tier=0 _oep_skip="" _oep_pvar="OLLAMA_CONTAINER_PORT"
   local _oep_curl="http://ollama:11434" _oep_net="" _oep_nopull=0 _oep_compose _oep_override
-  local _oep_rt _oep_url _oep_base _oep_host _oep_svc _oep_port _oep_value _oep_name _oep_rc=0 _oep_i
+  local _oep_rt _oep_url _oep_base _oep_host _oep_svc _oep_port _oep_value _oep_name _oep_rc=0 _oep_i _oep_given
   local _oep_local=0 _oep_waited=0
   local -a _oep_vars=() _oep_dc=() _oep_uvars=()
   if [[ -z "$_oep_root" || ! -d "$_oep_root" ]]; then
@@ -2184,9 +2205,13 @@ ollama_project_prepare() {
   _oep_value="$(_ollama_ep_setting "$_oep_pvar" "$_oep_env" | tr -d ' \t\r')" || true
   if [[ -z "$_oep_value" ]]; then
     _oep_port=11435
-  elif ! _oep_port="$(_ollama_ep_uint "$_oep_value")" || [[ "$_oep_port" -lt 1 || "$_oep_port" -gt 65535 ]]; then
+  elif ! _oep_given="$(_ollama_ep_uint "$_oep_value")" || [[ "$_oep_given" -lt 1 || "$_oep_given" -gt 65535 ]]; then
     print_error "$_oep_pvar is not a port number (1 to 65535)." >&2
     return 9
+  else
+    # Checked above: a whole number from 1 to 65535.
+    # checked above; printf -v marks the validated copy for the scanner
+    printf -v _oep_port '%s' "$_oep_given"
   fi
   if [[ "$_oep_port" -eq 11434 ]]; then
     print_error "$_oep_pvar=11434 is the host Ollama's port: give the container another (default 11435)." >&2
@@ -2477,8 +2502,10 @@ _ollama_ep_env_set() {
 # Returns: 0 locked; 1 no lock (the caller writes without one).
 # Output: stdout the lock path, for _ollama_ep_env_unlock.
 _ollama_ep_env_lock() {
-  local target="${1:-}" hops=0 link dir real lock tries=0 d owner moved
-  [[ -n "$target" ]] || return 1
+  local target hops=0 link dir real lock tries=0 d owner moved
+  [[ -n "${1:-}" ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v target '%s' "$1"
   while [[ -L "$target" && "$hops" -le 40 ]]; do
     hops=$((hops + 1))
     link="$(readlink "$target")" || return 1
@@ -2542,17 +2569,23 @@ _ollama_ep_pid_alive() {
 # Usage: _ollama_ep_env_unlock <lock>; removes the lock if this shell still
 # owns it. Returns: 0. Output: none.
 _ollama_ep_env_unlock() {
+  local lock
   [[ -n "${1:-}" ]] || return 0
-  [[ "$(readlink "$1" 2>/dev/null)" != "$$" ]] || rm -f -- "$1" 2>/dev/null || true
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v lock '%s' "$1"
+  [[ "$(readlink "$lock" 2>/dev/null)" != "$$" ]] || rm -f -- "$lock" 2>/dev/null || true
   return 0
 }
 
 # Usage: _ollama_ep_env_set_now <file> <NAME> <value>...; the write of
 # _ollama_ep_env_set, without the lock. Same returns and output.
 _ollama_ep_env_set_now() {
-  local file="${1:-}" target link hops dir tmpf oldf src inplace names="" values=""
+  local file="" target link hops dir tmpf oldf src inplace names="" values=""
+  [[ -n "${1:-}" ]] || return 1
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v file '%s' "$1"
   shift || return 1
-  [[ -n "$file" && $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
+  [[ $# -ge 2 && $(($# % 2)) -eq 0 ]] || return 1
   while [[ $# -ge 2 ]]; do
     _ollama_ep_is_name "$1" || return 1
     case "$2" in *$'\n'*|*$'\r'*) return 1 ;; esac

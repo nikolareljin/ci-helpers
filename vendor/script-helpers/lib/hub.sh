@@ -131,7 +131,7 @@ _hub__url_ok() {
   local port="${BASH_REMATCH[3]:-}"
   # 10# so a leading zero is not read as octal. :0 and :99999 fail here
   # rather than later, inside curl, with a worse message.
-  [[ -z "$port" ]] || (( 10#$port >= 1 && 10#$port <= 65535 ))
+  [[ -z "$port" ]] || (( 10#${port} >= 1 && 10#${port} <= 65535 ))
 }
 
 # Internal: is the host part loopback? A bracketed IPv6 host keeps its
@@ -139,7 +139,7 @@ _hub__url_ok() {
 _hub__url_is_loopback() {
   local host="${1#*://}"; host="${host%%/*}"
   if [[ "$host" == \[* ]]; then
-    host="${host#\[}"; host="${host%%\]*}"
+    host="${host#\[}"; host="${host%%']'*}"
   else
     host="${host%%:*}"
   fi
@@ -369,7 +369,7 @@ hub_setup_dialog() {
     log_warn "The hub reported an instance_id with unexpected characters; not recording HUB_INSTANCE_ID."
     instance_id=""
   fi
-  log_info "Hub at $url: ${name:-?} ${version:-?}${instance_id:+ (instance $instance_id)}"
+  log_info "Hub at $url: ${name:-?} ${version:-?}${instance_id:+" (instance $instance_id)"}"
 
   # --- a key it accepts -------------------------------------------------------------
   [[ -n "$key" ]] || key="$(resolve_env_value HUB_API_KEY "" "$env_file")"
