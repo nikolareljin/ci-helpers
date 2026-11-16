@@ -1328,6 +1328,34 @@ def check_commits(repo, revs, seen):
         check_tree(repo, ref, seen, changed)
 
 
+def remote_excludes(repo, remote):
+    """Commit ids the push target already has; [] when they cannot be trusted.
+
+    remote_excludes.sh is the one definition, shared with check_sensitive.sh
+    and security_hooks.sh, so the gates agree on what a remote holds.
+    """
+    if not remote:
+        return []
+    script = Path(__file__).with_name("remote_excludes.sh")
+    if not script.is_file():
+        return []  # an older copy: exclude nothing, check every pushed commit
+    try:
+        proc = subprocess.run(
+            [BASH, script.as_posix(), repo, remote],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        raise Unchecked()
+    if proc.returncode == 1:
+        return []
+    if proc.returncode:
+        raise Unchecked()
+    ids = proc.stdout.decode("ascii", "replace").split()
+    if not all(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", i) for i in ids):
+        raise Unchecked()
+    return ids
+
+
 def push(repo, refs, remote, seen):
     lines = Path(refs).read_text().splitlines()
     if not lines:
@@ -1361,9 +1389,7 @@ def push(repo, refs, remote, seen):
         else:
             revs = [target]
         # Commits already on this destination do not cross the transport boundary.
-        remotes = git(repo, "remote").decode().splitlines()
-        if remote in remotes:
-            revs.extend(["--not", "--remotes=" + remote])
+        revs.extend(["--not", *remote_excludes(repo, remote)])
         check_commits(repo, revs, seen)
 
 

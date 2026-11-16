@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+- **`vendor/script-helpers` 0.65.2 -> 0.65.3**, and the 16 workflow `ref:` pins with it. `check_sensitive.sh --push-refs` and `check_scan_output.sh` no longer re-check commits already on the remote, so moving `production` to a commit already on `main` passes. New vendored file `scripts/remote_excludes.sh`; the hook installers copy it.
+- `tests/publication_files_test.cjs` builds the split-file address at runtime, so no address-shaped literal is in the tree.
+
 ## 2026-11-14 — v1.0.0
 
 ### Breaking changes
