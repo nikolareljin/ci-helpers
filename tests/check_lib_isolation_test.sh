@@ -764,6 +764,27 @@ grep -q 'reads GITHUB_JOB' "$work/out" || { echo "FAIL the gate did not follow s
 expect_lib "env -i list passes both runner variables" 0 "$(wf "$checkout" "$isolate" "$runner_use")"
 expect_lib "keep list keeps both runner variables" 0 "$(wf "$checkout" "$isolate" "$runner_keep")"
 
+# Reads that are not `$NAME`, and a name assigned only after its read.
+expect_read() {  # expect_read <name> <rc> <setup_rust.sh body> [<file> <body>]
+  local name="$1" want="$2" rc=0
+  rm -rf "$work/r"; mkdir -p "$work/r/.github/workflows" "$work/r/scripts"
+  wf "$checkout" "$isolate" "$runner_keep" > "$work/r/.github/workflows/w.yml"
+  printf '%s\n' "$3" > "$work/r/scripts/setup_rust.sh"
+  [[ -z "${4:-}" ]] || printf '%s\n' "$5" > "$work/r/scripts/$4"
+  python3 "$gate" --root "$work/r" > "$work/out" 2>&1 || rc=$?
+  [[ "$rc" == "$want" ]] || { echo "FAIL $name: exit $rc, expected $want"; cat "$work/out"; fail=1; }
+}
+expect_read "a plain read of a dropped name" 1 'echo "$GITHUB_SHA"'
+expect_read "nothing dropped is read" 0 'echo "$GITHUB_REPOSITORY $GITHUB_JOB"'
+expect_read "printenv" 1 'printenv GITHUB_SHA'
+expect_read "os.environ with escaped quotes in python -c" 1 'python3 -c "import os; print(os.environ[\"GITHUB_SHA\"])"'
+expect_read "os.environ.get with a space" 1 "python3 -c 'import os; os.environ.get( \"GITHUB_SHA\")'"
+expect_read "node process.env" 1 'node -e "console.log(process.env.GITHUB_SHA)"'
+expect_read "a .js file the script runs" 1 'node "$(dirname "$0")/w.js"' w.js 'console.log(process.env.GITHUB_SHA)'
+expect_read "assigned after the read" 1 'echo "$GITHUB_SHA"; GITHUB_SHA=1'
+expect_read "a docker --env after the read" 1 'w="${GITHUB_SHA:-$PWD}"; docker run --env GITHUB_SHA=/x img'
+expect_read "assigned before the read" 0 'GITHUB_SHA=1; echo "$GITHUB_SHA"'
+
 # Premise: bash does read BASH_ENV, so the sh envelope is what keeps it out.
 (cd "$work" && BASH_ENV="$work/bashenv.sh" /bin/bash --noprofile --norc -c true)
 [[ -e "$work/canary-bashenv" ]] || { echo "FAIL premise: bash did not read BASH_ENV, so the envelope is untested"; fail=1; }

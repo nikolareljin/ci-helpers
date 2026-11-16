@@ -555,12 +555,13 @@ def check_workdir(where: str, job: dict, doc: dict) -> list[str]:
 
 # Runner variables a library script reads. The runner sets them, but the
 # env -i envelope passes only the names a step lists.
-RUNNER_READ = re.compile(r"\$\{?((?:GITHUB|RUNNER)_[A-Z0-9_]+)|(?:environ\.get\(|environ\[|getenv\()[\"']((?:GITHUB|RUNNER)_[A-Z0-9_]+)")
+RUNNER_READ = re.compile(r"(?:\$\{?|printenv\s+|process\.env\.|(?:environ\.get\(\s*|environ\[|getenv\(\s*|process\.env\[)\\?[\"'])"
+                         r"((?:GITHUB|RUNNER)_[A-Z0-9_]+)")
 RUNNER_SET = re.compile(r"(?:^|[\s;(])(?:export |local |declare -[a-zA-Z]+ |readonly )?((?:GITHUB|RUNNER)_[A-Z0-9_]+)\+?=", re.M)
 # A file the script runs or sources by a path ending in its name
 # (`$run_lib/scripts/x.sh`, `"$LIB_SCRIPTS/x.sh"`), read from scripts/.
 # Vendored script-helpers files are a separate tree and are not followed.
-SCRIPT_REF = re.compile(r"([^\s\"'()=;|&]*/)([A-Za-z0-9_]+\.(?:sh|py))\b")
+SCRIPT_REF = re.compile(r"([^\s\"'()=;|&]*/)([A-Za-z0-9_]+\.(?:sh|py|js|mjs|cjs))\b")
 RUNNER_EXEMPT = {"GITHUB_TOKEN"}
 ROOT = Path(".")
 
@@ -568,8 +569,16 @@ ROOT = Path(".")
 def runner_reads(text: str, seen: set[str]) -> set[str]:
     """Runner variables `text` reads, with the scripts/ files it runs or
     sources, less the ones a script assigns itself."""
-    read = {a or b for a, b in RUNNER_READ.findall(text)}
-    read -= set(RUNNER_SET.findall(text))
+    # A name counts as the script's own only when it is assigned before its
+    # first read: `echo "$GITHUB_SHA"; GITHUB_SHA=1` still needs the runner's,
+    # and so does a `docker run --env GITHUB_WORKSPACE=...` after the read.
+    first_read: dict[str, int] = {}
+    for m in RUNNER_READ.finditer(text):
+        first_read.setdefault(m.group(1), m.start())
+    first_set: dict[str, int] = {}
+    for m in RUNNER_SET.finditer(text):
+        first_set.setdefault(m.group(1), m.start())
+    read = {v for v, at in first_read.items() if first_set.get(v, len(text) + 1) > at}
     for where, name in SCRIPT_REF.findall(text):
         if "script-helpers/" in where:
             continue
