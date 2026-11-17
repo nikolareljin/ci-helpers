@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-17 — v1.0.4
+
 ### Changed
 
 - **`vendor/script-helpers` 0.65.4 -> 0.66.0**, and the 16 workflow `ref:` pins with it. `.githooks/pre-push` refuses a push that adds a foxguard finding at `high` or above, and one where foxguard is not installed or skips a changed file; every finding was a warning before. The level is `git config security.foxguardBlock` (`off`, `critical`, `high`, `medium`, `low`; default `high`), and a finding the remote already has stays a warning. No workflow changes: the publication hooks that workflows install and the three pinned scripts they run are the same in 0.66.0. New vendored file `scripts/foxguard_push_compare.py`. Test: `tests/pre_push_foxguard_test.sh` (fails on 0.65.4; its finding cases skip when foxguard is not installed, `FOXGUARD_REQUIRE=1` makes that a failure).
