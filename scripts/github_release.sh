@@ -149,7 +149,8 @@ semver_gt() {
 # (a backfill) must not move Latest back to 1.0.0.
 latest_for_tag() {
   local t other
-  if ! [[ "$tag" =~ $stable_re ]] || [ "$prerelease" = true ] || [ "$draft" = true ]; then
+  if ! [[ "$tag" =~ $stable_re ]] || [ "$prerelease" = true ] || [ "$draft" = true ] \
+      || [ "$judged_prerelease" = true ] || [ "$judged_draft" = true ]; then
     echo "::notice::github_release: $tag is not a stable X.Y.Z release; not marking it Latest." >&2
     echo false; return
   fi
@@ -176,6 +177,16 @@ if ! existing="$(gh release view "$tag" -R "$repo" --json url 2>"$err")"; then
     fail "could not read release $tag: $(head -c 300 "$err")"
   fi
   existing=""
+fi
+
+judged_prerelease="" judged_draft=""
+# An existing release keeps its own prerelease and draft state unless the
+# caller sets them, so auto must judge that state, not an empty input.
+if [ -n "$existing" ] && [ "${MAKE_LATEST:-}" = auto ] && { [ -z "$prerelease" ] || [ -z "$draft" ]; }; then
+  state="$(gh release view "$tag" -R "$repo" --json isPrerelease,isDraft -q '"\(.isPrerelease) \(.isDraft)"')" \
+    || fail "could not read the state of release $tag"
+  [ -n "$prerelease" ] || judged_prerelease="${state%% *}"
+  [ -n "$draft" ] || judged_draft="${state##* }"
 fi
 
 latest="${MAKE_LATEST:-}"

@@ -39,6 +39,7 @@ case "$1 $2" in
       *"--json assets"*)
         for a in ${ASSETS:-}; do echo "$a"; done ;;
       *"--json databaseId"*) echo 4242 ;;
+      *"--json isPrerelease,isDraft"*) echo "${EXIST_STATE:-false false}" ;;
       *"--json url,uploadUrl"*) printf 'url=https://example.invalid/r/%s\nupload_url=https://example.invalid/u\n' "$3" ;;
       *) echo '{"url":"https://example.invalid/r"}' ;;
     esac
@@ -232,6 +233,18 @@ rc=0; run GITHUB_REPOSITORY="owner/repo/x" TAG_NAME=1.0.0 || rc=$?
 ok "bad GITHUB_REPOSITORY refused (rc=$rc)" [ "$rc" != 0 ]
 
 # A gh error other than "not found" stops the run instead of creating a duplicate.
+# auto on an existing release judges that release's own state when the
+# caller leaves PRERELEASE or DRAFT empty.
+run EXISTS=1 EXIST_STATE="true false" MAKE_LATEST=auto TAG_NAME=2.0.0 RELEASES="1.0.0"
+ok "existing prerelease with auto: --latest=false" has_call "--latest=false"
+ok "existing prerelease state not re-sent" not has_call "--prerelease="
+run EXISTS=1 EXIST_STATE="false true" MAKE_LATEST=auto TAG_NAME=2.0.0 RELEASES="1.0.0"
+ok "existing draft with auto: --latest=false" has_call "--latest=false"
+run EXISTS=1 EXIST_STATE="false false" MAKE_LATEST=auto TAG_NAME=2.0.0 RELEASES="1.0.0"
+ok "existing stable with auto: --latest=true" has_call "--latest=true"
+run EXISTS=1 MAKE_LATEST=auto PRERELEASE=false DRAFT=false TAG_NAME=2.0.0 RELEASES="1.0.0"
+ok "caller-set state skips the state lookup" not has_call "--json isPrerelease,isDraft"
+
 rc=0; run VIEW_ERR="gh: Server Error (HTTP 502)" TAG_NAME=1.0.0 || rc=$?
 ok "view error stops the run (rc=$rc)" [ "$rc" != 0 ]
 ok "nothing created after a view error" not has_call "release create"
