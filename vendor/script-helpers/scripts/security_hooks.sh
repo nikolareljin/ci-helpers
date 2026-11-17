@@ -9,6 +9,10 @@
 #   Mandatory publication checks cannot be disabled with environment overrides.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
 #                                binary in the cache, else foxguard on PATH).
+#   SCRIPT_HELPERS_FOXGUARD_BLOCK  foxguard block level: off, critical, high,
+#                                medium or low. With git config
+#                                security.foxguardBlock also set, the stricter
+#                                of the two applies. Neither: high.
 # EXIT_CODES:
 #   Sourced: no output, no exit. Each sec_* function returns 0 to let the
 #   commit or push continue and 1 to refuse; sec_find returns 127 when a
@@ -26,8 +30,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 #
 # Order, in pre-push: private names (block) -> credentials, then personal
-# identifiers and PII, both in check_sensitive.sh (block) -> foxguard (warn only). The caller handles the deletions-only shortcut and the
-# tests. Every function returns 0 to continue and 1 to refuse.
+# identifiers and PII, both in check_sensitive.sh (block) -> foxguard (blocks
+# new findings at or above the block level, default high; warns at off). The
+# caller handles the deletions-only shortcut and the tests. Every function
+# returns 0 to continue and 1 to refuse.
 #
 # No "already checked" marker is exported: an environment variable that skips
 # the checks could be set by any parent process. A hook chained after these
@@ -520,11 +526,10 @@ sec_loud() {
   printf '%s[pre-push] ========================================================%s\n' "$y" "$r" >&2
 }
 
-# foxguard on the files this push changes. Never blocks: a missing foxguard
-# (installed when it can be), a failed scan and every finding are
-# loud warnings, and the push goes on.
-# Inspect advisory findings in the private local report.
-sec_foxguard_push() {
+# sec_foxguard_warn <refs-file> <remote>: foxguard at security.foxguardBlock=off.
+# Never blocks: a missing foxguard (installed when it can be), a failed scan
+# and every finding are loud warnings, and the push goes on.
+sec_foxguard_warn() {
   local refs="$1" remote="${2:-}" cmd f out rc frc=0 shown=0 failed=0 r base="" issues=0 hit=0 k
   if ! cmd="$(sec_foxguard_cmd)"; then
     if ! sec_foxguard_platform_ok; then
@@ -566,7 +571,7 @@ sec_foxguard_push() {
   done
   [[ "$failed" -gt 0 ]] && sec_loud "the foxguard scan did NOT run on $failed of ${#files[@]} file(s) (exit $frc)."
   if [[ "$shown" -gt 0 ]]; then
-    sec_loud "foxguard: $issues finding(s) in $hit of ${#files[@]} changed file(s) (above). They do not block the push."
+    sec_loud "foxguard: $issues finding(s) in $hit of ${#files[@]} changed file(s) (above). They do not block the push (security.foxguardBlock is off)."
     # The base for the report: the remote's commit of the first updated ref.
     base="$(awk '$4 !~ /^0+$/ && $2 !~ /^0+$/ { print $4; exit }' "$refs" 2>/dev/null || true)"
     echo "[pre-push] Keep them as JSON (evidence, or to compare later):" >&2
@@ -580,6 +585,304 @@ sec_foxguard_push() {
   return 0
 }
 
+# sec_foxguard_rank <level>: 0 off .. 4 low, the order of strictness; 1 when
+# <level> is not one.
+sec_foxguard_rank() {
+  case "$1" in
+    off) echo 0 ;; critical) echo 1 ;; high) echo 2 ;; medium) echo 3 ;; low) echo 4 ;;
+    *) return 1 ;;
+  esac
+}
+
+# sec_foxguard_level: the effective block level, from git config
+# security.foxguardBlock and SCRIPT_HELPERS_FOXGUARD_BLOCK. Set in both: the
+# stricter wins, so an environment variable cannot weaken a repository's
+# setting. Neither: high. A value that is not off, critical, high, medium or
+# low returns 2 with the reason on stderr; it is never read as off.
+sec_foxguard_level() {
+  local cfg env rc=0 level="" value name v
+  cfg="$(git config --get security.foxguardBlock 2>/dev/null)" || rc=$?
+  if [[ "$rc" -gt 1 ]]; then
+    echo "[pre-push] ERROR: git config security.foxguardBlock could not be read (exit $rc)." >&2
+    return 2
+  fi
+  env="${SCRIPT_HELPERS_FOXGUARD_BLOCK:-}"
+  for name in "git config security.foxguardBlock" SCRIPT_HELPERS_FOXGUARD_BLOCK; do
+    if [[ "$name" == SCRIPT_HELPERS_FOXGUARD_BLOCK ]]; then
+      [[ -n "$env" ]] || continue
+      value="$env"
+    else
+      [[ "$rc" -eq 0 ]] || continue
+      value="$cfg"
+    fi
+    v="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    if ! sec_foxguard_rank "$v" >/dev/null; then
+      echo "[pre-push] ERROR: $name is '$value'; use off, critical, high, medium or low." >&2
+      return 2
+    fi
+    if [[ -z "$level" || "$(sec_foxguard_rank "$v")" -gt "$(sec_foxguard_rank "$level")" ]]; then level="$v"; fi
+  done
+  printf '%s\n' "${level:-high}"
+}
+
+# sec_foxguard_refuse <level> <reason> [<fix>]: the scan could not decide;
+# refuse. <fix> is the remedy for this cause; the default is to install foxguard.
+sec_foxguard_refuse() {
+  echo "Foxguard check failed: $2." >&2
+  echo "[pre-push] ERROR: $2; security.foxguardBlock is $1, so the push is refused." >&2
+  echo "[pre-push] ${3:-Install the pinned foxguard: scripts/setup-hooks.sh --install-foxguard} (see docs/security-gates.md)," >&2
+  echo "[pre-push] or only warn in this repository: git config security.foxguardBlock off" >&2
+  return 1
+}
+
+# sec_foxguard_tree <commit> <map-file> <dir>: for each "<src><TAB><dst>" line,
+# the blob of <commit> at <src>, written under <dir> as <dst>. A path the
+# commit lacks, a symlink and a submodule are left out: only regular files are
+# code foxguard should read. Ignore files (.ignore and the like) are never
+# written: foxguard honours .ignore, so a pushed one could hide the files
+# beside it. Inline suppressions ("foxguard: ignore" in a comment, any
+# case) are defused on every side, so a push cannot silence a finding it adds.
+sec_foxguard_tree() {
+  local c="$1" src dst mode
+  mkdir -p "$3" || return 1
+  while IFS=$'\t' read -r src dst; do
+    [[ -n "$src" && -n "$dst" ]] || continue
+    case "/$dst/" in */../*|*/./*|//*) return 1 ;; esac
+    case "${dst##*/}" in .*ignore) continue ;; esac
+    mode="$(git ls-tree --full-tree "$c" -- "$src" 2>/dev/null | cut -d' ' -f1)"
+    [[ "$mode" == 100644 || "$mode" == 100755 ]] || continue
+    mkdir -p "$3/$(dirname "$dst")" && git cat-file blob "$c:$src" > "$3.blob" || return 1
+    # Any case and separator: foxguard 0.14.1 honours only "foxguard: ignore",
+    # a later one may accept more.
+    LC_ALL=C sed -e 's/[Ff][Oo][Xx][Gg][Uu][Aa][Rr][Dd]/f0xguard/g' "$3.blob" > "$3/$dst" || return 1
+  done < "$2"
+}
+
+# sec_foxguard_scan <cmd> <config> <dir> <out> <list>: foxguard on each file
+# of <list> (paths relative to <dir>) present in <dir>, one report per file
+# in the directory <out>. One file at a time: a directory scan never reads
+# hidden paths, and foxguard drops a path it calls noise (vendor/,
+# node_modules/, build/ ...) without a word, so such a file is scanned again
+# from its own directory and <out>/<n>.path keeps its real name. Return 0
+# scanned; 1 failed. Files it skipped for any reason but an unsupported
+# extension (parse error, too large, still noise) are listed in <out>.skipped.
+sec_foxguard_scan() {
+  local rc f x k=0
+  { mkdir -p "$4" && : > "$4.err"; } || return 1
+  while IFS= read -r f; do
+    [[ -n "$f" && -f "$3/$f" ]] || continue
+    k=$((k + 1)); rc=0
+    # shellcheck disable=SC2086  # FOXGUARD_CMD may carry arguments
+    ( cd "$3" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$f" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
+    if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
+      rc=0; printf '%s\n' "$f" > "$4/$k.path"
+      # shellcheck disable=SC2086
+      ( cd "$3/$(dirname "$f")" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "${f##*/}" ) </dev/null >/dev/null 2>"$4.one" || rc=$?
+      # Still noise: the name itself (x.min.js). Scan a copy named <n>.<ext>.
+      if [[ "$rc" -le 1 ]] && grep -q 'noise path' "$4.one"; then
+        rc=0; x="${f##*/}"; x="${x##*.}"
+        { mkdir -p "$4/$k.d" && cat < "$3/$f" > "$4/$k.d/$k.$x"; } || return 1
+        # shellcheck disable=SC2086
+        ( cd "$4/$k.d" && $1 --quiet --format json --output "$4/$k.json" --config "$2" -- "$k.$x" ) </dev/null >/dev/null 2>"$4.two" || rc=$?
+        # Name the copy by its real path in foxguard's messages (a skip is advice).
+        C="$k.$x" R="$f" awk '{ p = "skipping " ENVIRON["C"] " ("; i = index($0, p)
+          if (i) $0 = substr($0, 1, i - 1) "skipping " ENVIRON["R"] " (" substr($0, i + length(p)); print }' "$4.two" > "$4.one" || return 1
+        if grep -q 'noise path' "$4.one"; then printf 'warning: skipping %s (noise path)\n' "$f" >> "$4.one"; fi
+      fi
+    fi
+    { grep "" "$4.one" || true; } >> "$4.err"
+    { [[ "$rc" -eq 0 || "$rc" -eq 1 ]] && [[ -s "$4/$k.json" ]]; } || return 1
+  done < "$5"
+  { grep -E '^warning: skipping .* \(.*\)$' "$4.err" | grep -v '(unsupported extension)$' > "$4.skipped"; } || true
+  return 0
+}
+
+# sec_foxguard_paths <base> <tip> <files> <map>: the paths <tip> adds or changes
+# against <base> (merges and type changes included), appended to <files>, and
+# "<path at base><TAB><path at tip>" for each to <map>, so a renamed file is
+# compared with its old self. No <base>: every file of <tip>. Return 1 when git
+# fails, 2 for a path with a tab or newline (it cannot be named safely).
+sec_foxguard_paths() {
+  local st p old raw="$3.raw"
+  if [[ -n "$1" ]]; then
+    git diff -z --name-status -M --diff-filter=ACMRT "$1" "$2" -- > "$raw" 2>/dev/null || return 1
+  else
+    git ls-tree -r -z --name-only --full-tree "$2" > "$raw" 2>/dev/null || return 1
+  fi
+  while IFS= read -r -d '' st; do
+    if [[ -n "$1" ]]; then
+      case "$st" in
+        R*|C*) IFS= read -r -d '' old || return 1; IFS= read -r -d '' p || return 1 ;;
+        *) IFS= read -r -d '' p || return 1; old="$p" ;;
+      esac
+    else
+      p="$st"; old="$st"
+    fi
+    case "$p$old" in *$'\t'*|*$'\n'*) return 2 ;; esac
+    printf '%s\n' "$p" >> "$3"
+    printf '%s\t%s\n' "$old" "$p" >> "$4"
+  done < "$raw"
+}
+
+# sec_foxguard_push <refs-file> <remote>: foxguard on the files each pushed ref
+# changes, at its tip. A finding at or above the block level that the push
+# introduces refuses it; one below the level, or one already present at the
+# base (the commits next to the push that the target already has), is a
+# warning. With no base known (a bare URL, an unfetched remote), every file of
+# the tip is scanned and every finding counts as new. At level off:
+# sec_foxguard_warn. Any other level fails closed: no foxguard, a failed scan
+# or git command, or a skipped changed file refuses the push.
+sec_foxguard_push() {
+  local level
+  level="$(sec_foxguard_level)" || { echo "Foxguard check failed: invalid block level." >&2; return 1; }
+  if [[ "$level" == off ]]; then sec_foxguard_warn "$@"; return 0; fi
+  sec_foxguard_block "$1" "${2:-}" "$level"
+}
+
+# sec_foxguard_block <refs-file> <remote> <level>: the blocking scan, in a
+# subshell so its temporary directory goes on any exit.
+sec_foxguard_block() (
+  refs="$1"; remote="$2"; level="$3"
+  trap - EXIT HUP INT TERM
+  if ! cmd="$(sec_foxguard_cmd)"; then
+    if ! sec_foxguard_platform_ok; then
+      sec_foxguard_refuse "$level" "foxguard has no binary for $(uname -s) $(uname -m)"; exit 1
+    fi
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_foxguard_refuse "$level" "foxguard is not installed"; exit 1
+    fi
+  fi
+  py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }
+  helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
+  [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing"; exit 1; }
+  # Absolute: the scan runs from inside the tree it writes.
+  tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
+  work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
+  owner="${BASHPID-$$}"
+  trap 'if [[ ${BASHPID-$$} == "$owner" ]]; then rm -rf -- "$work"; fi' EXIT
+  trap 'exit 1' HUP INT TERM
+  n=0; blocked=0; warned=0; nfiles=0
+  while read -r lref lsha rref rsha; do
+    [[ -n "${lsha:-}" ]] || continue
+    [[ "$lsha" =~ ^0+$ ]] && continue
+    n=$((n + 1)); d="$work/$n"; mkdir -p "$d"
+    # The base: the commits next to the pushed ones that the target has.
+    excl=""
+    if [[ ! "${rsha:-0}" =~ ^0+$ ]] && git cat-file -e "${rsha}^{commit}" 2>/dev/null; then
+      excl="$rsha"
+    else
+      excl="$(remote_excludes . "$remote" 2>/dev/null)" || excl=""
+    fi
+    : > "$d/bases"
+    if [[ -n "$excl" ]]; then
+      # shellcheck disable=SC2086  # ids are checked hex, one per word
+      git rev-list --boundary "$lsha" --not $excl > "$d/rev-list" 2>/dev/null \
+        || { sec_foxguard_refuse "$level" "git rev-list failed for $lref"; exit 1; }
+      sed -n -e 's/^-//p' "$d/rev-list" > "$d/all-bases"
+      sed -n 1,8p "$d/all-bases" > "$d/bases"
+      # Nothing new on this ref: the remote has every commit.
+      [[ -s "$d/rev-list" ]] || continue
+    fi
+    # The files to scan, and for each base the path each had there.
+    : > "$d/files"; i=0
+    if [[ -s "$d/bases" ]]; then
+      while IFS= read -r b; do
+        i=$((i + 1)); : > "$d/map$i"
+        rc=0; sec_foxguard_paths "$b" "$lsha" "$d/files" "$d/map$i" || rc=$?
+        case "$rc" in
+          0) ;;
+          2) sec_foxguard_refuse "$level" "$lref changes a path with a tab or newline, which foxguard cannot be pointed at"; exit 1 ;;
+          *) sec_foxguard_refuse "$level" "git could not list the files $lref changes"; exit 1 ;;
+        esac
+      done < "$d/bases"
+    else
+      rc=0; sec_foxguard_paths "" "$lsha" "$d/files" "$d/map0" || rc=$?
+      case "$rc" in
+        0) ;;
+        2) sec_foxguard_refuse "$level" "$lref has a path with a tab or newline, which foxguard cannot be pointed at"; exit 1 ;;
+        *) sec_foxguard_refuse "$level" "git could not list the files of $lref"; exit 1 ;;
+      esac
+    fi
+    LC_ALL=C sort -u "$d/files" -o "$d/files"
+    [[ -s "$d/files" ]] || continue
+    nfiles=$((nfiles + $(wc -l < "$d/files")))
+    awk '{ print $0 "\t" $0 }' "$d/files" > "$d/tipmap"
+    # Each base gets every file of the union, under its path there (the old
+    # name when renamed against that base), so no base copy is missing a file.
+    i=0
+    while IFS= read -r b; do
+      i=$((i + 1))
+      # FILENAME, not NR == FNR: an empty map would swallow the file list.
+      awk -F'\t' 'FILENAME == ARGV[1] { old[$2] = $1; next } { print (($0 in old) ? old[$0] : $0) "\t" $0 }' \
+        "$d/map$i" "$d/files" > "$d/map$i.all" && mv -f "$d/map$i.all" "$d/map$i" \
+        || { sec_foxguard_refuse "$level" "the base file map could not be built"; exit 1; }
+    done < "$d/bases"
+    # One config for every side, the base's: the push being checked must not
+    # bring the config that judges it. No base, or none there: no config.
+    printf '{}\n' > "$d/config"; : > "$d/config.base"; : > "$d/config.tip"
+    cbase="$(sed -n 1p "$d/bases")"
+    for name in .foxguard.yml .foxguard.yaml foxguard.yml foxguard.yaml; do
+      if [[ -n "$cbase" && ! -s "$d/config.base" && "$(git cat-file -t "$cbase:$name" 2>/dev/null)" == blob ]]; then
+        printf '%s\n' "$name" > "$d/config.base"; git cat-file blob "$cbase:$name" >> "$d/config.base"
+        git cat-file blob "$cbase:$name" > "$d/config"
+      fi
+      if [[ ! -s "$d/config.tip" && "$(git cat-file -t "$lsha:$name" 2>/dev/null)" == blob ]]; then
+        printf '%s\n' "$name" > "$d/config.tip"; git cat-file blob "$lsha:$name" >> "$d/config.tip"
+      fi
+    done
+    if ! cmp -s "$d/config.base" "$d/config.tip"; then
+      sec_loud "this push changes the foxguard config; it takes effect only after it lands on the remote. This push is checked with the remote's config."
+    fi
+    sec_foxguard_tree "$lsha" "$d/tipmap" "$d/tip" || { sec_foxguard_refuse "$level" "the pushed files could not be read"; exit 1; }
+    if ! sec_foxguard_scan "$cmd" "$d/config" "$d/tip" "$d/tip.json" "$d/files"; then
+      sed -n 1,3p "$d/tip.json.err" | sed 's/^/[pre-push] foxguard: /' >&2
+      sec_foxguard_refuse "$level" "the foxguard scan failed"; exit 1
+    fi
+    if [[ -s "$d/tip.json.skipped" ]]; then
+      sed 's/^/[pre-push] foxguard: /' "$d/tip.json.skipped" >&2
+      sec_foxguard_refuse "$level" "foxguard skipped $(wc -l < "$d/tip.json.skipped" | tr -d ' ') changed file(s)" \
+        "Fix each file named above (a parse error, or over 1 MB) so foxguard can read it"; exit 1
+    fi
+    set --; i=0
+    while IFS= read -r b; do
+      [[ -n "$b" ]] || continue
+      i=$((i + 1))
+      sec_foxguard_tree "$b" "$d/map$i" "$d/base$i" || continue
+      if sec_foxguard_scan "$cmd" "$d/config" "$d/base$i" "$d/base$i.json" "$d/files"; then
+        set -- "$@" --base "$d/base$i.json"
+      else
+        echo "[pre-push] foxguard: the scan of base ${b:0:12} failed; its findings count as new." >&2
+      fi
+    done < "$d/bases"
+    # Exit 3 is a block; 0 nothing blocks; anything else (a crash too) refuses.
+    rc=0
+    "$py" -I "$helper" --level "$level" --tip "$d/tip.json" ${@+"$@"} < /dev/null > "$d/verdict" || rc=$?
+    case "$rc" in 0|3) ;; *) sec_foxguard_refuse "$level" "the foxguard reports could not be compared"; exit 1 ;; esac
+    if [[ "$rc" -eq 3 ]] && ! grep -q '^BLOCK	' "$d/verdict"; then
+      sec_foxguard_refuse "$level" "the foxguard comparison reported a block it did not list"; exit 1
+    fi
+    while IFS=$'\t' read -r verdict sev loc rule why desc; do
+      if [[ "$verdict" == BLOCK ]]; then
+        blocked=$((blocked + 1))
+        printf '[pre-push] BLOCK (foxguard): %s %s %s (%s): %s\n' "$sev" "$loc" "$rule" "$why" "$desc" >&2
+      else
+        warned=$((warned + 1))
+        printf '[pre-push] WARNING (foxguard): %s %s %s (%s): %s\n' "$sev" "$loc" "$rule" "$why" "$desc" >&2
+      fi
+    done < "$d/verdict"
+  done < "$refs"
+  if [[ "$blocked" -gt 0 ]]; then
+    echo "Foxguard check failed: $blocked new finding(s) at or above $level." >&2
+    sec_loud "foxguard: $blocked new finding(s) at or above $level in the pushed files (above); push refused."
+    echo "[pre-push] Fix them in the commit that added them, or change the level: git config security.foxguardBlock critical|off (see docs/security-gates.md)." >&2
+    exit 1
+  fi
+  if [[ "$warned" -gt 0 ]]; then
+    sec_loud "foxguard: $warned finding(s) below $level or already in the base, in $nfiles changed file(s) (above). They do not block the push."
+  fi
+  exit 0
+)
+
 # sec_pre_push <refs-file> <remote-name> <url>: every security step of a push
 # (git's two pre-push arguments). 1 refuses it.
 sec_pre_push() { sec_guard _sec_pre_push "$@"; }
@@ -587,7 +890,7 @@ _sec_pre_push() {
   sec_scan_output --push-refs "$1" --remote "${2:-}" || return 1
   sec_private_names "$1" "${2:-}" "${3:-}" || return 1
   sec_sensitive_push "$1" "${2:-}" || return 1
-  sec_foxguard_push "$1" "${2:-}"
+  sec_foxguard_push "$1" "${2:-}" || return 1
   return 0
 }
 

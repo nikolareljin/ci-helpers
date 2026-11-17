@@ -21,15 +21,15 @@ for fixture in wp-check-clean wp-check-error; do
   rc=$?
   report="$(cat -- "$work/$fixture/plugin-check.json" 2>/dev/null)"
 
-  case "$fixture:$rc:$report" in
-    wp-check-clean:0:Success:*) echo "clean plugin: exit 0, report: $report" ;;
-    wp-check-error:4:*'"type":"ERROR"'*) echo "plugin with an error: exit 4" ;;
-    *)
-      echo "::error::$fixture: unexpected exit $rc; report: $report" >&2
-      tail -n 20 "$work/$fixture.log" >&2
-      failures=$((failures + 1))
-      ;;
-  esac
+  if [[ "$fixture:$rc:$report" == wp-check-clean:0:Success:* ]]; then
+    echo "clean plugin: exit 0, report: $report"
+  elif [[ "$fixture:$rc" == wp-check-error:4 && "$report" == *'"type":"ERROR"'* ]]; then
+    echo "plugin with an error: exit 4"
+  else
+    echo "::error::$fixture: unexpected exit $rc; report: $report" >&2
+    tail -n 20 "$work/$fixture.log" >&2
+    failures=$((failures + 1))
+  fi
 done
 
 exit $((failures > 0))
