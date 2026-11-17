@@ -152,6 +152,10 @@ ok "unreadable release list creates nothing" not has_call "release create"
 wf="$root/.github/workflows/create-github-release.yml"
 ok "create-github-release asks for auto" grep -q "make_latest=auto" "$wf"
 ok "create-github-release never forces Latest" not grep -q "make_latest=true" "$wf"
+# The tauri dist repo release has its own `gh release create`; without
+# --latest GitHub marks it Latest whatever its version.
+ok "tauri dist release follows this repository's Latest" \
+  grep -q '"--latest=${latest}"' "$root/.github/workflows/tauri-release.yml"
 
 # An existing release is edited, not created; notes and title replace.
 rc=0; run EXISTS=1 TAG_NAME=1.2.3 RELEASE_NAME=Renamed BODY_PATH="$work/notes.md" PRERELEASE=false FILES="$work/dist/a.deb" || rc=$?
