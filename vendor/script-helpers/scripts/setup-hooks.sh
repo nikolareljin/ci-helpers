@@ -55,7 +55,7 @@
 #                 without the current security checks (unscanned=yes below).
 #                 Also sets up again a setup whose hooks directory is gone (broken=yes).
 #                 Nothing to repair: exit 0. Not set up here: exit 1.
-#   --status      Show what is installed, and the prerequisites.
+#   --status      Show what is installed, the foxguard block level, and the prerequisites.
 #   --porcelain   With --status, in a repository: one line of tab-separated key=value
 #                 fields for scripts: mode (chained, direct, none), taken_over (yes,
 #                 no), core_hooksPath, expected, previous, target, claude_repo (yes,
@@ -65,7 +65,10 @@
 #                 an older vendored script-helpers or .githooks, so the current
 #                 security checks do not run; --repair chains them), broken (yes when
 #                 core.hooksPath names a missing directory, or our setup's has no
-#                 pre-push, so no push checks run; --repair sets it up again).
+#                 pre-push, so no push checks run; --repair sets it up again),
+#                 foxguard_block (the pre-push foxguard block level: off,
+#                 critical, high, medium, low; invalid; unknown when
+#                 security_hooks.sh cannot load).
 #                 With --claude, anywhere: claude_user (ok; absent; unknown: no
 #                 Python to read the settings; broken: the script it runs is
 #                 missing; stale: it runs a file outside the installed copy, such
@@ -477,6 +480,15 @@ prereqs() {
   return "$missing"
 }
 
+# foxguard_block_level: the block level the pre-push foxguard step uses here
+# (security_hooks.sh decides it); "invalid" when a setting is not a level,
+# "unknown" when security_hooks.sh cannot load.
+foxguard_block_level() {
+  # shellcheck source=/dev/null
+  ( source "$src_root/scripts/security_hooks.sh" || { echo unknown; exit 0; }
+    sec_foxguard_level 2>/dev/null || echo invalid )
+}
+
 show_global_status() {
   local cur local_path
   cur="$(git config --global --get core.hooksPath 2>/dev/null || true)"
@@ -486,6 +498,13 @@ show_global_status() {
     echo "[setup-hooks] previous global value: $(cat -- "$backup_file" 2>/dev/null || echo '(none saved)')"
   else
     echo "[setup-hooks] global hooks: not active"
+  fi
+  local fox
+  fox="$(foxguard_block_level)"
+  if [[ "$fox" == invalid ]]; then
+    echo "[setup-hooks] foxguard block level: INVALID (git config security.foxguardBlock or SCRIPT_HELPERS_FOXGUARD_BLOCK is not off, critical, high, medium or low); every push is refused"
+  else
+    echo "[setup-hooks] foxguard block level: $fox (new findings at or above it block a push; see docs/security-gates.md)"
   fi
   if git rev-parse --git-dir >/dev/null 2>&1; then
     local_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
@@ -1167,10 +1186,11 @@ if [[ "$STATUS" == true && "$PORCELAIN" == true ]]; then
     f="$repo_root/$(agent_repo_rel "$a")"
     [[ -f "$f" && -n "$PY" ]] && agent_merge status "$a" "$(native_path "$f")" >/dev/null 2>&1 && agents="${agents:+$agents,}$a"
   done
-  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\tunscanned=%s\tbroken=%s\n' \
+  printf 'mode=%s\ttaken_over=%s\tcore_hooksPath=%s\texpected=%s\tprevious=%s\ttarget=%s\tclaude_repo=%s\tglobal=%s\tagents=%s\tunscanned=%s\tbroken=%s\tfoxguard_block=%s\n' \
     "$setup_mode" "$taken_over" "$cur_local" "$setup_expected" \
     "$(git config --local --get script-helpers.previous-hooksPath 2>/dev/null || true)" \
-    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents" "$unscanned" "$broken"
+    "$(git config --local --get script-helpers.hooks-target 2>/dev/null || true)" "$claude_repo" "$global" "$agents" "$unscanned" "$broken" \
+    "$(foxguard_block_level)"
   exit 0
 fi
 if [[ "$REPAIR" == true ]]; then

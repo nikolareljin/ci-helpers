@@ -399,6 +399,7 @@ Release tag guard (`release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.
 - The PR gate only blocks if your branch protection requires its status checks.
 - `check-release-tag` expects branch naming `release/[v]X.Y.Z`, `release/[v]X.Y.Z-rcN`, or `release/[v]X.Y.Z-rc.N`. A tag spelled either way (`X.Y.Z` or `vX.Y.Z`) counts as taken, and with `fetch_tags` (the default) a failed tag fetch fails the step rather than reporting the version as available.
 - `scripts/check_release_version.sh` enforces that `VERSION` matches `release/[v]X.Y.Z[-rcN]` or `release/[v]X.Y.Z[-rc.N]`. A tracked pre-commit hook is available at `.githooks/pre-commit`; enable it locally with `git config core.hooksPath .githooks`.
+- `.githooks/pre-push` runs the vendored security checks. It refuses a push that adds a foxguard finding at `high` or above, and one where foxguard is not installed or skips a changed file (a parse error, over 1 MiB). The level is `git config security.foxguardBlock` (`off`, `critical`, `high`, `medium`, `low`; default `high`); a finding the remote already has is a warning.
 - `scripts/check_workflow_yaml.py` parses every file under `.github/workflows` and `.github/actions`. They are consumed by other repositories, so one that does not parse is a broken release for anyone pinned to it. It also rejects a mapping that repeats a key (PyYAML would silently keep the last one), an empty file, and a file whose top level is not a mapping. It runs in the `workflow-yaml-check` job and in the same pre-commit hook.
 
 ### Runner floor

@@ -268,6 +268,27 @@ jobs:
         shell: bash
         run: bash tests/foxguard_pinned_digest_test.sh
 
+      # The binary the scan actions run: scripts/install_foxguard.sh checks it
+      # against the digest in scanner-pins.env.
+      - name: Install the pinned foxguard for the hook tests
+        id: foxguard
+        shell: bash
+        run: |
+          set -euo pipefail
+          FOXGUARD_VERSION="$(awk -F= '$1 == "FOXGUARD_VERSION" { print $2; exit }' scanner-pins.env)"
+          export FOXGUARD_VERSION
+          bash scripts/install_foxguard.sh
+
+      # FOXGUARD_REQUIRE: without foxguard these tests skip their finding cases.
+      - name: The pre-push hook blocks new foxguard findings
+        shell: bash
+        env:
+          FOXGUARD_CMD: ${{ steps.foxguard.outputs.fg_bin }}
+          FOXGUARD_REQUIRE: "1"
+        run: |
+          set -euo pipefail
+          bash tests/pre_push_foxguard_test.sh
+
       - name: The diff actions review only what a branch adds, and fail closed
         shell: bash
         run: bash tests/scan_diff_test.sh
