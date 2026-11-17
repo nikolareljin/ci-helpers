@@ -50,7 +50,7 @@ case "$want" in
   mise.toml) source_file="$want"; want="$(sed -n 's/^[[:space:]]*ruby[[:space:]]*=[[:space:]]*["'"'"']\([^"'"'"']*\)["'"'"'].*/\1/p' "$want" | head -n 1)" ;;
 esac
 want="${want#ruby-}"
-from="${source_file:+ (from $source_file)}"
+from="${source_file:+" (from $source_file)"}"
 [[ -n "$want" ]] || { echo "::error::RUBY_VERSION is empty$from; name a version such as 3.4 or 3.4.12." >&2; exit 2; }
 [[ "$want" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "::error::RUBY_VERSION '$want'$from is not X, X.Y or X.Y.Z; only CRuby from the tool cache is supported." >&2; exit 2; }
 [[ -z "$source_file" ]] || echo "Using Ruby $want from $source_file"

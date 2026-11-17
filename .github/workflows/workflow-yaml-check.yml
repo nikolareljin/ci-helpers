@@ -280,7 +280,7 @@ jobs:
           bash scripts/install_foxguard.sh
 
       # FOXGUARD_REQUIRE: without foxguard these tests skip their finding cases.
-      - name: The pre-push hook blocks new foxguard findings
+      - name: The pre-push hook blocks new foxguard findings, and foxguard reads every tracked file
         shell: bash
         env:
           FOXGUARD_CMD: ${{ steps.foxguard.outputs.fg_bin }}
@@ -288,6 +288,7 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/pre_push_foxguard_test.sh
+          bash tests/foxguard_parse_test.sh
 
       - name: The diff actions review only what a branch adds, and fail closed
         shell: bash
