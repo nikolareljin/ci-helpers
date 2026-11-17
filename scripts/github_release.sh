@@ -14,8 +14,13 @@
 #   DRAFT                    true|false; empty: a new release is not a draft,
 #                            an existing one is left as it is
 #   PRERELEASE               true|false; same rule
-#   MAKE_LATEST              true|false|legacy; empty: GitHub's default for a
-#                            new release, unchanged for an existing one
+#   MAKE_LATEST              true|false|legacy|auto. auto: Latest only when the
+#                            tag is the highest stable X.Y.Z among the
+#                            repository's published releases (see
+#                            latest_for_tag). Empty: auto for a new,
+#                            non-draft, non-prerelease X.Y.Z release, GitHub's
+#                            default for any other new one, unchanged for an
+#                            existing one
 #   FILES                    glob patterns, one per line, of files to upload
 #   OVERWRITE_FILES          default true: an asset with the same name is
 #                            replaced; false: it is kept and the file skipped
@@ -60,8 +65,8 @@ flag() {  # name -> prints true|false|"" or fails
 draft="$(flag DRAFT)"
 prerelease="$(flag PRERELEASE)"
 case "${MAKE_LATEST:-}" in
-  true|false|legacy|"") ;;
-  *) fail "MAKE_LATEST must be true, false or legacy, got '${MAKE_LATEST}'" ;;
+  true|false|legacy|auto|"") ;;
+  *) fail "MAKE_LATEST must be true, false, legacy or auto, got '${MAKE_LATEST}'" ;;
 esac
 overwrite="${OVERWRITE_FILES:-true}"
 case "$overwrite" in true|false) ;; *) fail "OVERWRITE_FILES must be true or false, got '$overwrite'" ;; esac
@@ -114,6 +119,53 @@ if [ -n "${FILES:-}" ]; then
   shopt -u nullglob
 fi
 
+# Is $1 a higher X.Y.Z than $2? Both already match stable_re. Compared per
+# component as decimal strings: 1.10.0 is above 1.9.0, a leading zero is not
+# read as octal, and no length wraps.
+stable_re='^v?([0-9]+)\.([0-9]+)\.([0-9]+)$'
+semver_gt() {
+  local a="$1" b="$2" i x y LC_ALL
+  local -a pa pb
+  [[ "$a" =~ $stable_re ]]; pa=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}")
+  [[ "$b" =~ $stable_re ]]; pb=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}")
+  for i in 0 1 2; do
+    x="${pa[$i]}"; y="${pb[$i]}"
+    x="${x#"${x%%[!0]*}"}"; x="${x:-0}"
+    y="${y#"${y%%[!0]*}"}"; y="${y:-0}"
+    if [ "${#x}" -ne "${#y}" ]; then
+      [ "${#x}" -gt "${#y}" ]; return
+    fi
+    if [ "$x" != "$y" ]; then
+      # Equal-length digit strings order as their values in the C locale.
+      LC_ALL=C; [[ "$x" > "$y" ]]; return
+    fi
+  done
+  return 1
+}
+
+# Prints true when $tag may be the repository's Latest release, false when a
+# published, non-prerelease release has a higher stable X.Y.Z tag. Release
+# candidates and other tags never count. Publishing 1.0.0 after 1.0.2 exists
+# (a backfill) must not move Latest back to 1.0.0.
+latest_for_tag() {
+  local t other
+  if ! [[ "$tag" =~ $stable_re ]] || [ "$prerelease" = true ] || [ "$draft" = true ]; then
+    echo "::notice::github_release: $tag is not a stable X.Y.Z release; not marking it Latest." >&2
+    echo false; return
+  fi
+  other="$(gh api --paginate "repos/$repo/releases?per_page=100" \
+    -q '.[] | select(.draft == false and .prerelease == false) | .tag_name')" \
+    || fail "could not list the releases of $repo to decide Latest"
+  while IFS= read -r t; do
+    [[ "$t" =~ $stable_re ]] || continue
+    if semver_gt "$t" "$tag"; then
+      echo "::notice::github_release: $t is a higher release than $tag; not marking $tag Latest." >&2
+      echo false; return
+    fi
+  done <<< "$other"
+  echo true
+}
+
 # Is there a release for the tag? gh finds a draft by its tag too. Only
 # "not found" means no; any other failure stops the run.
 err="$(mktemp)"
@@ -126,6 +178,12 @@ if ! existing="$(gh release view "$tag" -R "$repo" --json url 2>"$err")"; then
   existing=""
 fi
 
+latest="${MAKE_LATEST:-}"
+if [ "$latest" = auto ] || { [ -z "$latest" ] && [ -z "$existing" ] && [[ "$tag" =~ $stable_re ]] \
+    && [ "$prerelease" != true ] && [ "$draft" != true ]; }; then
+  latest="$(latest_for_tag)"
+fi
+
 if [ -z "$existing" ]; then
   args=(release create "$tag" -R "$repo" --title "${RELEASE_NAME:-$tag}")
   if [ -n "$body" ]; then
@@ -136,8 +194,8 @@ if [ -z "$existing" ]; then
   [ "$draft" = true ] && args+=(--draft)
   [ "$prerelease" = true ] && args+=(--prerelease)
   [ -n "${TARGET_COMMITISH:-}" ] && args+=(--target "$TARGET_COMMITISH")
-  case "${MAKE_LATEST:-}" in
-    true|false) args+=("--latest=${MAKE_LATEST}") ;;
+  case "$latest" in
+    true|false) args+=("--latest=$latest") ;;
   esac
   # The files go with the create: gh makes a draft, uploads them, then
   # publishes, so an immutable release gets its assets before it locks.
@@ -154,8 +212,8 @@ else
   if [ -n "$draft" ]; then args+=("--draft=$draft"); changes=1; fi
   if [ -n "$prerelease" ]; then args+=("--prerelease=$prerelease"); changes=1; fi
   if [ -n "${TARGET_COMMITISH:-}" ]; then args+=(--target "$TARGET_COMMITISH"); changes=1; fi
-  case "${MAKE_LATEST:-}" in
-    true|false) args+=("--latest=${MAKE_LATEST}"); changes=1 ;;
+  case "$latest" in
+    true|false) args+=("--latest=$latest"); changes=1 ;;
   esac
   if [ "$changes" = 1 ]; then
     echo "Updating release $tag on $repo"

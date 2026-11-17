@@ -23,6 +23,8 @@ fail=0
 [ -f "$script" ] || { echo "FAIL: $script does not exist"; exit 1; }
 
 # Stub gh: records each call, one line per invocation, in $CALLS.
+# RELEASES lists the published stable release tags `api --paginate` returns
+# (the jq filter is the script's; LIST_ERR makes that call fail).
 # EXISTS=1 makes `release view` find the release; ASSETS lists its asset
 # names; VIEW_ERR makes `release view` fail with that text.
 mkdir -p "$work/bin"
@@ -43,6 +45,10 @@ case "$1 $2" in
     exit 0 ;;
   "release create") : > "$CALLS.created"; exit 0 ;;
   "release edit"|"release upload"|"api -X") exit 0 ;;
+  "api --paginate")
+    if [ -n "${LIST_ERR:-}" ]; then echo "$LIST_ERR" >&2; exit 1; fi
+    for r in ${RELEASES:-}; do echo "$r"; done
+    exit 0 ;;
 esac
 echo "unexpected gh call: $*" >&2
 exit 9
@@ -80,12 +86,12 @@ rc=0; run TAG_NAME=1.2.3 RELEASE_NAME="Release 1.2.3" BODY_PATH="$work/notes.md"
 ok "new release exits 0" [ "$rc" = 0 ]
 ok "new release looked up first" has_call "release view 1.2.3 -R owner/repo"
 ok "create with title and notes" has_call "release create 1.2.3 -R owner/repo --title Release 1.2.3 --notes-file $work/notes.md"
-ok "files passed to create" has_call "release create 1.2.3 -R owner/repo --title Release 1.2.3 --notes-file $work/notes.md -- $work/dist/a.deb $work/dist/b.deb"
+ok "files passed to create" has_call "release create 1.2.3 -R owner/repo --title Release 1.2.3 --notes-file $work/notes.md --latest=true -- $work/dist/a.deb $work/dist/b.deb"
 ok "no separate upload on a new release" not has_call "release upload"
 ok "no edit on a new release" not has_call "release edit"
 ok "not a draft unless asked" not has_call "--draft"
 ok "not a prerelease unless asked" not has_call "--prerelease"
-ok "make_latest left to GitHub unless asked" not has_call "--latest"
+ok "first stable release is Latest" has_call "--latest=true"
 ok "url output written" grep -q '^url=https://example.invalid/r/1.2.3$' "$work/gho"
 ok "upload_url output written" grep -q '^upload_url=' "$work/gho"
 
@@ -110,6 +116,42 @@ ok "draft, prerelease, target and latest passed" has_call "release create 4.0.0-
 rc=0; run TAG_NAME=4.0.1 MAKE_LATEST=legacy || rc=$?
 ok "legacy exits 0" [ "$rc" = 0 ]
 ok "legacy set through the API" has_call "api -X PATCH repos/owner/repo/releases/4242 -f make_latest=legacy"
+
+# Latest goes to the highest stable X.Y.Z among the published releases only.
+# Backfilling 1.0.0 after 1.0.2 exists marked 1.0.0 Latest.
+latest_case() {  # name, expected --latest value, env...
+  local name="$1" want="$2"; shift 2
+  local rc=0; run "$@" || rc=$?
+  ok "$name exits 0" [ "$rc" = 0 ]
+  ok "$name: --latest=$want" has_call "--latest=$want"
+}
+latest_case "older tag after a newer one" false TAG_NAME=1.0.0 RELEASES="0.9.0 1.0.2"
+ok "older tag says why" grep -q "1.0.2 is a higher release than 1.0.0" "$work/out"
+latest_case "newest tag" true TAG_NAME=1.0.3 RELEASES="1.0.0 1.0.2"
+latest_case "same tag already released" true TAG_NAME=1.0.2 RELEASES="1.0.0 1.0.2"
+latest_case "numeric, not text, compare" true TAG_NAME=1.10.0 RELEASES="1.9.0 1.2.0"
+latest_case "1.9.0 below 1.10.0" false TAG_NAME=1.9.0 RELEASES="1.10.0"
+latest_case "leading zero is not octal" false TAG_NAME=1.9.0 RELEASES="1.010.0"
+latest_case "v prefix compares" false TAG_NAME=v1.0.0 RELEASES="v1.0.1"
+latest_case "other tags ignored" true TAG_NAME=1.0.0 RELEASES="pkg@9.0.0 2.0.0-rc1 nightly"
+latest_case "auto on a candidate" false TAG_NAME=2.0.0-rc1 MAKE_LATEST=auto RELEASES=""
+latest_case "auto on an existing release" false TAG_NAME=1.0.0 MAKE_LATEST=auto EXISTS=1 RELEASES="1.1.0"
+latest_case "explicit true is kept" true TAG_NAME=1.0.0 MAKE_LATEST=true RELEASES="1.1.0"
+rc=0; run TAG_NAME=1.0.0 PRERELEASE=true RELEASES="1.1.0" || rc=$?
+ok "prerelease with no MAKE_LATEST leaves Latest to GitHub" not has_call "--latest"
+rc=0; run TAG_NAME=1.0.0 EXISTS=1 RELEASES="1.1.0" || rc=$?
+ok "existing release keeps its Latest" not has_call "--latest"
+rc=0; run TAG_NAME=pkg@1.0.0 || rc=$?
+ok "non-semver tag leaves Latest to GitHub" not has_call "--latest"
+rc=0; run TAG_NAME=1.0.0 LIST_ERR="HTTP 502" || rc=$?
+ok "unreadable release list fails" [ "$rc" != 0 ]
+ok "unreadable release list creates nothing" not has_call "release create"
+
+# create-github-release.yml leaves the decision to the script: a stable tag
+# asks for auto, never a fixed true.
+wf="$root/.github/workflows/create-github-release.yml"
+ok "create-github-release asks for auto" grep -q "make_latest=auto" "$wf"
+ok "create-github-release never forces Latest" not grep -q "make_latest=true" "$wf"
 
 # An existing release is edited, not created; notes and title replace.
 rc=0; run EXISTS=1 TAG_NAME=1.2.3 RELEASE_NAME=Renamed BODY_PATH="$work/notes.md" PRERELEASE=false FILES="$work/dist/a.deb" || rc=$?
