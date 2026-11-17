@@ -3475,6 +3475,7 @@ jobs:
         if: ${{ inputs.dist_repo != '' }}
         env:
           GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+          OWN_TOKEN: ${{ github.token }}
           DIST_REPO: ${{ inputs.dist_repo }}
           VERSION: ${{ steps.rel.outputs.tag }}
           NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
@@ -3492,10 +3493,19 @@ jobs:
           else
             notes_args=(--notes "Tauri installer bundles for ${VERSION}.")
           fi
+          # The dist release is Latest only when this repository's release is:
+          # github_release.sh decided that in the step above, so a backfilled
+          # older version does not become Latest in the dist repo either.
+          if ! own_latest="$(GH_TOKEN="${OWN_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}/releases/latest" -q .tag_name)"; then
+            echo "::warning::could not read the Latest release of ${GITHUB_REPOSITORY}; ${VERSION} is not marked Latest in ${DIST_REPO}."
+            own_latest=""
+          fi
+          if [ "${own_latest}" = "${VERSION}" ]; then latest=true; else latest=false; fi
           # Ensure the release exists in the dist repo (idempotent — race-safe)
           if ! gh release view "${VERSION}" --repo "${DIST_REPO}" >/dev/null 2>&1; then
             gh release create "${VERSION}" --repo "${DIST_REPO}" \
               --title "Release ${VERSION}" \
+              "--latest=${latest}" \
               "${notes_args[@]}" \
               || true
           fi

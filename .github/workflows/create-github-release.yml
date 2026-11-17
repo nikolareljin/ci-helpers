@@ -109,16 +109,19 @@ jobs:
           # out, not to be what people land on: left unmarked it would be
           # published as a normal release AND become the repository's "Latest",
           # which is the same mistake as letting a candidate advance a floating
-          # production ref. Both flags are emitted here so the rule has one
-          # definition, and as plain strings rather than an Actions expression
-          # -- `x && 'a' || 'b'` is a trap when either branch can be falsy.
+          # production ref. Both flags are emitted here as plain strings rather
+          # than an Actions expression -- `x && 'a' || 'b'` is a trap when
+          # either branch can be falsy. A stable tag gets make_latest=auto:
+          # github_release.sh marks it Latest only when no published release
+          # has a higher X.Y.Z, so backfilling 1.0.0 after 1.0.2 leaves 1.0.2
+          # as Latest.
           if [ "${tag#*-}" != "$tag" ]; then
             printf 'is_prerelease=true\n'  >> "$GITHUB_OUTPUT"
             printf 'make_latest=false\n'   >> "$GITHUB_OUTPUT"
             echo "::notice::${tag} is a release candidate; publishing it as a pre-release and not marking it Latest."
           else
             printf 'is_prerelease=false\n' >> "$GITHUB_OUTPUT"
-            printf 'make_latest=true\n'    >> "$GITHUB_OUTPUT"
+            printf 'make_latest=auto\n'    >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 @ 2026-09-10
