@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-16 — v1.0.3
+
 ### Fixed
 
 - **A release for an older tag no longer becomes the repository's Latest.** `github_release.sh` takes `MAKE_LATEST=auto` and uses it for every new, non-draft, non-prerelease `X.Y.Z` release when `MAKE_LATEST` is empty: the release is Latest only when no published, non-prerelease release has a higher `X.Y.Z` (numeric per component, so `1.10.0` is above `1.9.0`; candidates and other tags are ignored). `create-github-release.yml` passes `auto` for a stable tag instead of `true`, so backfilling `1.0.0` after `1.0.2` leaves `1.0.2` as Latest; the same rule now applies to every workflow that runs `github_release.sh`. The `tauri-release.yml` distribution repo release is Latest only when this repository's release is. With `auto` on an existing release, the release's own prerelease and draft state counts when the caller leaves `PRERELEASE` or `DRAFT` empty.
