@@ -198,6 +198,7 @@ nav:
           - ci_defaults (module): modules/ci_defaults.md
           - foxguard: modules/foxguard.md
           - gitleaks: modules/gitleaks.md
+          - scanner: modules/scanner.md
       - Media and services:
           - svg: modules/svg.md
           - webshot: modules/webshot.md

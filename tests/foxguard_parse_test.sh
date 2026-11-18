@@ -20,11 +20,7 @@ set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # tests/fixtures/go-new/gonew.go: Go 1.26 new(expr), which is the fixture's point.
-# vendor/script-helpers/templates/packaging/brew/app.rb: an upstream template
-# with @PLACEHOLDER@ lines, not Ruby until it is filled in
-# (https://github.com/nikolareljin/script-helpers/issues/282).
-known="tests/fixtures/go-new/gonew.go
-vendor/script-helpers/templates/packaging/brew/app.rb"
+known="tests/fixtures/go-new/gonew.go"
 
 skip() {
   if [[ "${FOXGUARD_REQUIRE:-0}" == 1 ]]; then echo "FAIL $1 and FOXGUARD_REQUIRE=1" >&2; exit 1; fi

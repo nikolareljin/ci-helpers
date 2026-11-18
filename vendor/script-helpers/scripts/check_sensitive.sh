@@ -558,17 +558,34 @@ findings="$tmp/findings"    # label<TAB>what
 : > "$findings"
 
 # ----------------------------------------------------------------- gitleaks
+# gitleaks_lib <function>: a lib/gitleaks.sh function, in a subshell. Return 1
+# when there is no lib/ beside this copy: no pin, so no gitleaks can be judged.
+gitleaks_lib() {
+  [[ -f "$SELF_DIR/../lib/gitleaks.sh" ]] || return 1
+  # shellcheck source=/dev/null
+  ( set +eu
+    source "$SELF_DIR/../lib/logging.sh" && source "$SELF_DIR/../lib/foxguard.sh" \
+      && source "$SELF_DIR/../lib/gitleaks.sh" || exit 1
+    "$1" )
+}
+
+# gitleaks_bin: GITLEAKS_BIN when set (only it counts, run as given: its
+# version is not checked), else what lib/gitleaks.sh resolves: gitleaks on PATH
+# at the pinned version or newer, else the cached binary of the pinned version.
+# An older gitleaks on PATH is not run: the pinned release is installed into
+# the cache and used (not in CI, nor with SCRIPT_HELPERS_NO_AUTO_INSTALL=1).
+# Return 1 when there is none.
 gitleaks_bin() {
-  local c
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then
     [[ -x "$GITLEAKS_BIN" ]] && { printf '%s\n' "$GITLEAKS_BIN"; return 0; }
     return 1
   fi
-  command -v gitleaks 2>/dev/null && return 0
-  for c in "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/gitleaks/*/gitleaks "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/gitleaks/*/gitleaks.exe; do
-    [[ -x "$c" ]] && { printf '%s\n' "$c"; return 0; }
-  done
-  return 1
+  # stderr (the upgrade message, install progress, the newer-major warning) is
+  # kept and printed with the tag, in order.
+  local rc=0
+  gitleaks_lib gitleaks_resolve 2>"$tmp/gl.resolve" || rc=1
+  sed "s/^/$TAG /" "$tmp/gl.resolve" >&2
+  return "$rc"
 }
 
 # run_gitleaks <kind> <target>: kind is revs, staged or file. Sets found/unchecked.
@@ -651,7 +668,13 @@ if [[ "$USE_GITLEAKS" == true ]]; then
     for f in "${TEXT_FILES[@]+"${TEXT_FILES[@]}"}"; do run_gitleaks file "$f"; done
   else
     unchecked=1
-    echo "$TAG gitleaks is not installed: credentials NOT checked." >&2
+    if [[ -n "${GITLEAKS_BIN:-}" ]]; then
+      echo "$TAG gitleaks is not installed: credentials NOT checked." >&2
+    elif [[ ! -f "$SELF_DIR/../lib/gitleaks.sh" ]]; then
+      echo "$TAG lib/gitleaks.sh was not found, so the minimum gitleaks version is unknown: credentials NOT checked." >&2
+    else
+      echo "$TAG $(gitleaks_lib gitleaks_missing_reason 2>/dev/null || echo "gitleaks is not installed"): credentials NOT checked." >&2
+    fi
     echo "$TAG install the pinned release: bash <script-helpers>/scripts/ci_security.sh --install-gitleaks" >&2
   fi
 fi

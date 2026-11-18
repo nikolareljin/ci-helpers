@@ -8,7 +8,8 @@
 #                                otherwise they are looked up in the repository.
 #   Mandatory publication checks cannot be disabled with environment overrides.
 #   FOXGUARD_CMD                 foxguard command to run (default: the pinned
-#                                binary in the cache, else foxguard on PATH).
+#                                version: its binary in the cache, else a
+#                                foxguard on PATH that reports that version).
 #   SCRIPT_HELPERS_FOXGUARD_BLOCK  foxguard block level: off, critical, high,
 #                                medium or low. With git config
 #                                security.foxguardBlock also set, the stricter
@@ -424,24 +425,51 @@ sec_may_install() {
   [[ -z "${CI:-}" && "${SCRIPT_HELPERS_NO_AUTO_INSTALL:-}" != 1 ]]
 }
 
-# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it.
+# sec_gitleaks_present: gitleaks where check_sensitive.sh looks for it:
+# GITLEAKS_BIN (run as given), else what lib/gitleaks.sh accepts: one on PATH
+# at the pinned version or newer, or the cached pinned binary. An older
+# gitleaks on PATH is not present.
 sec_gitleaks_present() {
   local r
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then [[ -x "$GITLEAKS_BIN" ]]; return; fi
-  command -v gitleaks >/dev/null 2>&1 && return 0
   r="$(sec_lib_root)" || return 1
   # shellcheck source=/dev/null
   ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_bin >/dev/null 2>&1 )
 }
 
-# sec_offer_install <tool> <what it runs>: install the pinned <tool>
+# sec_gitleaks_missing: why sec_gitleaks_present found none, in one line.
+sec_gitleaks_missing() {
+  local r why=""
+  if r="$(sec_lib_root 2>/dev/null)"; then
+    # shellcheck source=/dev/null
+    why="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard gitleaks >/dev/null 2>&1 && gitleaks_missing_reason 2>/dev/null )" || why=""
+  else
+    why="lib/gitleaks.sh was not found, so the minimum gitleaks version is unknown"
+  fi
+  printf '%s' "${why:-gitleaks is not installed}"
+}
+
+# sec_foxguard_newer_note <cmd>: the warning for a foxguard on PATH in a newer
+# breaking series than the pin, on stderr. Nothing for FOXGUARD_CMD.
+sec_foxguard_newer_note() {
+  local r warn=""
+  [[ -z "${FOXGUARD_CMD:-}" ]] || return 0
+  r="$(sec_lib_root 2>/dev/null)" || return 0
+  # shellcheck source=/dev/null
+  warn="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_version_warning "$1" 2>/dev/null )" || warn=""
+  [[ -z "$warn" ]] || echo "[pre-push] $warn" >&2
+  return 0
+}
+
+# sec_offer_install <tool> <what it runs> [<why>]: install the pinned <tool>
 # (downloaded, SHA-256 checked) when sec_may_install allows: 0 = installed.
-# Otherwise, or when the install fails, print how to install it: 1.
+# Otherwise, or when the install fails, print how to install it: 1. <why> is
+# what is wrong now; the default is "<tool> is not installed".
 sec_offer_install() {
   local tool="$1" what="$2" r
   r="$(sec_lib_root 2>/dev/null || true)"
   if [[ -n "$r" ]] && sec_may_install; then
-    echo "[pre-push] $tool is not installed; installing the pinned release to run $what." >&2
+    echo "[pre-push] ${3:-$tool is not installed}; installing the pinned release to run $what." >&2
     # shellcheck source=/dev/null
     if ( source "$r/helpers.sh" && shlib_import logging foxguard gitleaks && "${tool}_install" ) >&2; then
       echo "[pre-push] $tool installed." >&2
@@ -462,7 +490,7 @@ sec_offer_install() {
 # Exit 2 (could not check: gitleaks missing, commits unreadable) refuses the
 # push: a credential scan that did not run is not a clean one.
 sec_sensitive_push() {
-  local refs="$1" remote="${2:-}" gate rc
+  local refs="$1" remote="${2:-}" gate rc why
   gate="$(sec_find check_sensitive.sh)" || {
     sec_unchecked pre-push "check_sensitive.sh not found; credentials and personal data NOT checked"
     return
@@ -474,8 +502,12 @@ sec_sensitive_push() {
     # Only that path counts: an install elsewhere would not be used.
     echo "[pre-push] ERROR: GITLEAKS_BIN is $GITLEAKS_BIN, which is not an executable; the credential scan cannot run." >&2
   elif ! sec_gitleaks_present; then
-    echo "[pre-push] ERROR: gitleaks is not installed; the credential scan cannot run." >&2
-    sec_offer_install gitleaks "the credential scan" || true
+    # An ERROR only when it stays missing: an older gitleaks on PATH that the
+    # pinned release replaces here is not one.
+    why="$(sec_gitleaks_missing)"
+    if ! sec_offer_install gitleaks "the credential scan" "$why"; then
+      echo "[pre-push] ERROR: $why; the credential scan cannot run." >&2
+    fi
   fi
   bash "$gate" --no-inline-allow --push-refs "$refs" --remote "$remote"
   rc=$?
@@ -491,16 +523,29 @@ sec_sensitive_push() {
   esac
 }
 
-# foxguard_cmd: the foxguard to run, or return 1.
+# sec_foxguard_cmd: the foxguard to run: FOXGUARD_CMD, else the pinned release
+# as lib/foxguard.sh finds it (the cached binary of the pinned version, checked
+# against the pinned SHA-256, else one on PATH that reports that version or a
+# newer one). Return 1 when there is none: another cached version is never run,
+# nor an older foxguard on PATH.
 sec_foxguard_cmd() {
-  local c
+  local r
   if [[ -n "${FOXGUARD_CMD:-}" ]]; then printf '%s' "$FOXGUARD_CMD"; return 0; fi
-  for c in "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/foxguard/*/foxguard \
-           "${XDG_CACHE_HOME:-${HOME:-}/.cache}"/script-helpers/foxguard/*/foxguard.exe; do
-    [[ -x "$c" ]] && { printf '%s' "$c"; return 0; }
-  done
-  command -v foxguard 2>/dev/null && return 0
-  return 1
+  r="$(sec_lib_root 2>/dev/null)" || return 1
+  # shellcheck source=/dev/null
+  ( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_bin 2>/dev/null ) || return 1
+}
+
+# sec_foxguard_missing: why sec_foxguard_cmd found none, in one line.
+sec_foxguard_missing() {
+  local r why=""
+  if r="$(sec_lib_root 2>/dev/null)"; then
+    # shellcheck source=/dev/null
+    why="$( source "$r/helpers.sh" >/dev/null 2>&1 && shlib_import logging foxguard >/dev/null 2>&1 && foxguard_missing_reason 2>/dev/null )" || why=""
+  else
+    why="lib/foxguard.sh was not found, so the pinned foxguard version is unknown"
+  fi
+  printf '%s' "${why:-foxguard is not installed}"
 }
 
 # sec_foxguard_platform_ok: foxguard publishes a binary for this machine
@@ -536,11 +581,12 @@ sec_foxguard_warn() {
       sec_loud "the foxguard scan did NOT run: foxguard has no binary for $(uname -s) $(uname -m)."
       return 0
     fi
-    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
-      sec_loud "the foxguard scan did NOT run: foxguard is not installed (see above to install it)."
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" "$(sec_foxguard_missing)" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_loud "the foxguard scan did NOT run: $(sec_foxguard_missing) (see above to install the pinned one)."
       return 0
     fi
   fi
+  sec_foxguard_newer_note "$cmd"
   # The changed files that exist here, in an array: nothing written to disk.
   local files=()
   while IFS= read -r f; do
@@ -748,13 +794,14 @@ sec_foxguard_block() (
     if ! sec_foxguard_platform_ok; then
       sec_foxguard_refuse "$level" "foxguard has no binary for $(uname -s) $(uname -m)"; exit 1
     fi
-    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" && cmd="$(sec_foxguard_cmd)"; }; then
-      sec_foxguard_refuse "$level" "foxguard is not installed"; exit 1
+    if ! { sec_offer_install foxguard "the static-analysis scan of the changed files" "$(sec_foxguard_missing)" && cmd="$(sec_foxguard_cmd)"; }; then
+      sec_foxguard_refuse "$level" "$(sec_foxguard_missing)"; exit 1
     fi
   fi
+  sec_foxguard_newer_note "$cmd"
   py="$(security_python)" || { sec_foxguard_refuse "$level" "no Python 3 to compare foxguard reports"; exit 1; }
   helper="$_SEC_LIB_DIR/foxguard_push_compare.py"
-  [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing"; exit 1; }
+  [[ -f "$helper" ]] || { sec_foxguard_refuse "$level" "foxguard_push_compare.py is missing (rerun setup-hooks.sh to refresh the hook copy)"; exit 1; }
   # Absolute: the scan runs from inside the tree it writes.
   tmp_root="$(cd "${TMPDIR:-/tmp}" && pwd)" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }
   work="$(mktemp -d "$tmp_root/sh-foxguard.XXXXXX")" || { sec_foxguard_refuse "$level" "no temporary directory"; exit 1; }

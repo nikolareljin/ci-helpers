@@ -160,6 +160,9 @@ awk \
     return out s
   }
   {
+    # "#@ " after the indent marks a template line that is not Ruby until it
+    # is filled in; it is a Ruby comment so the template itself parses.
+    if (match($0, /^[ \t]*#@ /)) $0 = substr($0, 1, RLENGTH - 3) substr($0, RLENGTH + 1)
     $0 = subst($0, "@APP_NAME@", APP_NAME)
     $0 = subst($0, "@APP_BIN_NAME@", APP_BIN_NAME)
     $0 = subst($0, "@APP_VERSION@", APP_VERSION)

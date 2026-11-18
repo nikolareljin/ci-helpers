@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SCRIPT: ci_security.sh
 # DESCRIPTION: Run basic security checks (pip-audit/safety/bandit, npm audit, gitleaks, foxguard).
-# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--install-foxguard] [--fail-on-findings]
+# USAGE: scripts/ci_security.sh [--workdir <path>] [--install] [--skip-python] [--skip-node] [--skip-gitleaks] [--skip-foxguard] [--check-foxguard] [--check-gitleaks] [--install-foxguard] [--fail-on-findings]
 # PARAMETERS:
 #   --workdir <path>       Working directory (default: current dir).
 #   --install              Install required tools into current environment.
@@ -9,7 +9,11 @@
 #   --skip-node            Skip Node.js audit.
 #   --skip-gitleaks        Skip gitleaks scan.
 #   --skip-foxguard        Skip the foxguard static-analysis scan.
-#   --check-foxguard       Exit 0 if foxguard is available, 3 if not (for preflight).
+#   --check-foxguard       Exit 0 if foxguard is available, 3 if not, with the
+#                          reason on stderr (for preflight).
+#   --check-gitleaks       Exit 0 if gitleaks is available on the host, 3 if not,
+#                          with the reason on stderr (for preflight). One on PATH
+#                          older than the pinned version is not available.
 #   --install-foxguard     Download the pinned foxguard release binary, check its
 #                          SHA-256 against lib/ci_defaults.sh, cache it, and exit.
 #   --install-gitleaks     Download the pinned gitleaks release, check its SHA-256
@@ -78,6 +82,7 @@ SKIP_FOXGUARD=false
 INSTALL_FOXGUARD=false
 INSTALL_GITLEAKS=false
 CHECK_FOXGUARD=false
+CHECK_GITLEAKS=false
 FAIL_ON_FINDINGS=false
 GITLEAKS_LOG_OPTS=""
 FINDINGS=0
@@ -102,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --skip-foxguard) SKIP_FOXGUARD=true; shift;;
     --install-foxguard) INSTALL_FOXGUARD=true; shift;;
     --check-foxguard) CHECK_FOXGUARD=true; shift;;
+    --check-gitleaks) CHECK_GITLEAKS=true; shift;;
     --install-gitleaks) INSTALL_GITLEAKS=true; shift;;
     --fail-on-findings) FAIL_ON_FINDINGS=true; shift;;
     --gitleaks-log-opts) require_value "$@" || exit 2; GITLEAKS_LOG_OPTS="$2"; shift 2;;
@@ -129,7 +135,8 @@ if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" ]]; then
   security_notice Security
   exit 1
 fi
-if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; exit 3; fi
+if [[ "$CHECK_FOXGUARD" == "true" ]]; then foxguard_bin >/dev/null && exit 0; foxguard_missing_reason >&2; exit 3; fi
+if [[ "$CHECK_GITLEAKS" == "true" ]]; then gitleaks_bin >/dev/null && exit 0; gitleaks_missing_reason >&2; exit 3; fi
 if [[ "$INSTALL_GITLEAKS" == "true" ]]; then gitleaks_install; exit $?; fi
 
 if [[ "$INSTALL_FOXGUARD" == "true" ]]; then
@@ -278,14 +285,12 @@ python_target() {
 run_foxguard() {
   local bin dir top prefix path sub out n config="" rc=0
   local -a args=()
-  if ! bin="$(foxguard_bin)"; then
-    skipped "foxguard not found; skipping. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
+  # An older foxguard on PATH: the pinned release is installed and used.
+  if ! bin="$(foxguard_resolve)"; then
+    skipped "$(foxguard_missing_reason); skipping the foxguard scan. Install the pinned version: bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
     return 0
   fi
   ran
-  if [[ "$("$bin" --version 2>/dev/null)" != "foxguard $CI_DEFAULT_FOXGUARD_VERSION" ]]; then
-    log_warn "foxguard: $bin is not the pinned $CI_DEFAULT_FOXGUARD_VERSION, so results may differ; bash $SCRIPT_DIR/ci_security.sh --install-foxguard"
-  fi
   dir="$(cd "$WORKDIR" && pwd -P)"
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || top="$dir"
   path="$dir"
@@ -424,7 +429,8 @@ else
     fi
   fi
   if [[ "$SKIP_GITLEAKS" == "false" ]]; then
-    if GITLEAKS_BIN="$(gitleaks_bin)"; then
+    # An older gitleaks on PATH: the pinned release is installed and used.
+    if GITLEAKS_BIN="$(gitleaks_resolve)"; then
       # git mode runs from the repository top: the history is the whole
       # repository's anyway, and gitleaks reads .gitleaks.toml and
       # .gitleaksignore from where it runs.
@@ -435,7 +441,7 @@ else
       fi
       ran
     else
-      skipped "gitleaks is not installed; the secret scan did not run. bash $SCRIPT_DIR/ci_security.sh --install-gitleaks"
+      skipped "$(gitleaks_missing_reason); the secret scan did not run. bash $SCRIPT_DIR/ci_security.sh --install-gitleaks"
     fi
   fi
   popd >/dev/null

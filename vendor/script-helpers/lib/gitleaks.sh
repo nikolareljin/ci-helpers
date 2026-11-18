@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# gitleaks: the pinned secret scanner, installed on a host that has none.
+# gitleaks: the pinned secret scanner, installed on a host that has none or
+# an older one.
+#
+# A gitleaks on PATH is used when it reports the pinned version or a newer one
+# (lib/scanner.sh); an older one is passed over for the pinned release in the
+# cache.
 #
 # The release archive for this machine is downloaded, checked against the
 # SHA-256 pinned in ci_defaults, and unpacked into the cache. An archive that
 # does not match the pin is deleted, never unpacked.
 #
 # Expected imports by caller (via shlib_import): logging, foxguard (for
-# foxguard_sha256). ci_defaults is sourced here when the caller has not.
+# foxguard_sha256); the lookups (gitleaks_bin, gitleaks_missing_reason) need
+# neither. ci_defaults and scanner are sourced here.
 #
 # Return codes: 0 success; 1 the operation failed (download, checksum, unpack);
 # 3 not installed, a required tool is missing, or the platform has no binary.
@@ -15,6 +21,8 @@
 # caller's version or checksum overrides are kept and the rest stay pinned.
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/scanner.sh"
 
 # Usage: gitleaks_asset
 # gitleaks_asset; the release archive for this machine, e.g.
@@ -61,22 +69,63 @@ gitleaks_cache_path() {
   local name=gitleaks
   case "$(gitleaks_asset 2>/dev/null)" in *.zip) name=gitleaks.exe ;; esac
   printf '%s/script-helpers/gitleaks/%s/%s\n' \
-    "${XDG_CACHE_HOME:-$HOME/.cache}" "$CI_DEFAULT_GITLEAKS_VERSION" "$name"
+    "${XDG_CACHE_HOME:-${HOME:-}/.cache}" "$CI_DEFAULT_GITLEAKS_VERSION" "$name"
 }
 
 # Usage: gitleaks_bin
-# gitleaks_bin; one on PATH, else the pinned binary in the cache. Returns 3 when
-# there is neither.
-# Returns: 0 found; 3 not on PATH and not in the cache.
+# gitleaks_bin; the gitleaks to run. In this order: one on PATH that reports
+# the pinned version or a newer one of the same major; the pinned binary in the
+# cache; one on PATH of a newer major (gitleaks_version_warning has the
+# warning for it). An older gitleaks on PATH, or one whose version is not
+# [v]X.Y.Z, is never used. gitleaks_missing_reason says why there is none.
+# Returns: 0 found; 3 no usable gitleaks on PATH and none in the cache.
 # Output: stdout the binary path.
 gitleaks_bin() {
-  local cached
-  if command -v gitleaks >/dev/null 2>&1; then
-    command -v gitleaks; return 0
+  local cached="" found="" c dir
+  # Either name in the pinned version's directory: gitleaks_install writes
+  # gitleaks.exe under Git Bash, and uname is not trusted to say which it was.
+  dir="$(dirname "$(gitleaks_cache_path)")"
+  for c in gitleaks gitleaks.exe; do
+    [[ -x "$dir/$c" ]] && { cached="$dir/$c"; break; }
+  done
+  if found="$(scanner_path_bin gitleaks)"; then
+    if [[ -z "$cached" ]] || ! scanner_path_breaking gitleaks; then
+      printf '%s\n' "$found"; return 0
+    fi
   fi
-  cached="$(gitleaks_cache_path)"
-  [[ -x "$cached" ]] && { printf '%s\n' "$cached"; return 0; }
+  [[ -n "$cached" ]] && { printf '%s\n' "$cached"; return 0; }
   return 3
+}
+
+# Usage: gitleaks_missing_reason
+# gitleaks_missing_reason; one line saying why gitleaks_bin finds none: the
+# gitleaks on PATH is older than the pin or reports no usable version, or there
+# is none at all.
+# Returns: always 0.
+# Output: stdout the reason, without a trailing full stop.
+gitleaks_missing_reason() {
+  scanner_path_reason gitleaks || printf 'gitleaks is not installed\n'
+}
+
+# Usage: gitleaks_version_warning [<bin>]
+# gitleaks_version_warning [<bin>]; the warning for running <bin> (default:
+# gitleaks_bin) when it is a gitleaks on PATH of a newer major than the pin.
+# Returns: always 0.
+# Output: stdout one line, or nothing.
+gitleaks_version_warning() {
+  local bin="${1:-}"
+  [[ -n "$bin" ]] || bin="$(gitleaks_bin)" || return 0
+  scanner_version_warning gitleaks "$bin"
+}
+
+# Usage: gitleaks_resolve
+# gitleaks_resolve; gitleaks_bin, and when the gitleaks on PATH is older than
+# the pin, the pinned release is installed into the cache first (not in CI, nor
+# with SCRIPT_HELPERS_NO_AUTO_INSTALL=1) and used. See scanner_resolve.
+# Returns: 0 found; 3 none, and none could be installed.
+# Output: stdout the binary path; stderr the upgrade message, install progress and the newer-major warning.
+gitleaks_resolve() {
+  scanner_resolve gitleaks
 }
 
 # Usage: gitleaks_install
