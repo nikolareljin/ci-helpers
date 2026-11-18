@@ -1,4 +1,4 @@
-![script-helpers: reusable Bash and PowerShell helpers. 45 Bash modules, 31 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
+![script-helpers: reusable Bash and PowerShell helpers. 46 Bash modules, 31 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash and PowerShell helpers. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
@@ -255,7 +255,8 @@ Loader and modules
 - `ci_stack.sh`: disposable database containers for a CI run: start, wait until ready, remove.
 - `docker_install.sh`: install Docker Engine (Linux) or Docker Desktop (macOS, Windows); `ensure_docker`.
 - `foxguard.sh`: find, install and verify the pinned foxguard scanner.
-- `gitleaks.sh`: install the pinned gitleaks secret scanner.
+- `gitleaks.sh`: find and install the pinned gitleaks secret scanner.
+- `scanner.sh`: which gitleaks or foxguard on `PATH` may run: the pinned version or newer.
 - `serve.sh`: serve a static site directory for preview. CLI: `bin/serve-pages`.
 - `service.sh`: start, stop, status, logs and readiness for a repository's services, through docker compose or as native processes.
 - `docs_site.sh`: build, serve, preview and check a repository's documentation site with MkDocs.

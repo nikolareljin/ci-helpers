@@ -13,7 +13,7 @@
 #   1  Findings (written to the file).
 #   2  Usage or git error, the report could not be written, or a file could not
 #      be scanned (listed under "errors").
-#   3  foxguard not installed and not installable here.
+#   3  The pinned foxguard is not installed and not installable here.
 # EXAMPLE:
 #   bash scripts/script-helpers/scripts/foxguard_report.sh --base origin/main
 # ----------------------------------------------------
@@ -45,14 +45,16 @@ done
 source "$src_root/helpers.sh"
 shlib_import logging foxguard
 if ! bin="$(foxguard_bin)"; then
-  if [[ -n "${CI:-}" || "${SCRIPT_HELPERS_NO_AUTO_INSTALL:-}" == 1 ]]; then
-    echo "[foxguard_report] foxguard is not installed (not installing: CI or SCRIPT_HELPERS_NO_AUTO_INSTALL=1). See docs/security-gates.md." >&2
+  if ! scanner_may_install; then
+    echo "[foxguard_report] $(foxguard_missing_reason) (not installing: CI or SCRIPT_HELPERS_NO_AUTO_INSTALL=1). To install the pinned one see docs/security-gates.md." >&2
     exit 3
   fi
-  echo "[foxguard_report] foxguard is not installed; installing the pinned release." >&2
+  echo "[foxguard_report] $(foxguard_missing_reason); installing the pinned release." >&2
   foxguard_install >&2 || exit 3
   bin="$(foxguard_bin)" || exit 3
 fi
+warn="$(foxguard_version_warning "$bin")" || warn=""
+[[ -z "$warn" ]] || echo "[foxguard_report] $warn" >&2
 
 if [[ ${#paths[@]} -eq 0 ]]; then
   if [[ -z "$base" ]]; then

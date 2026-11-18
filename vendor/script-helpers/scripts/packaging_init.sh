@@ -313,6 +313,9 @@ render_template() {
       return out s
     }
     {
+      # In a .rb template, "#@ " after the indent marks a line that is not Ruby
+      # until it is filled in; as a comment it keeps the template parseable.
+      if (FILENAME ~ /\.rb$/ && match($0, /^[ \t]*#@ /)) $0 = substr($0, 1, RLENGTH - 3) substr($0, RLENGTH + 1)
       $0 = subst($0, "@APP_NAME@", APP_NAME)
       $0 = subst($0, "@APP_BIN_NAME@", APP_BIN_NAME)
       $0 = subst($0, "@APP_TITLE@", APP_TITLE)

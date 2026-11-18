@@ -231,7 +231,7 @@ jobs:
         with:
           persist-credentials: false
           repository: nikolareljin/script-helpers
-          ref: d46da49247f6046fbb607d420a795576aa9879ca # 0.66.0
+          ref: d3a5061e0be0d231a82021f055052d1766ab79ae # 0.67.0
           path: .script-helpers
           fetch-depth: 1
 

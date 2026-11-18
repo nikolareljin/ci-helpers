@@ -59,6 +59,55 @@ version_compare() {
   fi
 }
 
+# Usage: _version__strict <version>; internal parser for exactly [v]X.Y.Z.
+# Sets _VERSION_MAJOR, _VERSION_MINOR and _VERSION_PATCH. Nothing else is a
+# version here: no prerelease or build suffix, no fourth segment, no text.
+# Prints nothing and needs no other module.
+_version__strict() {
+  local v="${1:-}" a b c rest
+  v="${v#[vV]}"
+  case "$v" in ''|*[!0-9.]*|.*|*.|*..*) return 1 ;; esac
+  IFS=. read -r a b c rest <<< "$v"
+  [[ -n "${a:-}" && -n "${b:-}" && -n "${c:-}" && -z "${rest:-}" ]] || return 1
+  # Nine digits at most: more overflows nothing here and is no release number.
+  [[ ${#a} -le 9 && ${#b} -le 9 && ${#c} -le 9 ]] || return 1
+  # Base 10 forced: a leading zero is octal to arithmetic otherwise.
+  _VERSION_MAJOR=$((10#${a})); _VERSION_MINOR=$((10#${b})); _VERSION_PATCH=$((10#${c}))
+}
+
+# Usage: version_at_least <version> <minimum>
+# version_at_least <version> <minimum>; true when <version> is <minimum> or
+# newer. Both must be exactly [v]X.Y.Z: a prerelease (8.31.0-rc1), a dev build
+# string or empty text is not a version, and is never "at least" anything.
+# Returns: 0 at least the minimum; 1 older; 3 either one is not [v]X.Y.Z.
+# Output: nothing.
+version_at_least() {
+  local a b c
+  _version__strict "${1:-}" || return 3
+  a="$_VERSION_MAJOR"; b="$_VERSION_MINOR"; c="$_VERSION_PATCH"
+  _version__strict "${2:-}" || return 3
+  if (( a != _VERSION_MAJOR )); then (( a > _VERSION_MAJOR )) && return 0; return 1; fi
+  if (( b != _VERSION_MINOR )); then (( b > _VERSION_MINOR )) && return 0; return 1; fi
+  (( c >= _VERSION_PATCH )) && return 0
+  return 1
+}
+
+# Usage: version_same_series <version_a> <version_b>
+# version_same_series <version_a> <version_b>; true when semver promises no
+# breaking change between the two: the same MAJOR from 1.0.0 on (8.30.1 and
+# 8.44.0), the same MINOR below it (0.14.1 and 0.14.9, not 0.15.0).
+# Returns: 0 same series; 1 another series; 3 either one is not [v]X.Y.Z.
+# Output: nothing.
+version_same_series() {
+  local a b
+  _version__strict "${1:-}" || return 3
+  a="$_VERSION_MAJOR"; b="$_VERSION_MINOR"
+  _version__strict "${2:-}" || return 3
+  (( a == _VERSION_MAJOR )) || return 1
+  (( a > 0 || b == _VERSION_MINOR )) && return 0
+  return 1
+}
+
 # Usage: version_project_root
 # The caller's project root: the top of the git work tree holding the cwd, or
 # the cwd outside git. When that work tree is a script-helpers checkout vendored

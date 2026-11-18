@@ -325,9 +325,17 @@ function Invoke-ScanStep {
     log_info "preflight: $Label"
     $skipFile = New-TemporaryFile
     $env:PREFLIGHT_SKIP_FILE = $skipFile.FullName
+    # ci_security.sh installs nothing here: a scanner this run reported as SKIP
+    # must not be downloaded and run after all.
+    $savedNoInstall = $env:SCRIPT_HELPERS_NO_AUTO_INSTALL
+    $env:SCRIPT_HELPERS_NO_AUTO_INSTALL = '1'
     $rc = 1
     try { & $BashPath @ScanArgs; $rc = $LASTEXITCODE } catch { $rc = 1 }
-    finally { Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue }
+    finally {
+        Remove-Item Env:PREFLIGHT_SKIP_FILE -ErrorAction SilentlyContinue
+        if ($null -eq $savedNoInstall) { Remove-Item Env:SCRIPT_HELPERS_NO_AUTO_INSTALL -ErrorAction SilentlyContinue }
+        else { $env:SCRIPT_HELPERS_NO_AUTO_INSTALL = $savedNoInstall }
+    }
     $reason = Get-Content $skipFile.FullName -TotalCount 1 -ErrorAction SilentlyContinue
     Remove-Item $skipFile.FullName -ErrorAction SilentlyContinue
     if ($rc -eq 0) { $Results.Add("PASS  $Label") }
@@ -352,18 +360,42 @@ function Check-Security {
     if ($SecurityOnly) { $common += '--fail-on-findings'; $suffix = '' }
     $repoArgs = @('--workdir', '.', '--skip-python', '--skip-node')
     $haveGitleaks = $true; $haveFoxguard = $true
-    if (-not $Docker -and -not (Get-Command gitleaks -ErrorAction SilentlyContinue)) {
+    # ci_security.sh knows which gitleaks counts: one on PATH at the pinned
+    # version or newer, or the cached pinned binary. An older one does not.
+    # As preflight.sh: a missing or older scanner is replaced by the pinned
+    # release (SHA-256 checked, into the cache); PREFLIGHT_NO_INSTALL=1 turns
+    # it off, and a failed install (offline) is a SKIP below.
+    $mayInstall = ($env:PREFLIGHT_NO_INSTALL -ne '1')
+    $gitleaksOk = $true
+    if (-not $Docker) {
+        $why = (& $bash.Source $script --check-gitleaks 2>&1 | Out-String).Trim()
+        $gitleaksOk = ($LASTEXITCODE -eq 0)
+        if (-not $gitleaksOk -and $mayInstall) {
+            log_info "preflight: $why; installing the pinned release"
+            & $bash.Source $script --install-gitleaks
+            if ($LASTEXITCODE -ne 0) { log_warn 'preflight: gitleaks install failed' }
+            & $bash.Source $script --check-gitleaks *> $null
+            $gitleaksOk = ($LASTEXITCODE -eq 0)
+        }
+    }
+    if (-not $gitleaksOk) {
         $repoArgs += '--skip-gitleaks'
         log_warn 'This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or use -Docker.'
         # In the summary too: without it, "PASS  security scan" read as if secrets
         # had been scanned.
-        Add-Skip 'gitleaks secret scan' 'gitleaks is not installed - install it, or use -Docker'
+        Add-Skip 'gitleaks secret scan' "no gitleaks at the pinned version or newer - bash $script --install-gitleaks, or use -Docker"
         $haveGitleaks = $false
     }
     # foxguard runs on the host in both modes; ci_security.sh knows where it looks.
-    & $bash.Source $script --check-foxguard *> $null
+    $why = (& $bash.Source $script --check-foxguard 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -and $mayInstall) {
+        log_info "preflight: $why; installing the pinned release"
+        & $bash.Source $script --install-foxguard
+        if ($LASTEXITCODE -ne 0) { log_warn 'preflight: foxguard install failed' }
+        & $bash.Source $script --check-foxguard *> $null
+    }
     if ($LASTEXITCODE -ne 0) {
-        Add-Skip 'foxguard code scan' "foxguard is not installed; bash $script --install-foxguard"
+        Add-Skip 'foxguard code scan' "no foxguard at the pinned version or newer; bash $script --install-foxguard"
         $haveFoxguard = $false
     }
     # The repository-wide part: the secret scan and foxguard; see check_security

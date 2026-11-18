@@ -96,7 +96,7 @@ fi
 
 # Security steps, before anything else and before a repository's own hook:
 # private names (block) -> credentials, personal identifiers, PII (block) ->
-# foxguard (warnings only). See scripts/security_hooks.sh.
+# foxguard (blocking at its level). See scripts/security_hooks.sh.
 _hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Before the checks, while it can still help: an SSH push idle during long
 # checks is cut off after they pass.

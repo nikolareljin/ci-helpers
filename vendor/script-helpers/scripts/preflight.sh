@@ -739,11 +739,11 @@ check_security() {
   # PREFLIGHT_NO_INSTALL=1 turns it off; a failed install (offline) is a SKIP.
   if [[ "${PREFLIGHT_NO_INSTALL:-}" != "1" ]]; then
     if [[ "$USE_DOCKER" == "false" ]] && ! gitleaks_bin >/dev/null; then
-      log_info "preflight: gitleaks is not installed; installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
+      log_info "preflight: $(gitleaks_missing_reason); installing the pinned $CI_DEFAULT_GITLEAKS_VERSION"
       gitleaks_install || log_warn "preflight: gitleaks install failed"
     fi
     if ! foxguard_bin >/dev/null; then
-      log_info "preflight: foxguard is not installed; installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
+      log_info "preflight: $(foxguard_missing_reason); installing the pinned $CI_DEFAULT_FOXGUARD_VERSION"
       foxguard_install || log_warn "preflight: foxguard install failed"
     fi
   fi
@@ -753,18 +753,21 @@ check_security() {
     log_warn "This is the one check the weekly scheduled sweep exists to backstop. Install gitleaks, or run with --docker."
     # In the summary too: without it, "PASS  security scan" read as if secrets
     # had been scanned.
-    skip_step "gitleaks secret scan" "gitleaks is not installed - bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
+    skip_step "gitleaks secret scan" "$(gitleaks_missing_reason) - bash $scanner --install-gitleaks, $(install_hint gitleaks gitleaks), or run with --docker"
     have_gitleaks=false
   fi
   # foxguard runs on the host in both modes; there is no image of it.
   if ! foxguard_bin >/dev/null; then
-    skip_step "foxguard code scan" "foxguard is not installed; bash $scanner --install-foxguard"
+    skip_step "foxguard code scan" "$(foxguard_missing_reason); bash $scanner --install-foxguard"
     have_foxguard=false
   fi
   # The repository-wide part: the secret scan and foxguard. Not run when both are
-  # missing; the two SKIP lines above already say so.
+  # missing; the two SKIP lines above already say so. The scanner script
+  # installs nothing itself: what could be installed was, above, and a scanner
+  # reported as SKIP here must not be downloaded and run after all.
+  local -a scan=(env SCRIPT_HELPERS_NO_AUTO_INSTALL=1 bash "$scanner")
   if [[ "$SECURITY_ONLY" == "true" ]]; then
-    [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}"
+    [[ "$have_gitleaks" == "true" || "$have_foxguard" == "true" ]] && run_step "security scan" "${scan[@]}" "${common[@]+"${common[@]}"}" "${args[@]}"
   else
     # A secret blocks the push in every mode: report only, a gitleaks finding
     # printed a WARN and the push went out. Git mode, so a fixture in a vendored
@@ -777,9 +780,9 @@ check_security() {
     # HEAD fails and the scan with it.
     local log_opts="--branches --tags --not --remotes"
     git -C "$PROJECT_DIR" rev-parse -q --verify HEAD >/dev/null 2>&1 && log_opts="HEAD $log_opts"
-    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" \
+    [[ "$have_gitleaks" == "true" ]] && run_step "secret scan" "${scan[@]}" "${common[@]+"${common[@]}"}" "${args[@]}" \
       --skip-foxguard --fail-on-findings --gitleaks-log-opts "$log_opts"
-    [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" bash "$scanner" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
+    [[ "$have_foxguard" == "true" ]] && run_step "foxguard code scan$suffix" "${scan[@]}" "${common[@]+"${common[@]}"}" "${args[@]}" --skip-gitleaks
   fi
   # The dependency audits, one step per project, in the project's directory. At
   # the root only, a repository with backend/ and frontend/ got gitleaks alone

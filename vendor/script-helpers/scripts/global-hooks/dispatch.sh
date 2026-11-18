@@ -127,7 +127,9 @@ if [[ "$in_scope" == true ]]; then
       if [[ "$deletions_only" == false ]]; then
         (cd "$top" && sec_pre_push "$checks_file" "${1:-}" "${2:-}") || exit 1
         # Hygiene and lint of what the push changes, as the bundled pre-push does.
-        if [[ "$owner_in_scope" == true && -f "$base/push_checks.sh" ]]; then
+        if [[ "$owner_in_scope" == true ]]; then
+          # A copy without it is broken: refuse rather than skip the checks.
+          [[ -f "$base/push_checks.sh" ]] || { echo "[script-helpers] global hooks: push_checks.sh missing from $install_dir; rerun setup-hooks.sh; refused." >&2; exit 1; }
           # shellcheck source=/dev/null
           (cd "$top" && source "$base/push_checks.sh" && push_checks "$checks_file" "${1:-}" "${2:-}" && push_tests) || exit 1
           # A chained script-helpers pre-push skips the same checks for this

@@ -105,7 +105,7 @@ jobs:
           # Carries check_changelog_section.sh (used below) and
           # check_release_tag.sh. scripts/check_script_helpers_pins.sh refuses
           # a tree where this pin and vendor/.script-helpers-sha disagree.
-          ref: d46da49247f6046fbb607d420a795576aa9879ca # 0.66.0
+          ref: d3a5061e0be0d231a82021f055052d1766ab79ae # 0.67.0
           path: .script-helpers
           fetch-depth: 1
 
