@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-18 — v1.0.5
+
 ### Changed
 
 - **`vendor/script-helpers` 0.66.0 -> 0.67.0**, and the 16 workflow `ref:` pins with it. A gitleaks or foxguard on PATH older than the pin is no longer used; outside CI the pinned release is installed into the cache, in CI it is refused. No workflow changes: `publication-check` and `install-publication-hooks.sh` install the pinned gitleaks themselves and pass it as `GITLEAKS_BIN`, and the foxguard actions use `scripts/install_foxguard.sh`. The vendored brew template now parses, so `tests/foxguard_parse_test.sh` no longer lists `templates/packaging/brew/app.rb` as a known skip (the test fails until it is removed).
