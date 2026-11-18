@@ -150,6 +150,16 @@ jobs:
         shell: bash
         run: python3 scripts/check_supply_chain_pins.py
 
+      # One commit per action repository: Dependabot bumps each file and
+      # sub-action in its own PR, so a partial merge splits the pin.
+      - name: Action pin consistency check reports what it must
+        shell: bash
+        run: bash tests/action_pin_consistency_test.sh
+
+      - name: Every action repository is pinned at one commit
+        shell: bash
+        run: python3 scripts/check_action_pin_consistency.py
+
       - name: fpc-release verifies appimagetool and its runtime
         shell: bash
         run: bash tests/fpc_appimage_verify_test.sh
