@@ -110,7 +110,7 @@ jobs:
       security-events: write
     runs-on: ubuntu-latest
     steps:
-      - uses: Github/CodeQL-Action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+      - uses: Github/CodeQL-Action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
 YAML
 
 expect "indented docker run in if" 1 "docker: container run or create without an @sha256: image" <<'YAML'
@@ -441,7 +441,7 @@ jobs:
         with:
           persist-credentials: "false"
       - uses: nikolareljin/ci-helpers/.github/workflows/x.yml@production
-      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
   report:
     needs: scan
     permissions:
