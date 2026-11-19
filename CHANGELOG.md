@@ -2,7 +2,7 @@
 
 ### Changed
 
-- **`github/codeql-action` v4.39.1 -> v4.39.3** (`33d7b85da1a04171e211befe2c739303b9a4c066`, the tag's commit) for `init` and `analyze` in `codeql-scan.yml` and `upload-sarif` in `trivy-scan.yml` and `.github/actions/trivy-scan/action.yml`. New `scripts/check_action_pin_consistency.py` fails when one action repository is pinned at two commits across `.github` (sub-actions and case folded together; comments and block scalars such as `run: |` fixtures skipped). Dependabot opens one PR per file, so merging only some of them splits the pin. Test: `tests/action_pin_consistency_test.sh`; both run by `workflow-yaml-check.yml`.
+- **`github/codeql-action` v4.39.1 -> v4.39.3** (`33d7b85da1a04171e211befe2c739303b9a4c066`, the tag's commit) for `init` and `analyze` in `codeql-scan.yml` and `upload-sarif` in `trivy-scan.yml` and `.github/actions/trivy-scan/action.yml`. New `scripts/check_action_pin_consistency.py` fails when one action repository is pinned at two commits across `.github` (sub-actions and case folded together). It parses each file with PyYAML and reads every `uses` key, flow style and multi-line scalars included, so comments and `run: |` fixtures are never read as pins; a file that does not parse exits 2. Dependabot opens one PR per file, so merging only some of them splits the pin. Test: `tests/action_pin_consistency_test.sh`; both run by `workflow-yaml-check.yml`.
 
 ## 2026-11-18 — v1.0.5
 

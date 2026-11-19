@@ -10,13 +10,16 @@ and `github/codeql-action/upload-sarif` must name the same commit. Dependabot
 opens one PR per file and sub-action; merging some of them leaves the rest on
 the old commit, and nothing else notices.
 
-Comment lines and lines inside block scalars (`run: |`, `>-`, ...) are
-ignored, so a fixture a step writes to disk is not read as a pin. Refs that are not a 40-hex sha are not compared.
+Files are parsed with PyYAML and every mapping key `uses` with a string value
+is read, at any depth (`jobs.*.uses`, `jobs.*.steps[*].uses`, composite
+`runs.steps[*].uses`, flow style included). Comments and block-scalar text such
+as `run: |` fixtures are never read as pins. Refs that are not a 40-hex sha
+are not compared.
 
 EXIT_CODES:
   0  every action repository is pinned at one commit
   1  at least one repository is pinned at two or more commits
-  2  the tree could not be read
+  2  the tree could not be read or a file is not valid YAML
 """
 from __future__ import annotations
 
@@ -25,12 +28,30 @@ import re
 import sys
 from pathlib import Path
 
-USES = re.compile(
-    r"^\s*(?:-\s+)?uses:\s*['\"]?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:/[^@\s'\"]*)?@([0-9a-fA-F]{40})\b"
-)
-# A mapping value that opens a block scalar: `key: |`, `- run: >-`, `x: |2+ # c`.
-# Group 1 ends at the key, so a sibling key under `- note: |` ends the block.
-BLOCK = re.compile(r"^(\s*(?:-\s+)*)[^#\s][^#]*:\s+[|>][0-9+-]*\s*(?:#.*)?$")
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    print("PyYAML is required", file=sys.stderr)
+    sys.exit(2)
+
+USES = re.compile(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:/[^@\s]*)?@([0-9a-fA-F]{40})")
+
+
+def uses_nodes(node):
+    """Yield every scalar value node whose mapping key is `uses`."""
+    stack, seen = [node], set()
+    while stack:
+        n = stack.pop()
+        if id(n) in seen:  # an alias can point back at its own anchor
+            continue
+        seen.add(id(n))
+        if isinstance(n, yaml.MappingNode):
+            for k, v in n.value:
+                if isinstance(k, yaml.ScalarNode) and k.value == "uses" and isinstance(v, yaml.ScalarNode):
+                    yield v
+                stack.append(v)
+        elif isinstance(n, yaml.SequenceNode):
+            stack.extend(n.value)
 
 
 def main() -> int:
@@ -45,27 +66,20 @@ def main() -> int:
     files = sorted(p for p in gh.rglob("*") if p.suffix in (".yml", ".yaml") and p.is_file())
     for path in files:
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError) as exc:
+            docs = list(yaml.compose_all(path.read_text(encoding="utf-8"), Loader=yaml.SafeLoader))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
             print(f"error: {path}: {exc}", file=sys.stderr)
             return 2
-        block: int | None = None  # indent of the key that opened a block scalar
-        for n, line in enumerate(lines, 1):
-            indent = len(line) - len(line.lstrip(" "))
-            if block is not None:
-                if not line.strip() or indent > block:
+        for doc in docs:
+            if doc is None:
+                continue
+            for v in uses_nodes(doc):
+                m = USES.fullmatch(v.value.strip())
+                if not m:
                     continue
-                block = None
-            b = BLOCK.match(line)
-            if b:
-                block = len(b.group(1))
-                continue
-            m = USES.match(line)
-            if not m:
-                continue
-            repo, sha = m.group(1).lower(), m.group(2).lower()
-            where = f"{path.relative_to(args.root)}:{n}"
-            pins.setdefault(repo, {}).setdefault(sha, []).append(where)
+                repo, sha = m.group(1).lower(), m.group(2).lower()
+                where = f"{path.relative_to(args.root)}:{v.start_mark.line + 1}"
+                pins.setdefault(repo, {}).setdefault(sha, []).append(where)
     bad = 0
     for repo in sorted(pins):
         if len(pins[repo]) < 2:

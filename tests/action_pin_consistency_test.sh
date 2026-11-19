@@ -2,7 +2,9 @@
 # SCRIPT: action_pin_consistency_test.sh
 # DESCRIPTION: scripts/check_action_pin_consistency.py passes on this tree,
 #              refuses one action repository at two commits (sub-actions and
-#              case differences included) and ignores comments and tags.
+#              case differences included, flow style and continued scalars),
+#              ignores comments, tags and block-scalar text, and exits 2 on
+#              YAML that does not parse.
 # USAGE: bash tests/action_pin_consistency_test.sh
 # ----------------------------------------------------
 set -euo pipefail
@@ -115,6 +117,43 @@ runs:
   steps:
     - uses: github/codeql-action/analyze@$A # was |
     - uses: github/codeql-action/analyze@$B
+YAML
+expect "flow-style step" 1 "action.yml:3" <<YAML
+runs:
+  steps:
+    - {name: x, uses: github/codeql-action/analyze@$B}
+YAML
+expect "plain scalar continued on the next line" 1 "action.yml:4" <<YAML
+runs:
+  steps:
+    - uses:
+        github/codeql-action/analyze@$B
+YAML
+expect "single-quoted with trailing comment" 1 "github/codeql-action is pinned at 2 commits" <<YAML
+runs:
+  steps:
+    - name: a
+      uses: 'github/codeql-action/analyze@$B' # v2
+YAML
+expect "uses as a value, not a key" 0 "" <<YAML
+runs:
+  steps:
+    - name: "uses: github/codeql-action/analyze@$B"
+      env:
+        X: uses github/codeql-action/analyze@$B
+YAML
+expect "unparseable YAML" 2 "action.yml" <<YAML
+runs:
+  steps: [
+YAML
+expect "anchor and recursive alias" 1 "github/codeql-action is pinned at 2 commits" <<YAML
+loop: &l
+  self: *l
+runs:
+  steps:
+    - &s
+      uses: github/codeql-action/analyze@$B
+    - *s
 YAML
 expect "other repository" 0 "" <<YAML
 runs:
