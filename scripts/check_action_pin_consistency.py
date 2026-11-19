@@ -10,7 +10,8 @@ and `github/codeql-action/upload-sarif` must name the same commit. Dependabot
 opens one PR per file and sub-action; merging some of them leaves the rest on
 the old commit, and nothing else notices.
 
-Comment lines are ignored. Refs that are not a 40-hex sha are not compared.
+Comment lines and lines inside block scalars (`run: |`, `>-`, ...) are
+ignored, so a fixture a step writes to disk is not read as a pin. Refs that are not a 40-hex sha are not compared.
 
 EXIT_CODES:
   0  every action repository is pinned at one commit
@@ -27,6 +28,8 @@ from pathlib import Path
 USES = re.compile(
     r"^\s*(?:-\s+)?uses:\s*['\"]?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:/[^@\s'\"]*)?@([0-9a-fA-F]{40})\b"
 )
+# A mapping value that opens a block scalar: `key: |`, `- run: >-`, `x: |2+ # c`.
+BLOCK = re.compile(r"^(\s*)(?:-\s+)*[^#\s][^#]*:\s+[|>][0-9+-]*\s*(?:#.*)?$")
 
 
 def main() -> int:
@@ -45,7 +48,17 @@ def main() -> int:
         except (OSError, UnicodeDecodeError) as exc:
             print(f"error: {path}: {exc}", file=sys.stderr)
             return 2
+        block: int | None = None  # indent of the key that opened a block scalar
         for n, line in enumerate(lines, 1):
+            indent = len(line) - len(line.lstrip(" "))
+            if block is not None:
+                if not line.strip() or indent > block:
+                    continue
+                block = None
+            b = BLOCK.match(line)
+            if b:
+                block = indent
+                continue
             m = USES.match(line)
             if not m:
                 continue

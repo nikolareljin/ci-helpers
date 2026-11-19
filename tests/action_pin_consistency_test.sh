@@ -61,6 +61,24 @@ runs:
   steps:
     - uses: github/codeql-action/analyze@v4
 YAML
+expect "fixture inside a run block scalar" 0 "" <<YAML
+runs:
+  steps:
+    - run: |
+        cat > fixture.yml <<'EOF'
+        - uses: github/codeql-action/analyze@$B
+        EOF
+    - run: >-
+        uses: github/codeql-action/analyze@$B
+    - uses: github/codeql-action/analyze@$A
+YAML
+expect "pin after a run block still checked" 1 "github/codeql-action is pinned at 2 commits" <<YAML
+runs:
+  steps:
+    - run: |
+        echo hi
+    - uses: github/codeql-action/analyze@$B
+YAML
 expect "other repository" 0 "" <<YAML
 runs:
   steps:
