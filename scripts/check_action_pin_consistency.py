@@ -29,7 +29,8 @@ USES = re.compile(
     r"^\s*(?:-\s+)?uses:\s*['\"]?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:/[^@\s'\"]*)?@([0-9a-fA-F]{40})\b"
 )
 # A mapping value that opens a block scalar: `key: |`, `- run: >-`, `x: |2+ # c`.
-BLOCK = re.compile(r"^(\s*)(?:-\s+)*[^#\s][^#]*:\s+[|>][0-9+-]*\s*(?:#.*)?$")
+# Group 1 ends at the key, so a sibling key under `- note: |` ends the block.
+BLOCK = re.compile(r"^(\s*(?:-\s+)*)[^#\s][^#]*:\s+[|>][0-9+-]*\s*(?:#.*)?$")
 
 
 def main() -> int:
@@ -57,7 +58,7 @@ def main() -> int:
                 block = None
             b = BLOCK.match(line)
             if b:
-                block = indent
+                block = len(b.group(1))
                 continue
             m = USES.match(line)
             if not m:
@@ -73,6 +74,8 @@ def main() -> int:
         print(f"{repo} is pinned at {len(pins[repo])} commits:")
         for sha, places in sorted(pins[repo].items()):
             print(f"  {sha}: {', '.join(places)}")
+    if bad:
+        print("fix: pin every use of each repository above to the same commit")
     return bad
 
 

@@ -79,6 +79,43 @@ runs:
         echo hi
     - uses: github/codeql-action/analyze@$B
 YAML
+expect "sibling key after a list-item block scalar" 1 "github/codeql-action is pinned at 2 commits" <<YAML
+runs:
+  matrix:
+    include:
+      - note: |
+          x
+        uses: github/codeql-action/analyze@$B
+YAML
+expect "with script block, blank lines, comment, dedent" 1 "action.yml:9" <<YAML
+runs:
+  steps:
+    - with:
+        script: |2
+          uses: github/codeql-action/analyze@$B
+
+        # still text
+      # a comment at lower indent
+    - uses: github/codeql-action/analyze@$B
+YAML
+expect "nested block scalars and description >-" 0 "" <<YAML
+description: >-
+  uses: github/codeql-action/analyze@$B
+runs:
+  steps:
+    - run: |
+        x: |
+          uses: github/codeql-action/analyze@$B
+        - uses: github/codeql-action/analyze@$B
+    - uses: github/codeql-action/analyze@$A # pinned | not a block
+    - uses: github/codeql-action/upload-sarif@$A
+YAML
+expect "pipe in trailing comment of a pin" 1 "action.yml:4" <<YAML
+runs:
+  steps:
+    - uses: github/codeql-action/analyze@$A # was |
+    - uses: github/codeql-action/analyze@$B
+YAML
 expect "other repository" 0 "" <<YAML
 runs:
   steps:
@@ -87,6 +124,12 @@ YAML
 
 rc=0; python3 "$check" --root "$work/none" > "$work/out" 2>&1 || rc=$?
 [ "$rc" = 2 ] || { echo "FAIL missing .github: exit $rc, expected 2"; fail=1; }
+
+# CRLF line endings
+rm -rf "$work/c"; mkdir -p "$work/c/.github/workflows"
+printf 'jobs:\r\n  a:\r\n    steps:\r\n      - run: |\r\n          echo\r\n      - uses: o/r@%s\r\n      - uses: o/r@%s\r\n' "$A" "$B" > "$work/c/.github/workflows/w.yml"
+rc=0; python3 "$check" --root "$work/c" > "$work/out" 2>&1 || rc=$?
+[ "$rc" = 1 ] || { echo "FAIL CRLF: exit $rc, expected 1"; cat "$work/out"; fail=1; }
 
 [ "$fail" = 0 ] && echo "PASS action_pin_consistency_test"
 exit "$fail"
