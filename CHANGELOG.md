@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-20 — v1.0.6
+
 ### Changed
 
 - **`vendor/script-helpers` 0.67.0 -> 0.67.1**, and the 16 workflow `ref:` pins with it. Release downloads (`gitleaks_install`, `foxguard_install`, `download_file`) retry transient network errors through the new `lib/fetch.sh` and name the host and reason when they fail, so `install-publication-hooks.sh --ci` no longer fails on one dropped connection. No workflow changes: the workflows copy all of `lib/` beside the hook scripts, so `lib/fetch.sh` arrives with `lib/gitleaks.sh` and `lib/foxguard.sh`. New vendored files `lib/fetch.sh`, `ps/lib/fetch.ps1`, `ps/tests/fetch_test.ps1`.
