@@ -4,6 +4,13 @@
 # These functions provide equivalent interactive prompts using Read-Host
 # and Write-Host, matching the Bash API surface as closely as possible.
 
+# fetch.ps1 beside this file; under Import-ScriptHelpers $PSScriptRoot is empty
+# (the module runs from a script block), so the loader's lib directory is used.
+if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
+    $_shlibFetchDir = if ($PSScriptRoot) { $PSScriptRoot } else { $_SHLIB_LIB_DIR }
+    if ($_shlibFetchDir) { . (Join-Path $_shlibFetchDir 'fetch.ps1') }
+}
+
 # Usage: dialog_input [-Title <t>] [-Prompt <p>] [-Default <value>]
 # Returns: the typed value, or Default when the reply is empty.
 # Output: host the title and prompt.
@@ -61,9 +68,9 @@ function dialog_password {
 # Output: a progress bar; throws when the download fails.
 function dialog_download_file {
     param([string]$Url, [string]$Output, [string]$Title = 'Downloading')
-    Write-Progress -Activity $Title -Status "Downloading $Url"
-    $iwrArgs = @{ Uri = $Url; OutFile = $Output }
-    if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-    Invoke-WebRequest @iwrArgs | Out-Null
+    Write-Progress -Activity $Title -Status "Downloading $(fetch_url_display $Url)"
+    # Retried; a failure deletes the partial file and says why (fetch.ps1).
+    $rc = fetch_to_file -Label 'dialog_download_file' -Url $Url -OutFile $Output
     Write-Progress -Activity $Title -Completed
+    if ($rc -ne 0) { throw "dialog_download_file: download failed: $(fetch_url_display $Url)" }
 }

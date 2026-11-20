@@ -196,6 +196,7 @@ nav:
           - package_publish: modules/package_publish.md
           - git_branches: modules/git_branches.md
           - ci_defaults (module): modules/ci_defaults.md
+          - fetch: modules/fetch.md
           - foxguard: modules/foxguard.md
           - gitleaks: modules/gitleaks.md
           - scanner: modules/scanner.md

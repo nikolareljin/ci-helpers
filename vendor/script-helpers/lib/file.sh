@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # File/dir and checksum helpers
 
+# download_file retries with fetch_curl_retry_args, from fetch.sh beside this file.
+if ! declare -F fetch_curl_retry_args >/dev/null 2>&1 && [[ -f "$(dirname "${BASH_SOURCE[0]}")/fetch.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
+fi
+
 # Usage: command_exists <command>; returns 0 when command is available.
 # Returns: 0 on PATH (or a function/builtin); 1 not found.
 # Output: nothing.
@@ -80,7 +86,8 @@ download_file() {
   fi
 
   # Fallback to curl/wget without dialog
-  local rc=0 part um
+  local rc=0 part um a
+  local -a retry=()
   if ! command_exists curl && ! command_exists wget; then
     print_error "Neither curl nor wget is installed."
     return 1
@@ -95,10 +102,27 @@ download_file() {
   if command_exists curl; then
     # -sS: silent progress, show errors only. -f: an HTTP error is a failure;
     # without it a 404 page was saved as the download and returned 0.
-    curl --max-time 3600 -f -sS -L -o "$part" "$url" || rc=$?
+    # Retried on transient errors; see lib/fetch.sh.
+    # Redirects keep to the URL's scheme (fetch_curl_proto_args).
+    if declare -F fetch_curl_retry_args >/dev/null 2>&1; then
+      while IFS= read -r a; do retry+=("$a"); done < <(fetch_curl_retry_args; fetch_curl_proto_args "$url")
+    else
+      retry=(--retry 3 --retry-delay 2)
+    fi
+    curl --max-time 3600 -f -sS -L "${retry[@]}" -o "$part" "$url" || rc=$?
   else
-    # -q: quiet output
-    wget -q --timeout=3600 -O "$part" "$url" || rc=$?
+    # fetch_wget_args: retry a 503. For an https URL, fetch_wget_follow follows
+    # redirects to https only (wget --https-only does not cover one file).
+    if declare -F fetch_wget_args >/dev/null 2>&1; then
+      while IFS= read -r a; do retry+=("$a"); done < <(fetch_wget_args)
+    fi
+    if [[ "$url" == [Hh][Tt][Tt][Pp][Ss]://* ]] && declare -F fetch_wget_follow >/dev/null 2>&1; then
+      # stderr dropped, as wget -q below: wget's messages can quote the URL.
+      FETCH_MAX_TIME=3600 fetch_wget_follow "$url" "$part" --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} 2>/dev/null || rc=$?
+    else
+      # -q: quiet output
+      wget -q --timeout=3600 --tries=3 --waitretry=2 ${retry[@]+"${retry[@]}"} -O "$part" "$url" || rc=$?
+    fi
   fi
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$part"

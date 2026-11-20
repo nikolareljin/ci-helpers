@@ -18,8 +18,8 @@
 # one-line installer writes, or `brew services start ollama`) is left to the
 # machine's owner, and said in the message.
 #
-# Expected imports by caller (via shlib_import): logging. ci_defaults is sourced
-# here when the caller has not imported it.
+# Expected imports by caller (via shlib_import): logging. ci_defaults and
+# fetch are sourced here.
 #
 # Return codes, used by every function in this module:
 #   0  installed, or already there at the pinned version or newer
@@ -30,6 +30,8 @@
 # caller's version or checksum overrides are kept and the rest stay pinned.
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
 
 # Usage: ollama_install_asset; prints the release asset name for this machine
 # (ollama-linux-amd64.tar.zst, ollama-linux-arm64.tar.zst, ollama-darwin.tgz).
@@ -256,9 +258,8 @@ ollama_install() {
   tmpdir="$(mktemp -d)" || return 1
   url="${base%/}/v${version}/${asset}"
   log_info "Downloading Ollama $version ($asset)."
-  if ! curl -fSL --progress-bar -o "$tmpdir/$asset" "$url"; then
+  if ! FETCH_MAX_TIME=3600 fetch_to_file ollama_install "$url" "$tmpdir/$asset"; then
     rm -rf -- "$tmpdir"
-    log_error "ollama_install: download failed: $url"
     return 1
   fi
   if ! got="$(ollama_install_sha256 "$tmpdir/$asset")"; then

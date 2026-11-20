@@ -7,8 +7,8 @@
 # on PATH is used when it reports the pinned version or a newer one
 # (lib/scanner.sh); an older one is passed over.
 #
-# Expected imports by caller (via shlib_import): logging. ci_defaults and
-# scanner are sourced here.
+# Expected imports by caller (via shlib_import): logging. ci_defaults,
+# scanner and fetch are sourced here.
 #
 # Return codes, used by every function in this module:
 #   0  success
@@ -22,6 +22,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/scanner.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
 
 # The file names foxguard reads its configuration from, in each directory from
 # the scan path upward. Measured on 0.14.1: all four are read.
@@ -199,20 +201,14 @@ foxguard_sha256() {
 # Returns: 0 installed; 1 mkdir, mktemp, download, checksum or move failed; 3 no binary for this platform, or curl/wget or a SHA-256 tool is missing.
 # Output: stdout nothing; stderr progress and errors.
 foxguard_install() {
-  local asset want got dest tmp url
+  local asset want got dest tmp url rc
   asset="$(foxguard_asset)" || { log_error "foxguard: no release binary for $(uname -s) $(uname -m)"; return 3; }
   want="$(foxguard_expected_sha256 "$asset")" || return 3
   dest="$(foxguard_cache_path)"
   url="https://github.com/0sec-labs/foxguard/releases/download/v${CI_DEFAULT_FOXGUARD_VERSION}/${asset}"
   mkdir -p "$(dirname "$dest")" || return 1
   tmp="$(mktemp "$(dirname "$dest")/.download.XXXXXX")" || return 1
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url" || { rm -f -- "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -T 60 -O "$tmp" "$url" || { rm -f -- "$tmp"; log_error "foxguard: download failed: $url"; return 1; }
-  else
-    rm -f -- "$tmp"; log_error "foxguard: curl or wget is needed to download it"; return 3
-  fi
+  fetch_to_file foxguard "$url" "$tmp" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
   got="$(foxguard_sha256 "$tmp")" || { rm -f -- "$tmp"; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
     rm -f -- "$tmp"
