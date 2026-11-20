@@ -12,7 +12,7 @@
 #
 # Expected imports by caller (via shlib_import): logging, foxguard (for
 # foxguard_sha256); the lookups (gitleaks_bin, gitleaks_missing_reason) need
-# neither. ci_defaults and scanner are sourced here.
+# neither. ci_defaults, scanner and fetch are sourced here.
 #
 # Return codes: 0 success; 1 the operation failed (download, checksum, unpack);
 # 3 not installed, a required tool is missing, or the platform has no binary.
@@ -23,6 +23,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/ci_defaults.sh"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/scanner.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/fetch.sh"
 
 # Usage: gitleaks_asset
 # gitleaks_asset; the release archive for this machine, e.g.
@@ -134,20 +136,14 @@ gitleaks_resolve() {
 # Returns: 0 installed; 1 mkdir, mktemp, download, checksum, unpack or move failed; 3 no binary for this platform, or curl/wget or a SHA-256 tool is missing.
 # Output: stdout nothing; stderr progress and errors.
 gitleaks_install() {
-  local asset want got dest dir tmp url
+  local asset want got dest dir tmp url rc
   asset="$(gitleaks_asset)" || { log_error "gitleaks: no release binary for $(uname -s) $(uname -m)"; return 3; }
   want="$(gitleaks_expected_sha256 "$asset")" || return 3
   dest="$(gitleaks_cache_path)"; dir="$(dirname "$dest")"
   url="https://github.com/gitleaks/gitleaks/releases/download/${CI_DEFAULT_GITLEAKS_VERSION}/${asset}"
   mkdir -p "$dir" || return 1
   tmp="$(mktemp -d "$dir/.download.XXXXXX")" || return 1
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp/$asset" "$url" || { rm -rf -- "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -T 60 -O "$tmp/$asset" "$url" || { rm -rf -- "$tmp"; log_error "gitleaks: download failed: $url"; return 1; }
-  else
-    rm -rf -- "$tmp"; log_error "gitleaks: curl or wget is needed to download it"; return 3
-  fi
+  fetch_to_file gitleaks "$url" "$tmp/$asset" || { rc=$?; rm -rf -- "$tmp"; return "$rc"; }
   got="$(foxguard_sha256 "$tmp/$asset")" || { rm -rf -- "$tmp"; log_error "gitleaks: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
     rm -rf -- "$tmp"

@@ -1,5 +1,12 @@
 # File and directory helpers - PowerShell companion to lib/file.sh.
 
+# fetch.ps1 beside this file; under Import-ScriptHelpers $PSScriptRoot is empty
+# (the module runs from a script block), so the loader's lib directory is used.
+if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
+    $_shlibFetchDir = if ($PSScriptRoot) { $PSScriptRoot } else { $_SHLIB_LIB_DIR }
+    if ($_shlibFetchDir) { . (Join-Path $_shlibFetchDir 'fetch.ps1') }
+}
+
 # Usage: command_exists -Name <command>
 # Returns: $true when the command resolves (cmdlet, function, alias or executable), else $false.
 # Output: none.
@@ -38,7 +45,7 @@ function create_directory {
 
 # Usage: download_file -Url <url> [-Output <path>]   (default: the URL's file name)
 # Returns: $true on success, $false on failure.
-# Output: host the "Downloading" line; error stream on failure.
+# Output: host the "Downloading" line; stderr the reason on failure.
 function download_file {
     param(
         [Parameter(Mandatory)][string]$Url,
@@ -48,15 +55,11 @@ function download_file {
         if (-not $Output) {
             $Output = [System.IO.Path]::GetFileName(([uri]$Url).LocalPath)
         }
-        Write-Host "[script-helpers] Downloading $Url -> $Output"
-        $iwrArgs = @{ Uri = $Url; OutFile = $Output; ErrorAction = 'Stop' }
-        if ($PSVersionTable.PSVersion.Major -lt 6) { $iwrArgs['UseBasicParsing'] = $true }
-        # Suppress the response object and the noisy PS progress bar; callers get $true/$false only.
-        $prev = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
-        try { Invoke-WebRequest @iwrArgs | Out-Null } finally { $ProgressPreference = $prev }
-        return $true
+        Write-Host "[script-helpers] Downloading $(fetch_url_display $Url) -> $Output"
+        # Retried; a failure deletes the partial file and says why (fetch.ps1).
+        return ((fetch_to_file -Label 'download_file' -Url $Url -OutFile $Output) -eq 0)
     } catch {
-        Write-Error "download_file: failed to download '$Url': $_"
+        Write-Error "download_file: failed to download '$(fetch_url_display $Url)'"
         return $false
     }
 }

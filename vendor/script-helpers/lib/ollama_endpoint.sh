@@ -23,6 +23,31 @@
 # LC_ALL=C in both rules: in other locales [A-Za-z] takes accented letters.
 _ollama_ep_is_name() { local LC_ALL=C; [[ "${1:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
 
+# Usage: _ollama_ep_trim <var> <text>; sets <var> to <text> without leading
+# and trailing whitespace, as `sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'`
+# would print it, but without starting sed: under Git Bash each process costs
+# tens of milliseconds. Text with a newline still goes through sed, which trims
+# each line.
+_ollama_ep_trim() {
+  local _oep_t_text="${2:-}"
+  case "$_oep_t_text" in
+    *$'\n'*)
+      _oep_t_text="$(printf '%s' "$_oep_t_text" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+      printf -v "$1" '%s' "$_oep_t_text"
+      return 0
+      ;;
+  esac
+  _oep_t_text="${_oep_t_text#"${_oep_t_text%%[![:space:]]*}"}"
+  printf -v "$1" '%s' "${_oep_t_text%"${_oep_t_text##*[![:space:]]}"}"
+}
+
+# Usage: _ollama_ep_squeeze <var> <text>; sets <var> to <text> with every
+# space, tab, CR and LF removed, as `tr -d ' \t\r\n'` would, without starting tr.
+_ollama_ep_squeeze() {
+  local _oep_t_text="${2:-}" _oep_t_ws=$' \t\r\n'
+  printf -v "$1" '%s' "${_oep_t_text//[$_oep_t_ws]/}"
+}
+
 # True for a valid model reference: letters, digits and . _ - / : only, and no
 # "..". Checked before the model is put into a URL or a JSON string.
 # "@" is not allowed. It would mean credentials (user:secret@registry/model),
@@ -132,7 +157,7 @@ _ollama_ep_check_overrides() {
   # The names come in on fd 3: stdin stays the person's, for the answer below.
   while IFS= read -r _oep_name <&3; do
     [[ -n "$_oep_name" ]] && _ollama_ep_is_name "$_oep_name" || continue
-    _oep_value="$(printf '%s' "${!_oep_name:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+    _ollama_ep_trim _oep_value "${!_oep_name:-}"
     [[ -n "$_oep_value" ]] || continue
     _oep_approved="" _oep_ok=1
     for _oep_col in "" _SMALL _LARGE _XLARGE; do
@@ -240,18 +265,26 @@ _ollama_ep_said() {
 # Returns: 0 (also when the file or NAME is absent); 2 NAME not a variable name.
 # Output: stdout the value and a newline (empty line when NAME is absent; nothing when the file is missing).
 ollama_models_file_get() {
-  local file="${1:-}" name="${2:-}" value bom=$'\xef\xbb\xbf'
+  local file="${1:-}" name="${2:-}" value="" line first=1 bom=$'\xef\xbb\xbf' re
   _ollama_ep_is_name "$name" || return 2
   [[ -f "$file" ]] || return 0
-  # Remove a byte-order mark (some editors add one at the start of a file).
-  # With it, the first variable in the file was never found.
-  value="$(sed -n -E "1s/^${bom}//; s/^[[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n 1)" || true
+  # Read in the shell, not with sed and tail: under Git Bash every process
+  # costs tens of milliseconds, and this runs once per name.
+  re="^([[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=[[:space:]]*)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Remove a byte-order mark (some editors add one at the start of a file).
+    # With it, the first variable in the file was never found.
+    if [[ -n "$first" ]]; then line="${line#"$bom"}"; first=""; fi
+    if [[ "$line" =~ $re ]]; then value="${line:${#BASH_REMATCH[1]}}"; fi
+  done <"$file"
   value="${value%$'\r'}"
   case "$value" in
     \"*\"*) value="${value#\"}"; value="${value%%\"*}" ;;
     \'*\'*) value="${value#\'}"; value="${value%%\'*}" ;;
     *)
-      value="$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')" || true
+      # A space before "#" starts a comment. Expansions, not sed: see _ollama_ep_trim.
+      value="${value%%[[:space:]]#*}"
+      value="${value%"${value##*[![:space:]]}"}"
       ;;
   esac
   printf '%s\n' "$value"
@@ -851,7 +884,7 @@ ollama_model_for_class() {
     print_error "Not a variable name: $(_ollama_ep_said "$_oep_name")" >&2
     return 2
   fi
-  _oep_value="$(printf '%s' "${!_oep_name:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+  _ollama_ep_trim _oep_value "${!_oep_name:-}"
   if [[ -n "$_oep_value" ]]; then
     printf '%s\n' "$_oep_value"
     return 0
@@ -1253,7 +1286,7 @@ ollama_endpoint_ensure_models() {
 ollama_endpoint_base_url() {
   local LC_ALL=C
   local _oep_value="${1:-}" _oep_scheme _oep_rest _oep_authority _oep_path="" _oep_hostport _oep_user="" _oep_host _oep_port=""
-  _oep_value="$(printf '%s' "$_oep_value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')" || true
+  _ollama_ep_trim _oep_value "$_oep_value"
   [[ -n "$_oep_value" ]] || return 1
   [[ "$_oep_value" != *[[:space:][:cntrl:]]* ]] || return 1
   case "$_oep_value" in
@@ -1529,7 +1562,7 @@ ollama_env_file_export() {
   done
   [[ -f "$_oep_file" ]] || return 0
   for _oep_name in "$@"; do
-    _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+    _ollama_ep_squeeze _oep_value "${!_oep_name:-}"
     [[ -z "$_oep_value" ]] || continue
     _oep_value="$(ollama_models_file_get "$_oep_file" "$_oep_name")" || true
     [[ -n "$_oep_value" ]] || continue
@@ -1664,7 +1697,7 @@ ollama_project_ensure_models() (
   done <<<"$_oep_models"
 
   for _oep_name in $_oep_vars; do
-    _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+    _ollama_ep_squeeze _oep_value "${!_oep_name:-}"
     [[ -n "$_oep_value" ]] || continue
     if ! _oep_url="$(ollama_endpoint_base_url "${!_oep_name}")"; then
       # The value is not shown. It could not be read as an address, so what
@@ -1715,7 +1748,7 @@ ollama_project_ensure_models() (
           exit 9
         fi
         for _oep_name in OLLAMA_PORT OLLAMA_HOST_PORT; do
-          _oep_value="$(printf '%s' "${!_oep_name:-}" | tr -d ' \t\r\n')" || true
+          _ollama_ep_squeeze _oep_value "${!_oep_name:-}"
           [[ -n "$_oep_value" ]] || continue
           # A typo here would send the pull to whatever listens on the
           # address's own port: on many machines, the native Ollama.
@@ -1787,7 +1820,7 @@ ollama_project_ensure_models() (
       _oep_status=4
     else
       _oep_missing="$(ollama_models_missing "$_oep_models" "$_oep_present")"
-      _oep_value="$(printf '%s' "${OLLAMA_PULL_MISSING:-}" | tr -d ' \t\r\n')" || true
+      _ollama_ep_squeeze _oep_value "${OLLAMA_PULL_MISSING:-}"
       if [[ -z "$_oep_value" ]]; then
         _oep_unasked=1
         export OLLAMA_PULL_MISSING=0
@@ -1861,7 +1894,7 @@ ollama_project_ensure_models() (
 # environment, else from env_file (read as data). Blank is not set.
 _ollama_ep_setting() {
   local _oep_value
-  _oep_value="$(printf '%s' "${!1:-}" | tr -d ' \t\r\n')" || true
+  _ollama_ep_squeeze _oep_value "${!1:-}"
   if [[ -n "$_oep_value" ]]; then
     printf '%s' "${!1}"
     return 0

@@ -10,7 +10,7 @@
 #
 # Function names mirror the Bash module so the docs are shared.
 #
-# Requires: logging, ci_defaults
+# Requires: logging, ci_defaults, fetch (ci_defaults and fetch are dot-sourced here)
 #
 # Return codes (as the Bash module): 0 installed or already there at the pinned
 # version or newer; 1 the download failed or does not match the pinned SHA-256;
@@ -18,6 +18,12 @@
 
 if (-not $env:CI_DEFAULT_OLLAMA_VERSION) {
     . (Join-Path $PSScriptRoot 'ci_defaults.ps1')
+}
+# fetch.ps1 beside this file; under Import-ScriptHelpers $PSScriptRoot is empty
+# (the module runs from a script block), so the loader's lib directory is used.
+if (-not (Get-Command fetch_to_file -ErrorAction SilentlyContinue)) {
+    $_shlibFetchDir = if ($PSScriptRoot) { $PSScriptRoot } else { $_SHLIB_LIB_DIR }
+    if ($_shlibFetchDir) { . (Join-Path $_shlibFetchDir 'fetch.ps1') }
 }
 
 # ollama_install_asset: the release zip for this machine, or $null.
@@ -126,13 +132,7 @@ function ollama_install {
         $zip = Join-Path $tmp $asset
         $url = "$($base.TrimEnd('/'))/v$version/$asset"
         log_info "Downloading Ollama $version ($asset)."
-        try {
-            $prev = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -ErrorAction Stop
-        } catch {
-            log_error "ollama_install: download failed: $url"
-            return 1
-        } finally { $ProgressPreference = $prev }
+        if ((fetch_to_file -Label 'ollama_install' -Url $url -OutFile $zip) -ne 0) { return 1 }
         $got = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($got -ne $want) {
             log_error "ollama_install: $asset $version does not match the pinned SHA-256 (got $got, want $want); nothing was installed."

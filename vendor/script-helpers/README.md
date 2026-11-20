@@ -1,4 +1,4 @@
-![script-helpers: reusable Bash and PowerShell helpers. 46 Bash modules, 31 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
+![script-helpers: reusable Bash and PowerShell helpers. 47 Bash modules, 32 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash and PowerShell helpers. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
@@ -60,6 +60,7 @@ PowerShell modules (mirrors each Bash lib/*.sh):
 | `logging.ps1`    | `print_info`, `print_error`, `print_success`, `print_warning`, `log_info`, `log_warn`, `log_error`, `log_debug`, `print_color` |
 | `os.ps1`         | `get_os`, `is_wsl`, `is_admin`, `run_with_optional_sudo` |
 | `env.ps1`        | `load_env`, `require_env`, `get_project_root`, `resolve_env_value` |
+| `fetch.ps1`      | `fetch_to_file`, `fetch_url_host`, `fetch_url_display` - retried `Invoke-WebRequest` |
 | `file.ps1`       | `file_exists`, `directory_exists`, `create_directory`, `download_file`, `verify_checksum`, `command_exists` |
 | `deps.ps1`       | `install_package`, `install_dependencies`, `require_command` - uses `winget` > `choco` > `scoop` |
 | `version.ps1`    | `version_bump`, `version_compare` |
@@ -254,6 +255,7 @@ Loader and modules
 - `ci_defaults.sh`: pinned image versions for the CI runner scripts.
 - `ci_stack.sh`: disposable database containers for a CI run: start, wait until ready, remove.
 - `docker_install.sh`: install Docker Engine (Linux) or Docker Desktop (macOS, Windows); `ensure_docker`.
+- `fetch.sh`: download a release asset with retries; a failure deletes the partial file and names the host and the exit code.
 - `foxguard.sh`: find, install and verify the pinned foxguard scanner.
 - `gitleaks.sh`: find and install the pinned gitleaks secret scanner.
 - `scanner.sh`: which gitleaks or foxguard on `PATH` may run: the pinned version or newer.
