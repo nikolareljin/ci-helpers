@@ -662,6 +662,9 @@ jobs:
       - name: The tense gate refuses what it must
         shell: bash
         run: bash tests/docs_tense_test.sh
+      - name: Every mkdocs input triggers the docs-site workflows
+        shell: bash
+        run: bash tests/docs_site_paths_test.sh
 
   workflow-coverage-is-declared:
     runs-on: ubuntu-latest

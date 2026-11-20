@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- **The docs site deploys when `overrides/` changes.** `mkdocs.yml` sets `custom_dir: overrides`, but `docs-site.yml` and `docs-site-pr.yml` left `overrides/**` out of their `paths` filters, so a template change merged without a build or deploy. `tests/docs_site_paths_test.sh` now fails when any mkdocs input is missing from either filter.
+
 ## 2026-11-20 — v1.0.6
 
 ### Changed
@@ -3641,6 +3645,8 @@ What a caller may notice:
 - The preset's header no longer says "Pimcore 11"; it is not version-specific.
 - **An explicitly empty `php_versions` now fails instead of falling back.** The input defaults to a non-empty array, so an empty value means the caller passed one — usually an unset variable — and substituting the default quietly would hide that. It falls through to validation and fails with a message naming the expected shape. This also keeps the default in one place, the input declaration, rather than repeating it in the resolver.
 
+- **The Homebrew example names the renamed IsoForge repository.** `nikolareljin/burn-iso` is now `nikolareljin/iso-forge`, so the `homepage` and `release_repo` inputs in the `homebrew-package.yml` example in `docs/workflows.md` would have sent a reader to a redirect and named a repository that no longer exists under that name.
+
 ### Fixed
 
 - **`wp-plugin-check/action.yml` was not valid YAML and had shipped that way.** Its two heredoc bodies — the `wp-cli.yml` config and the `python3 - <<'PY'` findings check — were written at column 0 inside an indented `run: |` block. A block scalar ends as soon as indentation drops below its own, so the document was malformed from the `WPCLI` line onward; PyYAML and Ruby's Psych both refuse it. `docs/actions.md` and `docs/usage.md` point consumers at this action. Fixed by re-indenting both bodies to their step's indentation, which YAML strips straight back off — the emitted shell and Python are byte-identical, and the diff is provably whitespace-only.
@@ -3657,12 +3663,6 @@ What a caller may notice:
 ### Dependencies
 
 - `actions/setup-java` 5.7.0 → 6.0.0 (6 call sites), `securego/gosec` 2.28.0 → 2.29.0, and `github/codeql-action/upload-sarif` 4.37.8 → 4.37.9 (2 call sites) — folding in the open Dependabot pull requests so this release does not ship behind them. `gosec`'s trailing version comment is corrected to `v2.29.0`; Dependabot's own patch bumped the pinned commit but left the comment reading `v2.28.0`.
-
-## 2026-09-01 — 0.21.3
-
-### Changed
-
-- **The Homebrew example names the renamed IsoForge repository.** `nikolareljin/burn-iso` is now `nikolareljin/iso-forge`, so the `homepage` and `release_repo` inputs in the `homebrew-package.yml` example in `docs/workflows.md` would have sent a reader to a redirect and named a repository that no longer exists under that name.
 
 ## 2026-08-24 — 0.21.2
 
