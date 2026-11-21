@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-21 — v1.0.7
+
 ### Changed
 
 - **`vendor/script-helpers` 0.67.1 -> 0.67.2**, and the 16 workflow `ref:` pins with it. `install_dependencies_ai_runner` no longer pipes the NodeSource setup script to `sudo bash`; it installs Node.js from apt, or from NodeSource's apt repository only after the key matches a pinned fingerprint (new `fetch_verified_gpg_key` in `lib/fetch.sh`, also used by `docker_install`). `wp-phpunit.yml` runs `scripts/ci_wp_phpunit.sh` from the pinned checkout, which now reads the WordPress version through `fetch_to_file`; no workflow change beyond the pin.
