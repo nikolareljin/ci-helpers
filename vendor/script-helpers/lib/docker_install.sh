@@ -112,13 +112,12 @@ _shlib_docker_run() {
 }
 
 # Usage: _shlib_docker_fetch_key <debian|ubuntu|centos|fedora> <fingerprint>
-# Downloads https://download.docker.com/linux/<distro>/gpg to a private temp
-# dir and checks it in a throwaway GNUPGHOME. Succeeds only when the file
-# holds exactly one primary key and its fingerprint equals <fingerprint>; on
-# any failure the temp dir is removed.
+# Downloads https://download.docker.com/linux/<distro>/gpg and checks it with
+# fetch_verified_gpg_key (lib/fetch.sh): exactly one primary key, with
+# <fingerprint>. On any failure the temp dir is removed.
 # Returns: 0 verified (armored key at $_shlib_docker_key_dir/key.asc); 1 otherwise.
 _shlib_docker_fetch_key() {
-  local url want="$2" dir fprs count
+  local url want="$2" dir
   _shlib_docker_key_dir=""
   case "$1" in
     debian) url="https://download.docker.com/linux/debian/gpg" ;;
@@ -127,33 +126,10 @@ _shlib_docker_fetch_key() {
     fedora) url="https://download.docker.com/linux/fedora/gpg" ;;
     *) log_error "No Docker signing key for distribution '$1'."; return 1 ;;
   esac
-  if ! command -v gpg >/dev/null 2>&1; then
-    log_error "gpg is required to verify Docker's signing key."
-    return 1
-  fi
   dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-docker-key.XXXXXX")" || return 1
   chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
-  mkdir -m 700 "$dir/gnupg" || { rm -rf -- "$dir"; return 1; }
-  if ! fetch_to_file docker_install "$url" "$dir/key" || [[ ! -s "$dir/key" ]]; then
-    log_error "Could not download Docker's signing key from $url."
-    rm -rf -- "$dir"
-    return 1
-  fi
-  fprs="$(gpg --homedir "$dir/gnupg" --batch --quiet --import "$dir/key" >/dev/null 2>&1 \
-    && gpg --homedir "$dir/gnupg" --batch --with-colons --fingerprint 2>/dev/null \
-    | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')"
-  count="$(printf '%s\n' "$fprs" | grep -c '^[0-9A-F]\{40\}$' || true)"
-  if [[ "$count" -ne 1 || "$fprs" != "$want" ]]; then
-    log_error "Docker signing key from $url failed verification: expected one primary key $want, got ${count} ($(printf '%s' "$fprs" | tr '\n' ' '))."
+  if ! fetch_verified_gpg_key docker_install "$url" "$want" "$dir/key.asc"; then
     log_error "Refusing to install. Nothing was written."
-    rm -rf -- "$dir"
-    return 1
-  fi
-  # Use only what gpg accepted for that key, not the raw download: packets gpg
-  # dropped on import (bad signatures, junk after the key) never reach apt or rpm.
-  if ! gpg --homedir "$dir/gnupg" --batch --armor --export "$want" >"$dir/key.asc" 2>/dev/null \
-     || [[ ! -s "$dir/key.asc" ]]; then
-    log_error "Could not export the verified Docker signing key."
     rm -rf -- "$dir"
     return 1
   fi
@@ -196,6 +172,7 @@ _shlib_docker_distro_field() {
 # Polls `docker info` until it answers. Returns 1 on timeout.
 # Returns: 0 the daemon answered (or dry run); 1 timeout; 2 timeout is not a positive integer.
 # Output: stdout nothing; stderr progress.
+# shellcheck disable=SC2120  # the timeout is optional; callers in this file use the default
 wait_for_docker_daemon() {
   local timeout="${1:-$_shlib_docker_timeout}" waited=0
   if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
@@ -373,6 +350,7 @@ docker_start_daemon() {
 # group membership does not apply to an already-running session.
 # Returns: 0 root, or already in the group; 1 groupadd or usermod failed; 10 added, but the current shell does not have the group yet.
 # Output: stdout nothing; stderr progress and warnings.
+# shellcheck disable=SC2120  # the user is optional; callers in this file use the default
 docker_add_user_to_group() {
   local user="${1:-${USER:-$(id -un)}}"
 

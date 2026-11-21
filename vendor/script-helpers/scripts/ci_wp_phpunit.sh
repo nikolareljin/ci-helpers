@@ -73,7 +73,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help docker ci_stack
+shlib_import logging help docker ci_stack fetch
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
@@ -181,26 +181,31 @@ done
 # minor is resolved here instead.
 # ---------------------------------------------------------------------------
 resolve_wp_tag() {
-  local want="$1"
-  if [[ "$want" == "latest" ]]; then
-    curl -fsSL "https://api.wordpress.org/core/version-check/1.7/" \
-      | python3 -c 'import json,sys; print(json.load(sys.stdin)["offers"][0]["current"])'
-    return
-  fi
+  local want="$1" dir rc=0
   if [[ "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     printf '%s' "$want"
     return
   fi
-  curl -fsSL "https://api.github.com/repos/WordPress/wordpress-develop/tags?per_page=100" \
-    | WANT="$want" python3 -c '
+  # The answer goes to a file first (fetch_to_file: https only, retried), and
+  # python3 reads the file: a failed download is not parsed.
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/ci-wp-tag.XXXXXX")" || return 1
+  if [[ "$want" == "latest" ]]; then
+    fetch_to_file ci_wp_phpunit "https://api.wordpress.org/core/version-check/1.7/" "$dir/answer.json" \
+      && python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["offers"][0]["current"])' "$dir/answer.json" || rc=$?
+  else
+    fetch_to_file ci_wp_phpunit "https://api.github.com/repos/WordPress/wordpress-develop/tags?per_page=100" "$dir/answer.json" \
+      && WANT="$want" python3 -c '
 import json, os, sys
 want = os.environ["WANT"]
-tags = [t["name"] for t in json.load(sys.stdin)]
+tags = [t["name"] for t in json.load(open(sys.argv[1]))]
 match = [t for t in tags if t == want or t.startswith(want + ".")]
 if not match:
     sys.exit("no wordpress-develop tag matches " + want)
 print(sorted(match, key=lambda v: [int(p) for p in v.split(".")])[-1])
-'
+' "$dir/answer.json" || rc=$?
+  fi
+  rm -rf -- "$dir"
+  return "$rc"
 }
 
 # ---------------------------------------------------------------------------
