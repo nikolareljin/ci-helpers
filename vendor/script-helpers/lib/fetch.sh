@@ -20,6 +20,9 @@
 #
 # Return codes: 0 downloaded; 1 the download failed; 2 bad arguments; 3 no curl
 # or wget.
+#
+# fetch_verified_gpg_key is the one copy of the signing-key rule: a downloaded
+# repository key is used only when it is exactly the pinned one.
 
 # Usage: fetch_curl_retry_args
 # fetch_curl_retry_args; the retry options this machine's curl accepts, one per
@@ -274,6 +277,57 @@ fetch_to_file() {
     fi
     return 1
   fi
+  return 0
+}
+
+# Usage: fetch_verified_gpg_key <label> <url> <fingerprint> <output>
+# fetch_verified_gpg_key <label> <url> <fingerprint> <output>; download an
+# OpenPGP key with fetch_to_file and check it in a throwaway GNUPGHOME. The
+# key is used only when the file holds exactly one primary key and its
+# fingerprint is <fingerprint> (40 hex digits, upper case). <output> then gets
+# the armored key as gpg exports it, not the download: packets gpg dropped on
+# import (bad signatures, junk after the key) never reach apt or rpm. On any
+# failure <output> is not written. The temp directory is always removed.
+# Returns: 0 verified and written; 1 no gpg, download failed, or the key is
+#   not the pinned one; 2 an empty argument, an output that starts with "-",
+#   or a fingerprint that is not 40 upper-case hex digits.
+# Output: stdout nothing; stderr one or two error lines on failure.
+fetch_verified_gpg_key() {
+  local label="${1:-}" url="${2:-}" want="${3:-}" out dir fprs count
+  if [[ -z "$label" || -z "$url" || -z "${4:-}" || "${4:-}" == -* || ! "$want" =~ ^[0-9A-F]{40}$ ]]; then
+    _fetch_err "fetch_verified_gpg_key: usage: fetch_verified_gpg_key <label> <url> <40-hex fingerprint> <output>"
+    return 2
+  fi
+  # checked above; printf -v marks the validated copy for the scanner
+  printf -v out '%s' "$4"
+  if ! command -v gpg >/dev/null 2>&1; then
+    _fetch_err "$label: gpg is required to verify the signing key."
+    return 1
+  fi
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-gpg-key.XXXXXX")" || return 1
+  chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
+  mkdir -m 700 "$dir/gnupg" || { rm -rf -- "$dir"; return 1; }
+  if ! fetch_to_file "$label" "$url" "$dir/key" || [[ ! -s "$dir/key" ]]; then
+    _fetch_err "$label: could not download the signing key from $(fetch_url_display "$url")."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  fprs="$(gpg --homedir "$dir/gnupg" --batch --quiet --import "$dir/key" >/dev/null 2>&1 \
+    && gpg --homedir "$dir/gnupg" --batch --with-colons --fingerprint 2>/dev/null \
+    | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')"
+  count="$(printf '%s\n' "$fprs" | grep -c '^[0-9A-F]\{40\}$' || true)"
+  if [[ "$count" -ne 1 || "$fprs" != "$want" ]]; then
+    _fetch_err "$label: signing key from $(fetch_url_display "$url") failed verification: expected one primary key $want, got ${count} ($(printf '%s' "$fprs" | tr '\n' ' '))."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  if ! gpg --homedir "$dir/gnupg" --batch --armor --export "$want" >"$dir/key.asc" 2>/dev/null \
+     || [[ ! -s "$dir/key.asc" ]] || ! cp -- "$dir/key.asc" "$out"; then
+    _fetch_err "$label: could not export the verified signing key."
+    rm -rf -- "$dir"
+    return 1
+  fi
+  rm -rf -- "$dir"
   return 0
 }
 

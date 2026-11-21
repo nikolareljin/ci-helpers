@@ -4,7 +4,7 @@
 # USAGE: ./install_ollama_model.sh [-h] [-i] [-D] [-r <repo_dir>] [-e <env_file>] [-R] [-n]
 # PARAMETERS:
 # -i                : install Ollama CLI
-# -D                : install common dependencies (dialog, curl, jq, python3, pip3, nodejs, git, xclip)
+# -D                : install common dependencies (dialog, curl, jq, python3, pip3, nodejs, git, xclip); one that fails is a warning
 # -r <repo_dir>     : models repo directory (default: ./ollama-get-models in current directory)
 # -e <env_file>     : env file to persist model and size (default: ./.env)
 # -R                : run the selected model in background after pulling
@@ -54,7 +54,11 @@ done
 
 if $install_deps; then
   print_info "Installing common dependencies..."
-  install_dependencies_ai_runner
+  # A missing dependency (Node.js on a host without apt, say) is reported
+  # above; the model can still be installed.
+  if ! install_dependencies_ai_runner; then
+    print_warning "Some dependencies were not installed; see the messages above."
+  fi
 fi
 
 if $install_cli; then

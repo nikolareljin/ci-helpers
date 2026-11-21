@@ -155,7 +155,9 @@ if [[ "$REFRESH_IP" == true ]]; then
   mkdir -p "$(dirname "$PUBLIC_IP_CACHE")" || exit 2
   : > "$tmp/ip"
   for url in https://api.ipify.org https://api6.ipify.org; do
-    ip="$(curl -fsS --connect-timeout 5 --max-time 10 "$url" 2>/dev/null | tr -d '[:space:]')" || continue
+    # curl here, not fetch_to_file: this script must also run from a copy
+    # with no lib/ beside it. https only, also across redirects; retried.
+    ip="$(curl -fsS --proto =https --proto-redir =https --retry 3 --retry-delay 2 --connect-timeout 5 --max-time 10 "$url" 2>/dev/null | tr -d '[:space:]')" || continue
     case "$ip" in *[!0-9A-Fa-f.:]*|"") continue ;; esac
     grep -qxF "$ip" "$tmp/ip" || printf '%s\n' "$ip" >> "$tmp/ip"
   done

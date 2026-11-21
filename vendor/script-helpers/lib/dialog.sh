@@ -312,6 +312,7 @@ _dialog__fetch_content_length() {
     if declare -F fetch_curl_proto_args >/dev/null 2>&1; then
       while IFS= read -r a; do proto+=("$a"); done < <(fetch_curl_proto_args "$url")
     fi
+    # A HEAD request: nothing is saved, so there is no file for fetch_to_file.
     cl=$(curl -L -sI ${proto[@]+"${proto[@]}"} "$url" 2>/dev/null | tr -d '\r' | awk -F": *" 'tolower($1)=="content-length"{print $2}' | tail -n1)
   elif command -v wget >/dev/null 2>&1; then
     cl=$(wget --server-response --spider -O /dev/null "$url" 2>&1 | awk -F": *" 'tolower($1)=="content-length"{print $2}' | tail -n1)

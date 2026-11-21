@@ -21,11 +21,22 @@
 # 3. Commit with: git commit -m "chore: bump ci default versions"
 # 4. Run sync_script_helpers.sh in consuming repos to propagate the change.
 #
-# LAST UPDATED: 2026-09-22
+# LAST UPDATED: 2026-11-20
 
 # -- Node.js --
 CI_DEFAULT_NODE_VERSION="${CI_DEFAULT_NODE_VERSION:-24-bookworm}"
 CI_DEFAULT_NODE_IMAGE="${CI_DEFAULT_NODE_IMAGE:-node}"
+# Node.js installed on a host by lib/deps.sh: this major, from the distribution
+# when it has it, else from NodeSource's apt repository (brew node@<major> on
+# macOS). The repository key is used only when it is exactly this fingerprint.
+# Sources for the fingerprint (2026-11-20), all three the same key:
+#   - the key served at https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key,
+#     the URL scripts/deb/setup_24.x in https://github.com/nodesource/distributions reads;
+#   - https://keyserver.ubuntu.com, looked up by the e-mail in the key's user ID;
+#   - the signature on https://deb.nodesource.com/node_24.x/dists/nodistro/InRelease.
+# Bump the major only after checking that node_<major>.x is signed by this key.
+CI_DEFAULT_NODE_APT_MAJOR="${CI_DEFAULT_NODE_APT_MAJOR:-24}"
+CI_DEFAULT_NODESOURCE_APT_FPR="${CI_DEFAULT_NODESOURCE_APT_FPR:-6F71F525282841EEDAF851B42F59B5F99B1BE0B4}"
 
 # -- Python --
 CI_DEFAULT_PYTHON_VERSION="${CI_DEFAULT_PYTHON_VERSION:-3.12-slim}"
