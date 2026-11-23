@@ -107,6 +107,11 @@ if verify_tree; then echo "FAIL: sign-windows would publish hidden .payload.dll 
 rm "$tmp/inst/.payload.dll"; mkdir "$tmp/inst/nsis dir"; : > "$tmp/inst/nsis dir/App.exe"
 if verify_tree; then echo "FAIL: sign-windows would publish an installer from a subdirectory"; exit 1; fi
 echo "ok: sign-windows refuses a file it would not sign"
+# The signing action was renamed; the old name must not come back in text that
+# tells a caller what to run.
+if stale="$(grep -rn 'trusted-signing-action' "$root/.github/actions/windows-sign" "$root/.github/workflows/tauri-release.yml" "$root/docs" "$root/README.md")"; then
+  echo "FAIL: azure/trusted-signing-action is now azure/artifact-signing-action: $stale"; exit 1
+fi
 if ! command -v pwsh >/dev/null 2>&1; then
   if [ -n "${CI:-}" ]; then echo "FAIL: pwsh not found"; exit 1; fi
   echo "SKIP: pwsh not found, the pwsh checks were not run"
