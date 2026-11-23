@@ -91,15 +91,15 @@ inputs:
     required: false
     default: ""
   azure_endpoint:
-    description: Azure Trusted Signing endpoint URL (e.g. https://eus.codesigning.azure.net/)
+    description: Azure Artifact Signing endpoint URL (e.g. https://eus.codesigning.azure.net/)
     required: false
     default: ""
   azure_code_signing_account:
-    description: Azure Trusted Signing account name
+    description: Azure Artifact Signing account name
     required: false
     default: ""
   azure_cert_profile:
-    description: Azure Trusted Signing certificate profile name
+    description: Azure Artifact Signing certificate profile name
     required: false
     default: ""
 
@@ -227,7 +227,7 @@ runs:
       run: '& (Join-Path $env:GITHUB_ACTION_PATH "sign_pfx.ps1")'
 
     # ── azure ─────────────────────────────────────────────────────────────────
-    - name: Configure Azure Trusted Signing credentials
+    - name: Configure Azure Artifact Signing credentials
       if: ${{ inputs.sign_mode == 'azure' }}
       shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:

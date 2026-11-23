@@ -109,7 +109,8 @@ if verify_tree; then echo "FAIL: sign-windows would publish an installer from a 
 echo "ok: sign-windows refuses a file it would not sign"
 # The signing action was renamed; the old name must not come back in text that
 # tells a caller what to run.
-if stale="$(grep -rn 'trusted-signing-action' "$root/.github/actions/windows-sign" "$root/.github/workflows/tauri-release.yml" "$root/docs" "$root/README.md")"; then
+# CHANGELOG.md records the rename and tests/ feeds the old name to the gate.
+if stale="$(git -C "$root" grep -n 'trusted-signing-action' -- . ':!CHANGELOG.md' ':!tests/')"; then
   echo "FAIL: azure/trusted-signing-action is now azure/artifact-signing-action: $stale"; exit 1
 fi
 if ! command -v pwsh >/dev/null 2>&1; then

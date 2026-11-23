@@ -95,7 +95,7 @@ on:
             none          - no signing (default)
             tauri_updater - free ED25519 updater signatures (.msi.sig, -setup.exe.sig), written in the sign-windows job
             pfx           - Authenticode with a .pfx certificate (MSI + EXE, signed in the sign-windows job)
-            azure         - paid Azure Trusted Signing (MSI + EXE, signed in the sign-windows job)
+            azure         - paid Azure Artifact Signing (MSI + EXE, signed in the sign-windows job)
         type: string
         default: "none"
       windows_timestamp_server:
