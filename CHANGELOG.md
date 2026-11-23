@@ -2,7 +2,7 @@
 
 ### Fixed
 
-- **`windows-sign` names the signing action it is used with.** Two comments in `.github/actions/windows-sign/action.yml` named `azure/trusted-signing-action`; `tauri-release.yml` signs with `azure/artifact-signing-action`. `tests/windows_sign_mode_test.sh` now fails when the old name appears in the action, `tauri-release.yml` or `docs/`.
+- **`windows-sign` names the signing action it is used with.** Two comments in `.github/actions/windows-sign/action.yml` named `azure/trusted-signing-action`; `tauri-release.yml` signs with `azure/artifact-signing-action`. `tests/windows_sign_mode_test.sh` now fails when the old name appears in the action, `tauri-release.yml`, `docs/` or `README.md`.
 
 ## 2026-11-21 — v1.0.7
 
