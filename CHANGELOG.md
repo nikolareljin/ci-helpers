@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Fixed
+
+- **`windows-sign` names the signing action it is used with.** Two comments in `.github/actions/windows-sign/action.yml` named `azure/trusted-signing-action`; `tauri-release.yml` signs with `azure/artifact-signing-action`. The action's input descriptions, its credentials step and the `windows_sign_mode` description in `tauri-release.yml` name the product Azure Artifact Signing. `tests/windows_sign_mode_test.sh` now fails when the old action name appears in any tracked file other than `CHANGELOG.md`, `tests/scan_egress_test.sh` and the test itself.
+
 ## 2026-11-21 — v1.0.7
 
 ### Changed

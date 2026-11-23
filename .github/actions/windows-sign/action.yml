@@ -20,10 +20,10 @@ description: >
     too; nothing is imported into a certificate store. Run it in a job that
     runs no build or app code (tauri-release's sign-windows job).
 
-  azure (PAID - Azure Trusted Signing):
-    With export_env "true", exports the Azure credentials to GITHUB_ENV. After the build,
-    the calling workflow must invoke azure/trusted-signing-action to sign the
-    MSI/EXE with azuresigntool.
+  azure (PAID - Azure Artifact Signing):
+    With export_env "true", exports the Azure credentials to GITHUB_ENV. Signing is
+    a separate azure/artifact-signing-action step in the calling workflow
+    (tauri-release's sign-windows job).
 
 inputs:
   sign_mode:
@@ -91,15 +91,15 @@ inputs:
     required: false
     default: ""
   azure_endpoint:
-    description: Azure Trusted Signing endpoint URL (e.g. https://eus.codesigning.azure.net/)
+    description: Azure Artifact Signing endpoint URL (e.g. https://eus.codesigning.azure.net/)
     required: false
     default: ""
   azure_code_signing_account:
-    description: Azure Trusted Signing account name
+    description: Azure Artifact Signing account name
     required: false
     default: ""
   azure_cert_profile:
-    description: Azure Trusted Signing certificate profile name
+    description: Azure Artifact Signing certificate profile name
     required: false
     default: ""
 
@@ -227,7 +227,7 @@ runs:
       run: '& (Join-Path $env:GITHUB_ACTION_PATH "sign_pfx.ps1")'
 
     # ── azure ─────────────────────────────────────────────────────────────────
-    - name: Configure Azure Trusted Signing credentials
+    - name: Configure Azure Artifact Signing credentials
       if: ${{ inputs.sign_mode == 'azure' }}
       shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
       env:
@@ -293,7 +293,7 @@ runs:
           Write-Output 'export_env is not "true": the caller passes the credentials to the signing step.'
           exit 0
         }
-        # Export to GITHUB_ENV — azure/trusted-signing-action reads these
+        # Export to GITHUB_ENV for a later azure/artifact-signing-action step.
         Add-Content -Path $env:GITHUB_ENV -Value "AZURE_TENANT_ID=$cleanTenant"
         Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_ID=$cleanClient"
         Add-Content -Path $env:GITHUB_ENV -Value "AZURE_CLIENT_SECRET=$cleanSecret"

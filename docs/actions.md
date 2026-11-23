@@ -508,7 +508,7 @@ Inputs:
 | `azure_tenant_id` | `azure` | — | Azure tenant ID |
 | `azure_client_id` | `azure` | — | Service principal client ID |
 | `azure_client_secret` | `azure` | — | Service principal secret |
-| `azure_endpoint` | `azure` | — | Trusted Signing endpoint URL |
+| `azure_endpoint` | `azure` | — | Artifact Signing endpoint URL |
 | `azure_code_signing_account` | `azure` | — | Account name |
 | `azure_cert_profile` | `azure` | — | Certificate profile name |
 | `export_env` | no | `"false"` | Opt-in. `"true"` writes the updater key or the Azure values to `GITHUB_ENV`; see Notes |
