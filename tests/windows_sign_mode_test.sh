@@ -109,9 +109,16 @@ if verify_tree; then echo "FAIL: sign-windows would publish an installer from a 
 echo "ok: sign-windows refuses a file it would not sign"
 # The signing action was renamed; the old name must not come back in text that
 # tells a caller what to run.
-# CHANGELOG.md records the rename and tests/ feeds the old name to the gate.
-if stale="$(git -C "$root" grep -n 'trusted-signing-action' -- . ':!CHANGELOG.md' ':!tests/')"; then
+# CHANGELOG.md records the rename, scan_egress_test.sh feeds the old name to the
+# gate, and this file names it in the check. git grep exits 1 on no match; any
+# other status (128 outside a checkout) must fail, not read as clean.
+rc=0
+stale="$(git -C "$root" grep -n 'trusted-signing-action' -- . ':!CHANGELOG.md' \
+  ':!tests/scan_egress_test.sh' ':!tests/windows_sign_mode_test.sh')" || rc=$?
+if [ "$rc" -eq 0 ]; then
   echo "FAIL: azure/trusted-signing-action is now azure/artifact-signing-action: $stale"; exit 1
+elif [ "$rc" -ne 1 ]; then
+  echo "FAIL: git grep for the old signing action name exited $rc (not a git checkout?)"; exit 1
 fi
 if ! command -v pwsh >/dev/null 2>&1; then
   if [ -n "${CI:-}" ]; then echo "FAIL: pwsh not found"; exit 1; fi
