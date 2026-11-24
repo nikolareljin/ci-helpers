@@ -73,7 +73,7 @@ jobs:
       manifest: ${{ steps.nvd.outputs.manifest }}
     steps:
       - name: Setup Java
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0 @ 2026-11-24
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
@@ -404,7 +404,7 @@ jobs:
           exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" LANG=C.UTF-8 WF_SHA="$WF_SHA" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_OUTPUT="$GITHUB_OUTPUT" /bin/bash --noprofile --norc .ci-helpers-scripts/scripts/lib_isolate.sh
 
       - name: Setup Java
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0 @ 2026-11-06
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0 @ 2026-11-24
         with:
           distribution: temurin
           java-version: ${{ inputs.java_version }}

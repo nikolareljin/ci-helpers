@@ -621,6 +621,9 @@ jobs:
       - name: java-scan keeps the NVD key out of the scan job
         shell: bash
         run: bash tests/java_scan_nvd_split_test.sh
+      - name: ci and pr-gate keep the setup-java problem matcher
+        shell: bash
+        run: bash tests/setup_java_problem_matcher_test.sh
       - name: docker-multiarch pushes only the layout its build job made
         shell: bash
         run: bash tests/docker_multiarch_split_test.sh
