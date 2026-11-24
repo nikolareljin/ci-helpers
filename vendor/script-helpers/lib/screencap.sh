@@ -32,6 +32,8 @@ _screencap__require_module() {
 
 _screencap__require_module adb adb_ready_serials
 _screencap__require_module ios ios_available
+# The chunk directory of a long recording is removed on an interrupt too.
+_screencap__require_module trap_stack trap_stack_push
 
 # Longest single clip `adb shell screenrecord` will produce.
 _SCREENCAP_ANDROID_MAX_SECONDS=180
@@ -275,6 +277,7 @@ _screencap__record_android() {
 
   local tmpdir chunk_dur left=$seconds index=0 list
   tmpdir="$(mktemp -d)" || return 1
+  trap_stack_push "$tmpdir"
   list="$tmpdir/chunks.txt"
   log_info "screencap: recording ${seconds}s on $serial in ${_SCREENCAP_ANDROID_MAX_SECONDS}s chunks"
   while [[ "$left" -gt 0 ]]; do
@@ -294,7 +297,7 @@ _screencap__record_android() {
   if [[ "$rc" -eq 0 ]]; then
     ffmpeg -y -f concat -safe 0 -i "$list" -c copy "$out" >/dev/null 2>&1 || rc=1
   fi
-  rm -rf -- "$tmpdir"
+  trap_stack_pop
   adb -s "$serial" shell rm -f "$remote" >/dev/null 2>&1 || true
   [[ "$rc" -eq 0 ]] || log_error "_screencap__record_android: chunked recording failed on $serial"
   return $rc

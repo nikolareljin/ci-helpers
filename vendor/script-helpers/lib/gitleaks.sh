@@ -143,10 +143,11 @@ gitleaks_install() {
   url="https://github.com/gitleaks/gitleaks/releases/download/${CI_DEFAULT_GITLEAKS_VERSION}/${asset}"
   mkdir -p "$dir" || return 1
   tmp="$(mktemp -d "$dir/.download.XXXXXX")" || return 1
-  fetch_to_file gitleaks "$url" "$tmp/$asset" || { rc=$?; rm -rf -- "$tmp"; return "$rc"; }
-  got="$(foxguard_sha256 "$tmp/$asset")" || { rm -rf -- "$tmp"; log_error "gitleaks: shasum, sha256sum or openssl is needed to check it"; return 3; }
+  trap_stack_push "$tmp"
+  fetch_to_file gitleaks "$url" "$tmp/$asset" || { rc=$?; trap_stack_pop; return "$rc"; }
+  got="$(foxguard_sha256 "$tmp/$asset")" || { trap_stack_pop; log_error "gitleaks: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
-    rm -rf -- "$tmp"
+    trap_stack_pop
     log_error "gitleaks: $asset does not match the pinned SHA-256 (got $got, want $want); not installed."
     return 1
   fi
@@ -159,8 +160,8 @@ gitleaks_install() {
         powershell.exe -NoProfile -Command "Expand-Archive -Force -Path '$(cygpath -w "$tmp/$asset")' -DestinationPath '$(cygpath -w "$tmp")'"
       fi ;;
     *) tar -xzf "$tmp/$asset" -C "$tmp" gitleaks ;;
-  esac || { rm -rf -- "$tmp"; log_error "gitleaks: could not unpack $asset"; return 1; }
-  chmod +x "$tmp/$(basename "$dest")" && mv -f -- "$tmp/$(basename "$dest")" "$dest" || { rm -rf -- "$tmp"; return 1; }
-  rm -rf -- "$tmp"
+  esac || { trap_stack_pop; log_error "gitleaks: could not unpack $asset"; return 1; }
+  chmod +x "$tmp/$(basename "$dest")" && mv -f -- "$tmp/$(basename "$dest")" "$dest" || { trap_stack_pop; return 1; }
+  trap_stack_pop
   log_info "gitleaks $CI_DEFAULT_GITLEAKS_VERSION installed at $dest"
 }

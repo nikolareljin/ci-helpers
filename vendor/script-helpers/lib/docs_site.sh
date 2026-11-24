@@ -32,7 +32,7 @@
 
 # Its own needs, so `shlib_import docs_site` alone is enough.
 if declare -F shlib_import >/dev/null 2>&1; then
-  for _docs_site__need in logging:log_error python:python_resolve_3 ports:port_choose serve:serve_static_site; do
+  for _docs_site__need in logging:log_error python:python_resolve_3 ports:port_choose serve:serve_static_site trap_stack:trap_stack_push; do
     declare -F "${_docs_site__need#*:}" >/dev/null 2>&1 || shlib_import "${_docs_site__need%%:*}"
   done
   unset _docs_site__need
@@ -201,6 +201,7 @@ docs_site_check() {
       python3 "${_docs_site__root}/scripts/site_verify.py" --fences "$docs" || return 1
     fi
     out="$(mktemp -d)" || return 1
+    trap_stack_push "$out"
     docs_site_build "$repo" "$out" || rc=$?
   else
     docs_site_build "$repo" || rc=$?
@@ -219,7 +220,7 @@ docs_site_check() {
   if [[ "$rc" -eq 0 ]]; then
     log_info "docs_site: site builds clean, every link answers ($(find "$out" -type f | wc -l | tr -d ' ') files)"
   fi
-  [[ "$gen" != "mkdocs" ]] || rm -rf -- "$out"
+  [[ "$gen" != "mkdocs" ]] || trap_stack_pop
   return "$rc"
 }
 

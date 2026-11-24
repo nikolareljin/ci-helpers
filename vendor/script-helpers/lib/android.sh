@@ -27,6 +27,8 @@ _android__require_module() {
 
 _android__require_module gradle gradle_run
 _android__require_module adb adb_ready_serials
+# android_sign's decoded keystore is removed on an interrupt too.
+_android__require_module trap_stack trap_stack_push
 
 # --- SDK -------------------------------------------------------------------
 
@@ -288,11 +290,12 @@ android_sign() {
       return 2
     }
     tmp_keystore="$(mktemp)" || return 1
+    trap_stack_push "$tmp_keystore"
     # Older macOS base64 spells the decode flag -D; without the fallback the
     # failure took the branch below and blamed the caller's input.
     { printf '%s' "${!b64var}" | base64 -d > "$tmp_keystore" 2>/dev/null ||
       printf '%s' "${!b64var}" | base64 -D > "$tmp_keystore" 2>/dev/null; } || {
-      rm -f -- "$tmp_keystore"
+      trap_stack_pop
       log_error "android_sign: \$$b64var is not valid base64"
       return 2
     }
@@ -300,7 +303,7 @@ android_sign() {
   fi
 
   if [[ -z "$keystore" || ! -f "$keystore" ]]; then
-    [[ -n "$tmp_keystore" ]] && rm -f -- "$tmp_keystore"
+    [[ -n "$tmp_keystore" ]] && trap_stack_pop
     if [[ "$allow_unsigned" -eq 1 ]]; then
       log_warn "android_sign: no keystore - leaving $artifact as built (debug-signed)."
       return 0
@@ -310,7 +313,7 @@ android_sign() {
   fi
 
   [[ -n "$alias" ]] || {
-    [[ -n "$tmp_keystore" ]] && rm -f -- "$tmp_keystore"
+    [[ -n "$tmp_keystore" ]] && trap_stack_pop
     log_error "android_sign: need --alias (or \$ANDROID_KEY_ALIAS)"
     return 2
   }
@@ -346,12 +349,12 @@ android_sign() {
       rc=$?
     fi
   else
-    [[ -n "$tmp_keystore" ]] && rm -f -- "$tmp_keystore"
+    [[ -n "$tmp_keystore" ]] && trap_stack_pop
     log_error "android_sign: neither apksigner nor jarsigner is available"
     return 3
   fi
 
-  [[ -n "$tmp_keystore" ]] && rm -f -- "$tmp_keystore"
+  [[ -n "$tmp_keystore" ]] && trap_stack_pop
   [[ "$rc" -eq 0 ]] || log_error "android_sign: signing $artifact failed (exit $rc)"
   return $rc
 }

@@ -200,10 +200,12 @@ until MYSQL_PWD="$db_password" DEBUG=false docker_compose -f "$compose_file" exe
   fi
 done
 
-docker_compose -f "$compose_file" exec -T "$php_service" sh -lc "$composer_command"
+# sh -c, not -lc: a login shell sources /etc/profile, which can replace the
+# image PATH. See tests/ci_docker_shell_test.sh.
+docker_compose -f "$compose_file" exec -T "$php_service" sh -c "$composer_command"
 
 if [[ -n "$phpcs_command" ]]; then
-  if docker_compose -f "$compose_file" exec -T "$php_service" sh -lc "${phpcs_command} --report=checkstyle --report-file=/tmp/phpcs.xml"; then
+  if docker_compose -f "$compose_file" exec -T "$php_service" sh -c "${phpcs_command} --report=checkstyle --report-file=/tmp/phpcs.xml"; then
     log_info "PHPCS: no violations."
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpcs.xml" "${out_dir}/phpcs.xml" 2>/dev/null || true
@@ -215,7 +217,7 @@ if [[ -n "$phpcs_command" ]]; then
 fi
 
 if [[ -n "$phpstan_command" ]]; then
-  if docker_compose -f "$compose_file" exec -T "$php_service" sh -lc "${phpstan_command} --error-format=checkstyle > /tmp/phpstan.xml 2>&1"; then
+  if docker_compose -f "$compose_file" exec -T "$php_service" sh -c "${phpstan_command} --error-format=checkstyle > /tmp/phpstan.xml 2>&1"; then
     log_info "PHPStan: no issues."
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpstan.xml" "${out_dir}/phpstan.xml" 2>/dev/null || true
@@ -225,7 +227,7 @@ if [[ -n "$phpstan_command" ]]; then
 fi
 
 if [[ -n "$phpunit_command" ]]; then
-  if docker_compose -f "$compose_file" exec -T "$php_service" sh -lc "${phpunit_command} --log-junit /tmp/phpunit.xml"; then
+  if docker_compose -f "$compose_file" exec -T "$php_service" sh -c "${phpunit_command} --log-junit /tmp/phpunit.xml"; then
     log_info "PHPUnit: all tests passed."
   else
     docker_compose -f "$compose_file" cp "${php_service}:/tmp/phpunit.xml" "${out_dir}/phpunit.xml" 2>/dev/null || true
@@ -235,7 +237,7 @@ if [[ -n "$phpunit_command" ]]; then
 fi
 
 if [[ -n "$phpunit_coverage_command" ]]; then
-  docker_compose -f "$compose_file" exec -T "$php_service" sh -lc "mkdir -p /tmp/coverage && ${phpunit_coverage_command} --coverage-clover /tmp/coverage/clover.xml"
+  docker_compose -f "$compose_file" exec -T "$php_service" sh -c "mkdir -p /tmp/coverage && ${phpunit_coverage_command} --coverage-clover /tmp/coverage/clover.xml"
   docker_compose -f "$compose_file" cp "${php_service}:/tmp/coverage/clover.xml" "${out_dir}/coverage-clover.xml" 2>/dev/null || true
   log_info "Coverage report saved to ${out_dir}/coverage-clover.xml"
 fi

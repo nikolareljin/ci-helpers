@@ -73,7 +73,7 @@ SCRIPT_HELPERS_DIR="${SCRIPT_HELPERS_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=/dev/null
 source "${SCRIPT_HELPERS_DIR}/helpers.sh"
-shlib_import logging help docker ci_stack fetch
+shlib_import logging help docker ci_stack fetch trap_stack
 
 usage() { show_help "${BASH_SOURCE[0]}"; }
 
@@ -189,6 +189,7 @@ resolve_wp_tag() {
   # The answer goes to a file first (fetch_to_file: https only, retried), and
   # python3 reads the file: a failed download is not parsed.
   dir="$(mktemp -d "${TMPDIR:-/tmp}/ci-wp-tag.XXXXXX")" || return 1
+  trap_stack_push "$dir"
   if [[ "$want" == "latest" ]]; then
     fetch_to_file ci_wp_phpunit "https://api.wordpress.org/core/version-check/1.7/" "$dir/answer.json" \
       && python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["offers"][0]["current"])' "$dir/answer.json" || rc=$?
@@ -204,7 +205,7 @@ if not match:
 print(sorted(match, key=lambda v: [int(p) for p in v.split(".")])[-1])
 ' "$dir/answer.json" || rc=$?
   fi
-  rm -rf -- "$dir"
+  trap_stack_pop
   return "$rc"
 }
 

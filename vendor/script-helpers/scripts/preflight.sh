@@ -10,7 +10,8 @@
 #                     is all it does.
 #                     This is what the pre-push hook uses.
 #   --stack <name>    Check one stack only, instead of every stack detected.
-#                     Repeatable. One of: flutter gradle node python go rust php.
+#                     Repeatable. One of: flutter gradle ios node python go rust
+#                     php make.
 #   --docker          Reproduce CI in containers via the ci_*.sh runners, using
 #                     the images pinned in lib/ci_defaults.sh. Slower and closer
 #                     to CI. The default runs on the host, which is what makes
@@ -18,7 +19,7 @@
 #   --skip-security   Skip the secret / dependency scan.
 #   --security-only   Run only the secret / dependency scan (`./dev scan`). No
 #                     stack is needed.
-#   --list            Print the stacks detected and exit without running them.
+#   --list            Print the stacks that would run (after --stack) and exit.
 #   --dir <path>      Project directory (default: the repository root).
 #   -h, --help        Show this help message.
 #
@@ -102,7 +103,7 @@ cd "$PROJECT_DIR" || exit 2
 # re-anchor a relative path on the git root; nothing else did.
 PROJECT_DIR="$(pwd)"
 
-KNOWN_STACKS="flutter gradle ios node python go rust php"
+KNOWN_STACKS="flutter gradle ios node python go rust php make"
 for s in "${WANTED_STACKS[@]+"${WANTED_STACKS[@]}"}"; do
   [[ " $KNOWN_STACKS " == *" $s "* ]] || {
     log_error "preflight: unknown stack '$s'. Known: $KNOWN_STACKS"
@@ -265,6 +266,30 @@ _preflight__owns() {
   esac
 }
 
+# The Makefile make would read in <dir>, in make's own order, or nothing.
+_preflight__makefile() {
+  local f
+  for f in GNUmakefile makefile Makefile; do
+    [[ -f "$1/$f" ]] && { printf '%s\n' "$1/$f"; return 0; }
+  done
+  return 0
+}
+
+# Does <makefile> define a `test` target? A rule line that names it, alone or
+# with other targets ("test test-bash32:"), or "test::"; not an assignment
+# such as "test := x", "test ::= x" or "test :::= x".
+_preflight__has_make_test() {
+  awk '
+    /^[^\t#][^:=]*:([^=]|$)/ {
+      c = index($0, ":")
+      if (substr($0, c) ~ /^:+=/) next
+      n = split(substr($0, 1, c - 1), t, /[ \t]+/)
+      for (i = 1; i <= n; i++) if (t[i] == "test") found = 1
+    }
+    END { exit found ? 0 : 1 }
+  ' "$1" 2>/dev/null
+}
+
 detect_stacks() {
   local marker dir
   local -a pairs=() flutter_dirs=()
@@ -318,6 +343,17 @@ detect_stacks() {
     fi
     pairs+=("ios	$pdir_ios")
   done < <(find . -maxdepth 4 -type f -name Podfile 2>/dev/null | sort)
+
+  # make: a Makefile with a `test` target at the root, only when no other
+  # stack was found anywhere (a shell library). Any project runner wins, so a
+  # repository that already had a stack is checked exactly as before, and a
+  # Makefile that calls into android/ or tool/ does not run those tests twice.
+  # --stack make asks for it explicitly, beside any other stack.
+  local mk
+  if [[ ${#pairs[@]} -eq 0 || " ${WANTED_STACKS[*]-} " == *" make "* ]]; then
+    mk="$(_preflight__makefile "$PROJECT_DIR")"
+    [[ -n "$mk" ]] && _preflight__has_make_test "$mk" && pairs+=("make	.")
+  fi
 
   # Deduplicate, then drop two kinds of redundant project:
   #
@@ -430,7 +466,8 @@ if [[ "$LIST_ONLY" == "true" ]]; then
     echo "No stack detected in $PROJECT_DIR"
     exit 3
   fi
-  printf '%s\n' "${DETECTED[@]+"${DETECTED[@]}"}"
+  # PAIRS, not DETECTED: --list shows what --stack selects; preflight.ps1 -List does the same.
+  printf '%s\n' "${PAIRS[@]+"${PAIRS[@]}"}"
   exit 0
 fi
 
@@ -460,7 +497,7 @@ if [[ "$SECURITY_ONLY" == "true" ]]; then
   PAIRS=()
 elif [[ ${#PAIRS[@]} -eq 0 || -z "${PAIRS[0]}" ]]; then
   log_error "preflight: no stack detected in $PROJECT_DIR"
-  log_error "Looked for: pubspec.yaml, gradlew, package.json, pyproject.toml, go.mod, Cargo.toml, composer.json"
+  log_error "Looked for: pubspec.yaml, gradlew, package.json, pyproject.toml, go.mod, Cargo.toml, composer.json, a Makefile with a test target"
   log_error "Pass --stack <name> to force one."
   exit 3
 fi
@@ -722,6 +759,17 @@ check_php() {
   run_step "$name lint + test" bash "$(helper_script local_test_php.sh)" --dir "$PROJECT_DIR/$dir" "${args[@]+"${args[@]}"}"
 }
 
+# make test, on the host. There is no container runner for it, so --docker
+# runs it on the host too; --quick does not change it (tests always run).
+check_make() {
+  local dir="$1" name; name="$(label make "$dir")"
+  if ! command -v make >/dev/null 2>&1; then
+    skip_step "$name test" "make is not installed - $(install_hint make make)"
+    return
+  fi
+  run_step "$name test" make -C "$PROJECT_DIR/$dir" test
+}
+
 check_security() {
   local scanner pair stack dir
   scanner="$(helper_script ci_security.sh)"
@@ -832,6 +880,7 @@ for pair in "${PAIRS[@]+"${PAIRS[@]}"}"; do
     go)      check_go      "$stack_dir" ;;
     rust)    check_rust    "$stack_dir" ;;
     php)     check_php     "$stack_dir" ;;
+    make)    check_make    "$stack_dir" ;;
   esac
 done
 

@@ -121,7 +121,8 @@ Full detail, including what to write instead of each bash-4 feature, is in
 
 ## Real-machine checks
 
-`make test` is offline and stubbed. A feature that installs, downloads, or
+`make test` is offline and stubbed. It runs every `tests/*_test.sh`, even after
+one fails, then lists the failed files and exits 1. A feature that installs, downloads, or
 otherwise depends on the real machine also ships, in the same pull request:
 
 1. An entry script a person runs from a checkout: `scripts/<verb>.sh` with the

@@ -64,6 +64,9 @@ fi
 mkdir -p "$dist_dir"
 
 tmp_dir="$(mktemp -d)"
+# Removed on any exit, an interrupt included. Guarded: a subshell inherits
+# this trap. ${BASHPID-$$}: bash 3.2 has no BASHPID.
+trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -rf -- "$tmp_dir"; fi' EXIT
 pkg_dir="$tmp_dir/$name-$version"
 mkdir -p "$pkg_dir"
 

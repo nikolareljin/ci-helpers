@@ -231,23 +231,27 @@ function _Screencap_RecordAndroid {
         log_info "screencap: recording ${Seconds}s on $Serial in $($script:ScreencapAndroidMaxSeconds)s chunks"
     }
     $left = $Seconds; $index = 0; $ok = $true
-    while ($left -gt 0) {
-        $chunk = [Math]::Min($left, $script:ScreencapAndroidMaxSeconds)
-        & adb -s $Serial shell screenrecord --time-limit $chunk @flags $remote | Out-Host
-        if ($LASTEXITCODE -ne 0) { $ok = $false; break }
-        $part = Join-Path $tmpdir "part-$index.mp4"
-        & adb -s $Serial pull $remote $part 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { $ok = $false; break }
-        Add-Content -Path $list -Value ("file '" + ($part -replace '\\','/') + "'")
-        & adb -s $Serial shell rm -f $remote 2>$null | Out-Null
-        $left -= $chunk
-        $index++
+    # finally: Ctrl-C mid-recording removes the chunk directory too.
+    try {
+        while ($left -gt 0) {
+            $chunk = [Math]::Min($left, $script:ScreencapAndroidMaxSeconds)
+            & adb -s $Serial shell screenrecord --time-limit $chunk @flags $remote | Out-Host
+            if ($LASTEXITCODE -ne 0) { $ok = $false; break }
+            $part = Join-Path $tmpdir "part-$index.mp4"
+            & adb -s $Serial pull $remote $part 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { $ok = $false; break }
+            Add-Content -Path $list -Value ("file '" + ($part -replace '\\','/') + "'")
+            & adb -s $Serial shell rm -f $remote 2>$null | Out-Null
+            $left -= $chunk
+            $index++
+        }
+        if ($ok) {
+            & ffmpeg -y -f concat -safe 0 -i $list -c copy $Out 2>$null | Out-Null
+            $ok = ($LASTEXITCODE -eq 0)
+        }
+    } finally {
+        Remove-Item $tmpdir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if ($ok) {
-        & ffmpeg -y -f concat -safe 0 -i $list -c copy $Out 2>$null | Out-Null
-        $ok = ($LASTEXITCODE -eq 0)
-    }
-    Remove-Item $tmpdir -Recurse -Force -ErrorAction SilentlyContinue
     & adb -s $Serial shell rm -f $remote 2>$null | Out-Null
     return $ok
 }

@@ -208,13 +208,15 @@ foxguard_install() {
   url="https://github.com/0sec-labs/foxguard/releases/download/v${CI_DEFAULT_FOXGUARD_VERSION}/${asset}"
   mkdir -p "$(dirname "$dest")" || return 1
   tmp="$(mktemp "$(dirname "$dest")/.download.XXXXXX")" || return 1
-  fetch_to_file foxguard "$url" "$tmp" || { rc=$?; rm -f -- "$tmp"; return "$rc"; }
-  got="$(foxguard_sha256 "$tmp")" || { rm -f -- "$tmp"; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
+  trap_stack_push "$tmp"
+  fetch_to_file foxguard "$url" "$tmp" || { rc=$?; trap_stack_pop; return "$rc"; }
+  got="$(foxguard_sha256 "$tmp")" || { trap_stack_pop; log_error "foxguard: shasum, sha256sum or openssl is needed to check it"; return 3; }
   if [[ "$got" != "$want" ]]; then
-    rm -f -- "$tmp"
+    trap_stack_pop
     log_error "foxguard: $asset $CI_DEFAULT_FOXGUARD_VERSION does not match the pinned SHA-256 (got $got, want $want); not installed. A changed CI_DEFAULT_FOXGUARD_VERSION needs its CI_DEFAULT_FOXGUARD_SHA256_* values too."
     return 1
   fi
-  chmod +x "$tmp" && mv -f -- "$tmp" "$dest" || { rm -f -- "$tmp"; return 1; }
+  chmod +x "$tmp" && mv -f -- "$tmp" "$dest" || { trap_stack_pop; return 1; }
+  trap_stack_pop
   log_info "foxguard $CI_DEFAULT_FOXGUARD_VERSION installed at $dest"
 }

@@ -249,12 +249,14 @@ WPCLI
 wp_cli_config_contents="$(cat -- "${out_dir}/wp-cli.yml")"
 container_wp_config_file="/var/www/html/wp-cli.yml"
 
+# sh -c, not -lc: a login shell sources /etc/profile, which can replace the
+# image PATH. wordpress:cli keeps wp in /usr/local/bin either way.
 run_wp_shell() {
   DEBUG=false docker_compose -f "$compose_file" run --rm \
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp "$@"' -- "$@"
+    sh -c 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp "$@"' -- "$@"
 }
 
 run_wp() {
@@ -292,7 +294,7 @@ WP_DB_PASSWORD="$db_password" DEBUG=false docker_compose -f "$compose_file" run 
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f /var/www/html/wp-config.php || wp config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
+  sh -c 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; test -f /var/www/html/wp-config.php || wp config create --dbname="$WP_DB_NAME" --dbuser="$WP_DB_USER" --dbpass="$WP_DB_PASSWORD" --dbhost="$WP_DB_HOST" --skip-check'
 
 if [[ "$multisite" == "true" ]]; then
   run_wp config set WP_ALLOW_MULTISITE true --raw || true
@@ -338,7 +340,7 @@ if docker_compose -f "$compose_file" run --rm \
   -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
   -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
   "$wpcli_service" \
-  sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
+  sh -c 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp help plugin check >/dev/null 2>&1'; then
   plugin_check_available="true"
   plugin_check_tmp="${out_dir}/plugin-check.json.tmp"
   rm -f -- "$plugin_check_tmp"
@@ -369,7 +371,7 @@ if [[ -n "$meta_check_script" ]]; then
     -e WP_CLI_CONFIG_CONTENTS="$wp_cli_config_contents" \
     -e WP_CLI_CONFIG_PATH="$container_wp_config_file" \
     "$wpcli_service" \
-    sh -lc 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp eval-file "$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
+    sh -c 'printf "%s\n" "$WP_CLI_CONFIG_CONTENTS" > "$WP_CLI_CONFIG_PATH"; wp eval-file "$WP_META_CHECK_SCRIPT"' > "${out_dir}/meta-check.json"
 fi
 
 if [[ "$fail_on_findings" == "true" ]]; then

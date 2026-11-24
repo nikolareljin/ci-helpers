@@ -124,13 +124,14 @@ _deps_install_node_linux() {
   esac
   print_info "Installing Node.js $want from NodeSource's apt repository..."
   dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-deps-node.XXXXXX")" || return 1
-  if ! chmod 700 "$dir" || ! mkdir -m 700 "$dir/gnupg"; then rm -rf -- "$dir"; return 1; fi
+  trap_stack_push "$dir"
+  if ! chmod 700 "$dir" || ! mkdir -m 700 "$dir/gnupg"; then trap_stack_pop; return 1; fi
   # --homedir: gpg makes ~/.gnupg otherwise, even to dearmor.
   if ! fetch_verified_gpg_key deps "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
          "$CI_DEFAULT_NODESOURCE_APT_FPR" "$dir/key.asc" \
      || ! gpg --homedir "$dir/gnupg" --batch --yes --dearmor -o "$dir/nodesource.gpg" <"$dir/key.asc" \
      || [[ ! -s "$dir/nodesource.gpg" ]]; then
-    rm -rf -- "$dir"
+    trap_stack_pop
     print_error "NodeSource's signing key was not accepted. Nothing was written." >&2
     _deps_node_manual "$want"
     return 1
@@ -139,18 +140,18 @@ _deps_install_node_linux() {
     >"$dir/nodesource.list"
   # A host that ran NodeSource's setup script before may have these files
   # already. They are kept, so a failure below puts them back.
-  mkdir -m 700 "$dir/old" || { rm -rf -- "$dir"; return 1; }
+  mkdir -m 700 "$dir/old" || { trap_stack_pop; return 1; }
   for f in keyrings/nodesource.gpg sources.list.d/nodesource.list; do
     if run_with_optional_sudo true test -f "/etc/apt/$f" \
        && ! run_with_optional_sudo true cat "/etc/apt/$f" >"$dir/old/${f##*/}"; then
-      rm -rf -- "$dir"; print_error "Could not read /etc/apt/$f. Nothing was written." >&2; return 1
+      trap_stack_pop; print_error "Could not read /etc/apt/$f. Nothing was written." >&2; return 1
     fi
   done
   if ! run_with_optional_sudo true install -m 0755 -d /etc/apt/keyrings \
      || ! run_with_optional_sudo true install -m 0644 "$dir/nodesource.gpg" /etc/apt/keyrings/nodesource.gpg \
      || ! run_with_optional_sudo true install -m 0644 "$dir/nodesource.list" /etc/apt/sources.list.d/nodesource.list; then
     _deps_node_restore "$dir"
-    rm -rf -- "$dir"
+    trap_stack_pop
     print_error "Could not write NodeSource's key and source list under /etc/apt." >&2
     _deps_node_manual "$want"
     return 1
@@ -159,12 +160,12 @@ _deps_install_node_linux() {
   # back out when the update fails, and the files it replaced are put back.
   if ! run_with_optional_sudo true apt-get update; then
     _deps_node_restore "$dir"
-    rm -rf -- "$dir"
+    trap_stack_pop
     print_error "apt-get update failed with NodeSource's repository added; the key and source list were put back as they were." >&2
     _deps_node_manual "$want"
     return 1
   fi
-  rm -rf -- "$dir"
+  trap_stack_pop
   if run_with_optional_sudo true apt-get install -y nodejs \
      && [[ "$(_deps_node_major)" -ge "$want" ]]; then
     return 0
