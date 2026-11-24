@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-24 — v1.0.8
+
 ### Changed
 
 - **`vendor/script-helpers` 0.67.2 -> 0.67.3**, and the 16 workflow `ref:` pins with it. `wp-plugin-check.yml` and `pimcore-bundle-check.yml` run `ci_wp_plugin_check.sh` and `ci_pimcore_bundle_check.sh` from the pinned checkout, which now start container commands with `sh -c`, not the login shell `sh -lc`. Temp files and directories of the installers and `fetch_to_file` are removed on Ctrl-C (new `lib/trap_stack.sh`). No workflow change beyond the pin.
