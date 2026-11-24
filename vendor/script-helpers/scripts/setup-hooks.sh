@@ -186,6 +186,22 @@ if [[ "$MANAGED" == true && "$CLAUDE" == true ]]; then
 fi
 
 src_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"    # this script-helpers copy
+# trap_stack_push/pop: a stage or probe directory is removed on an interrupt too.
+# A copy of this script with no lib/ beside it (it then only points a
+# repository at the library) gets the same two calls without the traps.
+if [[ -f "$src_root/lib/trap_stack.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$src_root/lib/trap_stack.sh"
+else
+  _setup_hooks_paths=()
+  trap_stack_push() { _setup_hooks_paths+=("$1"); }
+  trap_stack_pop() {
+    local n=${#_setup_hooks_paths[@]}
+    [[ "$n" -gt 0 ]] || return 0
+    [[ "${1:-}" == --keep || -z "${_setup_hooks_paths[n-1]}" ]] || rm -rf -- "${_setup_hooks_paths[n-1]}"
+    unset "_setup_hooks_paths[$((n-1))]"
+  }
+fi
 
 ON_WINDOWS=false
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ON_WINDOWS=true ;; esac
@@ -306,7 +322,8 @@ key_arg() {
 
 # stage_and_swap <dest> <stage>: move the staged scripts/, lib/, hooks/ (when
 # present), helpers.sh and VERSION into <dest>. Stage, then swap: a half-copied
-# install must never be what runs.
+# install must never be what runs. <stage> is the newest path on the trap
+# stack (the caller pushed it); it comes off here.
 stage_and_swap() {
   local dest stage name
   dir_arg dest "${1:-}" && dir_arg stage "${2:-}" || { echo "[setup-hooks] ERROR: stage_and_swap: not a directory: '${1:-}' '${2:-}'" >&2; return 1; }
@@ -317,6 +334,7 @@ stage_and_swap() {
     mv -- "$stage/$name" "$dest/$name"
   done
   mv -f -- "$stage/helpers.sh" "$dest/helpers.sh"; mv -f -- "$stage/VERSION" "$dest/VERSION"
+  trap_stack_pop
   rm -rf -- "$stage" "$dest/scripts.old" "$dest/hooks.old" "$dest/lib.old" "$dest/config.old"
 }
 
@@ -327,6 +345,9 @@ stage_common() {
   dir_arg dir "${1:-}" || return 1
   mkdir -p "$dir" || return 1
   stage="$(mktemp -d "$dir/.stage.XXXXXX")" || return 1
+  # Callers run this in $( ... ): an interrupt here removes the stage, and the
+  # caller registers the path it gets back.
+  trap_stack_push "$stage"
   mkdir -p "$stage/scripts" || return 1
   cp -- "$src_root/helpers.sh" "$stage/" && cp -R -- "$src_root/lib" "$stage/lib" || { rm -rf -- "$stage"; return 1; }
   # The default allow list check_private_names.sh seeds a machine's list from.
@@ -337,6 +358,7 @@ stage_common() {
     cp -- "$src_root/scripts/$name" "$stage/scripts/$name" || { rm -rf -- "$stage"; return 1; }
   done
   version_stamp > "$stage/VERSION"
+  trap_stack_pop --keep
   printf '%s\n' "$stage"
 }
 
@@ -586,6 +608,7 @@ copy_agent_hooks() {
   local home stage
   dir_arg home "${1:-}" || { echo "[setup-hooks] ERROR: not a directory for the agent hooks: '${1:-}'" >&2; exit 1; }
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
+  trap_stack_push "$stage"
   mkdir -p "$stage/scripts/claude-hooks" "$stage/scripts/agent-hooks" \
     && cp -- "$src_root/$HOOK_REL" "$stage/$HOOK_REL" && cp -- "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
     && cp -- "$src_root/$AGENT_HOOK_REL" "$stage/$AGENT_HOOK_REL" && cp -- "$src_root/$AGENT_MERGE_REL" "$stage/$AGENT_MERGE_REL" \
@@ -750,6 +773,7 @@ install_claude() {
   [[ "$rc" -le 1 ]] || exit "$rc"
 
   stage="$(stage_common "$home")" || { echo "[setup-hooks] ERROR: could not stage $home" >&2; exit 1; }
+  trap_stack_push "$stage"
   mkdir -p "$stage/scripts/claude-hooks" \
     && cp -- "$src_root/$HOOK_REL" "$stage/$HOOK_REL" \
     && cp -- "$src_root/$MERGE_REL" "$stage/$MERGE_REL" \
@@ -812,9 +836,10 @@ install_hook_copy() {
   local dir flag="${2:-}" stage name
   dir_arg dir "${1:-}" || { echo "[setup-hooks] ERROR: not a directory for the hooks: '${1:-}'" >&2; return 1; }
   stage="$(stage_common "$dir")" || return 1
-  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { rm -rf -- "$stage"; return 1; }
+  trap_stack_push "$stage"
+  mkdir -p "$stage/scripts/global-hooks" "$stage/hooks" || { trap_stack_pop; return 1; }
   cp -- "$src_root/scripts/security_hooks.sh" "$stage/scripts/" \
-    && cp -- "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { rm -rf -- "$stage"; return 1; }
+    && cp -- "$src_root/scripts/global-hooks/dispatch.sh" "$stage/scripts/global-hooks/" || { trap_stack_pop; return 1; }
   for name in $GLOBAL_HOOK_NAMES; do
     printf '#!/usr/bin/env bash\nexec bash "%s/scripts/global-hooks/dispatch.sh" %s%s "$@"\n' "$dir" "${flag:+$flag }" "$name" > "$stage/hooks/$name"
     chmod +x "$stage/hooks/$name"
@@ -904,13 +929,14 @@ probe() {
   # checked above; printf -v marks the validated copy for the scanner
   [[ -f "${5:-}" ]] && printf -v hook '%s' "$5"
   dir="$(mktemp -d)" || { printf '  FAIL  %-44s could not create a temp directory\n' "$label"; return 1; }
+  trap_stack_push "$dir"
   mkdir "$dir/repo" && git init -q "$dir/repo" 2>/dev/null \
     && git -C "$dir/repo" remote add origin "https://github.com/$(configured_owners | cut -d, -f1 | tr -d ' ')/doctor-probe.git" \
-    || { rm -rf -- "$dir"; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
+    || { trap_stack_pop; printf '  FAIL  %-44s could not create the probe repository\n' "$label"; return 1; }
   # JSON-encoded by Python: a path may hold a quote or a backslash.
   "$PY" -I -c 'import json,sys; print(json.dumps({"cwd": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' \
     "$(native_path "$dir/repo")" "$command" > "$dir/payload" \
-    || { rm -rf -- "$dir"; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
+    || { trap_stack_pop; printf '  FAIL  %-44s could not build the payload\n' "$label"; return 1; }
   t0="$(now_ms)"
   if [[ -n "$hook" ]]; then
     (cd "$dir/repo" && bash "$hook" < "$dir/payload" > "$dir/out" 2> "$dir/err") || rc=$?
@@ -932,7 +958,7 @@ probe() {
     # The hook's first lines say why. Never the probe text: it may be a private name.
     [[ -s "$dir/err" ]] && grep -v '^[[:space:]]*$' "$dir/err" | sed -n 1,4p | sed 's/^/          hook: /'
   fi
-  rm -rf -- "$dir"
+  trap_stack_pop
   [[ -z "$why" ]]
 }
 

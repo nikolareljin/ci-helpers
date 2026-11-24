@@ -7,7 +7,7 @@
 #   -Docker        Run supported checks in Docker.
 #   -SkipSecurity  Skip security checks.
 #   -SecurityOnly  Run only security checks.
-#   -List          Print detected stacks without running them.
+#   -List          Print the stacks that would run (after -Stack) and exit.
 #   -Dir <path>    Project directory (default: repository root or current directory).
 #   -Help          Show this help message.
 # EXIT_CODES:
@@ -47,7 +47,7 @@ $SCRIPT_HELPERS_DIR = if ($env:SCRIPT_HELPERS_DIR) {
 . (Join-Path $SCRIPT_HELPERS_DIR 'ps/helpers.ps1')
 Import-ScriptHelpers logging
 
-$KnownStacks = @('flutter','gradle','node','python','go','rust','php')
+$KnownStacks = @('flutter','gradle','node','python','go','rust','php','make')
 foreach ($s in $Stack) {
     if ($KnownStacks -notcontains $s) {
         log_error "preflight: unknown stack '$s'. Known: $($KnownStacks -join ' ')"
@@ -71,6 +71,29 @@ Set-Location $ProjectDir
 # replace a multi-job CI workflow with one command.
 
 $PrunedRe = '[\\/](node_modules|build|\.git|vendor|\.dart_tool|\.gradle|target|venv|\.venv)[\\/]'
+
+# The Makefile make would read in <dir>, in make's own order, or $null.
+function Get-Makefile([string]$Dir) {
+    foreach ($f in 'GNUmakefile', 'makefile', 'Makefile') {
+        $p = Join-Path $Dir $f
+        if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    }
+    return $null
+}
+
+# Does <makefile> define a `test` target? Same rule as preflight.sh
+# _preflight__has_make_test: a rule line naming it ("test:", "lint test:",
+# "test::"), not an assignment ("test := x", "test ::= x"). Case-sensitive,
+# as make is: "TEST:" is not it.
+function Test-MakeTestTarget([string]$Path) {
+    foreach ($line in (Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) {
+        if ($line -cnotmatch '^[^\t#][^:=]*:([^=]|$)') { continue }
+        $c = $line.IndexOf(':')
+        if ($line.Substring($c) -cmatch '^:+=') { continue }
+        if (($line.Substring(0, $c) -csplit '[ \t]+') -ccontains 'test') { return $true }
+    }
+    return $false
+}
 
 function Get-DetectedStacks {
     $markers = @{
@@ -113,14 +136,22 @@ function Get-DetectedStacks {
         }
         return $true
     }
-    $kept | Where-Object {
+    $found = @($kept | Where-Object {
         $p = $_
         foreach ($o in $kept) {
             if ($o.Stack -ne $p.Stack -or $o.Dir -eq $p.Dir) { continue }
             if ($o.Dir -eq '.' -or $p.Dir.StartsWith("$($o.Dir)/")) { return $false }
         }
         return $true
+    })
+    # make: a root Makefile with a `test` target, only when no other stack was
+    # found (a shell library) or -Stack make asks; see detect_stacks in preflight.sh.
+    # Appended, not assigned: -Stack make,node keeps node, as preflight.sh does.
+    if ($found.Count -eq 0 -or $Stack -contains 'make') {
+        $mk = Get-Makefile $ProjectDir
+        if ($mk -and (Test-MakeTestTarget $mk)) { $found = @($found) + [PSCustomObject]@{ Stack = 'make'; Dir = '.' } }
     }
+    $found
 }
 
 function Get-ConfiguredStacks {
@@ -148,15 +179,6 @@ $configuredStacks = @(Get-ConfiguredStacks | Where-Object { $_ })
 $IsConfigured = $configuredStacks.Count -gt 0
 $detected = if ($IsConfigured) { $configuredStacks } else { @(Get-DetectedStacks) }
 
-if ($List) {
-    if (-not $detected -or @($detected).Count -eq 0) {
-        Write-Host "No stack detected in $ProjectDir"
-        exit 3
-    }
-    $detected | ForEach-Object { Write-Output "$($_.Stack)`t$($_.Dir)" }
-    exit 0
-}
-
 # -Stack filters the detected pairs rather than replacing them, so the directory
 # a stack lives in is still discovered rather than assumed to be root.
 # @(...) around the whole if: an if-expression unrolls an empty array to $null,
@@ -166,6 +188,20 @@ $pairs = @(if ($Stack.Count -gt 0) {
 } else {
     $detected
 })
+
+# -List prints what -Stack selects, as preflight.sh --list does.
+if ($List) {
+    if (-not $detected -or @($detected).Count -eq 0) {
+        Write-Host "No stack detected in $ProjectDir"
+        exit 3
+    }
+    if ($pairs.Count -eq 0) {
+        log_error "preflight: -Stack $($Stack -join ' ') requested, but none was detected in $ProjectDir"
+        exit 3
+    }
+    $pairs | ForEach-Object { Write-Output "$($_.Stack)`t$($_.Dir)" }
+    exit 0
+}
 
 if ($SkipSecurity -and $SecurityOnly) {
     log_error 'preflight: -SkipSecurity and -SecurityOnly cannot be combined'
@@ -183,7 +219,7 @@ elseif ($pairs.Count -eq 0) {
         log_error "preflight: -Stack $($Stack -join ' ') requested, but none was detected in $ProjectDir"
     } else {
         log_error "preflight: no stack detected in $ProjectDir"
-        log_error 'Looked for: pubspec.yaml, gradlew, package.json, pyproject.toml, go.mod, Cargo.toml, composer.json'
+        log_error 'Looked for: pubspec.yaml, gradlew, package.json, pyproject.toml, go.mod, Cargo.toml, composer.json, a Makefile with a test target'
         log_error 'Pass -Stack <name> to force one.'
     }
     exit 3
@@ -285,6 +321,16 @@ function Check-Simple {
         $script:Failed = $true
         log_error "preflight: $label FAILED"
     }
+}
+
+# make test, on the host, as preflight.sh check_make: -Docker and -Quick do not
+# change it. Output goes to the host so Invoke-Step judges the exit code only.
+function Check-Make {
+    param([string]$Dir)
+    $name = Get-Label 'make' $Dir
+    if (-not (Get-Command make -ErrorAction SilentlyContinue)) { Add-Skip "$name test" 'make is not installed'; return }
+    $target = (Resolve-Path (Join-Path $ProjectDir $Dir)).Path
+    Invoke-Step "$name test" { & make -C $target test | Out-Host }
 }
 
 # Same preconditions as preflight.sh check_rust: local_test_rust.sh compiles
@@ -443,6 +489,7 @@ foreach ($p in $pairs) {
         'go'      { Check-Simple 'go'     $p.Dir 'go'      'local_test_go.sh' }
         'rust'    { Check-Rust $p.Dir }
         'php'     { Check-Simple 'php'    $p.Dir 'php'     'local_test_php.sh' }
+        'make'    { Check-Make $p.Dir }
     }
 }
 

@@ -1,4 +1,4 @@
-![script-helpers: reusable Bash and PowerShell helpers. 47 Bash modules, 32 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
+![script-helpers: reusable Bash and PowerShell helpers. 48 Bash modules, 32 PowerShell mirrors, runs on the bash 3.2 macOS ships.](docs/assets/hero.svg)
 
 Reusable Bash and PowerShell helpers. Source modules you need (docker, logging, dialog, file, json, ports, etc.) and reuse them across scripts.
 
@@ -32,6 +32,14 @@ bash tests/portability_test.sh   # static scan for GNU-only and bash-4-only cons
 CI runs the suite on macOS under `/bin/bash` for every change touching shell
 code. See `docs/usage.md` for the iOS verbs (`./dev deploy ios`) and the
 preflight `ios` stack.
+
+ShellCheck gates every tracked shell file: `*.sh`, plus files with a `sh`, `bash`,
+`dash` or `ksh` shebang such as `scripts/git-hooks/*` and `bin/*`. A finding fails CI.
+
+```bash
+make lint-shell                            # scripts/lint_shell.sh, fails on a warning or error
+SHELLCHECK_SEVERITY=info make lint-shell      # stricter local run
+```
 
 Windows / PowerShell support
 -----------------------------
@@ -233,6 +241,7 @@ Loader and modules
 - `ports.sh` - port usage/availability helpers.
 - `browser.sh` - `open_url`, `open_frontend_when_ready`.
 - `traps.sh` - cleanup and signal traps.
+- `trap_stack.sh`: temp files and directories removed on exit or interrupt (`trap_stack_push`, `trap_stack_pop`); registrations nest.
 - `certs.sh` - self-signed cert creation and trust-store helpers.
 - `hosts.sh` - `/etc/hosts` helpers.
 - `clipboard.sh` - `copy_to_clipboard`.

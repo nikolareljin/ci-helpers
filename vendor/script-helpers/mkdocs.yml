@@ -159,6 +159,7 @@ nav:
           - help: modules/help.md
           - dialog: modules/dialog.md
           - traps: modules/traps.md
+          - trap_stack: modules/trap_stack.md
       - System and environment:
           - os: modules/os.md
           - env: modules/env.md

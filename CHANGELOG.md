@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Changed
+
+- **`vendor/script-helpers` 0.67.2 -> 0.67.3**, and the 16 workflow `ref:` pins with it. `wp-plugin-check.yml` and `pimcore-bundle-check.yml` run `ci_wp_plugin_check.sh` and `ci_pimcore_bundle_check.sh` from the pinned checkout, which now start container commands with `sh -c`, not the login shell `sh -lc`. Temp files and directories of the installers and `fetch_to_file` are removed on Ctrl-C (new `lib/trap_stack.sh`). No workflow change beyond the pin.
+
 ### Fixed
 
 - **`windows-sign` names the signing action it is used with.** Two comments in `.github/actions/windows-sign/action.yml` named `azure/trusted-signing-action`; `tauri-release.yml` signs with `azure/artifact-signing-action`. The action's input descriptions, its credentials step and the `windows_sign_mode` description in `tauri-release.yml` name the product Azure Artifact Signing. `tests/windows_sign_mode_test.sh` now fails when the old action name appears in any tracked file other than `CHANGELOG.md`, `tests/scan_egress_test.sh` and the test itself.

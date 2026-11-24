@@ -5,7 +5,7 @@
 BASH_BIN := $(shell command -v bash 2>/dev/null)
 SHELL := $(if $(BASH_BIN),$(BASH_BIN),/bin/bash)
 
-.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs lint-workflows install-git-hooks test test-bash32 docs-deps docs-serve docs-build docs-preview docs-check docs-clean
+.PHONY: help examples example_logging example_env example_json example_dialog_input example_download example_docker example_package_publish lint-docs lint-shell lint-workflows install-git-hooks test test-bash32 docs-deps docs-serve docs-build docs-preview docs-check docs-clean
 
 help:
 	@echo "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  make examples RUN_NETWORK=1   # Include download example (network)"
 	@echo "  make examples RUN_INTERACTIVE=1  # Include interactive dialog example"
 	@echo "  make lint-docs                # Verify docs cover modules and functions"
+	@echo "  make lint-shell               # ShellCheck every tracked shell file; fails on a finding (SHELLCHECK_SEVERITY, default warning)"
 	@echo "  make lint-workflows           # Refuse disallowed actions, persisted checkout tokens, secrets: inherit"
 	@echo "  make test                     # Run tests under tests/"
 	@echo "  make test-bash32              # Run tests under bash 3.2 (macOS's shell)"
@@ -104,6 +105,9 @@ lint-docs:
 	@# a commit list. Off a release branch this is a no-op.
 	@bash scripts/check_changelog_section.sh
 
+lint-shell:
+	@bash scripts/lint_shell.sh
+
 lint-workflows:
 	@bash scripts/check_workflow_actions.sh
 
@@ -118,13 +122,23 @@ test-bash32:
 # the hook, and the push was refused.
 # What is unset: the names `git rev-parse --local-env-vars` prints, plus the
 # six a hook always gets, written out in case git is missing.
+# Every test file runs, even after one fails; the failed ones are listed at
+# the end and the target exits 1. Stopping at the first failure hid every
+# file sorted after it.
 test:
 	@unset $$(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_OBJECT_DIRECTORY; \
+	ran=0; nfail=0; failed=""; \
 	for f in tests/*_test.sh; do \
 	  [[ -f "$$f" ]] || continue; \
+	  ran=$$((ran + 1)); \
 	  printf '\n--- Running: %s ---\n' "$$f"; \
-	  bash "$$f" || exit 1; \
-	done
+	  bash "$$f" || { nfail=$$((nfail + 1)); failed="$${failed}  $$f"$$'\n'; }; \
+	done; \
+	if [[ "$$nfail" -gt 0 ]]; then \
+	  printf '\nFAILED: %s of %s test file(s):\n%s' "$$nfail" "$$ran" "$$failed"; \
+	  exit 1; \
+	fi; \
+	printf '\nAll %s test file(s) passed.\n' "$$ran"
 
 install-git-hooks:
 	@mkdir -p .git/hooks

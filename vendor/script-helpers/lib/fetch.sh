@@ -16,13 +16,20 @@
 # mode, so for an https URL fetch_wget_follow follows the redirects itself.
 #
 # Expected imports by caller: none. log_error is used when logging is loaded,
-# plain stderr otherwise.
+# plain stderr otherwise. trap_stack.sh beside this file is loaded here.
 #
 # Return codes: 0 downloaded; 1 the download failed; 2 bad arguments; 3 no curl
 # or wget.
 #
 # fetch_verified_gpg_key is the one copy of the signing-key rule: a downloaded
 # repository key is used only when it is exactly the pinned one.
+
+# The partial file and the key's temp directory are removed on EXIT, HUP, INT
+# and TERM too; see trap_stack.sh.
+if ! declare -F trap_stack_push >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  source "$(dirname "${BASH_SOURCE[0]}")/trap_stack.sh"
+fi
 
 # Usage: fetch_curl_retry_args
 # fetch_curl_retry_args; the retry options this machine's curl accepts, one per
@@ -252,7 +259,7 @@ fetch_to_file() {
     _fetch_err "$label: download failed: curl or wget is needed to download $(fetch_url_display "$url")"
     return 3
   fi
-  _fetch_trap_set "$out"
+  trap_stack_push "$out"
   # stderr is kept, not passed through: with retries curl prints one line per
   # attempt, and the line can quote the URL.
   if [[ "$tool" == curl ]]; then
@@ -265,7 +272,8 @@ fetch_to_file() {
       err="$(${tmo[@]+"${tmo[@]}"} wget -q -T 60 --tries=3 --waitretry=2 ${args[@]+"${args[@]}"} -O "$out" -- "$url" 2>&1 >/dev/null)" || rc=$?
     fi
   fi
-  _fetch_trap_restore
+  # Off the stack, file kept: it is the download, or deleted just below.
+  trap_stack_pop --keep
   if [[ "$rc" -ne 0 ]]; then
     rm -f -- "$out"
     host="$(fetch_url_host "$url")"
@@ -305,11 +313,12 @@ fetch_verified_gpg_key() {
     return 1
   fi
   dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-gpg-key.XXXXXX")" || return 1
-  chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
-  mkdir -m 700 "$dir/gnupg" || { rm -rf -- "$dir"; return 1; }
+  trap_stack_push "$dir"
+  chmod 700 "$dir" || { trap_stack_pop; return 1; }
+  mkdir -m 700 "$dir/gnupg" || { trap_stack_pop; return 1; }
   if ! fetch_to_file "$label" "$url" "$dir/key" || [[ ! -s "$dir/key" ]]; then
     _fetch_err "$label: could not download the signing key from $(fetch_url_display "$url")."
-    rm -rf -- "$dir"
+    trap_stack_pop
     return 1
   fi
   fprs="$(gpg --homedir "$dir/gnupg" --batch --quiet --import "$dir/key" >/dev/null 2>&1 \
@@ -318,47 +327,16 @@ fetch_verified_gpg_key() {
   count="$(printf '%s\n' "$fprs" | grep -c '^[0-9A-F]\{40\}$' || true)"
   if [[ "$count" -ne 1 || "$fprs" != "$want" ]]; then
     _fetch_err "$label: signing key from $(fetch_url_display "$url") failed verification: expected one primary key $want, got ${count} ($(printf '%s' "$fprs" | tr '\n' ' '))."
-    rm -rf -- "$dir"
+    trap_stack_pop
     return 1
   fi
   if ! gpg --homedir "$dir/gnupg" --batch --armor --export "$want" >"$dir/key.asc" 2>/dev/null \
      || [[ ! -s "$dir/key.asc" ]] || ! cp -- "$dir/key.asc" "$out"; then
     _fetch_err "$label: could not export the verified signing key."
-    rm -rf -- "$dir"
+    trap_stack_pop
     return 1
   fi
-  rm -rf -- "$dir"
-  return 0
-}
-
-# _fetch_trap_set <file>: on INT or TERM, delete <file>, then run the caller's
-# trap for that signal, or exit 130 / 143 when there is none. An ignored
-# signal stays ignored. The caller's traps are saved for _fetch_trap_restore.
-_fetch_trap_set() {
-  local sig code prev
-  _FETCH_PARTIAL="$1"
-  _FETCH_SAVED_TRAPS="$(trap -p INT TERM)"
-  for sig in INT TERM; do
-    [[ "$sig" == INT ]] && code=130 || code=143
-    prev="$(trap -p "$sig")"
-    if [[ -z "$prev" ]]; then
-      trap 'rm -f -- "$_FETCH_PARTIAL"; exit '"$code" "$sig"
-    else
-      prev="$(eval "_fetch_trap_action ${prev}")"
-      # '' means the caller ignores the signal: keep it ignored.
-      [[ -n "$prev" ]] && trap 'rm -f -- "$_FETCH_PARTIAL"; '"$prev" "$sig"
-    fi
-  done
-}
-
-# _fetch_trap_action: prints the action from a "trap -- <action> <sig>" line.
-_fetch_trap_action() { printf '%s' "$3"; }
-
-# _fetch_trap_restore: puts back the caller's INT and TERM traps.
-_fetch_trap_restore() {
-  trap - INT TERM
-  [[ -n "${_FETCH_SAVED_TRAPS:-}" ]] && eval "$_FETCH_SAVED_TRAPS"
-  _FETCH_SAVED_TRAPS=""; _FETCH_PARTIAL=""
+  trap_stack_pop
   return 0
 }
 

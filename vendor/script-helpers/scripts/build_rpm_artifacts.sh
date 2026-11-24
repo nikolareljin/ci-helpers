@@ -104,6 +104,9 @@ else
     excludes+=(--exclude="./${artifact_abs#"$repo_abs"/}")
   fi
   tmp_tar="$(mktemp "${TMPDIR:-/tmp}/rpm-source.XXXXXX")"
+  # Removed on any exit, an interrupt included; gone already once it is moved.
+  # Guarded: a subshell inherits this trap. ${BASHPID-$$}: bash 3.2 has no BASHPID.
+  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then rm -f -- "$tmp_tar"; fi' EXIT
   if ! tar -C "$repo_dir" -czf "$tmp_tar" \
     "${excludes[@]}" \
     --transform "s,^,${APP_NAME:-app}-${APP_VERSION}/," \

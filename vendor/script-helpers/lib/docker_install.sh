@@ -100,8 +100,37 @@ SHLIB_DOCKER_APT_FPR="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 SHLIB_DOCKER_RPM_FPR="060A61C51B558A7F742B77AAC52FEB6B621E9F35"
 
 # Set by _shlib_docker_fetch_key: the temp dir holding the verified key at
-# "$_shlib_docker_key_dir/key.asc". The caller removes the dir.
+# "$_shlib_docker_key_dir/key.asc". The dir stays on the trap stack: the
+# caller removes it with trap_stack_pop.
 _shlib_docker_key_dir=""
+
+# Usage: _shlib_docker_unmount <mount-dir>
+# The trap stack's cleanup for a dmg mount point: hdiutil detach (quiet, then
+# -force), then rmdir the directory. A directory still mounted after both
+# is never removed: rm -rf there would delete files on the image.
+# Returns: 0 removed; 1 still mounted, left in place.
+_shlib_docker_unmount() {
+  local mnt="$1"
+  [[ -d "$mnt" ]] || return 0
+  if ! hdiutil detach "$mnt" -quiet >/dev/null 2>&1 \
+    && ! hdiutil detach "$mnt" -force -quiet >/dev/null 2>&1 \
+    && _shlib_docker_is_mounted "$mnt"; then
+    echo "[WARN] docker_install: $mnt is still mounted; not removed." >&2
+    return 1
+  fi
+  # rmdir, not rm -rf: an empty mount point is all that should be left.
+  rmdir -- "$mnt"
+}
+
+# Usage: _shlib_docker_is_mounted <dir>; 0 when <dir> is a mount point (it is
+# on another device than its parent). GNU stat first: BSD stat -f is a
+# different option on Linux.
+_shlib_docker_is_mounted() {
+  local a b
+  a="$(stat -c %d "$1" 2>/dev/null || stat -f %d "$1" 2>/dev/null)" || return 1
+  b="$(stat -c %d "$1/.." 2>/dev/null || stat -f %d "$1/.." 2>/dev/null)" || return 1
+  [[ -n "$a" && "$a" != "$b" ]]
+}
 
 _shlib_docker_run() {
   if [[ "$_shlib_docker_dry_run" == true ]]; then
@@ -127,10 +156,11 @@ _shlib_docker_fetch_key() {
     *) log_error "No Docker signing key for distribution '$1'."; return 1 ;;
   esac
   dir="$(mktemp -d "${TMPDIR:-/tmp}/shlib-docker-key.XXXXXX")" || return 1
-  chmod 700 "$dir" || { rm -rf -- "$dir"; return 1; }
+  trap_stack_push "$dir"
+  chmod 700 "$dir" || { trap_stack_pop; return 1; }
   if ! fetch_verified_gpg_key docker_install "$url" "$want" "$dir/key.asc"; then
     log_error "Refusing to install. Nothing was written."
-    rm -rf -- "$dir"
+    trap_stack_pop
     return 1
   fi
   _shlib_docker_key_dir="$dir"
@@ -239,10 +269,10 @@ _shlib_docker_install_apt() {
            <"$_shlib_docker_key_dir/key.asc" \
        || ! _shlib_docker_sudo chmod a+r /etc/apt/keyrings/docker.gpg; then
       _shlib_docker_sudo rm -f -- /etc/apt/keyrings/docker.gpg
-      rm -rf -- "$_shlib_docker_key_dir"
+      trap_stack_pop
       return 1
     fi
-    rm -rf -- "$_shlib_docker_key_dir"
+    trap_stack_pop
   fi
 
   arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
@@ -288,10 +318,10 @@ _shlib_docker_install_dnf() {
        || ! _shlib_docker_sudo install -m 0644 "$_shlib_docker_key_dir/key.asc" "$keyfile" \
        || ! _shlib_docker_sudo rpm --import "$keyfile"; then
       _shlib_docker_sudo rm -f -- "$keyfile"
-      rm -rf -- "$_shlib_docker_key_dir"
+      trap_stack_pop
       return 1
     fi
-    rm -rf -- "$_shlib_docker_key_dir"
+    trap_stack_pop
   fi
 
   _shlib_docker_sudo "$mgr" -y install dnf-plugins-core 2>/dev/null \
@@ -437,24 +467,24 @@ _shlib_docker_install_mac() {
     url="https://desktop.docker.com/mac/main/${dmg_arch}/Docker.dmg"
     # The image (about 600 MB) is deleted on every path out.
     dir="$(mktemp -d)" || return 1
+    trap_stack_push "$dir"
     dmg="$dir/Docker.dmg"
-    FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$dmg" || { rm -rf -- "$dir"; return 1; }
+    FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$dmg" || { trap_stack_pop; return 1; }
     if [[ "$_shlib_docker_dry_run" == true ]]; then
       echo "  [dry-run] hdiutil attach / Docker.app install / detach" >&2
     else
-      mnt="$(mktemp -d)" || { rm -rf -- "$dir"; return 1; }
-      # rmdir, not rm -rf, for the mount point: it may still be mounted.
-      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || { rmdir -- "$mnt" 2>/dev/null; rm -rf -- "$dir"; return 1; }
+      mnt="$(mktemp -d)" || { trap_stack_pop; return 1; }
+      # Detached, then removed, on every path out, also on an interrupt.
+      trap_stack_push --run _shlib_docker_unmount "$mnt"
+      hdiutil attach "$dmg" -mountpoint "$mnt" -nobrowse -quiet || { trap_stack_pop; trap_stack_pop; return 1; }
       # Docker's own installer sets up the app bundle and privileged helper.
       _shlib_docker_sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license || {
-        hdiutil detach "$mnt" -quiet || true
-        rmdir -- "$mnt" 2>/dev/null; rm -rf -- "$dir"
+        trap_stack_pop; trap_stack_pop
         return 1
       }
-      hdiutil detach "$mnt" -quiet || true
-      rmdir -- "$mnt" 2>/dev/null
+      trap_stack_pop
     fi
-    rm -rf -- "$dir"
+    trap_stack_pop
   fi
 
   if [[ "$_shlib_docker_do_start" == true ]]; then
@@ -480,19 +510,21 @@ _shlib_docker_install_windows_fallback() {
   log_info "Downloading the official Docker Desktop installer."
   url="https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe"
   dir="$(mktemp -d)" || return 1
+  trap_stack_push "$dir"
   exe="$dir/DockerDesktopInstaller.exe"
   FETCH_MAX_TIME=3600 _shlib_docker_run fetch_to_file docker_install "$url" "$exe" || {
-    rm -rf -- "$dir"
+    trap_stack_pop
     log_error "Download failed. Install manually: https://docs.docker.com/desktop/install/windows-install/"
     return 1
   }
   log_info "Running the installer silently (several minutes)."
   # Kept on failure, so it can be run by hand.
   _shlib_docker_run "$exe" install --quiet --accept-license || {
+    trap_stack_pop --keep
     log_error "Installer failed. Run it interactively: $exe"
     return 1
   }
-  rm -rf -- "$dir"
+  trap_stack_pop
 }
 
 _shlib_docker_install_windows() {
