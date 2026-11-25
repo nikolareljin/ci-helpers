@@ -202,7 +202,9 @@ run_in_plugin_src_dir() {
 }
 
 cleanup_stack() {
+  # $1: the status the EXIT trap saw; its [[ ]] guard has reset $? by now.
   local exit_status=$?
+  [[ $# -eq 0 ]] || exit_status=$1
 
   if [[ "$cleanup" == "true" ]]; then
     set +e
@@ -217,7 +219,8 @@ cleanup_stack() {
 # than $BASHPID alone: bash 3.2, which macOS ships, does not define BASHPID,
 # and $$ is the top-level shell's pid in every subshell, so the comparison
 # degrades to always-true there rather than to always-false.
-trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup_stack; fi' EXIT
+# shellcheck disable=SC2154  # _cleanup_rc is assigned inside the trap string
+trap '_cleanup_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then cleanup_stack "$_cleanup_rc"; fi' EXIT
 
 if [[ -n "$php_lint_command" || -n "$phpcs_warning_command" || -n "$phpunit_command" ]]; then
   if [[ -n "$php_lint_command" ]]; then

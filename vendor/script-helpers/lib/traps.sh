@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Cleanup and signal traps
 
-# Usage: cleanup; logs non-zero exit status on script exit.
-# Meant as the EXIT trap; reads $? on entry.
+# Usage: cleanup [exit_code]; logs a non-zero exit status on script exit.
+# Pass the status the trap saw as $1: a test run before this call resets $?.
+# Without $1 it reads $? on entry.
 # Returns: 0.
-# Output: stderr "Script failed with exit code N" when $? was non-zero.
+# Output: stderr "Script failed with exit code N" when the status is non-zero.
 cleanup() {
   local exit_code=$?
+  [[ $# -eq 0 ]] || exit_code=$1
   if [[ $exit_code -ne 0 ]]; then
     log_error "Script failed with exit code $exit_code"
   fi
@@ -18,7 +20,10 @@ cleanup() {
 setup_traps() {
   # Guarded here too, though this cleanup only logs: from a signalled subshell it
   # would print "Script failed with exit code N" for a failure the script never had.
-  trap 'if [[ ${BASHPID-$$} == "$$" ]]; then cleanup; fi' EXIT
+  # $? is saved first: the guard's [[ ]] resets it to 0. The script still exits
+  # with its own status.
+  # shellcheck disable=SC2154  # _traps_exit_rc is assigned inside the trap string
+  trap '_traps_exit_rc=$?; if [[ ${BASHPID-$$} == "$$" ]]; then cleanup "$_traps_exit_rc"; fi' EXIT
   trap 'log_error "Script interrupted"; exit 130' INT
   trap 'log_error "Script terminated"; exit 143' TERM
 }

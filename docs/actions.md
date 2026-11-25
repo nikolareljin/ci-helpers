@@ -190,8 +190,8 @@ Inputs:
 - `severity` (default `medium`) - lowest severity that fails the scan: `low`, `medium`, `high` or `critical`
 - `config_path` (default `""`) - foxguard config file, relative to the scanned repository; read from the pull request's base commit
 - `fail_on_findings` (default `"true"`) - `false` is refused
-- `foxguard_version` (default `v0.14.1`)
-- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.1`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest, a different one is refused
+- `foxguard_version` (default `v0.14.2`)
+- `foxguard_sha256` (default `""`) - sha256 of the release binary for the runner; required with any version other than `v0.14.2`, whose five binary digests (linux and macos on x86_64 and aarch64, windows on x86_64) are pinned in `scanner-pins.env`; with `v0.14.2` it may only repeat the pinned digest, a different one is refused
 
 Requires `actions/checkout` with `fetch-depth: 0` on pull requests: the action reads the config from the base commit and refuses the scan when that commit is missing.
 
@@ -297,8 +297,8 @@ Inputs:
 - `config_path` (default `""`) - foxguard config file, relative to the scanned repository, read from the base commit; `.foxguard.yml` at the base when present
 - `allow_unscanned` (default `""`) - changed files foxguard may skip without failing the step; see "Unscannable files" below
 - `fail_on_findings` (default `"true"`) - `false` is refused
-- `foxguard_version` (default `v0.14.1`)
-- `foxguard_sha256` (default `""`) - required with any version other than `v0.14.1`, whose digests are pinned in `scanner-pins.env`; with `v0.14.1` it may only repeat the pinned digest
+- `foxguard_version` (default `v0.14.2`)
+- `foxguard_sha256` (default `""`) - required with any version other than `v0.14.2`, whose digests are pinned in `scanner-pins.env`; with `v0.14.2` it may only repeat the pinned digest
 
 Requires `actions/checkout` with `fetch-depth: 0`: the merge base's tree is
 what the scan compares with.

@@ -86,7 +86,7 @@ rc=0; out="$(run_step v9.9.9 "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: an unpinned version ran without foxguard_sha256"; fail=1; fi
 grep -q "No pinned sha256 for v9.9.9 foxguard-linux-x86_64" <<<"$out" || { echo "FAIL: missing digest not named: $out"; fail=1; }
 
-# The pin is keyed on tag and asset together: the 0.14.1 digest must not
+# The pin is keyed on tag and asset together: the pinned digest must not
 # verify a 0.15.0 download of the same asset name.
 rc=0; out="$(run_step v0.15.0 "")" || rc=$?
 if (( rc == 0 )); then echo "FAIL: another version ran against the pinned digest"; fail=1; fi

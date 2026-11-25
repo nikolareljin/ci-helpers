@@ -50,14 +50,14 @@ on:
         default: ""
       foxguard_version:
         description: >
-          Foxguard release tag to download (e.g. "v0.14.1"). Pin this explicitly
+          Foxguard release tag to download (e.g. "v0.14.2"). Pin this explicitly
           for reproducible scans and supply-chain safety.
         type: string
-        default: "v0.14.1"
+        default: "v0.14.2"
       foxguard_sha256:
         description: >
           sha256 of the release binary for the runner, required with a
-          foxguard_version other than v0.14.1, whose digests are pinned; a different
+          foxguard_version other than v0.14.2, whose digests are pinned; a different
           digest for that version is refused.
         type: string
         default: ""

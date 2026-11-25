@@ -3,6 +3,7 @@
 ### Changed
 
 - **`actions/setup-java` v6.2.0 -> v6.3.0 and `actions/setup-go` v7.0.0 -> v7.1.0** in 10 workflows, SHA and pin comment together. setup-java 6.3.0 makes its javac problem matcher opt-in; the Setup Java steps of `ci.yml` and `pr-gate.yml` set `problem-matcher: true` so compiler errors still annotate pull request diffs. Release, deploy and scan jobs leave it off. `tests/setup_java_problem_matcher_test.sh` checks both.
+- **script-helpers 0.67.3 -> 0.67.4** (`b502a7e`): `vendor/script-helpers` and the 16 workflow `ref:` pins. ci-helpers' own foxguard pin moves 0.14.1 -> 0.14.2 in `scanner-pins.env` (five sha256 values, matching `lib/ci_defaults.sh` and the release `checksums.txt`), the `foxguard_version` defaults of the foxguard actions and workflows, their docs, and the self-test version check.
 
 ## 2026-11-24 — v1.0.8
 
