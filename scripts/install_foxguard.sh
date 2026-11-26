@@ -7,7 +7,7 @@
 #              release would bring its own.
 #              Shared by the foxguard-scan and foxguard-diff actions, so the
 #              pin table lives in one place.
-# USAGE: FOXGUARD_VERSION=v0.14.1 [FOXGUARD_SHA256=<hex>] bash scripts/install_foxguard.sh
+# USAGE: FOXGUARD_VERSION=v0.14.2 [FOXGUARD_SHA256=<hex>] bash scripts/install_foxguard.sh
 # PARAMETERS:
 #   FOXGUARD_VERSION  Release tag, with or without the leading "v".
 #   FOXGUARD_SHA256   Digest of the binary for this runner. Required for a
@@ -26,8 +26,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 pins="$script_dir/../scanner-pins.env"
 pin() { awk -F= -v k="$1" '$1 == k { print $2; exit }' "$pins"; }
 
-# Normalize: strip any leading "v" then re-add it so both "v0.14.1"
-# and "0.14.1" produce the correct release URL.
+# Normalize: strip any leading "v" then re-add it so both "v0.14.2"
+# and "0.14.2" produce the correct release URL.
 ver="${FOXGUARD_VERSION#v}"
 tag="v${ver}"
 

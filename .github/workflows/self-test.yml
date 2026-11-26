@@ -1380,8 +1380,8 @@ jobs:
         run: |
           set -euo pipefail
           got="$("$FG_BIN" --version)"
-          if [[ "$got" != *0.14.1* ]]; then
-            echo "::error::expected foxguard 0.14.1, got '$got'"
+          if [[ "$got" != *0.14.2* ]]; then
+            echo "::error::expected foxguard 0.14.2, got '$got'"
             exit 1
           fi
           echo "foxguard $got on $RUNNER_OS/$RUNNER_ARCH"

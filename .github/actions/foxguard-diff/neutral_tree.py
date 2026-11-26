@@ -86,7 +86,7 @@ def neutral_names(index, path):
     languages by it: Dockerfile.dev, nginx.conf), leading dots dropped so the
     walk does not skip it, "_" before a name Windows reserves; g<i>/file.<ext> keeps only the extension, for names
     foxguard skips (a.min.js). Directories are dropped: no rule of foxguard
-    0.14.1 reads them, and its walk skips vendor/, build/ and hidden ones."""
+    0.14.1 or 0.14.2 reads them, and its walk skips vendor/, build/ and hidden ones."""
     name = path.rsplit(b"/", 1)[-1].lstrip(b".") or b"file"
     if name.split(b".", 1)[0].rstrip(b" ").upper() in RESERVED:
         name = b"_" + name
@@ -239,7 +239,7 @@ def neutral_config(text, folder, names):
     """The reviewed config with its scan.ignore_rules paths moved to the
     neutral names. secrets.exclude_paths and secrets.exclude_path_files would
     silence the copies by path, so they are dropped; secrets.ignore_rules is
-    dropped too (foxguard 0.14.1 reads it as strings and diff runs no secret
+    dropped too (foxguard 0.14.1 and 0.14.2 read it as strings and diff runs no secret
     rules)."""
     import yaml
     doc = yaml.safe_load(text)

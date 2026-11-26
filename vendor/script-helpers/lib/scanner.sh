@@ -25,7 +25,7 @@ _SCANNER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Usage: scanner_pin <tool>
 # scanner_pin <tool>; the pinned version of that scanner, as ci_defaults has it
-# (v8.30.1, 0.14.1).
+# (v8.30.1, 0.14.2).
 # Returns: 0 known tool; 2 another name.
 # Output: stdout the version.
 scanner_pin() {
