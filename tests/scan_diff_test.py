@@ -747,7 +747,7 @@ sys.exit(rc)
 
     def test_foxguard_neutral_config_drops_secret_exclusions(self):
         # secrets.exclude_paths and exclude_path_files would silence the copies
-        # by path or glob: dropped. foxguard 0.14.1 reads secrets.ignore_rules
+        # by path or glob: dropped. foxguard 0.14.1 and 0.14.2 read secrets.ignore_rules
         # as strings only and diff runs no secret rules: dropped too.
         git(self.fx.src, "checkout", "-q", "main")
         commit(self.fx.src, "reviewed config", **{"cfg/.foxguard.yml": (
