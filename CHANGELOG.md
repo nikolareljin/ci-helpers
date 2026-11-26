@@ -1,5 +1,7 @@
 ## Unreleased
 
+## 2026-11-25 — v1.0.9
+
 ### Changed
 
 - **`actions/setup-java` v6.2.0 -> v6.3.0 and `actions/setup-go` v7.0.0 -> v7.1.0** in 10 workflows, SHA and pin comment together. setup-java 6.3.0 makes its javac problem matcher opt-in; the Setup Java steps of `ci.yml` and `pr-gate.yml` set `problem-matcher: true` so compiler errors still annotate pull request diffs. Release, deploy and scan jobs leave it off. `tests/setup_java_problem_matcher_test.sh` checks both.
